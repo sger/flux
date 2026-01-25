@@ -1,6 +1,7 @@
 use std::fmt;
 
-use super::{Position, TokenType};
+use super::position::Position;
+use super::token_type::TokenType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
@@ -34,38 +35,55 @@ impl fmt::Display for Token {
     }
 }
 
-pub fn lookup_ident(ident: &str) -> TokenType {
-    match ident {
-        "fun" => TokenType::Fun,
-        "let" => TokenType::Let,
-        "if" => TokenType::If,
-        "else" => TokenType::Else,
-        "return" => TokenType::Return,
-        "true" => TokenType::True,
-        "false" => TokenType::False,
-        _ => TokenType::Ident,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_lookup_keywords() {
-        assert_eq!(lookup_ident("fun"), TokenType::Fun);
-        assert_eq!(lookup_ident("let"), TokenType::Let);
-        assert_eq!(lookup_ident("if"), TokenType::If);
-        assert_eq!(lookup_ident("else"), TokenType::Else);
-        assert_eq!(lookup_ident("return"), TokenType::Return);
-        assert_eq!(lookup_ident("true"), TokenType::True);
-        assert_eq!(lookup_ident("false"), TokenType::False);
+    trait TokenTestExt {
+        fn is_keyword(&self) -> bool;
+    }
+
+    impl TokenTestExt for Token {
+        fn is_keyword(&self) -> bool {
+            matches!(
+                self.token_type,
+                TokenType::Let
+                    | TokenType::Fun
+                    | TokenType::If
+                    | TokenType::Else
+                    | TokenType::Return
+                    | TokenType::True
+                    | TokenType::False
+            )
+        }
     }
 
     #[test]
-    fn test_lookup_ident() {
-        assert_eq!(lookup_ident("foo"), TokenType::Ident);
-        assert_eq!(lookup_ident("test"), TokenType::Ident);
-        assert_eq!(lookup_ident("test_func"), TokenType::Ident);
+    fn test_token_new() {
+        let tok = Token::new(TokenType::Let, "let", 1, 5);
+        assert_eq!(tok.token_type, TokenType::Let);
+        assert_eq!(tok.literal, "let");
+        assert_eq!(tok.position.line, 1);
+        assert_eq!(tok.position.column, 5);
+    }
+
+    #[test]
+    fn test_token_is_keyword() {
+        let let_token = Token::new(TokenType::Let, "let", 1, 1);
+        assert!(let_token.is_keyword());
+
+        let ident_token = Token::new(TokenType::Ident, "foo", 1, 1);
+        assert!(!ident_token.is_keyword());
+
+        let plus_token = Token::new(TokenType::Plus, "+", 1, 1);
+        assert!(!plus_token.is_keyword());
+    }
+
+    #[test]
+    fn test_token_display() {
+        let tok = Token::new(TokenType::Let, "let", 1, 5);
+        let s = format!("{}", tok);
+        assert!(s.contains("let"));
+        assert!(s.contains("1:5"));
     }
 }
