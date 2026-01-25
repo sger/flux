@@ -1,13 +1,13 @@
-use crate::frontend::Token;
-use crate::frontend::token::lookup_ident;
-use crate::frontend::token_type::TokenType;
+use crate::frontend::token::Token;
+use crate::frontend::token_type::{TokenType, lookup_ident};
 
+/// The Flux lexer
 #[derive(Debug, Clone)]
 pub struct Lexer {
     input: Vec<char>,
     position: usize,
     read_position: usize,
-    ch: Option<char>,
+    current_char: Option<char>,
     line: usize,
     column: usize,
 }
@@ -18,7 +18,7 @@ impl Lexer {
             input: input.into().chars().collect(),
             position: 0,
             read_position: 0,
-            ch: None,
+            current_char: None,
             line: 1,
             column: 0,
         };
@@ -26,136 +26,76 @@ impl Lexer {
         lexer
     }
 
+    /// Get the next token from the input
     pub fn next_token(&mut self) -> Token {
-        self.skip_whitespace();
+        self.skip_ignorable();
 
-        let (token_type, literal, token_line, token_column) = match self.ch {
-            Some('=') => {
-                let (line, column) = (self.line, self.column);
+        let line = self.line;
+        let col = self.column;
 
-                if self.consume_if_next('=') {
-                    (TokenType::Eq, "==".to_string(), line, column)
-                } else {
-                    (TokenType::Assign, "=".to_string(), line, column)
-                }
+        let token = match self.current_char {
+            // Two-character operators
+            Some('=') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::Eq, "==", line, col)
+            }
+            Some('!') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::NotEq, "!=", line, col)
             }
 
-            Some('!') => {
-                let (line, column) = (self.line, self.column);
+            // Single-character operators and delimiters
+            Some('=') => Token::new(TokenType::Assign, "=", line, col),
+            Some('!') => Token::new(TokenType::Bang, "!", line, col),
+            Some('+') => Token::new(TokenType::Plus, "+", line, col),
+            Some('-') => Token::new(TokenType::Minus, "-", line, col),
+            Some('*') => Token::new(TokenType::Asterisk, "*", line, col),
+            Some('/') => Token::new(TokenType::Slash, "/", line, col),
+            Some('<') => Token::new(TokenType::Lt, "<", line, col),
+            Some('>') => Token::new(TokenType::Gt, ">", line, col),
+            Some('(') => Token::new(TokenType::LParen, "(", line, col),
+            Some(')') => Token::new(TokenType::RParen, ")", line, col),
+            Some('{') => Token::new(TokenType::LBrace, "{", line, col),
+            Some('}') => Token::new(TokenType::RBrace, "}", line, col),
+            Some(',') => Token::new(TokenType::Comma, ",", line, col),
+            Some(';') => Token::new(TokenType::Semicolon, ";", line, col),
 
-                if self.consume_if_next('=') {
-                    (TokenType::NotEq, "!=".to_string(), line, column)
-                } else {
-                    (TokenType::Bang, "!".to_string(), line, column)
-                }
-            }
-
-            Some('+') => self.simple(TokenType::Plus, "+"),
-            Some('-') => self.simple(TokenType::Minus, "-"),
-            Some('*') => self.simple(TokenType::Asterisk, "*"),
-            Some('/') => self.simple(TokenType::Slash, "/"),
-
-            Some('<') => self.simple(TokenType::Lt, "<"),
-            Some('>') => self.simple(TokenType::Gt, ">"),
-
-            Some('(') => self.simple(TokenType::LParen, "("),
-            Some(')') => self.simple(TokenType::RParen, ")"),
-            Some('{') => self.simple(TokenType::LBrace, "{"),
-            Some('}') => self.simple(TokenType::RBrace, "}"),
-            Some(',') => self.simple(TokenType::Comma, ","),
-            Some(';') => self.simple(TokenType::Semicolon, ";"),
-
+            // String literals
             Some('"') => {
-                let (line, column) = (self.line, self.column);
-
                 let string = self.read_string();
-                (TokenType::String, string, line, column)
+                return Token::new(TokenType::String, string, line, col);
             }
 
-            None => (TokenType::Eof, "".to_string(), self.line, self.column),
+            // End of file
+            None => Token::new(TokenType::Eof, "", line, col),
 
+            // Identifiers and keywords
             Some(ch) if is_letter(ch) => {
-                let (line, column) = (self.line, self.column);
                 let ident = self.read_identifier();
                 let token_type = lookup_ident(&ident);
-
-                return Token::new(token_type, ident, line, column);
+                return Token::new(token_type, ident, line, col);
             }
 
+            // Numbers
             Some(ch) if ch.is_ascii_digit() => {
-                let (line, column) = (self.line, self.column);
                 let num = self.read_number();
-                return Token::new(TokenType::Int, num, line, column);
+                return Token::new(TokenType::Int, num, line, col);
             }
 
-            Some(ch) => {
-                let (line, column) = (self.line, self.column);
-                (TokenType::Illegal, ch.to_string(), line, column)
-            }
+            // Illegal character
+            Some(ch) => Token::new(TokenType::Illegal, ch.to_string(), line, col),
         };
 
         self.read_char();
-        Token::new(token_type, literal, token_line, token_column)
+        token
     }
 
-    fn consume_if_next(&mut self, expected: char) -> bool {
-        if self.peek_char() == Some(expected) {
-            self.read_char(); // consume expected char
-            true
-        } else {
-            false
-        }
-    }
-
-    fn read_number(&mut self) -> String {
-        let start = self.position;
-        while self.ch.is_some_and(|c| c.is_ascii_digit()) {
-            self.read_char();
-        }
-        self.input[start..self.position].iter().collect()
-    }
-
-    fn read_string(&mut self) -> String {
-        self.read_char();
-        let start = self.position;
-
-        while let Some(c) = self.ch {
-            if c == '"' {
-                break;
-            }
-            if c == '\0' {
-                break;
-            }
-            self.read_char();
-        }
-
-        let out: String = self.input[start..self.position].iter().collect();
-        out
-    }
-
-    fn simple(&self, token_type: TokenType, literal: &str) -> (TokenType, String, usize, usize) {
-        (token_type, literal.to_string(), self.line, self.column)
-    }
-
-    fn peek_char(&self) -> Option<char> {
-        if self.read_position >= self.input.len() {
-            None
-        } else {
-            Some(self.input[self.read_position])
-        }
-    }
-
-    fn read_identifier(&mut self) -> String {
-        let start = self.position;
-
-        while self.ch.is_some_and(|c| is_letter(c) || c.is_ascii_digit()) {
-            self.read_char();
-        }
-        self.input[start..self.position].iter().collect()
-    }
+    // ========================================================================
+    // Private helpers
+    // ========================================================================
 
     fn read_char(&mut self) {
-        self.ch = if self.read_position >= self.input.len() {
+        self.current_char = if self.read_position >= self.input.len() {
             None
         } else {
             Some(self.input[self.read_position])
@@ -164,7 +104,7 @@ impl Lexer {
         self.position = self.read_position;
         self.read_position += 1;
 
-        match self.ch {
+        match self.current_char {
             Some('\n') => {
                 self.line += 1;
                 self.column = 0;
@@ -176,10 +116,67 @@ impl Lexer {
         }
     }
 
-    fn skip_whitespace(&mut self) {
-        while matches!(self.ch, Some(' ' | '\t' | '\r' | '\n')) {
+    fn peek_char(&self) -> Option<char> {
+        self.input.get(self.read_position).copied()
+    }
+
+    fn skip_ignorable(&mut self) {
+        loop {
+            // Whitespace
+            while matches!(self.current_char, Some(' ' | '\t' | '\r' | '\n')) {
+                self.read_char();
+            }
+
+            // Single-line comments: //
+            if self.current_char == Some('/') && self.peek_char() == Some('/') {
+                while self.current_char.is_some() && self.current_char != Some('\n') {
+                    self.read_char();
+                }
+                continue; // there may be whitespace/comments again
+            }
+
+            break;
+        }
+    }
+
+    fn read_identifier(&mut self) -> String {
+        let start = self.position;
+        while self
+            .current_char
+            .is_some_and(|c| is_letter(c) || c.is_ascii_digit())
+        {
             self.read_char();
         }
+        self.input[start..self.position].iter().collect()
+    }
+
+    fn read_number(&mut self) -> String {
+        let start = self.position;
+        while self.current_char.is_some_and(|c| c.is_ascii_digit()) {
+            self.read_char();
+        }
+        self.input[start..self.position].iter().collect()
+    }
+
+    fn read_string(&mut self) -> String {
+        self.read_char(); // skip opening quote
+        let start = self.position;
+
+        while let Some(c) = self.current_char {
+            if c == '"' {
+                break;
+            }
+            self.read_char();
+        }
+
+        let result: String = self.input[start..self.position].iter().collect();
+
+        // Consume the closing quote
+        if self.current_char == Some('"') {
+            self.read_char();
+        }
+
+        result
     }
 }
 
@@ -187,120 +184,164 @@ fn is_letter(ch: char) -> bool {
     ch.is_ascii_alphabetic() || ch == '_'
 }
 
+// ============================================================================
+// Tests
+// ============================================================================
+
 #[cfg(test)]
 mod tests {
-    use crate::frontend::token_type::TokenType;
-
     use super::*;
 
     #[test]
-    fn next_token() {
-        let input = r#"
-let five = 5;
-let ten = 10;
-
-fun add(x, y) {
-  x + y;
-}
-
-let result = add(five, ten);
-
-if (5 < 10) { return true; } else { return false; }
-
-10 == 10;
-10 != 9;
-
-"hello";
-"#;
+    fn test_single_char_tokens() {
+        let input = "=+-!*/<>,;(){}";
         let mut lexer = Lexer::new(input);
-        let next_token = lexer.next_token();
-        assert_eq!(next_token.token_type, TokenType::Let);
-        assert_eq!(next_token.literal, "let");
 
-        let next_token_identifier = lexer.next_token();
-        assert_eq!(next_token_identifier.token_type, TokenType::Ident);
-        assert_eq!(next_token_identifier.literal, "five");
+        let expected = vec![
+            TokenType::Assign,
+            TokenType::Plus,
+            TokenType::Minus,
+            TokenType::Bang,
+            TokenType::Asterisk,
+            TokenType::Slash,
+            TokenType::Lt,
+            TokenType::Gt,
+            TokenType::Comma,
+            TokenType::Semicolon,
+            TokenType::LParen,
+            TokenType::RParen,
+            TokenType::LBrace,
+            TokenType::RBrace,
+            TokenType::Eof,
+        ];
 
-        loop {
-            let token = lexer.next_token();
-
-            if token.token_type == TokenType::String {
-                assert_eq!(token.literal, "hello");
-                break;
-            }
-
-            if token.token_type == TokenType::Eof {
-                panic!("expected string token before EOF");
-            }
+        for expected_type in expected {
+            let tok = lexer.next_token();
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Expected {:?}",
+                expected_type
+            );
         }
     }
 
     #[test]
-    fn test_token_positions_basic() {
-        let input = "let x = 5;\nreturn x;\n\"hi\";";
-        let mut l = Lexer::new(input);
+    fn test_two_char_tokens() {
+        let input = "== !=";
+        let mut lexer = Lexer::new(input);
 
-        let toks: Vec<Token> = (0..12).map(|_| l.next_token()).collect();
-
-        // toks[0] = let
-        assert_eq!(toks[0].token_type, TokenType::Let);
-        assert_eq!(toks[0].position.line, 1);
-        assert_eq!(toks[0].position.column, 1);
-
-        // toks[1] = x
-        assert_eq!(toks[1].token_type, TokenType::Ident);
-        assert_eq!(toks[1].literal, "x");
-        assert_eq!(toks[1].position.line, 1);
-        assert_eq!(toks[1].position.column, 5);
-
-        // return should be line 2 col 1
-        let return_tok = toks
-            .iter()
-            .find(|t| t.token_type == TokenType::Return)
-            .unwrap();
-        assert_eq!(return_tok.position.line, 2);
-        assert_eq!(return_tok.position.column, 1);
-
-        // string token should be line 3 col 1
-        let str_tok = toks
-            .iter()
-            .find(|t| t.token_type == TokenType::String)
-            .unwrap();
-        assert_eq!(str_tok.literal, "hi");
-        assert_eq!(str_tok.position.line, 3);
-        assert_eq!(str_tok.position.column, 1);
+        assert_eq!(lexer.next_token().token_type, TokenType::Eq);
+        assert_eq!(lexer.next_token().token_type, TokenType::NotEq);
     }
 
     #[test]
-    fn test_illegal_characters() {
-        let input = "@ let x = 1; #";
-        let mut l = Lexer::new(input);
+    fn test_keywords() {
+        let input = "let fun if else return true false";
+        let mut lexer = Lexer::new(input);
 
-        let t0 = l.next_token();
-        assert_eq!(t0.token_type, TokenType::Illegal);
-        assert_eq!(t0.literal, "@");
+        let expected = vec![
+            TokenType::Let,
+            TokenType::Fun,
+            TokenType::If,
+            TokenType::Else,
+            TokenType::Return,
+            TokenType::True,
+            TokenType::False,
+        ];
 
-        // then normal tokens continue
-        let t1 = l.next_token();
-        assert_eq!(t1.token_type, TokenType::Let);
+        for expected_type in expected {
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type);
+        }
+    }
 
-        // last '#'
-        while l.next_token().token_type != TokenType::Illegal {}
+    #[test]
+    fn test_identifiers() {
+        let input = "foo bar_baz _private camelCase foo123";
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec!["foo", "bar_baz", "_private", "camelCase", "foo123"];
+
+        for expected_literal in expected {
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, TokenType::Ident);
+            assert_eq!(tok.literal, expected_literal);
+        }
     }
 
     #[test]
     fn test_strings() {
-        let input = "\"\"; \"a b c\";";
-        let mut l = Lexer::new(input);
+        let input = r#""" "hello" "hello world""#;
+        let mut lexer = Lexer::new(input);
 
-        let t1 = l.next_token();
-        assert_eq!(t1.token_type, TokenType::String);
-        assert_eq!(t1.literal, "");
-        assert_eq!(l.next_token().token_type, TokenType::Semicolon);
+        let expected = vec!["", "hello", "hello world"];
 
-        let t2 = l.next_token();
-        assert_eq!(t2.token_type, TokenType::String);
-        assert_eq!(t2.literal, "a b c");
-        assert_eq!(l.next_token().token_type, TokenType::Semicolon);
+        for expected_literal in expected {
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, TokenType::String);
+            assert_eq!(tok.literal, expected_literal);
+        }
+    }
+
+    #[test]
+    fn test_comments() {
+        let input = r#"
+// This is a comment
+let x = 5; // inline comment
+"#;
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            TokenType::Let,
+            TokenType::Ident,
+            TokenType::Assign,
+            TokenType::Int,
+            TokenType::Semicolon,
+        ];
+
+        for expected_type in expected {
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type);
+        }
+    }
+
+    #[test]
+    fn test_position_tracking() {
+        let input = "let x = 5;\nreturn x;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token(); // let
+        assert_eq!(tok.position.line, 1);
+        assert_eq!(tok.position.column, 1);
+
+        // Skip to second line
+        lexer.next_token(); // x
+        lexer.next_token(); // =
+        lexer.next_token(); // 5
+        lexer.next_token(); // ;
+
+        let tok = lexer.next_token(); // return
+        assert_eq!(tok.position.line, 2);
+        assert_eq!(tok.position.column, 1);
+    }
+
+    #[test]
+    fn test_complete_program() {
+        let input = r#"
+fun fib(n) {
+    if n < 2 { return n; };
+    fib(n - 1) + fib(n - 2);
+}
+"#;
+        let mut lexer = Lexer::new(input);
+
+        loop {
+            let tok = lexer.next_token();
+            assert_ne!(tok.token_type, TokenType::Illegal, "Unexpected: {:?}", tok);
+
+            if tok.token_type == TokenType::Eof {
+                break;
+            }
+        }
     }
 }

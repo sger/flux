@@ -1,99 +1,150 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TokenType {
-    // Special
-    Illegal,
-    Eof,
+macro_rules! define_tokens {
+    (
+        symbols { $($sym_name:ident => $sym_str:literal),* $(,)? }
+        keywords { $($kw_name:ident => $kw_str:literal),* $(,)? }
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum TokenType {
+            // Special
+            Illegal,
+            Eof,
 
-    // Identifiers and literals
-    Ident,
-    Int,
-    String,
+            // Identifiers & Literals
+            Ident,
+            Int,
+            String,
 
-    // Arithmetic Operators
-    Plus,
-    Minus,
-    Asterisk,
-    Slash,
+            // Symbols (operators & delimiters)
+            $($sym_name,)*
 
-    // Comparison Operators
-    Lt,
-    Gt,
-    Eq,
-    NotEq,
+            // Keywords (auto-generated from macro)
+            $($kw_name,)*
+        }
 
-    // Logical operators
-    Bang,
+        impl fmt::Display for TokenType {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let s = match self {
+                    TokenType::Illegal => "ILLEGAL",
+                    TokenType::Eof => "EOF",
+                    TokenType::Ident => "IDENT",
+                    TokenType::Int => "INT",
+                    TokenType::String => "STRING",
+                    $(TokenType::$sym_name => $sym_str,)*
+                    $(TokenType::$kw_name => $kw_str,)*
+                };
+                write!(f, "{}", s)
+            }
+        }
 
-    // Assignment
-    Assign,
-
-    // Delimiters
-    LParen,
-    RParen,
-    LBrace,
-    RBrace,
-    Comma,
-    Semicolon,
-
-    // Keywords
-    Fun,
-    Let,
-    If,
-    Else,
-    Return,
-    True,
-    False,
+        /// Called by the lexer to check if an identifier is a keyword
+        pub fn lookup_ident(ident: &str) -> TokenType {
+            match ident {
+                $($kw_str => TokenType::$kw_name,)*
+                _ => TokenType::Ident,
+            }
+        }
+    };
 }
 
-impl fmt::Display for TokenType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            // Special
-            TokenType::Illegal => "ILLEGAL",
-            TokenType::Eof => "EOF",
+// ════════════════════════════════════════════════════════════════════════════
+//  TOKEN DEFINITIONS
+// ════════════════════════════════════════════════════════════════════════════
 
-            // Identifiers and literals
-            TokenType::Ident => "IDENT",
-            TokenType::Int => "INT",
-            TokenType::String => "STRING",
+define_tokens! {
+    symbols {
+        // Operators
+        Plus     => "+",
+        Minus    => "-",
+        Asterisk => "*",
+        Slash    => "/",
+        Bang     => "!",
+        Lt       => "<",
+        Gt       => ">",
+        Eq       => "==",
+        NotEq    => "!=",
+        Assign   => "=",
 
-            // Arithmetic Operators
-            TokenType::Plus => "+",
-            TokenType::Minus => "-",
-            TokenType::Asterisk => "*",
-            TokenType::Slash => "/",
+        // Delimiters
+        LParen    => "(",
+        RParen    => ")",
+        LBrace    => "{",
+        RBrace    => "}",
+        Comma     => ",",
+        Semicolon => ";",
+    }
 
-            // Comparison Operators
-            TokenType::Lt => "<",
-            TokenType::Gt => ">",
-            TokenType::Eq => "==",
-            TokenType::NotEq => "!=",
+    keywords {
+        Let    => "let",
+        Fun    => "fun",
+        If     => "if",
+        Else   => "else",
+        Return => "return",
+        True   => "true",
+        False  => "false",
 
-            // Logical operators
-            TokenType::Bang => "!",
+        // ↓ Add new keywords here ↓
+    }
+}
 
-            // Assignment
-            TokenType::Assign => "=",
+// ════════════════════════════════════════════════════════════════════════════
+//  TESTS
+// ════════════════════════════════════════════════════════════════════════════
 
-            // Delimiters
-            TokenType::LParen => "(",
-            TokenType::RParen => ")",
-            TokenType::LBrace => "{",
-            TokenType::RBrace => "}",
-            TokenType::Comma => ",",
-            TokenType::Semicolon => ";",
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            // Keywords
-            TokenType::Fun => "FUN",
-            TokenType::Let => "LET",
-            TokenType::If => "IF",
-            TokenType::Else => "ELSE",
-            TokenType::Return => "RETURN",
-            TokenType::True => "TRUE",
-            TokenType::False => "FALSE",
-        };
-        write!(f, "{}", s)
+    trait TokenTypeTestExt {
+        fn is_keyword(&self) -> bool;
+    }
+
+    impl TokenTypeTestExt for TokenType {
+        fn is_keyword(&self) -> bool {
+            matches!(
+                self,
+                TokenType::Let
+                    | TokenType::Fun
+                    | TokenType::If
+                    | TokenType::Else
+                    | TokenType::Return
+                    | TokenType::True
+                    | TokenType::False
+            )
+        }
+    }
+
+    #[test]
+    fn test_lookup_keywords() {
+        assert_eq!(lookup_ident("let"), TokenType::Let);
+        assert_eq!(lookup_ident("fun"), TokenType::Fun);
+        assert_eq!(lookup_ident("if"), TokenType::If);
+        assert_eq!(lookup_ident("else"), TokenType::Else);
+        assert_eq!(lookup_ident("return"), TokenType::Return);
+        assert_eq!(lookup_ident("true"), TokenType::True);
+        assert_eq!(lookup_ident("false"), TokenType::False);
+    }
+
+    #[test]
+    fn test_lookup_identifiers() {
+        assert_eq!(lookup_ident("foo"), TokenType::Ident);
+        assert_eq!(lookup_ident("letter"), TokenType::Ident);
+        assert_eq!(lookup_ident("funky"), TokenType::Ident);
+    }
+
+    #[test]
+    fn test_is_keyword() {
+        assert!(TokenType::Let.is_keyword());
+        assert!(TokenType::Fun.is_keyword());
+        assert!(!TokenType::Ident.is_keyword());
+        assert!(!TokenType::Plus.is_keyword());
+    }
+
+    #[test]
+    fn test_display() {
+        assert_eq!(format!("{}", TokenType::Plus), "+");
+        assert_eq!(format!("{}", TokenType::Let), "let");
+        assert_eq!(format!("{}", TokenType::Ident), "IDENT");
     }
 }
