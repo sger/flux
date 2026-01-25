@@ -1,0 +1,56 @@
+name: Release (linux)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Build + Upload (linux x86_64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build (release)
+        run: cargo build --release
+
+      # Adjust BINARY if your crate/bin name isn't "ember"
+      - name: Package artifact
+        run: |
+          set -euxo pipefail
+          BINARY="ember"
+          VERSION="${GITHUB_REF_NAME}"   # e.g. v1.2.3
+          OUTDIR="dist"
+          mkdir -p "${OUTDIR}"
+
+          # Ensure binary exists
+          test -f "target/release/${BINARY}"
+
+          # Package (tar.gz)
+          TAR="${OUTDIR}/${BINARY}-${VERSION}-linux-x86_64.tar.gz"
+          tar -C target/release -czf "${TAR}" "${BINARY}"
+
+          # Checksums
+          (cd "${OUTDIR}" && sha256sum "$(basename "${TAR}")" > "$(basename "${TAR}").sha256")
+
+          ls -la "${OUTDIR}"
+
+      - name: Create GitHub Release + Upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          generate_release_notes: true
