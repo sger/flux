@@ -149,22 +149,17 @@ impl fmt::Display for Token {
     }
 }
 
-const KEYWORDS: &[(&str, TokenType)] = &[
-    ("fun", TokenType::Fun),
-    ("let", TokenType::Let),
-    ("if", TokenType::If),
-    ("else", TokenType::Else),
-    ("return", TokenType::Return),
-    ("true", TokenType::True),
-    ("false", TokenType::False),
-];
-
 pub fn lookup_ident(ident: &str) -> TokenType {
-    KEYWORDS
-        .iter()
-        .find(|(kw, _)| *kw == ident)
-        .map(|(_, tt)| tt.clone())
-        .unwrap_or(TokenType::Ident)
+    match ident {
+        "fun" => TokenType::Fun,
+        "let" => TokenType::Let,
+        "if" => TokenType::If,
+        "else" => TokenType::Else,
+        "return" => TokenType::Return,
+        "true" => TokenType::True,
+        "false" => TokenType::False,
+        _ => TokenType::Ident,
+    }
 }
 
 #[cfg(test)]
