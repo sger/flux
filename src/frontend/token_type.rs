@@ -73,6 +73,10 @@ define_tokens! {
         RBrace    => "}",
         Comma     => ",",
         Semicolon => ";",
+        LBracket  => "[",
+        RBracket  => "]",
+        Colon     => ":",
+
     }
 
     keywords {
