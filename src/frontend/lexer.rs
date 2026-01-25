@@ -1,4 +1,6 @@
-use crate::frontend::token::{Token, TokenType, lookup_ident};
+use crate::frontend::Token;
+use crate::frontend::token::lookup_ident;
+use crate::frontend::token_type::TokenType;
 
 #[derive(Debug, Clone)]
 pub struct Lexer {
@@ -31,8 +33,7 @@ impl Lexer {
             Some('=') => {
                 let (line, column) = (self.line, self.column);
 
-                if self.peek_char() == Some('=') {
-                    self.read_char(); // consume second '='
+                if self.consume_if_next('=') {
                     (TokenType::Eq, "==".to_string(), line, column)
                 } else {
                     (TokenType::Assign, "=".to_string(), line, column)
@@ -42,8 +43,7 @@ impl Lexer {
             Some('!') => {
                 let (line, column) = (self.line, self.column);
 
-                if self.peek_char() == Some('=') {
-                    self.read_char(); // consume '='
+                if self.consume_if_next('=') {
                     (TokenType::NotEq, "!=".to_string(), line, column)
                 } else {
                     (TokenType::Bang, "!".to_string(), line, column)
@@ -96,6 +96,15 @@ impl Lexer {
 
         self.read_char();
         Token::new(token_type, literal, token_line, token_column)
+    }
+
+    fn consume_if_next(&mut self, expected: char) -> bool {
+        if self.peek_char() == Some(expected) {
+            self.read_char(); // consume expected char
+            true
+        } else {
+            false
+        }
     }
 
     fn read_number(&mut self) -> String {
@@ -180,7 +189,7 @@ fn is_letter(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::frontend::token::TokenType;
+    use crate::frontend::token_type::TokenType;
 
     use super::*;
 
