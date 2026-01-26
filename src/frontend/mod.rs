@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod block;
 pub mod expression;
 pub mod lexer;

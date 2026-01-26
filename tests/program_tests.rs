@@ -2,8 +2,6 @@
 mod tests {
     use flux::frontend::{expression::Expression, program::Program, statement::Statement};
 
-    use super::*;
-
     #[test]
     fn display_let() {
         let program = Program {
