@@ -2,8 +2,6 @@
 mod tests {
     use flux::frontend::{lexer::Lexer, parser::Parser, program::Program, statement::Statement};
 
-    use super::*;
-
     fn parse(input: &str) -> Program {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
