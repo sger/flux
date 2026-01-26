@@ -6,7 +6,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_single_char_tokens() {
+    fn single_char_tokens() {
         let input = "=+-!*/<>,;(){}";
         let mut lexer = Lexer::new(input);
 
@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn test_two_char_tokens() {
+    fn two_char_tokens() {
         let input = "== !=";
         let mut lexer = Lexer::new(input);
 
@@ -48,7 +48,7 @@ mod tests {
     }
 
     #[test]
-    fn test_keywords() {
+    fn keywords() {
         let input = "let fun if else return true false";
         let mut lexer = Lexer::new(input);
 
@@ -69,7 +69,7 @@ mod tests {
     }
 
     #[test]
-    fn test_identifiers() {
+    fn identifiers() {
         let input = "foo bar_baz _private camelCase foo123";
         let mut lexer = Lexer::new(input);
 
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn test_strings() {
+    fn strings() {
         let input = r#""" "hello" "hello world""#;
         let mut lexer = Lexer::new(input);
 
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn test_comments() {
+    fn comments() {
         let input = r#"
 // This is a comment
 let x = 5; // inline comment
@@ -119,7 +119,7 @@ let x = 5; // inline comment
     }
 
     #[test]
-    fn test_position_tracking() {
+    fn position_tracking() {
         let input = "let x = 5;\nreturn x;";
         let mut lexer = Lexer::new(input);
 
@@ -139,7 +139,7 @@ let x = 5; // inline comment
     }
 
     #[test]
-    fn test_complete_program() {
+    fn complete_program() {
         let input = r#"
 fun fib(n) {
     if n < 2 { return n; };
@@ -155,6 +155,30 @@ fun fib(n) {
             if tok.token_type == TokenType::Eof {
                 break;
             }
+        }
+    }
+
+    #[test]
+    fn array_and_hash_tokens() {
+        let input = "[1, 2]; {\"a\": 1}";
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            TokenType::LBracket,
+            TokenType::Int,
+            TokenType::Comma,
+            TokenType::Int,
+            TokenType::RBracket,
+            TokenType::Semicolon,
+            TokenType::LBrace,
+            TokenType::String,
+            TokenType::Colon,
+            TokenType::Int,
+            TokenType::RBrace,
+        ];
+
+        for expected_type in expected {
+            assert_eq!(lexer.next_token().token_type, expected_type);
         }
     }
 }

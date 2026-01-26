@@ -1,1 +1,30 @@
-/target
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Linux
+*.o
+*.so
+
+# Windows
+*.exe
+*.dll
+Thumbs.db
+
+# Editor backups
+*.bak
+*.orig
+
+# Test files
+/test_imports/
+*.tmp

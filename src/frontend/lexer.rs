@@ -93,6 +93,20 @@ impl Lexer {
         token
     }
 
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+
+        loop {
+            let token = self.next_token();
+            let is_eof = token.token_type == TokenType::Eof;
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+        tokens
+    }
+
     fn read_char(&mut self) {
         self.current_char = if self.read_position >= self.input.len() {
             None
