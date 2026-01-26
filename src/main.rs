@@ -2,6 +2,7 @@ use std::{env, fs};
 
 use flux::frontend::{lexer::Lexer, parser::Parser};
 
+mod bytecode;
 mod frontend;
 
 fn main() {
