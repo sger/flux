@@ -1,5 +1,6 @@
 #[allow(clippy::module_inception)]
 pub mod bytecode;
+pub mod bytecode_cache;
 pub mod compilation_scope;
 pub mod compiler;
 pub mod emitted_instruction;

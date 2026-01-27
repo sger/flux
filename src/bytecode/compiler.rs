@@ -765,6 +765,12 @@ impl Compiler {
         }
     }
 
+    pub fn imported_files(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.imported_files.iter().cloned().collect();
+        files.sort();
+        files
+    }
+
     fn is_last_instruction(&self, opcode: OpCode) -> bool {
         self.scopes[self.scope_index].last_instruction.opcode == Some(opcode)
     }
