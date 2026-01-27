@@ -11,12 +11,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        block::Block,
-        diagnostic::Diagnostic,
-        expression::Expression,
-        position::Position,
-        program::Program,
-        statement::Statement,
+        block::Block, diagnostic::Diagnostic, expression::Expression, position::Position,
+        program::Program, statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -203,13 +199,10 @@ impl Compiler {
                 self.emit(OpCode::OpNull, &[]);
             }
             Expression::Identifier(name) => {
-                let symbol = self
-                    .symbol_table
-                    .resolve(name)
-                    .ok_or_else(|| {
-                        Diagnostic::error(format!("undefined variable `{}`", name))
-                            .with_hint(format!("Define it first: let {} = ...;", name))
-                    })?;
+                let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
+                    Diagnostic::error(format!("undefined variable `{}`", name))
+                        .with_hint(format!("Define it first: let {} = ...;", name))
+                })?;
                 self.load_symbol(&symbol);
             }
             Expression::Prefix { operator, right } => {
@@ -221,7 +214,7 @@ impl Compiler {
                         return Err(Diagnostic::error(format!(
                             "unknown prefix operator `{}`",
                             operator
-                        )))
+                        )));
                     }
                 };
             }
@@ -249,13 +242,11 @@ impl Compiler {
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     _ => {
-                        return Err(
-                            Diagnostic::error(format!(
-                                "unknown infix operator `{}`",
-                                operator
-                            ))
-                            .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."),
-                        )
+                        return Err(Diagnostic::error(format!(
+                            "unknown infix operator `{}`",
+                            operator
+                        ))
+                        .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
                     }
                 };
             }

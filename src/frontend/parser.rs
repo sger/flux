@@ -546,9 +546,12 @@ impl Parser {
 
     fn peek_error(&mut self, expected: TokenType) {
         self.errors.push(
-            Diagnostic::error(format!("expected {}, got {}", expected, self.peek_token.token_type))
-                .with_position(self.peek_token.position)
-                .with_message("unexpected token"),
+            Diagnostic::error(format!(
+                "expected {}, got {}",
+                expected, self.peek_token.token_type
+            ))
+            .with_position(self.peek_token.position)
+            .with_message("unexpected token"),
         );
     }
 }
