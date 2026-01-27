@@ -36,3 +36,15 @@ fn warns_on_shadowed_name() {
     let output = lint("let x = 1; fun f() { let x = 2; x; }");
     assert!(output.contains("W004:SHADOWED NAME"));
 }
+
+#[test]
+fn warns_on_function_name_style() {
+    let output = lint("fun NotSnakeCase() { 1; }");
+    assert!(output.contains("W005:FUNCTION NAME STYLE"));
+}
+
+#[test]
+fn warns_on_import_name_style() {
+    let output = lint("import math module Main { fun main() { 1; } }");
+    assert!(output.contains("W006:IMPORT NAME STYLE"));
+}

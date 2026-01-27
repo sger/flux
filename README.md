@@ -1,33 +1,22 @@
 # Flux
 
-## Language at a glance
+A small, functional language with a custom bytecode VM.
 
-- File extension: `.flx`
-- Functions use `fun` and return the last expression
-- Bindings are immutable by default (`let`)
+## Current Features
 
-## Overview and inspiration
-
-Flux is a small, functional language inspired by Elixir’s expressiveness and Rust’s safety ethos. It’s also a learning-focused project: the codebase is designed to be approachable for anyone who wants to understand how lexing, parsing, compilation, and bytecode VMs fit together. It was created while reading *Building a Compiler in Go*.
-
-Example:
-
-```flux
-fun add(a, b) {
-  a + b;
-}
-
-let pi = 3.14;
-print(add(1, 2));
-```
-
-## What’s supported today
-
-- Literals: integers, floats, booleans, strings, null
-- Data: arrays and hash maps
-- Control flow: `if` / `else`, `return`
-- Functions: first-class functions and closures
-- Builtins: `print`, `len`, `first`, `last`, `rest`, `push`
+- **Functions**: `fun` declarations, closures, higher-order functions
+- **Immutability**: `let` bindings are immutable; reassignment is rejected
+- **Scoping**: lexical scoping, closures, and free variables
+- **Modules**: namespaced modules (`module Name { ... }`), public by default, `_private` hidden
+- **Imports**: top-level only, no semicolons, collisions are errors
+- **Data types**: integers, floats, booleans, strings, null
+- **Collections**: arrays and hash maps, indexing with `[]`
+- **Control flow**: `if` / `else`, `return`
+- **Builtins**: `print`, `len`, `first`, `last`, `rest`, `push`
+- **Diagnostics**: human-friendly errors with codes, file/line/column, caret highlighting, and actionable hints
+- **Linter**: unused vars/params/imports, shadowing, naming style
+- **Formatter**: `flux fmt` (indentation-only, preserves comments)
+- **Bytecode cache**: `.fxc` cache with dependency hashing and inspection tools
 
 ## Running Flux
 
@@ -36,12 +25,14 @@ cargo run -- run path/to/file.flx
 cargo run -- --verbose run path/to/file.flx
 ```
 
-Other commands:
+## Tooling
 
 ```
 cargo run -- tokens path/to/file.flx
 cargo run -- bytecode path/to/file.flx
 cargo run -- lint path/to/file.flx
+cargo run -- fmt path/to/file.flx
+cargo run -- fmt --check path/to/file.flx
 cargo run -- cache-info path/to/file.flx
 cargo run -- cache-info-file path/to/file.fxc
 ```
@@ -49,7 +40,9 @@ cargo run -- cache-info-file path/to/file.fxc
 ## Cache
 
 Flux caches compiled bytecode under `target/flux/` using `.fxc` files. The cache is invalidated if
-the source file, compiler version, or any imported module changes.
+- the source file changes
+- the compiler version changes
+- any imported module changes
 
 To clear the cache:
 
@@ -57,22 +50,14 @@ To clear the cache:
 rm -rf target/flux
 ```
 
-## Testing
+## Tests
 
 ```
 cargo test
 ```
 
-To run a single test:
+Run a single test:
 
 ```
 cargo test runtime::vm::tests::test_builtin_len
-```
-
-## Example with closures
-
-```flux
-let newClosure = fun(a) { fun() { a; }; };
-let closure = newClosure(99);
-print(closure());
 ```
