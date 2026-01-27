@@ -1,0 +1,15 @@
+// Test: String operations
+// Expected output:
+// hello world
+// flux is awesome
+// abc
+
+let greeting = "hello";
+let target = " world";
+print(greeting + target);
+
+let lang = "flux";
+let desc = " is awesome";
+print(lang + desc);
+
+print("a" + "b" + "c");

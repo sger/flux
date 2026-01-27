@@ -1,0 +1,11 @@
+// Test: Basic print
+// Expected output:
+// hello world
+// 42
+// true
+// false
+
+print("hello world");
+print(42);
+print(true);
+print(false);

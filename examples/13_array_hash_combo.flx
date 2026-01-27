@@ -1,0 +1,30 @@
+// Test: Arrays and hashes combined
+// Expected output:
+// Alice
+// Bob
+// 25
+// 30
+// python
+// rust
+// 3
+
+// Array of hashes
+let users = [
+    {"name": "Alice", "age": 25},
+    {"name": "Bob", "age": 30}
+];
+
+print(users[0]["name"]);
+print(users[1]["name"]);
+print(users[0]["age"]);
+print(users[1]["age"]);
+
+// Hash with array values
+let skills = {
+    "languages": ["python", "rust", "go"],
+    "count": 3
+};
+
+print(skills["languages"][0]);
+print(skills["languages"][1]);
+print(skills["count"]);
