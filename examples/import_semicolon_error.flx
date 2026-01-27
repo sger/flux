@@ -1,0 +1,7 @@
+import Math;
+
+module Main {
+  fun main() {
+    print(Math.square(5));
+  }
+}

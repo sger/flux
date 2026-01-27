@@ -42,6 +42,10 @@ pub enum Expression {
     Hash {
         pairs: Vec<(Expression, Expression)>,
     },
+    MemberAccess {
+        object: Box<Expression>,
+        member: Identifier,
+    },
 }
 
 impl fmt::Display for Expression {
@@ -95,6 +99,9 @@ impl fmt::Display for Expression {
                 let items: Vec<String> =
                     pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
+            }
+            Expression::MemberAccess { object, member } => {
+                write!(f, "{}.{}", object, member)
             }
         }
     }

@@ -78,6 +78,7 @@ define_tokens! {
         LBracket  => "[",
         RBracket  => "]",
         Colon     => ":",
+        Dot       => ".",
 
     }
 
@@ -90,6 +91,8 @@ define_tokens! {
         True   => "true",
         False  => "false",
         Null   => "null",
+        Module => "module",
+        Import => "import",
 
         // ↓ Add new keywords here ↓
     }

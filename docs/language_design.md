@@ -4,7 +4,7 @@
 
 ## Overview
 
-**Flux** is designed for clarity, safety, and functional programming. Inspired by Elixir's expressiveness and Rust's safety principles, it aims to provide a clean syntax with powerful functional features.
+**Flux** is designed for clarity, safety, and functional programming. Inspired by Elm’s human-friendly compiler errors and Elixir’s expressiveness, it aims to provide a clean syntax with powerful functional features.
 
 The name reflects data flowing through pipelines — the core of functional programming.
 
@@ -35,20 +35,40 @@ The name reflects data flowing through pipelines — the core of functional prog
 
 All code lives in modules. Modules provide namespacing and organization.
 
+- Module names must start with an uppercase letter.
+- Functions are public by default; prefix with `_` to make them private (not exported).
+- Module functions are accessed via `Module.function` and do not leak into the outer scope.
+- A module cannot define a function with the same name as the module.
+
 ```
-mod Math {
+// math.flx
+module Math {
+  // public
   fun square(x) {
     x * x;
   }
   
+  // public
   fun cube(x) {
     x * square(x);
   }
+
+  fun call_another_function() {
+    print(cube(100));
+  }
+
+  fun _private_function() {
+    print("cannot be called");
+  }
 }
 
-mod Main {
+// main.flx file
+import Math
+
+module Main {
   fun main() {
     print(Math.square(5));
+    print(Math._private_function()); // error fun is private
   }
 }
 ```
@@ -57,36 +77,60 @@ mod Main {
 
 Flexible import system for accessing code from other modules.
 
+Imports are only allowed at the top level (module scope), not inside functions.
+Importing a name that already exists in the current scope is an error.
+
 ```
 // Full mod import
-import Math;
+import Math
 Math.square(5);      // use with prefix
-square(5);           // also works after import
-
-// Selective import
-import Math.{square, cube};
-square(5);           // only imported functions available
-
-// Aliased import
-import Statistics as Stats;
-Stats.mean(numbers);
-
-// Nested mod import
-import Utils.String;
-String.trim("  hello  ");
-
-// Nested selective import
-import Utils.String.{trim, split};
-trim("  hello  ");
-
-// Fully qualified always works (no import needed)
-Math.square(5);
-Utils.String.trim("  hello  ");
 ```
+
+Note: selective imports, aliases, and nested imports are planned but not implemented yet.
+
+### Bytecode Cache
+
+Flux caches compiled bytecode in `.fxc` files under `target/flux/`. The cache is invalidated if the
+source file, compiler version, or any imported module changes.
+
+Use `cache-info` to inspect cache metadata:
+
+```
+flux cache-info path/to/file.flx
+```
+
+### Error Codes
+
+Flux emits human-friendly diagnostics with stable error codes.
+
+| Code | Title | Example | Example file |
+| --- | --- | --- | --- |
+| E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/function_redeclaration_error.flx` |
+| E003 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
+| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/closure_outer_assign_error.flx` |
+| E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
+| E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
+| E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
+| E012 | DUPLICATE PARAMETER | `fun f(x, x) { x }` | `examples/duplicate_params_error.flx` |
+| E016 | INVALID MODULE NAME | `module math { }` | `examples/module_name_lowercase_error.flx` |
+| E018 | MODULE NAME CLASH | `module Math { fun Math() {} }` | `examples/module_name_clobber_error.flx` |
+| E019 | INVALID MODULE CONTENT | `module Math { let x = 1; }` | — |
+| E021 | PRIVATE MEMBER | `Math._private()` | — |
+| E030 | IMPORT NAME COLLISION | `let Math = 1; import Math` | `examples/import_collision_error.flx` |
+| E031 | IMPORT SCOPE | `fun main() { import Math }` | `examples/import_in_function_error.flx` |
+| E032 | IMPORT NOT FOUND | `import Missing` | — |
+| E033 | IMPORT READ FAILED | `import Broken` | — |
+| E101 | UNKNOWN KEYWORD | `fn main() {}` | `examples/unknown_keyword_fn_error.flx` |
+| E102 | EXPECTED EXPRESSION | `;` | `examples/import_semicolon_error.flx` |
+| E103 | INVALID INTEGER | `let x = 12_3z;` | — |
+| E104 | INVALID FLOAT | `let x = 1.2.3;` | — |
+| E105 | UNEXPECTED TOKEN | `print((1 + 2);` | `examples/expected_token_error.flx` |
 
 ### Functions
 
 Functions are defined with `fun`. The last expression is the return value.
+Function names must be unique within the same scope.
+Parameter names must be unique.
 
 ```
 // Named function
@@ -111,6 +155,19 @@ fun sum_of_squares(a, b) {
 ### Variables
 
 All bindings are immutable. Use `let` to bind values.
+Closures cannot assign to outer bindings; use `let` to shadow instead.
+
+### Top-Level Bindings (Planned)
+
+Flux may adopt Haskell-style top-level `let` bindings in a future version:
+
+- Immutable values, shared within a module
+- Safe because Flux is pure by default
+- No side effects at definition time
+
+Initial plan:
+- Phase 1: allow top-level `let` with eager evaluation during module init (pure expressions only)
+- Phase 2: switch to lazy + memoized evaluation with cycle detection
 
 ```
 let name = "Alice";
@@ -928,192 +985,77 @@ OpSetGlobal 0   // store as x
 
 ## Grammar (EBNF)
 
+Current parser grammar (v1):
+
 ```ebnf
-program        = ( import | directive | mod )* ;
+program        = statement* ;
 
-import         = "import" import_path ( "as" IDENT )? ";"
-               | "import" import_path ".{" import_list "}" ";" ;
-
-import_path    = IDENT ( "." IDENT )* ;
-
-import_list    = IDENT ( "," IDENT )* ;
-
-mod         = "mod" IDENT "{" declaration* "}" ;
-
-directive      = "#" directive_type ;
-
-directive_type = "run" ( expression | block )
-               | "assert" expression
-               | "if" expression block ( "#else" block )?
-               | "emit" declaration ;
-
-declaration    = function_decl
-               | struct_decl
-               | enum_decl
-               | let_stmt ;
-
-function_decl  = "fun" IDENT "(" parameters? ")" block ;
-
-struct_decl    = "struct" IDENT "{" struct_fields? "}" ;
-
-struct_fields  = struct_field ( "," struct_field )* ","? ;
-
-struct_field   = IDENT ":" type ;
-
-enum_decl      = "enum" IDENT "{" enum_variants "}" ;
-
-enum_variants  = enum_variant ( "," enum_variant )* ","? ;
-
-enum_variant   = IDENT ( "(" variant_fields ")" )? ;
-
-variant_fields = variant_field ( "," variant_field )* ;
-
-variant_field  = ( IDENT ":" )? type ;
-
-type           = "Int" | "Float" | "String" | "Bool" 
-               | "[" type "]"                          
-               | "(" type ( "," type )* ")"            
-               | IDENT ;                               
-
-parameters     = IDENT ( "," IDENT )* ;
-
-block          = "{" statement* "}" ;
-
-statement      = let_stmt
+statement      = module_stmt
+               | import_stmt
+               | function_stmt
+               | let_stmt
+               | assign_stmt
                | return_stmt
                | expr_stmt ;
 
-let_stmt       = "let" IDENT "=" expression ";" ;
+module_stmt    = "module" IDENT block ;
+import_stmt    = "import" IDENT ;
+function_stmt  = "fun" IDENT "(" parameters? ")" block ;
+let_stmt       = "let" IDENT "=" expression ";"? ;
+assign_stmt    = IDENT "=" expression ";"? ;
+return_stmt    = "return" expression? ";"? ;
+expr_stmt      = expression ";"? ;
 
-return_stmt    = "return" expression? ";" ;
+parameters     = IDENT ( "," IDENT )* ;
+block          = "{" statement* "}" ;
 
-expr_stmt      = expression ";" ;
-
-expression     = assignment ;
-
-assignment     = pipe ;
-
-pipe           = logical_or ( "|>" logical_or )* ;
-
-logical_or     = logical_and ( "||" logical_and )* ;
-
-logical_and    = equality ( "&&" equality )* ;
-
+expression     = equality ;
 equality       = comparison ( ( "==" | "!=" ) comparison )* ;
-
-comparison     = term ( ( "<" | ">" | "<=" | ">=" ) term )* ;
-
+comparison     = term ( ( "<" | ">" ) term )* ;
 term           = factor ( ( "+" | "-" ) factor )* ;
-
 factor         = unary ( ( "*" | "/" ) unary )* ;
-
 unary          = ( "!" | "-" ) unary
-               | call ;
+               | postfix ;
 
-call           = primary ( "(" arguments? ")" | "." IDENT )* ;
+postfix        = primary ( "(" arguments? ")"
+                         | "[" expression "]"
+                         | "." IDENT )* ;
 
 arguments      = expression ( "," expression )* ;
 
-primary        = INT | FLOAT | STRING | "true" | "false"
-               | IDENT ( "{" struct_init "}" )?
+primary        = INT | FLOAT | STRING | "true" | "false" | "null"
+               | IDENT
                | "(" expression ")"
-               | "[" list_items? "]"
-               | "{" map_items? "}"
+               | "[" arguments? "]"
+               | "{" hash_items? "}"
                | "fun" "(" parameters? ")" block
-               | if_expr
-               | match_expr
-               | for_expr ;
-
-struct_init    = field_init ( "," field_init )* ","? ;
-
-field_init     = "..." expression
-               | IDENT ":" expression ;
+               | if_expr ;
 
 if_expr        = "if" expression block ( "else" block )? ;
 
-match_expr     = "match" expression "{" match_arm* "}" ;
-
-match_arm      = pattern "->" expression ";" ;
-
-for_expr       = "for" pattern "in" expression ( "," expression )* block ;
-
-pattern        = "_"
-               | INT | FLOAT | STRING | "true" | "false"
-               | IDENT ;
+hash_items     = expression ":" expression ( "," expression ":" expression )* ;
 ```
+
+Note: structs/enums, match, for, pipelines, directives, and types are planned but not implemented yet.
 
 ---
 
 ## Example Program
 
 ```
-import Math;
+import Math
 
-struct Point {
-  x: Float,
-  y: Float,
-}
-
-struct User {
-  name: String,
-  age: Int,
-}
-
-mod Utils {
-  fun sum(list) {
-    match list {
-      [] -> 0;
-      [head, ...tail] -> head + sum(tail);
-    }
-  }
-  
-  fun distance(p1, p2) {
-    let dx = p2.x - p1.x;
-    let dy = p2.y - p1.y;
-    Math.sqrt(dx * dx + dy * dy);
-  }
-}
-
-mod Main {
+module Main {
   fun main() {
-    // Struct usage
-    let origin = Point { x: 0.0, y: 0.0 };
-    let target = Point { x: 3.0, y: 4.0 };
-    print(Utils.distance(origin, target));
-    
-    // Immutable update
-    let moved = Point { ...origin, x: 10.0 };
-    
-    // Pattern matching on struct
-    let user = User { name: "Alice", age: 30 };
-    match user {
-      User { name, age } -> print(name);
-    };
-    
     let numbers = [1, 2, 3, 4, 5];
-    
-    // List comprehension
-    let doubled = for x in numbers { x * 2; };
-    
-    // Comprehension with filter
-    let big_ones = for x in doubled, x > 4 { x; };
-    
-    // Pipeline example
-    let result = numbers
-      |> map(fun(x) { x * x; })
-      |> filter(fun(x) { x > 10; });
-    
-    print(result);
-    
-    // Pattern matching with Option
-    let maybe_first = head(result);
-    match maybe_first {
-      Some(x) -> print(x);
-      None -> print("empty list");
-    };
-    
-    // Recursion
-    print(Utils.sum(numbers));
+    let squared = fun(x) { x * x };
+    let first = numbers[0];
+
+    if first > 0 {
+      print(Math.square(first));
+    } else {
+      print(0);
+    }
   }
 }
 ```
