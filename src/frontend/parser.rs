@@ -1,5 +1,6 @@
 use crate::frontend::{
     block::Block,
+    diagnostic::Diagnostic,
     expression::Expression,
     lexer::Lexer,
     precedence::{Precedence, token_precedence},
@@ -13,7 +14,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     peek_token: Token,
-    pub errors: Vec<String>,
+    pub errors: Vec<Diagnostic>,
 }
 
 impl Parser {
@@ -33,6 +34,10 @@ impl Parser {
         let mut program = Program::new();
 
         while self.current_token.token_type != TokenType::Eof {
+            if self.current_token.token_type == TokenType::RBrace {
+                self.next_token();
+                continue;
+            }
             if let Some(statement) = self.parse_statement() {
                 program.statements.push(statement);
             }
@@ -47,6 +52,20 @@ impl Parser {
         self.peek_token = self.lexer.next_token();
     }
 
+    fn synchronize_after_error(&mut self) {
+        // Advance to a reasonable boundary to avoid cascading errors.
+        self.next_token();
+        while !matches!(
+            self.current_token.token_type,
+            TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+        ) {
+            self.next_token();
+        }
+        if self.current_token.token_type == TokenType::RBrace {
+            self.next_token();
+        }
+    }
+
     fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token.token_type {
             TokenType::Let => self.parse_let_statement(),
@@ -54,21 +73,56 @@ impl Parser {
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
             }
+            TokenType::Ident if self.current_token.literal == "fn" => {
+                self.errors.push(
+                    Diagnostic::error("unknown keyword `fn`")
+                        .with_position(self.current_token.position)
+                        .with_message("Flux uses `fun` for function declarations")
+                        .with_hint("Replace it with `fun`."),
+                );
+                self.synchronize_after_error();
+                None
+            }
+            TokenType::Ident
+                if self.current_token.literal != "fun"
+                    && self.current_token.literal.starts_with("fun")
+                    && self.is_peek_token(TokenType::Ident) =>
+            {
+                self.errors.push(
+                    Diagnostic::error(format!("unknown keyword `{}`", self.current_token.literal))
+                        .with_position(self.current_token.position)
+                        .with_message("Flux uses `fun` for function declarations")
+                        .with_hint("Did you mean `fun`?"),
+                );
+                self.synchronize_after_error();
+                None
+            }
+
+            // Check if we have `identifier = expression` (reassignment without 'let')
+            TokenType::Ident if self.is_peek_token(TokenType::Assign) => {
+                self.parse_assignment_statement()
+            }
             _ => self.parse_expression_statement(),
         }
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
         let expression = self.parse_expression(Precedence::Lowest)?;
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
         }
 
-        Some(Statement::Expression { expression })
+        Some(Statement::Expression {
+            expression,
+            position,
+        })
     }
 
     fn parse_function_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -91,10 +145,12 @@ impl Parser {
             name,
             parameters,
             body,
+            position,
         })
     }
 
     fn parse_return_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
         self.next_token();
 
         let value = if self.is_current_token(TokenType::Semicolon) {
@@ -107,10 +163,12 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Return { value })
+        Some(Statement::Return { value, position })
     }
 
     fn parse_let_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -129,7 +187,34 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Let { name, value })
+        Some(Statement::Let {
+            name,
+            value,
+            position,
+        })
+    }
+
+    fn parse_assignment_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+        let name = self.current_token.literal.clone();
+
+        if !self.expect_peek(TokenType::Assign) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if self.is_peek_token(TokenType::Semicolon) {
+            self.next_token();
+        }
+
+        Some(Statement::Assign {
+            name,
+            value,
+            position,
+        })
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -147,6 +232,7 @@ impl Parser {
         match &self.current_token.token_type {
             TokenType::Ident => self.parse_identifier(),
             TokenType::Int => self.parse_integer(),
+            TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::Null => self.parse_null(),
@@ -164,12 +250,14 @@ impl Parser {
     }
 
     fn no_prefix_parse_error(&mut self) {
-        self.errors.push(format!(
-            "no prefix parse for {} at {}:{}",
-            self.current_token.token_type,
-            self.current_token.position.line,
-            self.current_token.position.column
-        ));
+        self.errors.push(
+            Diagnostic::error(format!(
+                "no prefix parse for {}",
+                self.current_token.token_type
+            ))
+            .with_position(self.current_token.position)
+            .with_message("expected an expression here"),
+        );
     }
 
     fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
@@ -230,10 +318,29 @@ impl Parser {
         match self.current_token.literal.parse::<i64>() {
             Ok(value) => Some(Expression::Integer(value)),
             Err(_) => {
-                self.errors.push(format!(
-                    "could not parse {} as integer",
-                    self.current_token.literal
-                ));
+                self.errors.push(
+                    Diagnostic::error(format!(
+                        "could not parse {} as integer",
+                        self.current_token.literal
+                    ))
+                    .with_position(self.current_token.position),
+                );
+                None
+            }
+        }
+    }
+
+    fn parse_float(&mut self) -> Option<Expression> {
+        match self.current_token.literal.parse::<f64>() {
+            Ok(value) => Some(Expression::Float(value)),
+            Err(_) => {
+                self.errors.push(
+                    Diagnostic::error(format!(
+                        "could not parse {} as float",
+                        self.current_token.literal
+                    ))
+                    .with_position(self.current_token.position),
+                );
                 None
             }
         }
@@ -438,12 +545,13 @@ impl Parser {
     }
 
     fn peek_error(&mut self, expected: TokenType) {
-        self.errors.push(format!(
-            "expected {}, got {} at {}:{}",
-            expected,
-            self.peek_token.token_type,
-            self.peek_token.position.line,
-            self.peek_token.position.column
-        ));
+        self.errors.push(
+            Diagnostic::error(format!(
+                "expected {}, got {}",
+                expected, self.peek_token.token_type
+            ))
+            .with_position(self.peek_token.position)
+            .with_message("unexpected token"),
+        );
     }
 }

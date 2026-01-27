@@ -1,0 +1,2 @@
+// Test: Undefined variable error
+c = 10;

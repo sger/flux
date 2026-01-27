@@ -1,0 +1,3 @@
+// Test: Duplicate declaration error
+let b = 5;
+let b = 10;

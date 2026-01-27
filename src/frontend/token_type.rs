@@ -14,6 +14,7 @@ macro_rules! define_tokens {
             // Identifiers & Literals
             Ident,
             Int,
+            Float,
             String,
 
             // Symbols (operators & delimiters)
@@ -30,6 +31,7 @@ macro_rules! define_tokens {
                     TokenType::Eof => "EOF",
                     TokenType::Ident => "IDENT",
                     TokenType::Int => "INT",
+                    TokenType::Float => "FLOAT",
                     TokenType::String => "STRING",
                     $(TokenType::$sym_name => $sym_str,)*
                     $(TokenType::$kw_name => $kw_str,)*

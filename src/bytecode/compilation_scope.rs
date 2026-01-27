@@ -16,3 +16,9 @@ impl CompilationScope {
         }
     }
 }
+
+impl Default for CompilationScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}

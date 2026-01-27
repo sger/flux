@@ -1,0 +1,54 @@
+let x = 5;
+let y = x + 10;
+print(y);  // 30
+
+// Example 2: Multiple bindings with different names
+let a = 10;
+let a2 = a * 2;
+let a3 = a2 + 5;
+print(a3);  // 25
+
+// Example 3: Function scope allows same name in different scope
+let counter = 0;
+
+fun increment(n) {
+    let counter = n + 1;  // OK: different scope
+    return counter;
+}
+
+print(counter);         // 0 (original)
+print(increment(5));    // 6 (local scope)
+print(counter);         // 0 (still unchanged)
+
+// Example 4: Functional style - transform data without mutation
+let numbers = [1, 2, 3, 4, 5];
+
+fun double(n) {
+    return n * 2;
+}
+
+// In a real implementation, you'd use map here
+let first_doubled = double(first(numbers));
+print(first_doubled);  // 2
+
+// Example 5: Recursive functions work with immutability
+fun factorial(n) {
+    if (n < 2) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+print(factorial(5));  // 120
+
+// Example 6: Closures capture immutable values
+fun make_adder(x) {
+    fun adder(y) {
+        return x + y;  // x is immutable, captured from outer scope
+    }
+    return adder;
+}
+
+let add5 = make_adder(5);
+print(add5(10));  // 15
+print(add5(20));  // 25

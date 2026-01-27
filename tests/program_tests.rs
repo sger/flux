@@ -8,6 +8,7 @@ mod tests {
             statements: vec![Statement::Let {
                 name: "x".to_string(),
                 value: Expression::Integer(5),
+                position: Default::default(),
             }],
         };
 

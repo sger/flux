@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::id, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -13,7 +13,6 @@ use crate::{
 
 const STACK_SIZE: usize = 2048;
 const GLOBALS_SIZE: usize = 65536;
-const MAX_FRAMES: usize = 1024;
 
 pub struct VM {
     constants: Vec<Object>,
@@ -127,6 +126,7 @@ impl VM {
                     let operand = self.pop()?;
                     match operand {
                         Object::Integer(val) => self.push(Object::Integer(-val))?,
+                        Object::Float(val) => self.push(Object::Float(-val))?,
                         _ => {
                             return Err(format!(
                                 "unsupported type for negation: {}",
@@ -171,12 +171,6 @@ impl VM {
                     let index = self.pop()?;
                     let left = self.pop()?;
                     self.execute_index_expression(left, index)?;
-                }
-                _ => {
-                    eprintln!(
-                        "OpCode::{} with instructions {:?} not implemented",
-                        op, instructions
-                    );
                 }
             }
             self.current_frame_mut().ip += 1;
@@ -273,6 +267,38 @@ impl VM {
                 };
                 self.push(Object::Integer(result))
             }
+            (Object::Float(l), Object::Float(r)) => {
+                let result = match op {
+                    OpCode::OpAdd => l + r,
+                    OpCode::OpSub => l - r,
+                    OpCode::OpMul => l * r,
+                    OpCode::OpDiv => l / r,
+                    _ => return Err(format!("unknown float operator: {:?}", op)),
+                };
+                self.push(Object::Float(result))
+            }
+            (Object::Integer(l), Object::Float(r)) => {
+                let l = *l as f64;
+                let result = match op {
+                    OpCode::OpAdd => l + r,
+                    OpCode::OpSub => l - r,
+                    OpCode::OpMul => l * r,
+                    OpCode::OpDiv => l / r,
+                    _ => return Err(format!("unknown float operator: {:?}", op)),
+                };
+                self.push(Object::Float(result))
+            }
+            (Object::Float(l), Object::Integer(r)) => {
+                let r = *r as f64;
+                let result = match op {
+                    OpCode::OpAdd => l + r,
+                    OpCode::OpSub => l - r,
+                    OpCode::OpMul => l * r,
+                    OpCode::OpDiv => l / r,
+                    _ => return Err(format!("unknown float operator: {:?}", op)),
+                };
+                self.push(Object::Float(result))
+            }
             (Object::String(l), Object::String(r)) if op == OpCode::OpAdd => {
                 self.push(Object::String(format!("{}{}", l, r)))
             }
@@ -294,6 +320,35 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            (Object::Float(l), Object::Float(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    OpCode::OpGreaterThan => l > r,
+                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            (Object::Integer(l), Object::Float(r)) => {
+                let l = *l as f64;
+                let result = match opcode {
+                    OpCode::OpEqual => l == *r,
+                    OpCode::OpNotEqual => l != *r,
+                    OpCode::OpGreaterThan => l > *r,
+                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            (Object::Float(l), Object::Integer(r)) => {
+                let r = *r as f64;
+                let result = match opcode {
+                    OpCode::OpEqual => *l == r,
+                    OpCode::OpNotEqual => *l != r,
+                    OpCode::OpGreaterThan => *l > r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -418,6 +473,7 @@ impl VM {
 mod tests {
     use super::*;
     use crate::bytecode::compiler::Compiler;
+    use crate::frontend::diagnostic::render_diagnostics;
     use crate::frontend::lexer::Lexer;
     use crate::frontend::parser::Parser;
 
@@ -426,7 +482,9 @@ mod tests {
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let mut compiler = Compiler::new();
-        compiler.compile(&program).unwrap();
+        compiler
+            .compile(&program)
+            .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
         let mut vm = VM::new(compiler.bytecode());
         vm.run().unwrap();
         vm.last_popped_stack_elem().clone()
@@ -437,6 +495,15 @@ mod tests {
         assert_eq!(run("1 + 2;"), Object::Integer(3));
         assert_eq!(run("5 * 2 + 10;"), Object::Integer(20));
         assert_eq!(run("-5;"), Object::Integer(-5));
+    }
+
+    #[test]
+    fn test_float_arithmetic() {
+        assert_eq!(run("1.5 + 2.25;"), Object::Float(3.75));
+        assert_eq!(run("2.0 * 3.5;"), Object::Float(7.0));
+        assert_eq!(run("-0.5;"), Object::Float(-0.5));
+        assert_eq!(run("1 + 2.5;"), Object::Float(3.5));
+        assert_eq!(run("2.5 + 1;"), Object::Float(3.5));
     }
 
     #[test]

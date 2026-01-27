@@ -6,6 +6,7 @@ use crate::frontend::{Identifier, block::Block};
 pub enum Expression {
     Identifier(Identifier),
     Integer(i64),
+    Float(f64),
     String(String),
     Boolean(bool),
     Null,
@@ -48,6 +49,7 @@ impl fmt::Display for Expression {
         match self {
             Expression::Identifier(name) => write!(f, "{}", name),
             Expression::Integer(value) => write!(f, "{}", value),
+            Expression::Float(value) => write!(f, "{}", value),
             Expression::String(value) => write!(f, "\"{}\"", value),
             Expression::Boolean(value) => write!(f, "{}", value),
             Expression::Null => write!(f, "null"),

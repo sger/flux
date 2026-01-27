@@ -1,0 +1,30 @@
+let a = 5;
+a = 10;
+
+let b = 5;
+let b = 10;
+
+c = 5;
+
+fun increment(x) {
+    x = x + 1;
+    return x;
+}
+
+let value = 1;
+value = 2;
+value = 3;
+
+let sum1 = 0;
+let sum2 = sum1 + 1;
+let sum3 = sum2 + 2;
+print(sum3);
+
+fun sum_range(start, end, acc) {
+    if (start > end) {
+        return acc;
+    }
+    return sum_range(start + 1, end, acc + start);
+}
+
+print(sum_range(1, 10, 0));

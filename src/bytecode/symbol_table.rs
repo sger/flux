@@ -37,10 +37,28 @@ impl SymbolTable {
             SymbolScope::Local
         };
 
+        if let Some(_existing) = self.store.get(&name) {
+            // Variable already defined in this scope - this would be caught during compilation
+            // The compiler will handle the error message
+        }
+
         let symbol = Symbol::new(name.clone(), scope, self.num_definitions);
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
         symbol
+    }
+
+    pub fn exists_in_current_scope(&self, name: &str) -> bool {
+        self.store.contains_key(name)
+    }
+
+    pub fn mark_assigned(&mut self, name: &str) -> Result<(), String> {
+        if let Some(symbol) = self.store.get_mut(name) {
+            symbol.mark_assigned();
+            Ok(())
+        } else {
+            Err(format!("Variable {} not found", name))
+        }
     }
 
     pub fn define_builtin(&mut self, index: usize, name: impl Into<String>) -> Symbol {
