@@ -176,6 +176,9 @@ impl Compiler {
                 name,
                 position,
             } => {
+                if self.scope_index > 0 {
+                    return Err(self.make_import_scope_error(name, *position));
+                }
                 self.compile_import_statement(name, *position)?;
             }
         }
@@ -651,8 +654,8 @@ impl Compiler {
         name: &str,
         position: Position,
     ) -> Result<(), Diagnostic> {
-        if self.symbol_table.resolve(name).is_some() {
-            return Ok(());
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_import_collision_error(name, position));
         }
 
         let base_dir = Path::new(&self.file_path).parent().unwrap_or(Path::new("."));
@@ -838,6 +841,28 @@ impl Compiler {
         .with_position(position)
         .with_message("module names must start with an uppercase letter")
         .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
+    }
+
+    fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!(
+            "cannot import `{}`; name already defined in this scope",
+            name
+        ))
+        .with_file(self.file_path.clone())
+        .with_position(position)
+        .with_message("import would shadow an existing binding")
+        .with_hint("Use a different name or remove the existing binding")
+    }
+
+    fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!(
+            "cannot import `{}` inside a function",
+            name
+        ))
+        .with_file(self.file_path.clone())
+        .with_position(position)
+        .with_message("imports are only allowed at module/top-level scope")
+        .with_hint("Move the import to the top level")
     }
 
     fn is_uppercase_identifier(name: &str) -> bool {

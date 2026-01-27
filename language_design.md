@@ -35,6 +35,11 @@ The name reflects data flowing through pipelines — the core of functional prog
 
 All code lives in modules. Modules provide namespacing and organization.
 
+- Module names must start with an uppercase letter.
+- Functions are public by default; prefix with `_` to make them private (not exported).
+- Module functions are accessed via `Module.function` and do not leak into the outer scope.
+- A module cannot define a function with the same name as the module.
+
 ```
 // math.flx
 module Math {
@@ -72,26 +77,29 @@ module Main {
 
 Flexible import system for accessing code from other modules.
 
+Imports are only allowed at the top level (module scope), not inside functions.
+Importing a name that already exists in the current scope is an error.
+
 ```
 // Full mod import
-import Math;
+import Math
 Math.square(5);      // use with prefix
 square(5);           // also works after import
 
 // Selective import
-import Math.{square, cube};
+import Math.{square, cube}
 square(5);           // only imported functions available
 
 // Aliased import
-import Statistics as Stats;
+import Statistics as Stats
 Stats.mean(numbers);
 
 // Nested mod import
-import Utils.String;
+import Utils.String
 String.trim("  hello  ");
 
 // Nested selective import
-import Utils.String.{trim, split};
+import Utils.String.{trim, split}
 trim("  hello  ");
 
 // Fully qualified always works (no import needed)
@@ -102,6 +110,8 @@ Utils.String.trim("  hello  ");
 ### Functions
 
 Functions are defined with `fun`. The last expression is the return value.
+Function names must be unique within the same scope.
+Parameter names must be unique.
 
 ```
 // Named function
@@ -126,6 +136,7 @@ fun sum_of_squares(a, b) {
 ### Variables
 
 All bindings are immutable. Use `let` to bind values.
+Closures cannot assign to outer bindings; use `let` to shadow instead.
 
 ```
 let name = "Alice";
