@@ -19,7 +19,7 @@ pub fn token_precedence(token_type: &TokenType) -> Precedence {
         TokenType::Plus | TokenType::Minus => Precedence::Sum,
         TokenType::Asterisk | TokenType::Slash => Precedence::Product,
         TokenType::LParen => Precedence::Call,
-        TokenType::LBracket => Precedence::Index,
+        TokenType::LBracket | TokenType::Dot => Precedence::Index,
         _ => Precedence::Lowest,
     }
 }

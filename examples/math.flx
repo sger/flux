@@ -1,0 +1,33 @@
+module Math {
+
+  // let test a = 2;
+
+  // public
+  fun square(x) {
+    x * x;
+  }
+  
+  // public
+  fun cube(x) {
+    x * square(x);
+  }
+
+  fun call_another_function() {
+    cube(100);
+  }
+
+  fun _private_function() {
+    print("_private_function");
+  }
+
+  fun calling_private_from_public_function() {
+    // print(test);
+    print("calling_private_from_public_function");
+    _private_function();
+    return 42;
+  }
+}
+
+//print(Math.cube(10));
+// print(Math.call_another_function());
+//print(Math.calling_private_from_public_function());

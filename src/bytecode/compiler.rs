@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashSet, fs, path::Path, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -11,8 +11,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        block::Block, diagnostic::Diagnostic, expression::Expression, position::Position,
-        program::Program, statement::Statement,
+        block::Block, diagnostic::Diagnostic, expression::Expression, lexer::Lexer, parser::Parser,
+        position::Position, program::Program, statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -24,6 +24,7 @@ pub struct Compiler {
     scope_index: usize,
     pub errors: Vec<Diagnostic>,
     file_path: String,
+    imported_files: HashSet<String>,
 }
 
 impl Compiler {
@@ -47,6 +48,7 @@ impl Compiler {
             scope_index: 0,
             errors: Vec::new(),
             file_path: file_path.into(),
+            imported_files: HashSet::new(),
         }
     }
 
@@ -111,6 +113,10 @@ impl Compiler {
                     .resolve(name)
                     .ok_or_else(|| self.make_undefined_variable_error(name, *position))?;
 
+                if symbol.symbol_scope == SymbolScope::Free {
+                    return Err(self.make_outer_assignment_error(name, *position));
+                }
+
                 // Check if variable is already assigned (immutability check)
                 if symbol.is_assigned {
                     return Err(self.make_immutability_error(name, *position));
@@ -140,9 +146,26 @@ impl Compiler {
                 name,
                 parameters,
                 body,
+                position,
                 ..
             } => {
-                self.compile_function_statement(name, parameters, body)?;
+                self.compile_function_statement(name, parameters, body, *position)?;
+            }
+            Statement::Module {
+                name,
+                body,
+                position,
+            } => {
+                if !Self::is_uppercase_identifier(name) {
+                    return Err(self.make_module_name_error(name, *position));
+                }
+                self.compile_module_statement(name, body, *position)?;
+            }
+            Statement::Import { name, position } => {
+                if self.scope_index > 0 {
+                    return Err(self.make_import_scope_error(name, *position));
+                }
+                self.compile_import_statement(name, *position)?;
             }
         }
 
@@ -211,10 +234,9 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        return Err(Diagnostic::error(format!(
-                            "unknown prefix operator `{}`",
-                            operator
-                        )));
+                        return Err(Diagnostic::error("UNKNOWN PREFIX OPERATOR")
+                            .with_code("E010")
+                            .with_message(format!("Unknown prefix operator `{}`.", operator)));
                     }
                 };
             }
@@ -242,11 +264,10 @@ impl Compiler {
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     _ => {
-                        return Err(Diagnostic::error(format!(
-                            "unknown infix operator `{}`",
-                            operator
-                        ))
-                        .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
+                        return Err(Diagnostic::error("UNKNOWN INFIX OPERATOR")
+                            .with_code("E011")
+                            .with_message(format!("Unknown infix operator `{}`.", operator))
+                            .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
                     }
                 };
             }
@@ -293,6 +314,28 @@ impl Compiler {
 
                 self.emit(OpCode::OpCall, &[arguments.len()]);
             }
+            Expression::MemberAccess { object, member } => {
+                // Check if accessing a private member (starts with underscore)
+                if member.starts_with('_') {
+                    return Err(Diagnostic::error("PRIVATE MEMBER")
+                        .with_code("E021")
+                        .with_file(self.file_path.clone())
+                        .with_message(format!("Cannot access private member `{}`.", member))
+                        .with_hint(
+                            "Private members can only be accessed within the same module.",
+                        ));
+                }
+
+                // Compile the object (e.g., the module identifier)
+                self.compile_expression(object)?;
+
+                // Emit the member name as a string constant (the hash key)
+                let member_idx = self.add_constant(Object::String(member.clone()));
+                self.emit(OpCode::OpConstant, &[member_idx]);
+
+                // Use index operation to access the member from the hash
+                self.emit(OpCode::OpIndex, &[]);
+            }
         }
         Ok(())
     }
@@ -328,6 +371,16 @@ impl Compiler {
         parameters: &[String],
         body: &Block,
     ) -> Result<(), Diagnostic> {
+        if let Some(name) = Self::find_duplicate_name(parameters) {
+            return Err(Diagnostic::error("DUPLICATE PARAMETER")
+                .with_code("E012")
+                .with_message(format!(
+                    "Duplicate parameter `{}` in function literal.",
+                    name
+                ))
+                .with_hint("Parameter names must be unique."));
+        }
+
         self.enter_scope();
 
         for param in parameters {
@@ -403,7 +456,24 @@ impl Compiler {
         name: &str,
         parameters: &[String],
         body: &Block,
+        position: Position,
     ) -> Result<(), Diagnostic> {
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_redeclaration_error(name, position));
+        }
+
+        if let Some(param) = Self::find_duplicate_name(parameters) {
+            return Err(Diagnostic::error("DUPLICATE PARAMETER")
+                .with_code("E012")
+                .with_file(self.file_path.clone())
+                .with_position(position)
+                .with_message(format!(
+                    "Duplicate parameter `{}` in function `{}`.",
+                    param, name
+                ))
+                .with_hint("Use distinct parameter names."));
+        }
+
         let symbol = self.symbol_table.define(name);
 
         self.enter_scope();
@@ -447,6 +517,189 @@ impl Compiler {
     }
 
     #[allow(clippy::result_large_err)]
+    fn compile_module_statement(
+        &mut self,
+        name: &str,
+        body: &Block,
+        position: Position,
+    ) -> Result<(), Diagnostic> {
+        // Check if module is already defined
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_redeclaration_error(name, position));
+        }
+
+        // Define the module symbol early so functions can reference it
+        let module_symbol = self.symbol_table.define(name);
+
+        // Collect all functions from the module body and validate contents
+        let mut function_names = Vec::new();
+        for statement in &body.statements {
+            match statement {
+                Statement::Function { name: fn_name, .. } => {
+                    if fn_name == name {
+                        return Err(Diagnostic::error("MODULE NAME CLASH")
+                            .with_code("E018")
+                            .with_position(statement.position())
+                            .with_message(format!(
+                                "Module `{}` cannot define a function with the same name.",
+                                name
+                            ))
+                            .with_hint("Use a different function name."));
+                    }
+                    function_names.push(fn_name.clone());
+                }
+                _ => {
+                    return Err(Diagnostic::error("INVALID MODULE CONTENT")
+                        .with_code("E019")
+                        .with_position(statement.position())
+                        .with_message("Modules can only contain function declarations."));
+                }
+            }
+        }
+
+        // Compile the module body in its own initializer scope so functions
+        // don't leak into the outer scope.
+        self.enter_scope();
+
+        // Compile each function in the module initializer scope
+        for statement in &body.statements {
+            if let Statement::Function {
+                name: fn_name,
+                parameters,
+                body: fn_body,
+                position,
+                ..
+            } = statement
+                && let Err(err) =
+                    self.compile_function_statement(fn_name, parameters, fn_body, *position)
+            {
+                self.leave_scope();
+                return Err(err);
+            }
+        }
+
+        let public_function_names: Vec<_> = function_names
+            .into_iter()
+            .filter(|name| !name.starts_with('_'))
+            .collect();
+
+        // Now create a hash containing all the public module functions
+        // For each function, we need to: emit the key, load the function, emit the hash pair
+        let num_functions = public_function_names.len();
+        for fn_name in &public_function_names {
+            // Emit the key (function name as string)
+            let key_idx = self.add_constant(Object::String(fn_name.clone()));
+            self.emit(OpCode::OpConstant, &[key_idx]);
+
+            // Load the function value
+            if let Some(symbol) = self.symbol_table.resolve(fn_name) {
+                self.load_symbol(&symbol);
+            }
+        }
+
+        // Create the hash with all the function pairs and return it
+        self.emit(OpCode::OpHash, &[num_functions * 2]);
+        self.emit(OpCode::OpReturnValue, &[]);
+
+        let free_symbols = self.symbol_table.free_symbols.clone();
+        let num_locals = self.symbol_table.num_definitions;
+        let instructions = self.leave_scope();
+
+        for free in &free_symbols {
+            self.load_symbol(free);
+        }
+
+        let fn_idx = self.add_constant(Object::Function(Rc::new(CompiledFunction::new(
+            instructions,
+            num_locals,
+            0,
+        ))));
+        self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
+        self.emit(OpCode::OpCall, &[0]);
+
+        // Store the hash in the module variable
+        match module_symbol.symbol_scope {
+            SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[module_symbol.index]),
+            SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[module_symbol.index]),
+            _ => 0,
+        };
+
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn compile_import_statement(
+        &mut self,
+        name: &str,
+        position: Position,
+    ) -> Result<(), Diagnostic> {
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_import_collision_error(name, position));
+        }
+
+        let base_dir = Path::new(&self.file_path)
+            .parent()
+            .unwrap_or(Path::new("."));
+        let candidates = [
+            base_dir.join(format!("{}.flx", name)),
+            base_dir.join(format!("{}.flx", name.to_lowercase())),
+        ];
+
+        let import_path = candidates.into_iter().find(|path| path.exists());
+        let import_path = match import_path {
+            Some(path) => path,
+            None => {
+                return Err(Diagnostic::error("IMPORT NOT FOUND")
+                    .with_code("E032")
+                    .with_position(position)
+                    .with_message(format!("no module file found for `{}`", name))
+                    .with_hint(format!(
+                        "Looked for `{}` and `{}` next to this file.",
+                        base_dir.join(format!("{}.flx", name)).display(),
+                        base_dir
+                            .join(format!("{}.flx", name.to_lowercase()))
+                            .display()
+                    )));
+            }
+        };
+
+        let canonical_path = fs::canonicalize(&import_path).unwrap_or(import_path);
+        let canonical_str = canonical_path.to_string_lossy().to_string();
+        if self.imported_files.contains(&canonical_str) {
+            return Ok(());
+        }
+        self.imported_files.insert(canonical_str.clone());
+
+        let source = fs::read_to_string(&canonical_path).map_err(|err| {
+            Diagnostic::error("IMPORT READ FAILED")
+                .with_code("E033")
+                .with_position(position)
+                .with_message(format!("{}: {}", canonical_str, err))
+        })?;
+
+        let lexer = Lexer::new(&source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        if !parser.errors.is_empty() {
+            for diag in parser.errors {
+                self.errors.push(diag.with_file(canonical_str.clone()));
+            }
+            return Ok(());
+        }
+
+        let previous_file_path = std::mem::replace(&mut self.file_path, canonical_str);
+        for statement in &program.statements {
+            if let Err(err) = self.compile_statement(statement) {
+                self.errors.push(err);
+            }
+        }
+        self.file_path = previous_file_path;
+
+        Ok(())
+    }
+
+    #[allow(clippy::result_large_err)]
     fn compile_block(&mut self, block: &Block) -> Result<(), Diagnostic> {
         for statement in &block.statements {
             self.compile_statement(statement)?;
@@ -475,6 +728,12 @@ impl Compiler {
             instructions: self.scopes[self.scope_index].instructions.clone(),
             constants: self.constants.clone(),
         }
+    }
+
+    pub fn imported_files(&self) -> Vec<String> {
+        let mut files: Vec<String> = self.imported_files.iter().cloned().collect();
+        files.sort();
+        files
     }
 
     fn is_last_instruction(&self, opcode: OpCode) -> bool {
@@ -513,13 +772,14 @@ impl Compiler {
     }
 
     fn make_immutability_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "cannot assign twice to immutable variable `{}`",
-            name
-        ))
+        Diagnostic::error("IMMUTABLE BINDING")
+        .with_code("E003")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message(format!("`{}` is immutable", name))
+        .with_message(format!(
+            "Cannot assign twice to immutable variable `{}`.",
+            name
+        ))
         .with_hint(
             "Variables in Flux are immutable by default; once you bind a value, you cannot change it.",
         )
@@ -530,22 +790,87 @@ impl Compiler {
     }
 
     fn make_undefined_variable_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!("cannot find value `{}` in this scope", name))
+        Diagnostic::error("UNDEFINED VARIABLE")
+            .with_code("E007")
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("`{}` is not defined here", name))
+            .with_message(format!("I can't find a value named `{}`.", name))
             .with_hint(format!("Define it first: let {} = ...;", name))
     }
 
     fn make_redeclaration_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!("the name `{}` is defined multiple times", name))
+        Diagnostic::error("DUPLICATE NAME")
+            .with_code("E001")
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("`{}` was already declared in this scope", name))
+            .with_message(format!("`{}` was already declared in this scope.", name))
             .with_hint(format!(
                 "Use a different name: let {} = ...; let {}2 = ...;",
                 name, name
             ))
+    }
+
+    fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error("OUTER ASSIGNMENT")
+            .with_code("E004")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!(
+                "Cannot assign to outer variable `{}` from this scope.",
+                name
+            ))
+            .with_hint(format!(
+                "Use a new binding (shadowing) instead: let {} = ...;",
+                name
+            ))
+    }
+
+    fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error("INVALID MODULE NAME")
+            .with_code("E016")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("Invalid module name `{}`.", name))
+            .with_hint("Module names must start with an uppercase letter.")
+            .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
+    }
+
+    fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error("IMPORT NAME COLLISION")
+            .with_code("E030")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!(
+                "Cannot import `{}`; name already defined in this scope.",
+                name
+            ))
+            .with_hint("Use a different name or remove the existing binding.")
+    }
+
+    fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error("IMPORT SCOPE")
+            .with_code("E031")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("Cannot import `{}` inside a function.", name))
+            .with_hint("Move the import to the top level.")
+    }
+
+    fn is_uppercase_identifier(name: &str) -> bool {
+        name.chars()
+            .next()
+            .map(|ch| ch.is_ascii_uppercase())
+            .unwrap_or(false)
+    }
+
+    fn find_duplicate_name(names: &[String]) -> Option<&str> {
+        let mut seen = HashSet::new();
+        for name in names {
+            if !seen.insert(name.as_str()) {
+                return Some(name.as_str());
+            }
+        }
+        None
     }
 }
 

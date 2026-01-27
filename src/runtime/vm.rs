@@ -42,8 +42,7 @@ impl VM {
     pub fn run(&mut self) -> Result<(), String> {
         while self.current_frame().ip < self.current_frame().instructions().len() {
             let ip = self.current_frame().ip;
-            let instructions = self.current_frame().instructions().clone();
-            let op = OpCode::from(instructions[ip]);
+            let op = OpCode::from(self.current_frame().instructions()[ip]);
 
             match op {
                 OpCode::OpCurrentClosure => {
@@ -62,35 +61,35 @@ impl VM {
                     self.push(Object::Null)?;
                 }
                 OpCode::OpGetLocal => {
-                    let idx = read_u8(&instructions, ip + 1) as usize;
+                    let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
                     let bp = self.current_frame().base_pointer;
                     self.push(self.stack[bp + idx].clone())?;
                 }
                 OpCode::OpSetLocal => {
-                    let idx = read_u8(&instructions, ip + 1) as usize;
+                    let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
                     let bp = self.current_frame().base_pointer;
                     self.stack[bp + idx] = self.pop()?;
                 }
                 OpCode::OpGetFree => {
-                    let idx = read_u8(&instructions, ip + 1) as usize;
+                    let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
                     let value = self.current_frame().closure.free[idx].clone();
                     self.push(value)?;
                 }
                 OpCode::OpClosure => {
-                    let idx = read_u16(&instructions, ip + 1) as usize;
-                    let num_free = read_u8(&instructions, ip + 3) as usize;
+                    let idx = read_u16(self.current_frame().instructions(), ip + 1) as usize;
+                    let num_free = read_u8(self.current_frame().instructions(), ip + 3) as usize;
                     self.current_frame_mut().ip += 3;
                     self.push_closure(idx, num_free)?;
                 }
                 OpCode::OpJump => {
-                    let pos = read_u16(&instructions, ip + 1) as usize;
+                    let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip = pos - 1;
                 }
                 OpCode::OpJumpNotTruthy => {
-                    let pos = read_u16(&instructions, ip + 1) as usize;
+                    let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     let condition = self.pop()?;
                     if !condition.is_truthy() {
@@ -98,17 +97,17 @@ impl VM {
                     }
                 }
                 OpCode::OpGetGlobal => {
-                    let idx = read_u16(&instructions, ip + 1) as usize;
+                    let idx = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     self.push(self.globals[idx].clone())?;
                 }
                 OpCode::OpSetGlobal => {
-                    let idx = read_u16(&instructions, ip + 1) as usize;
+                    let idx = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     self.globals[idx] = self.pop()?;
                 }
                 OpCode::OpConstant => {
-                    let idx = read_u16(&instructions, ip + 1) as usize;
+                    let idx = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     self.push(self.constants[idx].clone())?;
                 }
@@ -139,13 +138,13 @@ impl VM {
                 OpCode::OpFalse => self.push(Object::Boolean(false))?,
                 OpCode::OpNull => self.push(Object::Null)?,
                 OpCode::OpGetBuiltin => {
-                    let idx = read_u8(&instructions, ip + 1) as usize;
+                    let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
                     let builtin = BUILTINS[idx].clone();
                     self.push(Object::Builtin(builtin))?;
                 }
                 OpCode::OpCall => {
-                    let num_args = read_u8(&instructions, ip + 1) as usize;
+                    let num_args = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
                     self.execute_call(num_args)?;
                     continue;
@@ -154,14 +153,16 @@ impl VM {
                     self.pop()?;
                 }
                 OpCode::OpArray => {
-                    let num_elements = read_u16(&instructions, ip + 1) as usize;
+                    let num_elements =
+                        read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     let array = self.build_array(self.sp - num_elements, self.sp);
                     self.sp -= num_elements;
                     self.push(array)?;
                 }
                 OpCode::OpHash => {
-                    let num_elements = read_u16(&instructions, ip + 1) as usize;
+                    let num_elements =
+                        read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     let hash = self.build_hash(self.sp - num_elements, self.sp)?;
                     self.sp -= num_elements;
@@ -245,6 +246,7 @@ impl VM {
                 self.sp -= num_args + 1;
                 let result = (builtin.func)(args)?;
                 self.push(result)?;
+                // Advance past the OpCall operand since builtins don't push a new frame.
                 self.current_frame_mut().ip += 1;
                 Ok(())
             }

@@ -68,6 +68,8 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token.token_type {
+            TokenType::Module => self.parse_module_statement(),
+            TokenType::Import => self.parse_import_statement(),
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
@@ -75,9 +77,10 @@ impl Parser {
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 self.errors.push(
-                    Diagnostic::error("unknown keyword `fn`")
+                    Diagnostic::error("UNKNOWN KEYWORD")
+                        .with_code("E101")
                         .with_position(self.current_token.position)
-                        .with_message("Flux uses `fun` for function declarations")
+                        .with_message("Flux uses `fun` for function declarations.")
                         .with_hint("Replace it with `fun`."),
                 );
                 self.synchronize_after_error();
@@ -89,9 +92,13 @@ impl Parser {
                     && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(
-                    Diagnostic::error(format!("unknown keyword `{}`", self.current_token.literal))
+                    Diagnostic::error("UNKNOWN KEYWORD")
+                        .with_code("E101")
                         .with_position(self.current_token.position)
-                        .with_message("Flux uses `fun` for function declarations")
+                        .with_message(format!(
+                            "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
+                            self.current_token.literal
+                        ))
                         .with_hint("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
@@ -217,6 +224,42 @@ impl Parser {
         })
     }
 
+    fn parse_module_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let name = self.current_token.literal.clone();
+
+        if !self.expect_peek(TokenType::LBrace) {
+            return None;
+        }
+
+        let body = self.parse_block();
+
+        Some(Statement::Module {
+            name,
+            body,
+            position,
+        })
+    }
+
+    fn parse_import_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let name = self.current_token.literal.clone();
+
+        // No semicolon required for import statements
+
+        Some(Statement::Import { name, position })
+    }
+
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left = self.parse_prefix()?;
 
@@ -251,12 +294,13 @@ impl Parser {
 
     fn no_prefix_parse_error(&mut self) {
         self.errors.push(
-            Diagnostic::error(format!(
-                "no prefix parse for {}",
-                self.current_token.token_type
-            ))
-            .with_position(self.current_token.position)
-            .with_message("expected an expression here"),
+            Diagnostic::error("EXPECTED EXPRESSION")
+                .with_code("E102")
+                .with_position(self.current_token.position)
+                .with_message(format!(
+                    "Expected an expression, found `{}`.",
+                    self.current_token.token_type
+                )),
         );
     }
 
@@ -272,6 +316,7 @@ impl Parser {
             | TokenType::NotEq => self.parse_infix_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
+            TokenType::Dot => self.parse_member_access(left),
             _ => Some(left),
         }
     }
@@ -310,6 +355,19 @@ impl Parser {
         })
     }
 
+    fn parse_member_access(&mut self, object: Expression) -> Option<Expression> {
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let member = self.current_token.literal.clone();
+
+        Some(Expression::MemberAccess {
+            object: Box::new(object),
+            member,
+        })
+    }
+
     fn parse_identifier(&mut self) -> Option<Expression> {
         Some(Expression::Identifier(self.current_token.literal.clone()))
     }
@@ -319,11 +377,13 @@ impl Parser {
             Ok(value) => Some(Expression::Integer(value)),
             Err(_) => {
                 self.errors.push(
-                    Diagnostic::error(format!(
-                        "could not parse {} as integer",
-                        self.current_token.literal
-                    ))
-                    .with_position(self.current_token.position),
+                    Diagnostic::error("INVALID INTEGER")
+                        .with_code("E103")
+                        .with_position(self.current_token.position)
+                        .with_message(format!(
+                            "Could not parse `{}` as an integer.",
+                            self.current_token.literal
+                        )),
                 );
                 None
             }
@@ -335,11 +395,13 @@ impl Parser {
             Ok(value) => Some(Expression::Float(value)),
             Err(_) => {
                 self.errors.push(
-                    Diagnostic::error(format!(
-                        "could not parse {} as float",
-                        self.current_token.literal
-                    ))
-                    .with_position(self.current_token.position),
+                    Diagnostic::error("INVALID FLOAT")
+                        .with_code("E104")
+                        .with_position(self.current_token.position)
+                        .with_message(format!(
+                            "Could not parse `{}` as a float.",
+                            self.current_token.literal
+                        )),
                 );
                 None
             }
@@ -546,12 +608,13 @@ impl Parser {
 
     fn peek_error(&mut self, expected: TokenType) {
         self.errors.push(
-            Diagnostic::error(format!(
-                "expected {}, got {}",
-                expected, self.peek_token.token_type
-            ))
-            .with_position(self.peek_token.position)
-            .with_message("unexpected token"),
+            Diagnostic::error("UNEXPECTED TOKEN")
+                .with_code("E105")
+                .with_position(self.peek_token.position)
+                .with_message(format!(
+                    "Expected {}, got {}.",
+                    expected, self.peek_token.token_type
+                )),
         );
     }
 }

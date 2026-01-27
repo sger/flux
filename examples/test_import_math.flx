@@ -1,0 +1,7 @@
+import Math
+
+print(Math.square(5));         // OK
+// print(Math._private_function()); // should error (private)
+//square(5);                      // should error (no leak)
+
+

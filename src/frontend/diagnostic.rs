@@ -9,30 +9,11 @@ pub enum Severity {
     Help,
 }
 
-impl Severity {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Severity::Error => "error",
-            Severity::Warning => "warning",
-            Severity::Note => "note",
-            Severity::Help => "help",
-        }
-    }
-
-    fn color_code(&self) -> &'static str {
-        match self {
-            Severity::Error => "\u{1b}[31m",   // red
-            Severity::Warning => "\u{1b}[33m", // yellow
-            Severity::Note => "\u{1b}[34m",    // blue
-            Severity::Help => "\u{1b}[32m",    // green
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,
     pub title: String,
+    pub code: Option<String>,
     pub message: Option<String>,
     pub file: Option<String>,
     pub position: Option<Position>,
@@ -44,11 +25,29 @@ impl Diagnostic {
         Self {
             severity: Severity::Error,
             title: title.into(),
+            code: None,
             message: None,
             file: None,
             position: None,
             hints: Vec::new(),
         }
+    }
+
+    pub fn warning(title: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            title: title.into(),
+            code: None,
+            message: None,
+            file: None,
+            position: None,
+            hints: Vec::new(),
+        }
+    }
+
+    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
+        self
     }
 
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
@@ -74,34 +73,33 @@ impl Diagnostic {
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
+        let yellow = "\u{1b}[33m";
         let reset = "\u{1b}[0m";
+        let file = self.file.as_deref().or(default_file).unwrap_or("<unknown>");
+        let code = self.code.as_deref().unwrap_or("E000");
+
         if use_color {
-            out.push_str(self.severity.color_code());
+            out.push_str(yellow);
         }
-        out.push_str(self.severity.as_str());
+        out.push_str(&format!("-- {} -- {} -- [{}]\n", self.title, file, code));
         if use_color {
             out.push_str(reset);
         }
-        out.push_str(": ");
-        out.push_str(&self.title);
 
-        let file = self.file.as_deref().or(default_file).unwrap_or("<unknown>");
+        if let Some(message) = &self.message {
+            out.push('\n');
+            out.push_str(message);
+            out.push('\n');
+        }
 
         if let Some(position) = self.position {
-            let display_column = position.column + 1;
-            out.push_str(&format!(
-                "\n --> {}:{}:{}",
-                file, position.line, display_column
-            ));
+            let _display_column = position.column + 1;
 
             if let Some(line_text) = source.and_then(|src| get_source_line(src, position.line)) {
                 let line_str = position.line.to_string();
                 let gutter_width = line_str.len();
                 let caret_indent = position.column.min(line_text.len());
-                let label = self.message.as_deref().unwrap_or(&self.title);
-
                 out.push('\n');
-                out.push_str(&format!("{:>width$} | \n", "", width = gutter_width));
                 out.push_str(&format!(
                     "{:>width$} | {}\n",
                     position.line,
@@ -115,25 +113,19 @@ impl Diagnostic {
                     width = gutter_width
                 ));
                 if use_color {
-                    out.push_str(self.severity.color_code());
+                    out.push_str(yellow);
                 }
                 out.push('^');
                 if use_color {
                     out.push_str(reset);
                 }
-                out.push(' ');
-                out.push_str(label);
-            } else if let Some(message) = &self.message {
-                out.push_str(&format!("\n  = {}", message));
             }
-        } else if let Some(message) = &self.message {
-            out.push_str(&format!("\n  = {}", message));
         }
 
         if !self.hints.is_empty() {
             out.push('\n');
             for hint in &self.hints {
-                out.push_str(&format!("\n= hint: {}", hint));
+                out.push_str(&format!("\nHint: {}", hint));
             }
         }
 
