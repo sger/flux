@@ -8,6 +8,7 @@ pub enum Expression {
     Integer(i64),
     String(String),
     Boolean(bool),
+    Null,
     Prefix {
         operator: String,
         right: Box<Expression>,
@@ -49,6 +50,7 @@ impl fmt::Display for Expression {
             Expression::Integer(value) => write!(f, "{}", value),
             Expression::String(value) => write!(f, "\"{}\"", value),
             Expression::Boolean(value) => write!(f, "{}", value),
+            Expression::Null => write!(f, "null"),
             Expression::Prefix { operator, right } => {
                 write!(f, "({}{})", operator, right)
             }

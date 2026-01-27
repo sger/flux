@@ -87,6 +87,7 @@ define_tokens! {
         Return => "return",
         True   => "true",
         False  => "false",
+        Null   => "null",
 
         // ↓ Add new keywords here ↓
     }
