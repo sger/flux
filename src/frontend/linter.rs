@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
 use crate::frontend::{
-    diagnostic::Diagnostic,
-    expression::Expression,
-    position::Position,
-    program::Program,
+    diagnostic::Diagnostic, expression::Expression, position::Position, program::Program,
     statement::Statement,
 };
 
@@ -97,7 +94,11 @@ impl Linter {
                 }
                 self.finish_scope();
             }
-            Statement::Module { name, body, position } => {
+            Statement::Module {
+                name,
+                body,
+                position,
+            } => {
                 self.define_binding(name, *position, BindingKind::Function);
                 self.enter_scope();
                 for stmt in &body.statements {
@@ -159,7 +160,10 @@ impl Linter {
                 }
                 self.finish_scope();
             }
-            Expression::Call { function, arguments } => {
+            Expression::Call {
+                function,
+                arguments,
+            } => {
                 self.lint_expression(function);
                 for arg in arguments {
                     self.lint_expression(arg);
@@ -291,7 +295,9 @@ fn is_snake_case(name: &str) -> bool {
 
 fn is_upper_camel(name: &str) -> bool {
     let mut chars = name.chars();
-    let Some(first) = chars.next() else { return false; };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !first.is_ascii_uppercase() {
         return false;
     }

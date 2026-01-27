@@ -7,10 +7,7 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostic::render_diagnostics,
-        formatter::format_source,
-        lexer::Lexer,
-        linter::Linter,
+        diagnostic::render_diagnostics, formatter::format_source, lexer::Lexer, linter::Linter,
         parser::Parser,
     },
     runtime::vm::VM,
@@ -145,13 +142,13 @@ fn run_file(path: &str, verbose: bool) {
             }
             let stored = cache
                 .store(
-                Path::new(path),
-                &source_hash,
-                env!("CARGO_PKG_VERSION"),
-                &bytecode,
-                &deps,
-            )
-            .is_ok();
+                    Path::new(path),
+                    &source_hash,
+                    env!("CARGO_PKG_VERSION"),
+                    &bytecode,
+                    &deps,
+                )
+                .is_ok();
             if verbose && stored {
                 eprintln!("cache: stored");
             }
