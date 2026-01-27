@@ -6,7 +6,13 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    frontend::{diagnostic::render_diagnostics, lexer::Lexer, linter::Linter, parser::Parser},
+    frontend::{
+        diagnostic::render_diagnostics,
+        formatter::format_source,
+        lexer::Lexer,
+        linter::Linter,
+        parser::Parser,
+    },
     runtime::vm::VM,
 };
 
@@ -58,6 +64,19 @@ fn main() {
                 return;
             }
             lint_file(&args[2]);
+        }
+        "fmt" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux fmt [--check] <file.flx>");
+                return;
+            }
+            let check = args.iter().any(|arg| arg == "--check");
+            let file = if check { &args[3] } else { &args[2] };
+            if check && args.len() < 4 {
+                eprintln!("Usage: flux fmt --check <file.flx>");
+                return;
+            }
+            fmt_file(file, check);
         }
         "cache-info" => {
             if args.len() < 3 {
@@ -223,6 +242,26 @@ fn lint_file(path: &str) {
             let lints = Linter::new(Some(path.to_string())).lint(&program);
             if !lints.is_empty() {
                 println!("{}", render_diagnostics(&lints, Some(&source), Some(path)));
+            }
+        }
+        Err(e) => eprintln!("Error reading {}: {}", path, e),
+    }
+}
+
+fn fmt_file(path: &str, check: bool) {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let formatted = format_source(&source);
+            if check {
+                if source.trim() != formatted.trim() {
+                    eprintln!("format: changes needed");
+                    std::process::exit(1);
+                }
+                return;
+            }
+
+            if let Err(err) = fs::write(path, formatted) {
+                eprintln!("Error writing {}: {}", path, err);
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),

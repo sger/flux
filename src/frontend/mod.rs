@@ -3,6 +3,7 @@
 pub mod block;
 pub mod diagnostic;
 pub mod expression;
+pub mod formatter;
 pub mod lexer;
 pub mod linter;
 pub mod parser;
