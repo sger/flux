@@ -68,6 +68,8 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token.token_type {
+            TokenType::Module => self.parse_module_statement(),
+            TokenType::Import => self.parse_import_statement(),
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
@@ -217,6 +219,45 @@ impl Parser {
         })
     }
 
+    fn parse_module_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let name = self.current_token.literal.clone();
+
+        if !self.expect_peek(TokenType::LBrace) {
+            return None;
+        }
+
+        let body = self.parse_block();
+
+        Some(Statement::Module {
+            name,
+            body,
+            position,
+        })
+    }
+
+    fn parse_import_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let name = self.current_token.literal.clone();
+
+        // No semicolon required for import statements
+
+        Some(Statement::Import {
+            name,
+            position,
+        })
+    }
+
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left = self.parse_prefix()?;
 
@@ -272,6 +313,7 @@ impl Parser {
             | TokenType::NotEq => self.parse_infix_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
+            TokenType::Dot => self.parse_member_access(left),
             _ => Some(left),
         }
     }
@@ -307,6 +349,19 @@ impl Parser {
         Some(Expression::Index {
             left: Box::new(left),
             index: Box::new(index),
+        })
+    }
+
+    fn parse_member_access(&mut self, object: Expression) -> Option<Expression> {
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let member = self.current_token.literal.clone();
+
+        Some(Expression::MemberAccess {
+            object: Box::new(object),
+            member,
         })
     }
 
