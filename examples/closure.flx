@@ -1,0 +1,15 @@
+let newClosure = fun(a) { 
+    fun() { 
+        a; 
+    }; 
+};
+
+let closure = newClosure(99);
+
+print(closure());
+
+let test_closure = fun(b) {
+    b;
+};
+
+print(test_closure(100));

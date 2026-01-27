@@ -182,6 +182,10 @@ impl Compiler {
                 let idx = self.add_constant(Object::Integer(*value));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
+            Expression::Float(value) => {
+                let idx = self.add_constant(Object::Float(*value));
+                self.emit(OpCode::OpConstant, &[idx]);
+            }
             Expression::String(value) => {
                 let idx = self.add_constant(Object::String(value.clone()));
                 self.emit(OpCode::OpConstant, &[idx]);

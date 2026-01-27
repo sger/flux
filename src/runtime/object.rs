@@ -8,6 +8,7 @@ use crate::runtime::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
     Integer(i64),
+    Float(f64),
     Boolean(bool),
     String(String),
     Null,
@@ -23,6 +24,7 @@ impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Object::Integer(v) => write!(f, "{}", v),
+            Object::Float(v) => write!(f, "{}", v),
             Object::Boolean(v) => write!(f, "{}", v),
             Object::String(v) => write!(f, "\"{}\"", v),
             Object::Null => write!(f, "null"),
@@ -47,6 +49,7 @@ impl Object {
     pub fn type_name(&self) -> &'static str {
         match self {
             Object::Integer(_) => "Int",
+            Object::Float(_) => "Float",
             Object::Boolean(_) => "Bool",
             Object::String(_) => "String",
             Object::Null => "Null",
@@ -80,6 +83,7 @@ mod tests {
     #[test]
     fn test_object_display() {
         assert_eq!(Object::Integer(42).to_string(), "42");
+        assert_eq!(Object::Float(3.5).to_string(), "3.5");
         assert_eq!(Object::Boolean(true).to_string(), "true");
         assert_eq!(Object::Null.to_string(), "null");
         assert_eq!(
@@ -91,6 +95,7 @@ mod tests {
     #[test]
     fn test_is_truthy() {
         assert!(Object::Integer(0).is_truthy());
+        assert!(Object::Float(0.0).is_truthy());
         assert!(Object::Boolean(true).is_truthy());
         assert!(!Object::Boolean(false).is_truthy());
         assert!(!Object::Null.is_truthy());
