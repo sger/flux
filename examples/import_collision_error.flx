@@ -1,6 +1,6 @@
 module Main {
   fun main() {
     let Math = 1;
-    import Math;
+    import Math
   }
 }
