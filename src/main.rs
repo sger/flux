@@ -51,14 +51,13 @@ fn run_file(path: &str) {
                 return;
             }
 
-            let mut compiler = Compiler::new();
+            let mut compiler = Compiler::new_with_file_path(path);
             if let Err(err) = compiler.compile(&program) {
-                eprintln!("Compile error: {}", err);
+                eprintln!("{}", err);
                 return;
             }
 
             println!("{:?}", compiler.bytecode());
-            // println!("{:?}", program);
 
             let mut vm = VM::new(compiler.bytecode());
             if let Err(err) = vm.run() {
