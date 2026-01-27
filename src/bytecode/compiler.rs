@@ -13,6 +13,7 @@ use crate::{
     frontend::{
         block::Block,
         expression::Expression,
+        position::Position,
         program::Program,
         statement::{self, Statement},
     },
@@ -24,10 +25,16 @@ pub struct Compiler {
     pub symbol_table: SymbolTable,
     scopes: Vec<CompilationScope>,
     scope_index: usize,
+    pub errors: Vec<String>,
+    file_path: String,
 }
 
 impl Compiler {
     pub fn new() -> Self {
+        Self::new_with_file_path("<unknown>")
+    }
+
+    pub fn new_with_file_path(file_path: impl Into<String>) -> Self {
         let mut symbol_table = SymbolTable::new();
         symbol_table.define_builtin(0, "print");
         symbol_table.define_builtin(1, "len");
@@ -41,6 +48,8 @@ impl Compiler {
             symbol_table,
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
+            errors: Vec::new(),
+            file_path: file_path.into(),
         }
     }
 
@@ -53,18 +62,35 @@ impl Compiler {
 
     pub fn compile(&mut self, program: &Program) -> Result<(), String> {
         for statement in &program.statements {
-            self.compile_statement(statement)?;
+            // Continue compilation even if there are errors
+            if let Err(err) = self.compile_statement(statement) {
+                self.errors.push(err);
+            }
         }
+
+        // Return all errors at the end
+        if !self.errors.is_empty() {
+            return Err(self.errors.join("\n\n"));
+        }
+
         Ok(())
     }
 
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
-            Statement::Expression { expression } => {
+            Statement::Expression { expression, .. } => {
                 self.compile_expression(expression)?;
                 self.emit(OpCode::OpPop, &[]);
             }
-            Statement::Let { name, value } => {
+            Statement::Let {
+                name,
+                value,
+                position,
+            } => {
+                if self.symbol_table.exists_in_current_scope(name) {
+                    return Err(self.make_redeclaration_error(name, *position));
+                }
+
                 let symbol = self.symbol_table.define(name);
                 self.compile_expression(value)?;
 
@@ -73,8 +99,37 @@ impl Compiler {
                     SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
                     _ => 0,
                 };
+
+                self.symbol_table.mark_assigned(name).ok();
             }
-            Statement::Return { value } => match value {
+            Statement::Assign {
+                name,
+                value,
+                position,
+            } => {
+                // Check if variable exists
+                let symbol = self
+                    .symbol_table
+                    .resolve(name)
+                    .ok_or_else(|| self.make_undefined_variable_error(name, *position))?;
+
+                // Check if variable is already assigned (immutability check)
+                if symbol.is_assigned {
+                    return Err(self.make_immutability_error(name, *position));
+                }
+
+                self.compile_expression(value)?;
+
+                match symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                    _ => 0,
+                };
+
+                // Mark as assigned
+                self.symbol_table.mark_assigned(name).ok();
+            }
+            Statement::Return { value, .. } => match value {
                 Some(expr) => {
                     self.compile_expression(expr)?;
                     self.emit(OpCode::OpReturnValue, &[]);
@@ -87,11 +142,9 @@ impl Compiler {
                 name,
                 parameters,
                 body,
+                ..
             } => {
                 self.compile_function_statement(name, parameters, body)?;
-            }
-            _ => {
-                eprintln!("compile_statement: error {}", statement)
             }
         }
 
@@ -445,5 +498,64 @@ impl Compiler {
         let pos = self.scopes[self.scope_index].last_instruction.position;
         self.replace_instruction(pos, make(OpCode::OpReturnValue, &[]));
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
+    }
+
+    fn make_immutability_error(&self, name: &str, position: Position) -> String {
+        format!(
+            "error: cannot assign twice to immutable variable `{}`\n\
+              --> {}:{}:{}\n\
+             \n\
+             -- IMMUTABLE VARIABLE ----------------------------------------\n\
+             \n\
+             I cannot reassign to the variable `{}` because it is immutable.\n\
+             \n\
+             Variables in Flux are immutable by default, like in Haskell and Elixir.\n\
+             This means once you bind a value to a name, you cannot change it later.\n\
+             \n\
+             Hint: If you want to use a different value, consider using a different name:\n\
+             \n\
+                 let {} = ...;      // original binding\n\
+                 let {}2 = ...;     // new binding with different value\n\
+             \n\
+             Or perhaps you can restructure your code to avoid reassignment?",
+            name, self.file_path, position.line, position.column, name, name, name
+        )
+    }
+
+    fn make_undefined_variable_error(&self, name: &str, position: Position) -> String {
+        format!(
+            "error: cannot find value `{}` in this scope\n\
+              --> {}:{}:{}\n\
+             \n\
+             -- UNDEFINED VARIABLE ----------------------------------------\n\
+             \n\
+             I cannot find a variable named `{}`.\n\
+             \n\
+             Did you forget to define it with `let` first?\n\
+             \n\
+             Hint: You need to use `let` to create a variable before you can use it:\n\
+             \n\
+                 let {} = ...;",
+            name, self.file_path, position.line, position.column, name, name
+        )
+    }
+
+    fn make_redeclaration_error(&self, name: &str, position: Position) -> String {
+        format!(
+            "error: the name `{}` is defined multiple times\n\
+              --> {}:{}:{}\n\
+             \n\
+             -- DUPLICATE DECLARATION -------------------------------------\n\
+             \n\
+             I found multiple declarations for the variable `{}`.\n\
+             \n\
+             You cannot use `let` to declare the same variable twice in the same scope.\n\
+             \n\
+             Hint: Use a different name for your second variable:\n\
+             \n\
+                 let {} = ...;      // first declaration\n\
+                 let {}2 = ...;     // use a different name",
+            name, self.file_path, position.line, position.column, name, name, name
+        )
     }
 }

@@ -54,21 +54,32 @@ impl Parser {
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
             }
+
+            // Check if we have `identifier = expression` (reassignment without 'let')
+            TokenType::Ident if self.is_peek_token(TokenType::Assign) => {
+                self.parse_assignment_statement()
+            }
             _ => self.parse_expression_statement(),
         }
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
         let expression = self.parse_expression(Precedence::Lowest)?;
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
         }
 
-        Some(Statement::Expression { expression })
+        Some(Statement::Expression {
+            expression,
+            position,
+        })
     }
 
     fn parse_function_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -91,10 +102,12 @@ impl Parser {
             name,
             parameters,
             body,
+            position,
         })
     }
 
     fn parse_return_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
         self.next_token();
 
         let value = if self.is_current_token(TokenType::Semicolon) {
@@ -107,10 +120,12 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Return { value })
+        Some(Statement::Return { value, position })
     }
 
     fn parse_let_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -129,7 +144,34 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Let { name, value })
+        Some(Statement::Let {
+            name,
+            value,
+            position,
+        })
+    }
+
+    fn parse_assignment_statement(&mut self) -> Option<Statement> {
+        let position = self.current_token.position;
+        let name = self.current_token.literal.clone();
+
+        if !self.expect_peek(TokenType::Assign) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if self.is_peek_token(TokenType::Semicolon) {
+            self.next_token();
+        }
+
+        Some(Statement::Assign {
+            name,
+            value,
+            position,
+        })
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
