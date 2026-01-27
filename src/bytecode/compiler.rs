@@ -248,10 +248,14 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        return Err(Diagnostic::error(format!(
-                            "unknown prefix operator `{}`",
-                            operator
-                        )));
+                        return Err(
+                            Diagnostic::error("UNKNOWN PREFIX OPERATOR")
+                                .with_code("E010")
+                                .with_message(format!(
+                                    "Unknown prefix operator `{}`.",
+                                    operator
+                                )),
+                        );
                     }
                 };
             }
@@ -279,11 +283,17 @@ impl Compiler {
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     _ => {
-                        return Err(Diagnostic::error(format!(
-                            "unknown infix operator `{}`",
-                            operator
-                        ))
-                        .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
+                        return Err(
+                            Diagnostic::error("UNKNOWN INFIX OPERATOR")
+                                .with_code("E011")
+                                .with_message(format!(
+                                    "Unknown infix operator `{}`.",
+                                    operator
+                                ))
+                                .with_hint(
+                                    "Use a supported operator like +, -, *, /, ==, !=, or >.",
+                                ),
+                        );
                     }
                 };
             }
@@ -334,13 +344,14 @@ impl Compiler {
                 // Check if accessing a private member (starts with underscore)
                 if member.starts_with('_') {
                     return Err(
-                        Diagnostic::error(format!(
-                            "cannot access private member `{}`",
+                        Diagnostic::error("PRIVATE MEMBER")
+                        .with_code("E021")
+                        .with_file(self.file_path.clone())
+                        .with_message(format!(
+                            "Cannot access private member `{}`.",
                             member
                         ))
-                        .with_file(self.file_path.clone())
-                        .with_message("members starting with `_` are private")
-                        .with_hint("private members can only be accessed within the same module"),
+                        .with_hint("Private members can only be accessed within the same module."),
                     );
                 }
 
@@ -391,11 +402,13 @@ impl Compiler {
     ) -> Result<(), Diagnostic> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
             return Err(
-                Diagnostic::error(format!(
-                    "duplicate parameter `{}` in function literal",
-                    name
-                ))
-                .with_message("parameter names must be unique"),
+                Diagnostic::error("DUPLICATE PARAMETER")
+                    .with_code("E012")
+                    .with_message(format!(
+                        "Duplicate parameter `{}` in function literal.",
+                        name
+                    ))
+                    .with_hint("Parameter names must be unique."),
             );
         }
 
@@ -482,14 +495,15 @@ impl Compiler {
 
         if let Some(param) = Self::find_duplicate_name(parameters) {
             return Err(
-                Diagnostic::error(format!(
-                    "duplicate parameter `{}` in function `{}`",
-                    param, name
-                ))
+                Diagnostic::error("DUPLICATE PARAMETER")
+                .with_code("E012")
                 .with_file(self.file_path.clone())
                 .with_position(position)
-                .with_message("parameter names must be unique")
-                .with_hint("Use distinct parameter names"),
+                .with_message(format!(
+                    "Duplicate parameter `{}` in function `{}`.",
+                    param, name
+                ))
+                .with_hint("Use distinct parameter names."),
             );
         }
 
@@ -556,22 +570,24 @@ impl Compiler {
                 Statement::Function { name: fn_name, .. } => {
                     if fn_name == name {
                         return Err(
-                            Diagnostic::error(format!(
-                                "module `{}` cannot define a function with the same name",
+                            Diagnostic::error("MODULE NAME CLASH")
+                            .with_code("E018")
+                            .with_position(statement.position())
+                            .with_message(format!(
+                                "Module `{}` cannot define a function with the same name.",
                                 name
                             ))
-                            .with_position(statement.position())
-                            .with_message("the module name is reserved in this scope")
-                            .with_hint("use a different function name"),
+                            .with_hint("Use a different function name."),
                         );
                     }
                     function_names.push(fn_name.clone());
                 }
                 _ => {
                     return Err(
-                        Diagnostic::error("only function declarations are allowed in modules")
+                        Diagnostic::error("INVALID MODULE CONTENT")
+                            .with_code("E019")
                             .with_position(statement.position())
-                            .with_message("modules can only contain function declarations"),
+                            .with_message("Modules can only contain function declarations."),
                     );
                 }
             }
@@ -669,7 +685,8 @@ impl Compiler {
             Some(path) => path,
             None => {
                 return Err(
-                    Diagnostic::error("import not found")
+                    Diagnostic::error("IMPORT NOT FOUND")
+                        .with_code("E032")
                         .with_position(position)
                         .with_message(format!("no module file found for `{}`", name))
                         .with_hint(format!(
@@ -689,7 +706,8 @@ impl Compiler {
         self.imported_files.insert(canonical_str.clone());
 
         let source = fs::read_to_string(&canonical_path).map_err(|err| {
-            Diagnostic::error("failed to read import")
+            Diagnostic::error("IMPORT READ FAILED")
+                .with_code("E033")
                 .with_position(position)
                 .with_message(format!("{}: {}", canonical_str, err))
         })?;
@@ -783,13 +801,14 @@ impl Compiler {
     }
 
     fn make_immutability_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "cannot assign twice to immutable variable `{}`",
-            name
-        ))
+        Diagnostic::error("IMMUTABLE BINDING")
+        .with_code("E003")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message(format!("`{}` is immutable", name))
+        .with_message(format!(
+            "Cannot assign twice to immutable variable `{}`.",
+            name
+        ))
         .with_hint(
             "Variables in Flux are immutable by default; once you bind a value, you cannot change it.",
         )
@@ -800,18 +819,20 @@ impl Compiler {
     }
 
     fn make_undefined_variable_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!("cannot find value `{}` in this scope", name))
+        Diagnostic::error("UNDEFINED VARIABLE")
+            .with_code("E007")
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("`{}` is not defined here", name))
+            .with_message(format!("I can't find a value named `{}`.", name))
             .with_hint(format!("Define it first: let {} = ...;", name))
     }
 
     fn make_redeclaration_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!("the name `{}` is defined multiple times", name))
+        Diagnostic::error("DUPLICATE NAME")
+            .with_code("E001")
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("`{}` was already declared in this scope", name))
+            .with_message(format!("`{}` was already declared in this scope.", name))
             .with_hint(format!(
                 "Use a different name: let {} = ...; let {}2 = ...;",
                 name, name
@@ -819,13 +840,14 @@ impl Compiler {
     }
 
     fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "cannot assign to outer variable `{}` from this scope",
-            name
-        ))
+        Diagnostic::error("OUTER ASSIGNMENT")
+        .with_code("E004")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message("closures capture values; outer bindings are immutable")
+        .with_message(format!(
+            "Cannot assign to outer variable `{}` from this scope.",
+            name
+        ))
         .with_hint(format!(
             "Use a new binding (shadowing) instead: let {} = ...;",
             name
@@ -833,36 +855,40 @@ impl Compiler {
     }
 
     fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "invalid module name `{}`",
-            name
-        ))
+        Diagnostic::error("INVALID MODULE NAME")
+        .with_code("E016")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message("module names must start with an uppercase letter")
+        .with_message(format!(
+            "Invalid module name `{}`.",
+            name
+        ))
+        .with_hint("Module names must start with an uppercase letter.")
         .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
     }
 
     fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "cannot import `{}`; name already defined in this scope",
-            name
-        ))
+        Diagnostic::error("IMPORT NAME COLLISION")
+        .with_code("E030")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message("import would shadow an existing binding")
-        .with_hint("Use a different name or remove the existing binding")
+        .with_message(format!(
+            "Cannot import `{}`; name already defined in this scope.",
+            name
+        ))
+        .with_hint("Use a different name or remove the existing binding.")
     }
 
     fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error(format!(
-            "cannot import `{}` inside a function",
-            name
-        ))
+        Diagnostic::error("IMPORT SCOPE")
+        .with_code("E031")
         .with_file(self.file_path.clone())
         .with_position(position)
-        .with_message("imports are only allowed at module/top-level scope")
-        .with_hint("Move the import to the top level")
+        .with_message(format!(
+            "Cannot import `{}` inside a function.",
+            name
+        ))
+        .with_hint("Move the import to the top level.")
     }
 
     fn is_uppercase_identifier(name: &str) -> bool {
