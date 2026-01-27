@@ -1,5 +1,6 @@
 use crate::frontend::{
     block::Block,
+    diagnostic::Diagnostic,
     expression::Expression,
     lexer::Lexer,
     precedence::{Precedence, token_precedence},
@@ -13,7 +14,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     peek_token: Token,
-    pub errors: Vec<String>,
+    pub errors: Vec<Diagnostic>,
 }
 
 impl Parser {
@@ -206,12 +207,14 @@ impl Parser {
     }
 
     fn no_prefix_parse_error(&mut self) {
-        self.errors.push(format!(
-            "no prefix parse for {} at {}:{}",
-            self.current_token.token_type,
-            self.current_token.position.line,
-            self.current_token.position.column
-        ));
+        self.errors.push(
+            Diagnostic::error(format!(
+                "no prefix parse for {}",
+                self.current_token.token_type
+            ))
+            .with_position(self.current_token.position)
+            .with_message("expected an expression here"),
+        );
     }
 
     fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
@@ -272,10 +275,13 @@ impl Parser {
         match self.current_token.literal.parse::<i64>() {
             Ok(value) => Some(Expression::Integer(value)),
             Err(_) => {
-                self.errors.push(format!(
-                    "could not parse {} as integer",
-                    self.current_token.literal
-                ));
+                self.errors.push(
+                    Diagnostic::error(format!(
+                        "could not parse {} as integer",
+                        self.current_token.literal
+                    ))
+                    .with_position(self.current_token.position),
+                );
                 None
             }
         }
@@ -480,12 +486,10 @@ impl Parser {
     }
 
     fn peek_error(&mut self, expected: TokenType) {
-        self.errors.push(format!(
-            "expected {}, got {} at {}:{}",
-            expected,
-            self.peek_token.token_type,
-            self.peek_token.position.line,
-            self.peek_token.position.column
-        ));
+        self.errors.push(
+            Diagnostic::error(format!("expected {}, got {}", expected, self.peek_token.token_type))
+                .with_position(self.peek_token.position)
+                .with_message("unexpected token"),
+        );
     }
 }

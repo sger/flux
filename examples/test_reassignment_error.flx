@@ -1,3 +1,7 @@
 // Test: Immutability error on reassignment
 let a = 5;
 a = 10;
+
+
+let this_is_my_variable = 5;
+this_is_my_variable = 10;

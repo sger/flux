@@ -12,6 +12,7 @@ use crate::{
     },
     frontend::{
         block::Block,
+        diagnostic::Diagnostic,
         expression::Expression,
         position::Position,
         program::Program,
@@ -25,7 +26,7 @@ pub struct Compiler {
     pub symbol_table: SymbolTable,
     scopes: Vec<CompilationScope>,
     scope_index: usize,
-    pub errors: Vec<String>,
+    pub errors: Vec<Diagnostic>,
     file_path: String,
 }
 
@@ -60,7 +61,7 @@ impl Compiler {
         compiler
     }
 
-    pub fn compile(&mut self, program: &Program) -> Result<(), String> {
+    pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
@@ -70,13 +71,13 @@ impl Compiler {
 
         // Return all errors at the end
         if !self.errors.is_empty() {
-            return Err(self.errors.join("\n\n"));
+            return Err(std::mem::take(&mut self.errors));
         }
 
         Ok(())
     }
 
-    fn compile_statement(&mut self, statement: &Statement) -> Result<(), String> {
+    fn compile_statement(&mut self, statement: &Statement) -> Result<(), Diagnostic> {
         match statement {
             Statement::Expression { expression, .. } => {
                 self.compile_expression(expression)?;
@@ -175,7 +176,7 @@ impl Compiler {
         };
     }
 
-    fn compile_expression(&mut self, expression: &Expression) -> Result<(), String> {
+    fn compile_expression(&mut self, expression: &Expression) -> Result<(), Diagnostic> {
         match expression {
             Expression::Integer(value) => {
                 let idx = self.add_constant(Object::Integer(*value));
@@ -199,7 +200,10 @@ impl Compiler {
                 let symbol = self
                     .symbol_table
                     .resolve(name)
-                    .ok_or_else(|| format!("undefined variable: {}", name))?;
+                    .ok_or_else(|| {
+                        Diagnostic::error(format!("undefined variable `{}`", name))
+                            .with_hint(format!("Define it first: let {} = ...;", name))
+                    })?;
                 self.load_symbol(&symbol);
             }
             Expression::Prefix { operator, right } => {
@@ -207,7 +211,12 @@ impl Compiler {
                 match operator.as_str() {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
-                    _ => return Err(format!("unknown prefix operator: {}", operator)),
+                    _ => {
+                        return Err(Diagnostic::error(format!(
+                            "unknown prefix operator `{}`",
+                            operator
+                        )))
+                    }
                 };
             }
             Expression::Infix {
@@ -233,7 +242,15 @@ impl Compiler {
                     "==" => self.emit(OpCode::OpEqual, &[]),
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
-                    _ => return Err(format!("unknown infix operator: {}", operator)),
+                    _ => {
+                        return Err(
+                            Diagnostic::error(format!(
+                                "unknown infix operator `{}`",
+                                operator
+                            ))
+                            .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."),
+                        )
+                    }
                 };
             }
             Expression::If {
@@ -318,7 +335,7 @@ impl Compiler {
         &mut self,
         parameters: &[String],
         body: &Block,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         self.enter_scope();
 
         for param in parameters {
@@ -359,7 +376,7 @@ impl Compiler {
         condition: &Expression,
         consequence: &Block,
         alternative: &Option<Block>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         self.compile_expression(condition)?;
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
@@ -392,7 +409,7 @@ impl Compiler {
         name: &str,
         parameters: &[String],
         body: &Block,
-    ) -> Result<(), String> {
+    ) -> Result<(), Diagnostic> {
         let symbol = self.symbol_table.define(name);
 
         self.enter_scope();
@@ -435,7 +452,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_block(&mut self, block: &Block) -> Result<(), String> {
+    fn compile_block(&mut self, block: &Block) -> Result<(), Diagnostic> {
         for statement in &block.statements {
             self.compile_statement(statement)?;
         }
@@ -500,62 +517,39 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
     }
 
-    fn make_immutability_error(&self, name: &str, position: Position) -> String {
-        format!(
-            "error: cannot assign twice to immutable variable `{}`\n\
-              --> {}:{}:{}\n\
-             \n\
-             -- IMMUTABLE VARIABLE ----------------------------------------\n\
-             \n\
-             I cannot reassign to the variable `{}` because it is immutable.\n\
-             \n\
-             Variables in Flux are immutable by default, like in Haskell and Elixir.\n\
-             This means once you bind a value to a name, you cannot change it later.\n\
-             \n\
-             Hint: If you want to use a different value, consider using a different name:\n\
-             \n\
-                 let {} = ...;      // original binding\n\
-                 let {}2 = ...;     // new binding with different value\n\
-             \n\
-             Or perhaps you can restructure your code to avoid reassignment?",
-            name, self.file_path, position.line, position.column, name, name, name
+    fn make_immutability_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!(
+            "cannot assign twice to immutable variable `{}`",
+            name
+        ))
+        .with_file(self.file_path.clone())
+        .with_position(position)
+        .with_message(format!("`{}` is immutable", name))
+        .with_hint(
+            "Variables in Flux are immutable by default; once you bind a value, you cannot change it.",
         )
+        .with_hint(format!(
+            "Use a different name instead: let {} = ...; let {}2 = ...;",
+            name, name
+        ))
     }
 
-    fn make_undefined_variable_error(&self, name: &str, position: Position) -> String {
-        format!(
-            "error: cannot find value `{}` in this scope\n\
-              --> {}:{}:{}\n\
-             \n\
-             -- UNDEFINED VARIABLE ----------------------------------------\n\
-             \n\
-             I cannot find a variable named `{}`.\n\
-             \n\
-             Did you forget to define it with `let` first?\n\
-             \n\
-             Hint: You need to use `let` to create a variable before you can use it:\n\
-             \n\
-                 let {} = ...;",
-            name, self.file_path, position.line, position.column, name, name
-        )
+    fn make_undefined_variable_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!("cannot find value `{}` in this scope", name))
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("`{}` is not defined here", name))
+            .with_hint(format!("Define it first: let {} = ...;", name))
     }
 
-    fn make_redeclaration_error(&self, name: &str, position: Position) -> String {
-        format!(
-            "error: the name `{}` is defined multiple times\n\
-              --> {}:{}:{}\n\
-             \n\
-             -- DUPLICATE DECLARATION -------------------------------------\n\
-             \n\
-             I found multiple declarations for the variable `{}`.\n\
-             \n\
-             You cannot use `let` to declare the same variable twice in the same scope.\n\
-             \n\
-             Hint: Use a different name for your second variable:\n\
-             \n\
-                 let {} = ...;      // first declaration\n\
-                 let {}2 = ...;     // use a different name",
-            name, self.file_path, position.line, position.column, name, name, name
-        )
+    fn make_redeclaration_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!("the name `{}` is defined multiple times", name))
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("`{}` was already declared in this scope", name))
+            .with_hint(format!(
+                "Use a different name: let {} = ...; let {}2 = ...;",
+                name, name
+            ))
     }
 }

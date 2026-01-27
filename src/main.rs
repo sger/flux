@@ -2,7 +2,7 @@ use std::{env, fs};
 
 use flux::{
     bytecode::compiler::Compiler,
-    frontend::{lexer::Lexer, parser::Parser},
+    frontend::{diagnostic::render_diagnostics, lexer::Lexer, parser::Parser},
     runtime::vm::VM,
 };
 
@@ -45,15 +45,16 @@ fn run_file(path: &str) {
             let program = parser.parse_program();
 
             if !parser.errors.is_empty() {
-                for err in &parser.errors {
-                    eprintln!("Parse error: {}", err);
-                }
+                eprintln!(
+                    "{}",
+                    render_diagnostics(&parser.errors, Some(&source), Some(path))
+                );
                 return;
             }
 
             let mut compiler = Compiler::new_with_file_path(path);
-            if let Err(err) = compiler.compile(&program) {
-                eprintln!("{}", err);
+            if let Err(diags) = compiler.compile(&program) {
+                eprintln!("{}", render_diagnostics(&diags, Some(&source), Some(path)));
                 return;
             }
 
