@@ -14,9 +14,16 @@ module Math {
   }
 
   fun _private_function() {
-    print("cannot be called");
+    print("_private_function");
+  }
+
+  fun calling_private_from_public_function() {
+    print("calling_private_from_public_function");
+    _private_function();
+    return 42;
   }
 }
 
-print(Math.cube(10));
-print(Math.call_another_function());
+//print(Math.cube(10));
+// print(Math.call_another_function());
+//print(Math.calling_private_from_public_function());
