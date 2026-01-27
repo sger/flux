@@ -1,0 +1,5 @@
+module Ember {
+  fun ember() {
+    return 1;
+  }
+}

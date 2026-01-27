@@ -1,0 +1,9 @@
+module Drift {
+  fun my_func() {
+    return 1;
+  }
+
+  fun my_func() {
+    return 2;
+  }
+}

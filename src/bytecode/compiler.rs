@@ -124,6 +124,10 @@ impl Compiler {
                     .resolve(name)
                     .ok_or_else(|| self.make_undefined_variable_error(name, *position))?;
 
+                if symbol.symbol_scope == SymbolScope::Free {
+                    return Err(self.make_outer_assignment_error(name, *position));
+                }
+
                 // Check if variable is already assigned (immutability check)
                 if symbol.is_assigned {
                     return Err(self.make_immutability_error(name, *position));
@@ -153,15 +157,19 @@ impl Compiler {
                 name,
                 parameters,
                 body,
+                position,
                 ..
             } => {
-                self.compile_function_statement(name, parameters, body)?;
+                self.compile_function_statement(name, parameters, body, *position)?;
             }
             Statement::Module {
                 name,
                 body,
                 position,
             } => {
+                if !Self::is_uppercase_identifier(name) {
+                    return Err(self.make_module_name_error(name, *position));
+                }
                 self.compile_module_statement(name, body, *position)?;
             }
             Statement::Import {
@@ -378,6 +386,16 @@ impl Compiler {
         parameters: &[String],
         body: &Block,
     ) -> Result<(), Diagnostic> {
+        if let Some(name) = Self::find_duplicate_name(parameters) {
+            return Err(
+                Diagnostic::error(format!(
+                    "duplicate parameter `{}` in function literal",
+                    name
+                ))
+                .with_message("parameter names must be unique"),
+            );
+        }
+
         self.enter_scope();
 
         for param in parameters {
@@ -453,7 +471,25 @@ impl Compiler {
         name: &str,
         parameters: &[String],
         body: &Block,
+        position: Position,
     ) -> Result<(), Diagnostic> {
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_redeclaration_error(name, position));
+        }
+
+        if let Some(param) = Self::find_duplicate_name(parameters) {
+            return Err(
+                Diagnostic::error(format!(
+                    "duplicate parameter `{}` in function `{}`",
+                    param, name
+                ))
+                .with_file(self.file_path.clone())
+                .with_position(position)
+                .with_message("parameter names must be unique")
+                .with_hint("Use distinct parameter names"),
+            );
+        }
+
         let symbol = self.symbol_table.define(name);
 
         self.enter_scope();
@@ -510,28 +546,25 @@ impl Compiler {
         // Define the module symbol early so functions can reference it
         let module_symbol = self.symbol_table.define(name);
 
-        // Collect all functions from the module body
+        // Collect all functions from the module body and validate contents
         let mut function_names = Vec::new();
         for statement in &body.statements {
-            if let Statement::Function { name: fn_name, .. } = statement {
-                function_names.push(fn_name.clone());
-            }
-        }
-
-        // Compile each function in the module at the current scope
-        // This allows functions to call each other
-        for statement in &body.statements {
             match statement {
-                Statement::Function {
-                    name: fn_name,
-                    parameters,
-                    body: fn_body,
-                    ..
-                } => {
-                    self.compile_function_statement(fn_name, parameters, fn_body)?;
+                Statement::Function { name: fn_name, .. } => {
+                    if fn_name == name {
+                        return Err(
+                            Diagnostic::error(format!(
+                                "module `{}` cannot define a function with the same name",
+                                name
+                            ))
+                            .with_position(statement.position())
+                            .with_message("the module name is reserved in this scope")
+                            .with_hint("use a different function name"),
+                        );
+                    }
+                    function_names.push(fn_name.clone());
                 }
                 _ => {
-                    // Non-function statements in modules are not supported yet
                     return Err(
                         Diagnostic::error("only function declarations are allowed in modules")
                             .with_position(statement.position())
@@ -541,10 +574,38 @@ impl Compiler {
             }
         }
 
-        // Now create a hash containing all the module functions
+        // Compile the module body in its own initializer scope so functions
+        // don't leak into the outer scope.
+        self.enter_scope();
+
+        // Compile each function in the module initializer scope
+        for statement in &body.statements {
+            if let Statement::Function {
+                name: fn_name,
+                parameters,
+                body: fn_body,
+                position,
+                ..
+            } = statement
+            {
+                if let Err(err) =
+                    self.compile_function_statement(fn_name, parameters, fn_body, *position)
+                {
+                    self.leave_scope();
+                    return Err(err);
+                }
+            }
+        }
+
+        let public_function_names: Vec<_> = function_names
+            .into_iter()
+            .filter(|name| !name.starts_with('_'))
+            .collect();
+
+        // Now create a hash containing all the public module functions
         // For each function, we need to: emit the key, load the function, emit the hash pair
-        let num_functions = function_names.len();
-        for fn_name in &function_names {
+        let num_functions = public_function_names.len();
+        for fn_name in &public_function_names {
             // Emit the key (function name as string)
             let key_idx = self.add_constant(Object::String(fn_name.clone()));
             self.emit(OpCode::OpConstant, &[key_idx]);
@@ -555,8 +616,25 @@ impl Compiler {
             }
         }
 
-        // Create the hash with all the function pairs
+        // Create the hash with all the function pairs and return it
         self.emit(OpCode::OpHash, &[num_functions * 2]);
+        self.emit(OpCode::OpReturnValue, &[]);
+
+        let free_symbols = self.symbol_table.free_symbols.clone();
+        let num_locals = self.symbol_table.num_definitions;
+        let instructions = self.leave_scope();
+
+        for free in &free_symbols {
+            self.load_symbol(free);
+        }
+
+        let fn_idx = self.add_constant(Object::Function(Rc::new(CompiledFunction::new(
+            instructions,
+            num_locals,
+            0,
+        ))));
+        self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
+        self.emit(OpCode::OpCall, &[0]);
 
         // Store the hash in the module variable
         match module_symbol.symbol_scope {
@@ -735,6 +813,48 @@ impl Compiler {
                 "Use a different name: let {} = ...; let {}2 = ...;",
                 name, name
             ))
+    }
+
+    fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!(
+            "cannot assign to outer variable `{}` from this scope",
+            name
+        ))
+        .with_file(self.file_path.clone())
+        .with_position(position)
+        .with_message("closures capture values; outer bindings are immutable")
+        .with_hint(format!(
+            "Use a new binding (shadowing) instead: let {} = ...;",
+            name
+        ))
+    }
+
+    fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
+        Diagnostic::error(format!(
+            "invalid module name `{}`",
+            name
+        ))
+        .with_file(self.file_path.clone())
+        .with_position(position)
+        .with_message("module names must start with an uppercase letter")
+        .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
+    }
+
+    fn is_uppercase_identifier(name: &str) -> bool {
+        name.chars()
+            .next()
+            .map(|ch| ch.is_ascii_uppercase())
+            .unwrap_or(false)
+    }
+
+    fn find_duplicate_name(names: &[String]) -> Option<&str> {
+        let mut seen = HashSet::new();
+        for name in names {
+            if !seen.insert(name.as_str()) {
+                return Some(name.as_str());
+            }
+        }
+        None
     }
 }
 
