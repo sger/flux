@@ -149,6 +149,7 @@ impl Parser {
             TokenType::Int => self.parse_integer(),
             TokenType::String => self.parse_string(),
             TokenType::True | TokenType::False => self.parse_boolean(),
+            TokenType::Null => self.parse_null(),
             TokenType::Bang | TokenType::Minus => self.parse_prefix_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
             TokenType::LBracket => self.parse_array(),
@@ -246,6 +247,10 @@ impl Parser {
         Some(Expression::Boolean(
             self.current_token.token_type == TokenType::True,
         ))
+    }
+
+    fn parse_null(&self) -> Option<Expression> {
+        Some(Expression::Null)
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {
