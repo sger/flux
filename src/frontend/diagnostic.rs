@@ -104,7 +104,7 @@ impl Diagnostic {
                     .as_deref()
                     .unwrap_or(&self.title);
 
-                out.push_str("\n");
+                out.push('\n');
                 out.push_str(&format!("{:>width$} | \n", "", width = gutter_width));
                 out.push_str(&format!(
                     "{:>width$} | {}\n",
@@ -121,11 +121,11 @@ impl Diagnostic {
                 if use_color {
                     out.push_str(self.severity.color_code());
                 }
-                out.push_str("^");
+                out.push('^');
                 if use_color {
                     out.push_str(reset);
                 }
-                out.push_str(" ");
+                out.push(' ');
                 out.push_str(label);
             } else if let Some(message) = &self.message {
                 out.push_str(&format!("\n  = {}", message));
@@ -135,7 +135,7 @@ impl Diagnostic {
         }
 
         if !self.hints.is_empty() {
-            out.push_str("\n");
+            out.push('\n');
             for hint in &self.hints {
                 out.push_str(&format!("\n= hint: {}", hint));
             }

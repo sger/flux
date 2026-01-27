@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::id, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -13,7 +13,6 @@ use crate::{
 
 const STACK_SIZE: usize = 2048;
 const GLOBALS_SIZE: usize = 65536;
-const MAX_FRAMES: usize = 1024;
 
 pub struct VM {
     constants: Vec<Object>,
@@ -172,12 +171,6 @@ impl VM {
                     let index = self.pop()?;
                     let left = self.pop()?;
                     self.execute_index_expression(left, index)?;
-                }
-                _ => {
-                    eprintln!(
-                        "OpCode::{} with instructions {:?} not implemented",
-                        op, instructions
-                    );
                 }
             }
             self.current_frame_mut().ip += 1;

@@ -16,7 +16,7 @@ use crate::{
         expression::Expression,
         position::Position,
         program::Program,
-        statement::{self, Statement},
+        statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -77,6 +77,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_statement(&mut self, statement: &Statement) -> Result<(), Diagnostic> {
         match statement {
             Statement::Expression { expression, .. } => {
@@ -176,6 +177,7 @@ impl Compiler {
         };
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_expression(&mut self, expression: &Expression) -> Result<(), Diagnostic> {
         match expression {
             Expression::Integer(value) => {
@@ -300,12 +302,6 @@ impl Compiler {
 
                 self.emit(OpCode::OpCall, &[arguments.len()]);
             }
-            _ => {
-                println!(
-                    "compile_expression: expression cannot identified: {}",
-                    expression
-                );
-            }
         }
         Ok(())
     }
@@ -335,6 +331,7 @@ impl Compiler {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_function_literal(
         &mut self,
         parameters: &[String],
@@ -375,6 +372,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_if_expression(
         &mut self,
         condition: &Expression,
@@ -408,6 +406,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_function_statement(
         &mut self,
         name: &str,
@@ -456,6 +455,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_block(&mut self, block: &Block) -> Result<(), Diagnostic> {
         for statement in &block.statements {
             self.compile_statement(statement)?;
@@ -555,5 +555,11 @@ impl Compiler {
                 "Use a different name: let {} = ...; let {}2 = ...;",
                 name, name
             ))
+    }
+}
+
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
     }
 }
