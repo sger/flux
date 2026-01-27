@@ -6,7 +6,7 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    frontend::{diagnostic::render_diagnostics, lexer::Lexer, parser::Parser},
+    frontend::{diagnostic::render_diagnostics, lexer::Lexer, linter::Linter, parser::Parser},
     runtime::vm::VM,
 };
 
@@ -51,6 +51,13 @@ fn main() {
                 return;
             }
             show_bytecode(&args[2]);
+        }
+        "lint" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux lint <file.flx>");
+                return;
+            }
+            lint_file(&args[2]);
         }
         "cache-info" => {
             if args.len() < 3 {
@@ -193,6 +200,30 @@ fn show_bytecode(path: &str) {
             }
             println!("\nInstructions:");
             print!("{}", disassemble(&bytecode.instructions));
+        }
+        Err(e) => eprintln!("Error reading {}: {}", path, e),
+    }
+}
+
+fn lint_file(path: &str) {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+
+            if !parser.errors.is_empty() {
+                eprintln!(
+                    "{}",
+                    render_diagnostics(&parser.errors, Some(&source), Some(path))
+                );
+                return;
+            }
+
+            let lints = Linter::new(Some(path.to_string())).lint(&program);
+            if !lints.is_empty() {
+                println!("{}", render_diagnostics(&lints, Some(&source), Some(path)));
+            }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }

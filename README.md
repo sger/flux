@@ -41,6 +41,7 @@ Other commands:
 ```
 cargo run -- tokens path/to/file.flx
 cargo run -- bytecode path/to/file.flx
+cargo run -- lint path/to/file.flx
 cargo run -- cache-info path/to/file.flx
 cargo run -- cache-info-file path/to/file.fxc
 ```

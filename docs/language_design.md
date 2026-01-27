@@ -157,6 +157,18 @@ fun sum_of_squares(a, b) {
 All bindings are immutable. Use `let` to bind values.
 Closures cannot assign to outer bindings; use `let` to shadow instead.
 
+### Top-Level Bindings (Planned)
+
+Flux may adopt Haskell-style top-level `let` bindings in a future version:
+
+- Immutable values, shared within a module
+- Safe because Flux is pure by default
+- No side effects at definition time
+
+Initial plan:
+- Phase 1: allow top-level `let` with eager evaluation during module init (pure expressions only)
+- Phase 2: switch to lazy + memoized evaluation with cycle detection
+
 ```
 let name = "Alice";
 let age = 30;
