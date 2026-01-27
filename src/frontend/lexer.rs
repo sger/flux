@@ -82,7 +82,11 @@ impl Lexer {
             // Numbers
             Some(ch) if ch.is_ascii_digit() => {
                 let (num, is_float) = self.read_number();
-                let token_type = if is_float { TokenType::Float } else { TokenType::Int };
+                let token_type = if is_float {
+                    TokenType::Float
+                } else {
+                    TokenType::Int
+                };
                 return Token::new(token_type, num, line, col);
             }
 
@@ -170,8 +174,7 @@ impl Lexer {
             self.read_char();
         }
         let mut is_float = false;
-        if self.current_char == Some('.') && self.peek_char().is_some_and(|c| c.is_ascii_digit())
-        {
+        if self.current_char == Some('.') && self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
             is_float = true;
             self.read_char(); // consume '.'
             while self.current_char.is_some_and(|c| c.is_ascii_digit()) {

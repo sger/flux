@@ -85,24 +85,20 @@ impl Diagnostic {
         out.push_str(": ");
         out.push_str(&self.title);
 
-        let file = self
-            .file
-            .as_deref()
-            .or(default_file)
-            .unwrap_or("<unknown>");
+        let file = self.file.as_deref().or(default_file).unwrap_or("<unknown>");
 
         if let Some(position) = self.position {
             let display_column = position.column + 1;
-            out.push_str(&format!("\n --> {}:{}:{}", file, position.line, display_column));
+            out.push_str(&format!(
+                "\n --> {}:{}:{}",
+                file, position.line, display_column
+            ));
 
             if let Some(line_text) = source.and_then(|src| get_source_line(src, position.line)) {
                 let line_str = position.line.to_string();
                 let gutter_width = line_str.len();
                 let caret_indent = position.column.min(line_text.len());
-                let label = self
-                    .message
-                    .as_deref()
-                    .unwrap_or(&self.title);
+                let label = self.message.as_deref().unwrap_or(&self.title);
 
                 out.push('\n');
                 out.push_str(&format!("{:>width$} | \n", "", width = gutter_width));
