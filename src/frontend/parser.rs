@@ -77,9 +77,10 @@ impl Parser {
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 self.errors.push(
-                    Diagnostic::error("unknown keyword `fn`")
+                    Diagnostic::error("UNKNOWN KEYWORD")
+                        .with_code("E101")
                         .with_position(self.current_token.position)
-                        .with_message("Flux uses `fun` for function declarations")
+                        .with_message("Flux uses `fun` for function declarations.")
                         .with_hint("Replace it with `fun`."),
                 );
                 self.synchronize_after_error();
@@ -91,9 +92,13 @@ impl Parser {
                     && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(
-                    Diagnostic::error(format!("unknown keyword `{}`", self.current_token.literal))
+                    Diagnostic::error("UNKNOWN KEYWORD")
+                        .with_code("E101")
                         .with_position(self.current_token.position)
-                        .with_message("Flux uses `fun` for function declarations")
+                        .with_message(format!(
+                            "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
+                            self.current_token.literal
+                        ))
                         .with_hint("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
@@ -292,12 +297,13 @@ impl Parser {
 
     fn no_prefix_parse_error(&mut self) {
         self.errors.push(
-            Diagnostic::error(format!(
-                "no prefix parse for {}",
-                self.current_token.token_type
-            ))
+            Diagnostic::error("EXPECTED EXPRESSION")
+                .with_code("E102")
             .with_position(self.current_token.position)
-            .with_message("expected an expression here"),
+            .with_message(format!(
+                "Expected an expression, found `{}`.",
+                self.current_token.token_type
+            )),
         );
     }
 
@@ -374,11 +380,13 @@ impl Parser {
             Ok(value) => Some(Expression::Integer(value)),
             Err(_) => {
                 self.errors.push(
-                    Diagnostic::error(format!(
-                        "could not parse {} as integer",
+                    Diagnostic::error("INVALID INTEGER")
+                        .with_code("E103")
+                    .with_position(self.current_token.position)
+                    .with_message(format!(
+                        "Could not parse `{}` as an integer.",
                         self.current_token.literal
-                    ))
-                    .with_position(self.current_token.position),
+                    )),
                 );
                 None
             }
@@ -390,11 +398,13 @@ impl Parser {
             Ok(value) => Some(Expression::Float(value)),
             Err(_) => {
                 self.errors.push(
-                    Diagnostic::error(format!(
-                        "could not parse {} as float",
+                    Diagnostic::error("INVALID FLOAT")
+                        .with_code("E104")
+                    .with_position(self.current_token.position)
+                    .with_message(format!(
+                        "Could not parse `{}` as a float.",
                         self.current_token.literal
-                    ))
-                    .with_position(self.current_token.position),
+                    )),
                 );
                 None
             }
@@ -601,12 +611,13 @@ impl Parser {
 
     fn peek_error(&mut self, expected: TokenType) {
         self.errors.push(
-            Diagnostic::error(format!(
-                "expected {}, got {}",
-                expected, self.peek_token.token_type
-            ))
-            .with_position(self.peek_token.position)
-            .with_message("unexpected token"),
+            Diagnostic::error("UNEXPECTED TOKEN")
+                .with_code("E105")
+                .with_position(self.peek_token.position)
+                .with_message(format!(
+                    "Expected {}, got {}.",
+                    expected, self.peek_token.token_type
+                )),
         );
     }
 }
