@@ -418,6 +418,7 @@ impl VM {
 mod tests {
     use super::*;
     use crate::bytecode::compiler::Compiler;
+    use crate::frontend::diagnostic::render_diagnostics;
     use crate::frontend::lexer::Lexer;
     use crate::frontend::parser::Parser;
 
@@ -426,7 +427,9 @@ mod tests {
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let mut compiler = Compiler::new();
-        compiler.compile(&program).unwrap();
+        compiler
+            .compile(&program)
+            .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
         let mut vm = VM::new(compiler.bytecode());
         vm.run().unwrap();
         vm.last_popped_stack_elem().clone()

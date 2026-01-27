@@ -31,7 +31,7 @@ mod tests {
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[1] {
-            Statement::Return { value: None } => {}
+            Statement::Return { value: None, .. } => {}
             _ => panic!("expected Return with no value"),
         }
     }
