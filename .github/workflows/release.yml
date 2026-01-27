@@ -26,11 +26,11 @@ jobs:
       - name: Build (release)
         run: cargo build --release
 
-      # Adjust BINARY if your crate/bin name isn't "ember"
+      # Adjust BINARY if your crate/bin name isn't "flux"
       - name: Package artifact
         run: |
           set -euxo pipefail
-          BINARY="ember"
+          BINARY="flux"
           VERSION="${GITHUB_REF_NAME}"   # e.g. v1.2.3
           OUTDIR="dist"
           mkdir -p "${OUTDIR}"
