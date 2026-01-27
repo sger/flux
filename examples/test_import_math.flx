@@ -1,0 +1,5 @@
+import Math
+
+print(Math.square(5));
+// print(Math._private_function()); // error fun is private
+

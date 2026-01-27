@@ -144,6 +144,19 @@ impl Compiler {
             } => {
                 self.compile_function_statement(name, parameters, body)?;
             }
+            Statement::Module {
+                name,
+                body,
+                position,
+            } => {
+                self.compile_module_statement(name, body, *position)?;
+            }
+            Statement::Import {
+                name,
+                position,
+            } => {
+                self.compile_import_statement(name, *position)?;
+            }
         }
 
         Ok(())
@@ -292,6 +305,30 @@ impl Compiler {
                 }
 
                 self.emit(OpCode::OpCall, &[arguments.len()]);
+            }
+            Expression::MemberAccess { object, member } => {
+                // Check if accessing a private member (starts with underscore)
+                if member.starts_with('_') {
+                    return Err(
+                        Diagnostic::error(format!(
+                            "cannot access private member `{}`",
+                            member
+                        ))
+                        .with_file(self.file_path.clone())
+                        .with_message("members starting with `_` are private")
+                        .with_hint("private members can only be accessed within the same module"),
+                    );
+                }
+
+                // Compile the object (e.g., the module identifier)
+                self.compile_expression(object)?;
+
+                // Emit the member name as a string constant (the hash key)
+                let member_idx = self.add_constant(Object::String(member.clone()));
+                self.emit(OpCode::OpConstant, &[member_idx]);
+
+                // Use index operation to access the member from the hash
+                self.emit(OpCode::OpIndex, &[]);
             }
         }
         Ok(())
@@ -444,6 +481,92 @@ impl Compiler {
             _ => 0,
         };
         Ok(())
+    }
+
+    fn compile_module_statement(
+        &mut self,
+        name: &str,
+        body: &Block,
+        position: Position,
+    ) -> Result<(), Diagnostic> {
+        // Check if module is already defined
+        if self.symbol_table.exists_in_current_scope(name) {
+            return Err(self.make_redeclaration_error(name, position));
+        }
+
+        // Define the module symbol early so functions can reference it
+        let module_symbol = self.symbol_table.define(name);
+
+        // Collect all functions from the module body
+        let mut function_names = Vec::new();
+        for statement in &body.statements {
+            if let Statement::Function { name: fn_name, .. } = statement {
+                function_names.push(fn_name.clone());
+            }
+        }
+
+        // Compile each function in the module at the current scope
+        // This allows functions to call each other
+        for statement in &body.statements {
+            match statement {
+                Statement::Function {
+                    name: fn_name,
+                    parameters,
+                    body: fn_body,
+                    ..
+                } => {
+                    self.compile_function_statement(fn_name, parameters, fn_body)?;
+                }
+                _ => {
+                    // Non-function statements in modules are not supported yet
+                    return Err(
+                        Diagnostic::error("only function declarations are allowed in modules")
+                            .with_position(statement.position())
+                            .with_message("modules can only contain function declarations"),
+                    );
+                }
+            }
+        }
+
+        // Now create a hash containing all the module functions
+        // For each function, we need to: emit the key, load the function, emit the hash pair
+        let num_functions = function_names.len();
+        for fn_name in &function_names {
+            // Emit the key (function name as string)
+            let key_idx = self.add_constant(Object::String(fn_name.clone()));
+            self.emit(OpCode::OpConstant, &[key_idx]);
+
+            // Load the function value
+            if let Some(symbol) = self.symbol_table.resolve(fn_name) {
+                self.load_symbol(&symbol);
+            }
+        }
+
+        // Create the hash with all the function pairs
+        self.emit(OpCode::OpHash, &[num_functions * 2]);
+
+        // Store the hash in the module variable
+        match module_symbol.symbol_scope {
+            SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[module_symbol.index]),
+            SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[module_symbol.index]),
+            _ => 0,
+        };
+
+        Ok(())
+    }
+
+    fn compile_import_statement(
+        &mut self,
+        _name: &str,
+        position: Position,
+    ) -> Result<(), Diagnostic> {
+        // Import statements for cross-file imports will be implemented in a future phase
+        // For now, they are no-ops since modules in the same file are already available
+        Err(
+            Diagnostic::error("import statements are not yet implemented")
+                .with_position(position)
+                .with_message("cross-file imports will be supported in a future version"),
+        )
     }
 
     #[allow(clippy::result_large_err)]

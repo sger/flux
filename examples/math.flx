@@ -1,0 +1,22 @@
+module Math {
+  // public
+  fun square(x) {
+    x * x;
+  }
+  
+  // public
+  fun cube(x) {
+    x * square(x);
+  }
+
+  fun call_another_function() {
+    cube(100);
+  }
+
+  fun _private_function() {
+    print("cannot be called");
+  }
+}
+
+print(Math.cube(10));
+print(Math.call_another_function());

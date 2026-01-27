@@ -28,6 +28,15 @@ pub enum Statement {
         value: Expression,
         position: Position,
     },
+    Module {
+        name: Identifier,
+        body: Block,
+        position: Position,
+    },
+    Import {
+        name: Identifier,
+        position: Position,
+    },
 }
 
 impl Statement {
@@ -38,6 +47,8 @@ impl Statement {
             Statement::Expression { position, .. } => *position,
             Statement::Function { position, .. } => *position,
             Statement::Assign { position, .. } => *position,
+            Statement::Module { position, .. } => *position,
+            Statement::Import { position, .. } => *position,
         }
     }
 }
@@ -67,6 +78,12 @@ impl fmt::Display for Statement {
             }
             Statement::Assign { name, value, .. } => {
                 write!(f, "{} = {};", name, value)
+            }
+            Statement::Module { name, body, .. } => {
+                write!(f, "module {} {}", name, body)
+            }
+            Statement::Import { name, .. } => {
+                write!(f, "import {}", name)
             }
         }
     }

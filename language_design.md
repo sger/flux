@@ -36,19 +36,34 @@ The name reflects data flowing through pipelines — the core of functional prog
 All code lives in modules. Modules provide namespacing and organization.
 
 ```
-mod Math {
+// math.flx
+module Math {
+  // public
   fun square(x) {
     x * x;
   }
   
+  // public
   fun cube(x) {
     x * square(x);
   }
+
+  fun call_another_function() {
+    print(cube(100));
+  }
+
+  fun _private_function() {
+    print("cannot be called");
+  }
 }
 
-mod Main {
+// main.flx file
+import Math
+
+module Main {
   fun main() {
     print(Math.square(5));
+    print(Math._private_function()); // error fun is private
   }
 }
 ```
