@@ -79,6 +79,14 @@ impl Linter {
                 position,
                 ..
             } => {
+                if !is_snake_case(name) {
+                    self.push_warning(
+                        "FUNCTION NAME STYLE",
+                        "W005",
+                        *position,
+                        format!("`{}` should be snake_case.", name),
+                    );
+                }
                 self.define_binding(name, *position, BindingKind::Function);
                 self.enter_scope();
                 for param in parameters {
@@ -98,6 +106,14 @@ impl Linter {
                 self.finish_scope();
             }
             Statement::Import { name, position } => {
+                if !is_upper_camel(name) {
+                    self.push_warning(
+                        "IMPORT NAME STYLE",
+                        "W006",
+                        *position,
+                        format!("`{}` should be UpperCamelCase.", name),
+                    );
+                }
                 self.define_binding(name, *position, BindingKind::Import);
             }
         }
@@ -260,4 +276,24 @@ impl Linter {
         }
         self.warnings.push(diag);
     }
+}
+
+fn is_snake_case(name: &str) -> bool {
+    let trimmed = name.trim_start_matches('_');
+    if trimmed.is_empty() {
+        return true;
+    }
+    trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+        && !trimmed.contains("__")
+}
+
+fn is_upper_camel(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else { return false; };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric())
 }
