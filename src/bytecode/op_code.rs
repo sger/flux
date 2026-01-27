@@ -100,7 +100,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
 
 pub type Instructions = Vec<u8>;
 
-pub fn make(op: OpCode, operands: &[u16]) -> Instructions {
+pub fn make(op: OpCode, operands: &[usize]) -> Instructions {
     let widths = operand_widths(op);
     let mut instruction = vec![op as u8];
 
