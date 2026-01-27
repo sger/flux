@@ -6,10 +6,6 @@ use flux::{
     runtime::vm::VM,
 };
 
-mod bytecode;
-mod frontend;
-mod runtime;
-
 fn main() {
     let args: Vec<String> = env::args().collect();
 
