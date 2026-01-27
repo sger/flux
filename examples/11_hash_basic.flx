@@ -1,0 +1,18 @@
+// Test: Basic hashes
+// Expected output:
+// 1
+// 2
+// 3
+// hello
+// world
+
+// String keys
+let h = {"a": 1, "b": 2, "c": 3};
+print(h["a"]);
+print(h["b"]);
+print(h["c"]);
+
+// Integer keys
+let nums = {1: "hello", 2: "world"};
+print(nums[1]);
+print(nums[2]);

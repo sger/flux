@@ -1,0 +1,44 @@
+// Test: Array iteration with recursion
+// Expected output:
+// 1
+// 2
+// 3
+// 4
+// 5
+// done
+// 15
+// 3
+
+// Print each element
+fun printAll(arr) {
+    if len(arr) == 0 {
+        print("done");
+    } else {
+        print(first(arr));
+        printAll(rest(arr));
+    };
+}
+
+printAll([1, 2, 3, 4, 5]);
+
+// Sum all elements
+fun sum(arr) {
+    if len(arr) == 0 {
+        0;
+    } else {
+        first(arr) + sum(rest(arr));
+    };
+}
+
+print(sum([1, 2, 3, 4, 5]));
+
+// Count elements (alternative to len)
+fun count(arr) {
+    if len(arr) == 0 {
+        0;
+    } else {
+        1 + count(rest(arr));
+    };
+}
+
+print(count([10, 20, 30]));

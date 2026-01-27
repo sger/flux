@@ -1,0 +1,26 @@
+// Test: Basic arrays
+// Expected output:
+// [1, 2, 3]
+// []
+// [1, 2, 3, 4, 5]
+// hello
+// 42
+// true
+
+// Simple array
+let arr = [1, 2, 3];
+print(arr);
+
+// Empty array
+let empty = [];
+print(empty);
+
+// Longer array
+let nums = [1, 2, 3, 4, 5];
+print(nums);
+
+// Mixed types (if supported)
+let mixed = ["hello", 42, true];
+print(mixed[0]);
+print(mixed[1]);
+print(mixed[2]);

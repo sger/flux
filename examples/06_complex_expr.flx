@@ -1,0 +1,22 @@
+// Test: Complex expressions
+// Expected output:
+// 25
+// 50
+// 100
+// true
+// false
+// 42
+
+let a = 5;
+let b = 10;
+let c = 2;
+
+print(a * a);
+print(a * b);
+print(b * b);
+
+print(a < b);
+print(a > b);
+
+let result = (a + b) * c + 12;
+print(result);

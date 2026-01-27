@@ -1,0 +1,21 @@
+// Test: Variables with let
+// Expected output:
+// 5
+// 10
+// 15
+// hello
+// true
+
+let x = 5;
+print(x);
+
+let y = 10;
+print(y);
+
+print(x + y);
+
+let name = "hello";
+print(name);
+
+let flag = true;
+print(flag);

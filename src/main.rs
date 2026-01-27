@@ -1,9 +1,14 @@
 use std::{env, fs};
 
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::{
+    bytecode::compiler::Compiler,
+    frontend::{lexer::Lexer, parser::Parser},
+    runtime::vm::VM,
+};
 
 mod bytecode;
 mod frontend;
+mod runtime;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -46,7 +51,19 @@ fn run_file(path: &str) {
                 return;
             }
 
-            println!("{:?}", program)
+            let mut compiler = Compiler::new();
+            if let Err(err) = compiler.compile(&program) {
+                eprintln!("Compile error: {}", err);
+                return;
+            }
+
+            println!("{:?}", compiler.bytecode());
+            // println!("{:?}", program);
+
+            let mut vm = VM::new(compiler.bytecode());
+            if let Err(err) = vm.run() {
+                eprintln!("Runtime error: {}", err);
+            }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }
