@@ -4,6 +4,7 @@ pub mod block;
 pub mod diagnostic;
 pub mod expression;
 pub mod lexer;
+pub mod linter;
 pub mod parser;
 pub mod position;
 pub mod precedence;
