@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod block;
+pub mod diagnostic;
 pub mod expression;
 pub mod lexer;
 pub mod parser;
