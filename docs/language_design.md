@@ -4,7 +4,7 @@
 
 ## Overview
 
-**Flux** is designed for clarity, safety, and functional programming. Inspired by Elixir's expressiveness and Rust's safety principles, it aims to provide a clean syntax with powerful functional features.
+**Flux** is designed for clarity, safety, and functional programming. Inspired by Elm’s human-friendly compiler errors and Elixir’s expressiveness, it aims to provide a clean syntax with powerful functional features.
 
 The name reflects data flowing through pipelines — the core of functional programming.
 
@@ -84,28 +84,9 @@ Importing a name that already exists in the current scope is an error.
 // Full mod import
 import Math
 Math.square(5);      // use with prefix
-square(5);           // also works after import
-
-// Selective import
-import Math.{square, cube}
-square(5);           // only imported functions available
-
-// Aliased import
-import Statistics as Stats
-Stats.mean(numbers);
-
-// Nested mod import
-import Utils.String
-String.trim("  hello  ");
-
-// Nested selective import
-import Utils.String.{trim, split}
-trim("  hello  ");
-
-// Fully qualified always works (no import needed)
-Math.square(5);
-Utils.String.trim("  hello  ");
 ```
+
+Note: selective imports, aliases, and nested imports are planned but not implemented yet.
 
 ### Error Codes
 
@@ -981,192 +962,77 @@ OpSetGlobal 0   // store as x
 
 ## Grammar (EBNF)
 
+Current parser grammar (v1):
+
 ```ebnf
-program        = ( import | directive | mod )* ;
+program        = statement* ;
 
-import         = "import" import_path ( "as" IDENT )? ";"
-               | "import" import_path ".{" import_list "}" ";" ;
-
-import_path    = IDENT ( "." IDENT )* ;
-
-import_list    = IDENT ( "," IDENT )* ;
-
-mod         = "mod" IDENT "{" declaration* "}" ;
-
-directive      = "#" directive_type ;
-
-directive_type = "run" ( expression | block )
-               | "assert" expression
-               | "if" expression block ( "#else" block )?
-               | "emit" declaration ;
-
-declaration    = function_decl
-               | struct_decl
-               | enum_decl
-               | let_stmt ;
-
-function_decl  = "fun" IDENT "(" parameters? ")" block ;
-
-struct_decl    = "struct" IDENT "{" struct_fields? "}" ;
-
-struct_fields  = struct_field ( "," struct_field )* ","? ;
-
-struct_field   = IDENT ":" type ;
-
-enum_decl      = "enum" IDENT "{" enum_variants "}" ;
-
-enum_variants  = enum_variant ( "," enum_variant )* ","? ;
-
-enum_variant   = IDENT ( "(" variant_fields ")" )? ;
-
-variant_fields = variant_field ( "," variant_field )* ;
-
-variant_field  = ( IDENT ":" )? type ;
-
-type           = "Int" | "Float" | "String" | "Bool" 
-               | "[" type "]"                          
-               | "(" type ( "," type )* ")"            
-               | IDENT ;                               
-
-parameters     = IDENT ( "," IDENT )* ;
-
-block          = "{" statement* "}" ;
-
-statement      = let_stmt
+statement      = module_stmt
+               | import_stmt
+               | function_stmt
+               | let_stmt
+               | assign_stmt
                | return_stmt
                | expr_stmt ;
 
-let_stmt       = "let" IDENT "=" expression ";" ;
+module_stmt    = "module" IDENT block ;
+import_stmt    = "import" IDENT ;
+function_stmt  = "fun" IDENT "(" parameters? ")" block ;
+let_stmt       = "let" IDENT "=" expression ";"? ;
+assign_stmt    = IDENT "=" expression ";"? ;
+return_stmt    = "return" expression? ";"? ;
+expr_stmt      = expression ";"? ;
 
-return_stmt    = "return" expression? ";" ;
+parameters     = IDENT ( "," IDENT )* ;
+block          = "{" statement* "}" ;
 
-expr_stmt      = expression ";" ;
-
-expression     = assignment ;
-
-assignment     = pipe ;
-
-pipe           = logical_or ( "|>" logical_or )* ;
-
-logical_or     = logical_and ( "||" logical_and )* ;
-
-logical_and    = equality ( "&&" equality )* ;
-
+expression     = equality ;
 equality       = comparison ( ( "==" | "!=" ) comparison )* ;
-
-comparison     = term ( ( "<" | ">" | "<=" | ">=" ) term )* ;
-
+comparison     = term ( ( "<" | ">" ) term )* ;
 term           = factor ( ( "+" | "-" ) factor )* ;
-
 factor         = unary ( ( "*" | "/" ) unary )* ;
-
 unary          = ( "!" | "-" ) unary
-               | call ;
+               | postfix ;
 
-call           = primary ( "(" arguments? ")" | "." IDENT )* ;
+postfix        = primary ( "(" arguments? ")"
+                         | "[" expression "]"
+                         | "." IDENT )* ;
 
 arguments      = expression ( "," expression )* ;
 
-primary        = INT | FLOAT | STRING | "true" | "false"
-               | IDENT ( "{" struct_init "}" )?
+primary        = INT | FLOAT | STRING | "true" | "false" | "null"
+               | IDENT
                | "(" expression ")"
-               | "[" list_items? "]"
-               | "{" map_items? "}"
+               | "[" arguments? "]"
+               | "{" hash_items? "}"
                | "fun" "(" parameters? ")" block
-               | if_expr
-               | match_expr
-               | for_expr ;
-
-struct_init    = field_init ( "," field_init )* ","? ;
-
-field_init     = "..." expression
-               | IDENT ":" expression ;
+               | if_expr ;
 
 if_expr        = "if" expression block ( "else" block )? ;
 
-match_expr     = "match" expression "{" match_arm* "}" ;
-
-match_arm      = pattern "->" expression ";" ;
-
-for_expr       = "for" pattern "in" expression ( "," expression )* block ;
-
-pattern        = "_"
-               | INT | FLOAT | STRING | "true" | "false"
-               | IDENT ;
+hash_items     = expression ":" expression ( "," expression ":" expression )* ;
 ```
+
+Note: structs/enums, match, for, pipelines, directives, and types are planned but not implemented yet.
 
 ---
 
 ## Example Program
 
 ```
-import Math;
+import Math
 
-struct Point {
-  x: Float,
-  y: Float,
-}
-
-struct User {
-  name: String,
-  age: Int,
-}
-
-mod Utils {
-  fun sum(list) {
-    match list {
-      [] -> 0;
-      [head, ...tail] -> head + sum(tail);
-    }
-  }
-  
-  fun distance(p1, p2) {
-    let dx = p2.x - p1.x;
-    let dy = p2.y - p1.y;
-    Math.sqrt(dx * dx + dy * dy);
-  }
-}
-
-mod Main {
+module Main {
   fun main() {
-    // Struct usage
-    let origin = Point { x: 0.0, y: 0.0 };
-    let target = Point { x: 3.0, y: 4.0 };
-    print(Utils.distance(origin, target));
-    
-    // Immutable update
-    let moved = Point { ...origin, x: 10.0 };
-    
-    // Pattern matching on struct
-    let user = User { name: "Alice", age: 30 };
-    match user {
-      User { name, age } -> print(name);
-    };
-    
     let numbers = [1, 2, 3, 4, 5];
-    
-    // List comprehension
-    let doubled = for x in numbers { x * 2; };
-    
-    // Comprehension with filter
-    let big_ones = for x in doubled, x > 4 { x; };
-    
-    // Pipeline example
-    let result = numbers
-      |> map(fun(x) { x * x; })
-      |> filter(fun(x) { x > 10; });
-    
-    print(result);
-    
-    // Pattern matching with Option
-    let maybe_first = head(result);
-    match maybe_first {
-      Some(x) -> print(x);
-      None -> print("empty list");
-    };
-    
-    // Recursion
-    print(Utils.sum(numbers));
+    let squared = fun(x) { x * x };
+    let first = numbers[0];
+
+    if first > 0 {
+      print(Math.square(first));
+    } else {
+      print(0);
+    }
   }
 }
 ```
