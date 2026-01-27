@@ -33,6 +33,7 @@ print(add(1, 2));
 
 ```
 cargo run -- run path/to/file.flx
+cargo run -- --verbose run path/to/file.flx
 ```
 
 Other commands:
@@ -40,6 +41,31 @@ Other commands:
 ```
 cargo run -- tokens path/to/file.flx
 cargo run -- bytecode path/to/file.flx
+cargo run -- cache-info path/to/file.flx
+cargo run -- cache-info-file path/to/file.fxc
+```
+
+## Cache
+
+Flux caches compiled bytecode under `target/flux/` using `.fxc` files. The cache is invalidated if
+the source file, compiler version, or any imported module changes.
+
+To clear the cache:
+
+```
+rm -rf target/flux
+```
+
+## Testing
+
+```
+cargo test
+```
+
+To run a single test:
+
+```
+cargo test runtime::vm::tests::test_builtin_len
 ```
 
 ## Example with closures

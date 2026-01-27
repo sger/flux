@@ -88,6 +88,17 @@ Math.square(5);      // use with prefix
 
 Note: selective imports, aliases, and nested imports are planned but not implemented yet.
 
+### Bytecode Cache
+
+Flux caches compiled bytecode in `.fxc` files under `target/flux/`. The cache is invalidated if the
+source file, compiler version, or any imported module changes.
+
+Use `cache-info` to inspect cache metadata:
+
+```
+flux cache-info path/to/file.flx
+```
+
 ### Error Codes
 
 Flux emits human-friendly diagnostics with stable error codes.

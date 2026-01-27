@@ -1,13 +1,21 @@
 use std::{env, fs, path::Path};
 
 use flux::{
-    bytecode::{compiler::Compiler, op_code::disassemble},
+    bytecode::{
+        bytecode_cache::{BytecodeCache, hash_bytes, hash_file},
+        compiler::Compiler,
+        op_code::disassemble,
+    },
     frontend::{diagnostic::render_diagnostics, lexer::Lexer, parser::Parser},
     runtime::vm::VM,
 };
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
+    let verbose = args.iter().any(|arg| arg == "--verbose");
+    if verbose {
+        args.retain(|arg| arg != "--verbose");
+    }
 
     if args.len() < 2 {
         return;
@@ -24,7 +32,7 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2])
+            run_file(&args[2], verbose)
         }
         "tokens" => {
             if args.len() < 3 {
@@ -44,13 +52,45 @@ fn main() {
             }
             show_bytecode(&args[2]);
         }
+        "cache-info" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux cache-info <file.flx>");
+                return;
+            }
+            show_cache_info(&args[2]);
+        }
+        "cache-info-file" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux cache-info-file <file.fxc>");
+                return;
+            }
+            show_cache_info_file(&args[2]);
+        }
         _ => {}
     }
 }
 
-fn run_file(path: &str) {
+fn run_file(path: &str, verbose: bool) {
     match fs::read_to_string(path) {
         Ok(source) => {
+            let source_hash = hash_bytes(source.as_bytes());
+            let cache = BytecodeCache::new(Path::new("target").join("flux"));
+            if let Some(bytecode) =
+                cache.load(Path::new(path), &source_hash, env!("CARGO_PKG_VERSION"))
+            {
+                if verbose {
+                    eprintln!("cache: hit (bytecode loaded)");
+                }
+                let mut vm = VM::new(bytecode);
+                if let Err(err) = vm.run() {
+                    eprintln!("Runtime error: {}", err);
+                }
+                return;
+            }
+            if verbose {
+                eprintln!("cache: miss (compiling)");
+            }
+
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
@@ -69,7 +109,28 @@ fn run_file(path: &str) {
                 return;
             }
 
-            let mut vm = VM::new(compiler.bytecode());
+            let bytecode = compiler.bytecode();
+
+            let mut deps = Vec::new();
+            for dep in compiler.imported_files() {
+                if let Ok(hash) = hash_file(Path::new(&dep)) {
+                    deps.push((dep, hash));
+                }
+            }
+            let stored = cache
+                .store(
+                Path::new(path),
+                &source_hash,
+                env!("CARGO_PKG_VERSION"),
+                &bytecode,
+                &deps,
+            )
+            .is_ok();
+            if verbose && stored {
+                eprintln!("cache: stored");
+            }
+
+            let mut vm = VM::new(bytecode);
             if let Err(err) = vm.run() {
                 eprintln!("Runtime error: {}", err);
             }
@@ -135,4 +196,91 @@ fn show_bytecode(path: &str) {
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }
+}
+
+fn show_cache_info(path: &str) {
+    let cache = BytecodeCache::new(Path::new("target").join("flux"));
+    let source = match fs::read_to_string(path) {
+        Ok(src) => src,
+        Err(e) => {
+            eprintln!("Error reading {}: {}", path, e);
+            return;
+        }
+    };
+    let source_hash = hash_bytes(source.as_bytes());
+    let info = cache.inspect(Path::new(path), &source_hash);
+    match info {
+        Some(info) => {
+            println!("cache file: {}", info.cache_path.display());
+            println!("format version: {}", info.format_version);
+            println!("compiler version: {}", info.compiler_version);
+            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("constants: {}", info.constants_count);
+            println!("instructions: {} bytes", info.instructions_len);
+            if info.deps.is_empty() {
+                println!("deps: none");
+            } else {
+                println!("deps:");
+                for (path, hash, valid) in info.deps {
+                    println!(
+                        "  - {} {} ({})",
+                        path,
+                        hex_string(&hash),
+                        if valid { "ok" } else { "stale" }
+                    );
+                }
+            }
+        }
+        None => {
+            println!("cache: not found or invalid");
+        }
+    }
+}
+
+fn show_cache_info_file(path: &str) {
+    let cache = BytecodeCache::new(Path::new("target").join("flux"));
+    let info = cache.inspect_file(Path::new(path));
+    match info {
+        Some(info) => {
+            println!("cache file: {}", info.cache_path.display());
+            println!("format version: {}", info.format_version);
+            println!("compiler version: {}", info.compiler_version);
+            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("constants: {}", info.constants_count);
+            println!("instructions: {} bytes", info.instructions_len);
+            if info.deps.is_empty() {
+                println!("deps: none");
+            } else {
+                println!("deps:");
+                for (path, hash, valid) in info.deps {
+                    println!(
+                        "  - {} {} ({})",
+                        path,
+                        hex_string(&hash),
+                        if valid { "ok" } else { "stale" }
+                    );
+                }
+            }
+
+            if let Some(bytecode) = cache.load_file(Path::new(path)) {
+                println!("\nConstants:");
+                for (i, c) in bytecode.constants.iter().enumerate() {
+                    println!("  {}: {}", i, c);
+                }
+                println!("\nInstructions:");
+                print!("{}", disassemble(&bytecode.instructions));
+            }
+        }
+        None => {
+            println!("cache: not found or invalid");
+        }
+    }
+}
+
+fn hex_string(bytes: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for b in bytes {
+        out.push_str(&format!("{:02x}", b));
+    }
+    out
 }
