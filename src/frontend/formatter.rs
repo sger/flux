@@ -71,9 +71,5 @@ fn brace_delta(line: &str) -> usize {
             _ => {}
         }
     }
-    if delta < 0 {
-        0
-    } else {
-        delta as usize
-    }
+    if delta < 0 { 0 } else { delta as usize }
 }

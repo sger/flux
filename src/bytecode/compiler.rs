@@ -1,9 +1,4 @@
-use std::{
-    collections::HashSet,
-    fs,
-    path::Path,
-    rc::Rc,
-};
+use std::{collections::HashSet, fs, path::Path, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -16,14 +11,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        block::Block,
-        diagnostic::Diagnostic,
-        expression::Expression,
-        lexer::Lexer,
-        parser::Parser,
-        position::Position,
-        program::Program,
-        statement::Statement,
+        block::Block, diagnostic::Diagnostic, expression::Expression, lexer::Lexer, parser::Parser,
+        position::Position, program::Program, statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -172,10 +161,7 @@ impl Compiler {
                 }
                 self.compile_module_statement(name, body, *position)?;
             }
-            Statement::Import {
-                name,
-                position,
-            } => {
+            Statement::Import { name, position } => {
                 if self.scope_index > 0 {
                     return Err(self.make_import_scope_error(name, *position));
                 }
@@ -248,14 +234,9 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        return Err(
-                            Diagnostic::error("UNKNOWN PREFIX OPERATOR")
-                                .with_code("E010")
-                                .with_message(format!(
-                                    "Unknown prefix operator `{}`.",
-                                    operator
-                                )),
-                        );
+                        return Err(Diagnostic::error("UNKNOWN PREFIX OPERATOR")
+                            .with_code("E010")
+                            .with_message(format!("Unknown prefix operator `{}`.", operator)));
                     }
                 };
             }
@@ -283,17 +264,10 @@ impl Compiler {
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     _ => {
-                        return Err(
-                            Diagnostic::error("UNKNOWN INFIX OPERATOR")
-                                .with_code("E011")
-                                .with_message(format!(
-                                    "Unknown infix operator `{}`.",
-                                    operator
-                                ))
-                                .with_hint(
-                                    "Use a supported operator like +, -, *, /, ==, !=, or >.",
-                                ),
-                        );
+                        return Err(Diagnostic::error("UNKNOWN INFIX OPERATOR")
+                            .with_code("E011")
+                            .with_message(format!("Unknown infix operator `{}`.", operator))
+                            .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
                     }
                 };
             }
@@ -343,16 +317,13 @@ impl Compiler {
             Expression::MemberAccess { object, member } => {
                 // Check if accessing a private member (starts with underscore)
                 if member.starts_with('_') {
-                    return Err(
-                        Diagnostic::error("PRIVATE MEMBER")
+                    return Err(Diagnostic::error("PRIVATE MEMBER")
                         .with_code("E021")
                         .with_file(self.file_path.clone())
-                        .with_message(format!(
-                            "Cannot access private member `{}`.",
-                            member
-                        ))
-                        .with_hint("Private members can only be accessed within the same module."),
-                    );
+                        .with_message(format!("Cannot access private member `{}`.", member))
+                        .with_hint(
+                            "Private members can only be accessed within the same module.",
+                        ));
                 }
 
                 // Compile the object (e.g., the module identifier)
@@ -401,15 +372,13 @@ impl Compiler {
         body: &Block,
     ) -> Result<(), Diagnostic> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
-            return Err(
-                Diagnostic::error("DUPLICATE PARAMETER")
-                    .with_code("E012")
-                    .with_message(format!(
-                        "Duplicate parameter `{}` in function literal.",
-                        name
-                    ))
-                    .with_hint("Parameter names must be unique."),
-            );
+            return Err(Diagnostic::error("DUPLICATE PARAMETER")
+                .with_code("E012")
+                .with_message(format!(
+                    "Duplicate parameter `{}` in function literal.",
+                    name
+                ))
+                .with_hint("Parameter names must be unique."));
         }
 
         self.enter_scope();
@@ -494,8 +463,7 @@ impl Compiler {
         }
 
         if let Some(param) = Self::find_duplicate_name(parameters) {
-            return Err(
-                Diagnostic::error("DUPLICATE PARAMETER")
+            return Err(Diagnostic::error("DUPLICATE PARAMETER")
                 .with_code("E012")
                 .with_file(self.file_path.clone())
                 .with_position(position)
@@ -503,8 +471,7 @@ impl Compiler {
                     "Duplicate parameter `{}` in function `{}`.",
                     param, name
                 ))
-                .with_hint("Use distinct parameter names."),
-            );
+                .with_hint("Use distinct parameter names."));
         }
 
         let symbol = self.symbol_table.define(name);
@@ -570,26 +537,22 @@ impl Compiler {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
                     if fn_name == name {
-                        return Err(
-                            Diagnostic::error("MODULE NAME CLASH")
+                        return Err(Diagnostic::error("MODULE NAME CLASH")
                             .with_code("E018")
                             .with_position(statement.position())
                             .with_message(format!(
                                 "Module `{}` cannot define a function with the same name.",
                                 name
                             ))
-                            .with_hint("Use a different function name."),
-                        );
+                            .with_hint("Use a different function name."));
                     }
                     function_names.push(fn_name.clone());
                 }
                 _ => {
-                    return Err(
-                        Diagnostic::error("INVALID MODULE CONTENT")
-                            .with_code("E019")
-                            .with_position(statement.position())
-                            .with_message("Modules can only contain function declarations."),
-                    );
+                    return Err(Diagnostic::error("INVALID MODULE CONTENT")
+                        .with_code("E019")
+                        .with_position(statement.position())
+                        .with_message("Modules can only contain function declarations."));
                 }
             }
         }
@@ -674,7 +637,9 @@ impl Compiler {
             return Err(self.make_import_collision_error(name, position));
         }
 
-        let base_dir = Path::new(&self.file_path).parent().unwrap_or(Path::new("."));
+        let base_dir = Path::new(&self.file_path)
+            .parent()
+            .unwrap_or(Path::new("."));
         let candidates = [
             base_dir.join(format!("{}.flx", name)),
             base_dir.join(format!("{}.flx", name.to_lowercase())),
@@ -684,17 +649,17 @@ impl Compiler {
         let import_path = match import_path {
             Some(path) => path,
             None => {
-                return Err(
-                    Diagnostic::error("IMPORT NOT FOUND")
-                        .with_code("E032")
-                        .with_position(position)
-                        .with_message(format!("no module file found for `{}`", name))
-                        .with_hint(format!(
-                            "Looked for `{}` and `{}` next to this file.",
-                            base_dir.join(format!("{}.flx", name)).display(),
-                            base_dir.join(format!("{}.flx", name.to_lowercase())).display()
-                        )),
-                );
+                return Err(Diagnostic::error("IMPORT NOT FOUND")
+                    .with_code("E032")
+                    .with_position(position)
+                    .with_message(format!("no module file found for `{}`", name))
+                    .with_hint(format!(
+                        "Looked for `{}` and `{}` next to this file.",
+                        base_dir.join(format!("{}.flx", name)).display(),
+                        base_dir
+                            .join(format!("{}.flx", name.to_lowercase()))
+                            .display()
+                    )));
             }
         };
 
@@ -847,54 +812,48 @@ impl Compiler {
 
     fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
         Diagnostic::error("OUTER ASSIGNMENT")
-        .with_code("E004")
-        .with_file(self.file_path.clone())
-        .with_position(position)
-        .with_message(format!(
-            "Cannot assign to outer variable `{}` from this scope.",
-            name
-        ))
-        .with_hint(format!(
-            "Use a new binding (shadowing) instead: let {} = ...;",
-            name
-        ))
+            .with_code("E004")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!(
+                "Cannot assign to outer variable `{}` from this scope.",
+                name
+            ))
+            .with_hint(format!(
+                "Use a new binding (shadowing) instead: let {} = ...;",
+                name
+            ))
     }
 
     fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
         Diagnostic::error("INVALID MODULE NAME")
-        .with_code("E016")
-        .with_file(self.file_path.clone())
-        .with_position(position)
-        .with_message(format!(
-            "Invalid module name `{}`.",
-            name
-        ))
-        .with_hint("Module names must start with an uppercase letter.")
-        .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
+            .with_code("E016")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("Invalid module name `{}`.", name))
+            .with_hint("Module names must start with an uppercase letter.")
+            .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
     }
 
     fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
         Diagnostic::error("IMPORT NAME COLLISION")
-        .with_code("E030")
-        .with_file(self.file_path.clone())
-        .with_position(position)
-        .with_message(format!(
-            "Cannot import `{}`; name already defined in this scope.",
-            name
-        ))
-        .with_hint("Use a different name or remove the existing binding.")
+            .with_code("E030")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!(
+                "Cannot import `{}`; name already defined in this scope.",
+                name
+            ))
+            .with_hint("Use a different name or remove the existing binding.")
     }
 
     fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
         Diagnostic::error("IMPORT SCOPE")
-        .with_code("E031")
-        .with_file(self.file_path.clone())
-        .with_position(position)
-        .with_message(format!(
-            "Cannot import `{}` inside a function.",
-            name
-        ))
-        .with_hint("Move the import to the top level.")
+            .with_code("E031")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!("Cannot import `{}` inside a function.", name))
+            .with_hint("Move the import to the top level.")
     }
 
     fn is_uppercase_identifier(name: &str) -> bool {
