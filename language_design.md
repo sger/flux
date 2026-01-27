@@ -107,6 +107,33 @@ Math.square(5);
 Utils.String.trim("  hello  ");
 ```
 
+### Error Codes
+
+Flux emits human-friendly diagnostics with stable error codes.
+
+| Code | Title | Example | Example file |
+| --- | --- | --- | --- |
+| E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/function_redeclaration_error.flx` |
+| E003 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
+| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/closure_outer_assign_error.flx` |
+| E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
+| E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
+| E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
+| E012 | DUPLICATE PARAMETER | `fun f(x, x) { x }` | `examples/duplicate_params_error.flx` |
+| E016 | INVALID MODULE NAME | `module math { }` | `examples/module_name_lowercase_error.flx` |
+| E018 | MODULE NAME CLASH | `module Math { fun Math() {} }` | `examples/module_name_clobber_error.flx` |
+| E019 | INVALID MODULE CONTENT | `module Math { let x = 1; }` | — |
+| E021 | PRIVATE MEMBER | `Math._private()` | — |
+| E030 | IMPORT NAME COLLISION | `let Math = 1; import Math` | `examples/import_collision_error.flx` |
+| E031 | IMPORT SCOPE | `fun main() { import Math }` | `examples/import_in_function_error.flx` |
+| E032 | IMPORT NOT FOUND | `import Missing` | — |
+| E033 | IMPORT READ FAILED | `import Broken` | — |
+| E101 | UNKNOWN KEYWORD | `fn main() {}` | `examples/unknown_keyword_fn_error.flx` |
+| E102 | EXPECTED EXPRESSION | `;` | `examples/import_semicolon_error.flx` |
+| E103 | INVALID INTEGER | `let x = 12_3z;` | — |
+| E104 | INVALID FLOAT | `let x = 1.2.3;` | — |
+| E105 | UNEXPECTED TOKEN | `print((1 + 2);` | `examples/expected_token_error.flx` |
+
 ### Functions
 
 Functions are defined with `fun`. The last expression is the return value.
