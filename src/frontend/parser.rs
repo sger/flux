@@ -34,6 +34,10 @@ impl Parser {
         let mut program = Program::new();
 
         while self.current_token.token_type != TokenType::Eof {
+            if self.current_token.token_type == TokenType::RBrace {
+                self.next_token();
+                continue;
+            }
             if let Some(statement) = self.parse_statement() {
                 program.statements.push(statement);
             }
@@ -48,12 +52,50 @@ impl Parser {
         self.peek_token = self.lexer.next_token();
     }
 
+    fn synchronize_after_error(&mut self) {
+        // Advance to a reasonable boundary to avoid cascading errors.
+        self.next_token();
+        while !matches!(
+            self.current_token.token_type,
+            TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+        ) {
+            self.next_token();
+        }
+        if self.current_token.token_type == TokenType::RBrace {
+            self.next_token();
+        }
+    }
+
     fn parse_statement(&mut self) -> Option<Statement> {
         match self.current_token.token_type {
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
+            }
+            TokenType::Ident if self.current_token.literal == "fn" => {
+                self.errors.push(
+                    Diagnostic::error("unknown keyword `fn`")
+                        .with_position(self.current_token.position)
+                        .with_message("Flux uses `fun` for function declarations")
+                        .with_hint("Replace it with `fun`."),
+                );
+                self.synchronize_after_error();
+                None
+            }
+            TokenType::Ident
+                if self.current_token.literal != "fun"
+                    && self.current_token.literal.starts_with("fun")
+                    && self.is_peek_token(TokenType::Ident) =>
+            {
+                self.errors.push(
+                    Diagnostic::error(format!("unknown keyword `{}`", self.current_token.literal))
+                        .with_position(self.current_token.position)
+                        .with_message("Flux uses `fun` for function declarations")
+                        .with_hint("Did you mean `fun`?"),
+                );
+                self.synchronize_after_error();
+                None
             }
 
             // Check if we have `identifier = expression` (reassignment without 'let')
@@ -190,6 +232,7 @@ impl Parser {
         match &self.current_token.token_type {
             TokenType::Ident => self.parse_identifier(),
             TokenType::Int => self.parse_integer(),
+            TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::Null => self.parse_null(),
@@ -278,6 +321,22 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error(format!(
                         "could not parse {} as integer",
+                        self.current_token.literal
+                    ))
+                    .with_position(self.current_token.position),
+                );
+                None
+            }
+        }
+    }
+
+    fn parse_float(&mut self) -> Option<Expression> {
+        match self.current_token.literal.parse::<f64>() {
+            Ok(value) => Some(Expression::Float(value)),
+            Err(_) => {
+                self.errors.push(
+                    Diagnostic::error(format!(
+                        "could not parse {} as float",
                         self.current_token.literal
                     ))
                     .with_position(self.current_token.position),
