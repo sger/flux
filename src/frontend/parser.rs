@@ -257,10 +257,7 @@ impl Parser {
 
         // No semicolon required for import statements
 
-        Some(Statement::Import {
-            name,
-            position,
-        })
+        Some(Statement::Import { name, position })
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -299,11 +296,11 @@ impl Parser {
         self.errors.push(
             Diagnostic::error("EXPECTED EXPRESSION")
                 .with_code("E102")
-            .with_position(self.current_token.position)
-            .with_message(format!(
-                "Expected an expression, found `{}`.",
-                self.current_token.token_type
-            )),
+                .with_position(self.current_token.position)
+                .with_message(format!(
+                    "Expected an expression, found `{}`.",
+                    self.current_token.token_type
+                )),
         );
     }
 
@@ -382,11 +379,11 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID INTEGER")
                         .with_code("E103")
-                    .with_position(self.current_token.position)
-                    .with_message(format!(
-                        "Could not parse `{}` as an integer.",
-                        self.current_token.literal
-                    )),
+                        .with_position(self.current_token.position)
+                        .with_message(format!(
+                            "Could not parse `{}` as an integer.",
+                            self.current_token.literal
+                        )),
                 );
                 None
             }
@@ -400,11 +397,11 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID FLOAT")
                         .with_code("E104")
-                    .with_position(self.current_token.position)
-                    .with_message(format!(
-                        "Could not parse `{}` as a float.",
-                        self.current_token.literal
-                    )),
+                        .with_position(self.current_token.position)
+                        .with_message(format!(
+                            "Could not parse `{}` as a float.",
+                            self.current_token.literal
+                        )),
                 );
                 None
             }

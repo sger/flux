@@ -153,14 +153,16 @@ impl VM {
                     self.pop()?;
                 }
                 OpCode::OpArray => {
-                    let num_elements = read_u16(self.current_frame().instructions(), ip + 1) as usize;
+                    let num_elements =
+                        read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     let array = self.build_array(self.sp - num_elements, self.sp);
                     self.sp -= num_elements;
                     self.push(array)?;
                 }
                 OpCode::OpHash => {
-                    let num_elements = read_u16(self.current_frame().instructions(), ip + 1) as usize;
+                    let num_elements =
+                        read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
                     let hash = self.build_hash(self.sp - num_elements, self.sp)?;
                     self.sp -= num_elements;

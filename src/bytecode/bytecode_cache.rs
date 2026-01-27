@@ -7,8 +7,7 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    bytecode::bytecode::Bytecode,
-    runtime::compiled_function::CompiledFunction,
+    bytecode::bytecode::Bytecode, runtime::compiled_function::CompiledFunction,
     runtime::object::Object,
 };
 
@@ -91,11 +90,7 @@ impl BytecodeCache {
         })
     }
 
-    pub fn inspect(
-        &self,
-        source_path: &Path,
-        source_hash: &[u8; 32],
-    ) -> Option<CacheInfo> {
+    pub fn inspect(&self, source_path: &Path, source_hash: &[u8; 32]) -> Option<CacheInfo> {
         let path = self.cache_path(source_path, source_hash);
         self.inspect_file(&path)
     }
@@ -344,9 +339,11 @@ fn read_object(reader: &mut File) -> Option<Object> {
             let instructions_len = read_u32(reader)? as usize;
             let mut instructions = vec![0u8; instructions_len];
             reader.read_exact(&mut instructions).ok()?;
-            Some(Object::Function(std::rc::Rc::new(
-                CompiledFunction::new(instructions, num_locals, num_parameters),
-            )))
+            Some(Object::Function(std::rc::Rc::new(CompiledFunction::new(
+                instructions,
+                num_locals,
+                num_parameters,
+            ))))
         }
         _ => None,
     }

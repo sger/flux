@@ -5,7 +5,11 @@ fn compile_ok_in(file_path: &str, input: &str) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let mut compiler = Compiler::new_with_file_path(file_path);
     compiler.compile(&program).expect("expected compile ok");
 }
@@ -14,25 +18,44 @@ fn compile_err(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let mut compiler = Compiler::new();
-    let err = compiler.compile(&program).expect_err("expected compile error");
-    err.first().map(|d| d.code.clone().unwrap_or_default()).unwrap_or_default()
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first()
+        .map(|d| d.code.clone().unwrap_or_default())
+        .unwrap_or_default()
 }
 
 fn compile_err_in(file_path: &str, input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let mut compiler = Compiler::new_with_file_path(file_path);
-    let err = compiler.compile(&program).expect_err("expected compile error");
-    err.first().map(|d| d.code.clone().unwrap_or_default()).unwrap_or_default()
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first()
+        .map(|d| d.code.clone().unwrap_or_default())
+        .unwrap_or_default()
 }
 
 #[test]
 fn import_top_level_ok() {
-    compile_ok_in("examples/test.flx", "import Math module Main { fun main() { 1; } }");
+    compile_ok_in(
+        "examples/test.flx",
+        "import Math module Main { fun main() { 1; } }",
+    );
 }
 
 #[test]
@@ -49,7 +72,9 @@ fn import_name_collision_error() {
 
 #[test]
 fn private_member_access_error() {
-    let code = compile_err("module Math { fun _private() { 1; } } module Main { fun main() { Math._private(); } }");
+    let code = compile_err(
+        "module Math { fun _private() { 1; } } module Main { fun main() { Math._private(); } }",
+    );
     assert_eq!(code, "E021");
 }
 
