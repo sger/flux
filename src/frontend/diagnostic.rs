@@ -33,6 +33,18 @@ impl Diagnostic {
         }
     }
 
+    pub fn warning(title: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            title: title.into(),
+            code: None,
+            message: None,
+            file: None,
+            position: None,
+            hints: Vec::new(),
+        }
+    }
+
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self
@@ -81,7 +93,7 @@ impl Diagnostic {
         }
 
         if let Some(position) = self.position {
-            let display_column = position.column + 1;
+            let _display_column = position.column + 1;
 
             if let Some(line_text) = source.and_then(|src| get_source_line(src, position.line)) {
                 let line_str = position.line.to_string();
