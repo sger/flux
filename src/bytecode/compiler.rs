@@ -549,6 +549,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_module_statement(
         &mut self,
         name: &str,
@@ -606,13 +607,11 @@ impl Compiler {
                 position,
                 ..
             } = statement
-            {
-                if let Err(err) =
+                && let Err(err) =
                     self.compile_function_statement(fn_name, parameters, fn_body, *position)
-                {
-                    self.leave_scope();
-                    return Err(err);
-                }
+            {
+                self.leave_scope();
+                return Err(err);
             }
         }
 
@@ -665,6 +664,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_import_statement(
         &mut self,
         name: &str,
