@@ -1,4 +1,9 @@
-use std::rc::Rc;
+use std::{
+    collections::HashSet,
+    fs,
+    path::Path,
+    rc::Rc,
+};
 
 use crate::{
     bytecode::{
@@ -11,8 +16,14 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        block::Block, diagnostic::Diagnostic, expression::Expression, position::Position,
-        program::Program, statement::Statement,
+        block::Block,
+        diagnostic::Diagnostic,
+        expression::Expression,
+        lexer::Lexer,
+        parser::Parser,
+        position::Position,
+        program::Program,
+        statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -24,6 +35,7 @@ pub struct Compiler {
     scope_index: usize,
     pub errors: Vec<Diagnostic>,
     file_path: String,
+    imported_files: HashSet<String>,
 }
 
 impl Compiler {
@@ -47,6 +59,7 @@ impl Compiler {
             scope_index: 0,
             errors: Vec::new(),
             file_path: file_path.into(),
+            imported_files: HashSet::new(),
         }
     }
 
@@ -557,16 +570,69 @@ impl Compiler {
 
     fn compile_import_statement(
         &mut self,
-        _name: &str,
+        name: &str,
         position: Position,
     ) -> Result<(), Diagnostic> {
-        // Import statements for cross-file imports will be implemented in a future phase
-        // For now, they are no-ops since modules in the same file are already available
-        Err(
-            Diagnostic::error("import statements are not yet implemented")
+        if self.symbol_table.resolve(name).is_some() {
+            return Ok(());
+        }
+
+        let base_dir = Path::new(&self.file_path).parent().unwrap_or(Path::new("."));
+        let candidates = [
+            base_dir.join(format!("{}.flx", name)),
+            base_dir.join(format!("{}.flx", name.to_lowercase())),
+        ];
+
+        let import_path = candidates.into_iter().find(|path| path.exists());
+        let import_path = match import_path {
+            Some(path) => path,
+            None => {
+                return Err(
+                    Diagnostic::error("import not found")
+                        .with_position(position)
+                        .with_message(format!("no module file found for `{}`", name))
+                        .with_hint(format!(
+                            "Looked for `{}` and `{}` next to this file.",
+                            base_dir.join(format!("{}.flx", name)).display(),
+                            base_dir.join(format!("{}.flx", name.to_lowercase())).display()
+                        )),
+                );
+            }
+        };
+
+        let canonical_path = fs::canonicalize(&import_path).unwrap_or(import_path);
+        let canonical_str = canonical_path.to_string_lossy().to_string();
+        if self.imported_files.contains(&canonical_str) {
+            return Ok(());
+        }
+        self.imported_files.insert(canonical_str.clone());
+
+        let source = fs::read_to_string(&canonical_path).map_err(|err| {
+            Diagnostic::error("failed to read import")
                 .with_position(position)
-                .with_message("cross-file imports will be supported in a future version"),
-        )
+                .with_message(format!("{}: {}", canonical_str, err))
+        })?;
+
+        let lexer = Lexer::new(&source);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        if !parser.errors.is_empty() {
+            for diag in parser.errors {
+                self.errors.push(diag.with_file(canonical_str.clone()));
+            }
+            return Ok(());
+        }
+
+        let previous_file_path = std::mem::replace(&mut self.file_path, canonical_str);
+        for statement in &program.statements {
+            if let Err(err) = self.compile_statement(statement) {
+                self.errors.push(err);
+            }
+        }
+        self.file_path = previous_file_path;
+
+        Ok(())
     }
 
     #[allow(clippy::result_large_err)]
