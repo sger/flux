@@ -258,10 +258,23 @@ impl Parser {
         }
 
         let name = self.parse_qualified_name()?;
+        let mut alias = None;
+
+        if self.is_peek_token(TokenType::As) {
+            self.next_token(); // consume 'as'
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            alias = Some(self.current_token.literal.clone());
+        }
 
         // No semicolon required for import statements
 
-        Some(Statement::Import { name, position })
+        Some(Statement::Import {
+            name,
+            alias,
+            position,
+        })
     }
 
     fn parse_qualified_name(&mut self) -> Option<String> {

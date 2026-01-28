@@ -14,7 +14,7 @@ use crate::{
         block::Block,
         diagnostic::Diagnostic,
         expression::{Expression, MatchArm, Pattern},
-        module_graph::{is_valid_module_name, module_binding_name},
+        module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         position::Position,
         program::Program,
         statement::Statement,
@@ -227,11 +227,15 @@ impl Compiler {
                     self.file_scope_symbols.insert(binding_name.to_string());
                 }
             }
-            Statement::Import { name, position } => {
+            Statement::Import {
+                name,
+                alias,
+                position,
+            } => {
                 if self.scope_index > 0 {
                     return Err(Self::boxed(self.make_import_scope_error(name, *position)));
                 }
-                let binding_name = module_binding_name(name);
+                let binding_name = import_binding_name(name, alias.as_deref());
                 if self.file_scope_symbols.contains(binding_name) {
                     return Err(Self::boxed(
                         self.make_import_collision_error(binding_name, *position),
@@ -240,7 +244,7 @@ impl Compiler {
                 // Reserve the name for this file so later declarations can't collide.
                 self.file_scope_symbols
                     .insert(binding_name.to_string());
-                self.compile_import_statement(name, *position)?;
+                self.compile_import_statement(name, alias.as_deref(), *position)?;
             }
         }
 
@@ -958,8 +962,30 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_import_statement(&mut self, _name: &str, _position: Position) -> CompileResult<()> {
-        // Imports are resolved and loaded by the module graph; no bytecode needed here.
+    fn compile_import_statement(
+        &mut self,
+        name: &str,
+        alias: Option<&str>,
+        position: Position,
+    ) -> CompileResult<()> {
+        if let Some(alias) = alias {
+            let module_symbol = self.symbol_table.resolve(name).ok_or_else(|| {
+                Self::boxed(
+                    Diagnostic::error("IMPORT NOT FOUND")
+                        .with_code("E032")
+                        .with_position(position)
+                        .with_message(format!("no module file found for `{}`", name)),
+                )
+            })?;
+            let alias_symbol = self.symbol_table.define(alias);
+            // Bind alias to the already-compiled module value.
+            self.load_symbol(&module_symbol);
+            match alias_symbol.symbol_scope {
+                SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[alias_symbol.index]),
+                SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[alias_symbol.index]),
+                _ => 0,
+            };
+        }
         Ok(())
     }
 

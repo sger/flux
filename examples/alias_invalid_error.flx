@@ -1,0 +1,3 @@
+import Data.MyFile as myfile
+
+print(Data.MyFile.value());
