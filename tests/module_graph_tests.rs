@@ -121,7 +121,7 @@ fn module_file_with_script_code_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected mixed module/script error");
-    assert_eq!(first_code(err), "E037");
+    assert_eq!(first_code(err), "E042");
 }
 
 #[test]
