@@ -473,6 +473,17 @@ impl Compiler {
                 .with_code("E030")
                 .with_message("Match expression must have at least one arm."));
         }
+        if arms.len() > 1 {
+            for arm in &arms[..arms.len() - 1] {
+                if matches!(arm.pattern, Pattern::Identifier(_) | Pattern::Wildcard) {
+                    return Err(Diagnostic::error("INVALID PATTERN")
+                        .with_code("E034")
+                        .with_message("Catch-all patterns must be the final match arm.")
+                        .with_hint("Move `_` or the binding pattern to the last arm."));
+                }
+            }
+        }
+
         if let Some(last) = arms.last() {
             if !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_)) {
                 return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
@@ -504,13 +515,6 @@ impl Compiler {
 
             // For all arms except the last, we need to check if pattern matches
             if !is_last {
-                if matches!(arm.pattern, Pattern::Identifier(_)) {
-                    return Err(Diagnostic::error("INVALID PATTERN")
-                        .with_code("E034")
-                        .with_message("Identifier patterns must be the final match arm.")
-                        .with_hint("Move the binding pattern to the last arm, or use `_`."));
-                }
-
                 // Duplicate scrutinee for pattern check
                 // We'll emit code to check the pattern and jump to next arm if not matched
                 let next_arm_jump = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
