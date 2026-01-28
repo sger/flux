@@ -26,8 +26,9 @@ module Main {
         print("\n3. Match with Option patterns:");
         let opt = None;
         let msg = match opt {
+            Some(x) -> "found";
             None -> "missing";
-            _ -> "found";
+            _ -> "unreachable";
         };
         print(msg);
 

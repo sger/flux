@@ -517,10 +517,11 @@ impl Compiler {
             if !is_last {
                 // Duplicate scrutinee for pattern check
                 // We'll emit code to check the pattern and jump to next arm if not matched
-                let next_arm_jump = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
+                let next_arm_jumps = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
 
                 // Pattern matched, compile the body
                 self.enter_block_scope();
+                self.compile_pattern_bind(&temp_symbol, &arm.pattern);
                 self.compile_expression(&arm.body)?;
                 self.leave_block_scope();
 
@@ -529,24 +530,14 @@ impl Compiler {
                 end_jumps.push(end_jump);
 
                 // Patch jump to next arm
-                self.change_operand(next_arm_jump, self.current_instructions().len());
+                for jump_pos in next_arm_jumps {
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                }
 
             } else {
                 // Last arm: bind identifier (if any) or drop scrutinee, then compile body
                 self.enter_block_scope();
-                if let Pattern::Identifier(name) = &arm.pattern {
-                    self.load_symbol(&temp_symbol);
-                    let symbol = self.symbol_table.define(name.clone());
-                    match symbol.symbol_scope {
-                        SymbolScope::Global => {
-                            self.emit(OpCode::OpSetGlobal, &[symbol.index])
-                        }
-                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                        _ => 0,
-                    };
-                } else {
-                    self.emit(OpCode::OpPop, &[]);
-                }
+                self.compile_pattern_bind(&temp_symbol, &arm.pattern);
                 self.compile_expression(&arm.body)?;
                 self.leave_block_scope();
             }
@@ -565,7 +556,7 @@ impl Compiler {
         &mut self,
         scrutinee: &Symbol,
         pattern: &Pattern,
-    ) -> Result<usize, Diagnostic> {
+    ) -> Result<Vec<usize>, Diagnostic> {
         match pattern {
             Pattern::Wildcard => {
                 // Wildcard always matches, so we never jump to next arm
@@ -574,7 +565,7 @@ impl Compiler {
                 // So we return a dummy jump position that will never be used
                 // For simplicity, emit a condition that's always true
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
             Pattern::Literal(expr) => {
                 // Push pattern value onto stack: [scrutinee, pattern]
@@ -583,32 +574,82 @@ impl Compiler {
                 self.load_symbol(scrutinee);
                 self.compile_expression(expr)?;
                 self.emit(OpCode::OpEqual, &[]);
-                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
             Pattern::None => {
                 // Check if scrutinee is None
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpNone, &[]);
                 self.emit(OpCode::OpEqual, &[]);
-                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
-            Pattern::Some(_inner) => {
-                // For now, just check if it's Some type
-                // TODO: Implement proper pattern matching for Some(inner)
-                // This requires unwrapping the Some and recursively matching
-                // For simplicity, we'll leave this as a todo
-                return Err(Diagnostic::error("UNSUPPORTED PATTERN")
-                    .with_code("E031")
-                    .with_message("Pattern matching on Some(inner) is not yet implemented.")
-                    .with_hint("Use a simpler pattern or check if value is Some directly."));
+            Pattern::Some(inner) => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsSome, &[]);
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                match inner.as_ref() {
+                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    _ => {
+                        let inner_symbol = self.symbol_table.define_temp();
+                        self.load_symbol(scrutinee);
+                        self.emit(OpCode::OpUnwrapSome, &[]);
+                        match inner_symbol.symbol_scope {
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                            }
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                            }
+                            _ => {}
+                        }
+                        let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
+                        jumps.extend(inner_jumps);
+                        Ok(jumps)
+                    }
+                }
             }
             Pattern::Identifier(_name) => {
                 // Identifier always matches and binds the value
                 // For now, we'll treat it like wildcard
                 // TODO: Implement proper binding
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
+        }
+    }
+
+    fn compile_pattern_bind(&mut self, scrutinee: &Symbol, pattern: &Pattern) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                self.load_symbol(scrutinee);
+                let symbol = self.symbol_table.define(name.clone());
+                match symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[symbol.index]);
+                    }
+                    _ => {}
+                };
+            }
+            Pattern::Some(inner) => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpUnwrapSome, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                    }
+                    _ => {}
+                }
+                self.compile_pattern_bind(&inner_symbol, inner);
+            }
+            Pattern::Wildcard | Pattern::Literal(_) | Pattern::None => {}
         }
     }
 

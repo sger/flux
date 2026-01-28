@@ -137,6 +137,22 @@ impl VM {
                 OpCode::OpTrue => self.push(Object::Boolean(true))?,
                 OpCode::OpFalse => self.push(Object::Boolean(false))?,
                 OpCode::OpNull => self.push(Object::None)?,
+                OpCode::OpIsSome => {
+                    let value = self.pop()?;
+                    self.push(Object::Boolean(matches!(value, Object::Some(_))))?;
+                }
+                OpCode::OpUnwrapSome => {
+                    let value = self.pop()?;
+                    match value {
+                        Object::Some(inner) => self.push(*inner)?,
+                        _ => {
+                            return Err(format!(
+                                "expected Some(..) but found {}",
+                                value.type_name()
+                            ));
+                        }
+                    }
+                }
                 OpCode::OpGetBuiltin => {
                     let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
