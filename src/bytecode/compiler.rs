@@ -11,8 +11,14 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        block::Block, diagnostic::Diagnostic, expression::Expression, lexer::Lexer, parser::Parser,
-        position::Position, program::Program, statement::Statement,
+        block::Block,
+        diagnostic::Diagnostic,
+        expression::{Expression, MatchArm, Pattern},
+        lexer::Lexer,
+        parser::Parser,
+        position::Position,
+        program::Program,
+        statement::Statement,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -336,6 +342,16 @@ impl Compiler {
                 // Use index operation to access the member from the hash
                 self.emit(OpCode::OpIndex, &[]);
             }
+            Expression::None => {
+                self.emit(OpCode::OpNone, &[]);
+            }
+            Expression::Some { value } => {
+                self.compile_expression(value)?;
+                self.emit(OpCode::OpSome, &[]);
+            }
+            Expression::Match { scrutinee, arms } => {
+                self.compile_match_expression(scrutinee, arms)?;
+            }
         }
         Ok(())
     }
@@ -448,6 +464,111 @@ impl Compiler {
 
         self.change_operand(jump_pos, self.current_instructions().len());
         Ok(())
+    }
+
+    fn compile_match_expression(
+        &mut self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+    ) -> Result<(), Diagnostic> {
+        if arms.is_empty() {
+            return Err(Diagnostic::error("EMPTY MATCH")
+                .with_code("E030")
+                .with_message("Match expression must have at least one arm."));
+        }
+
+        // Compile scrutinee once and store it in a local variable
+        // For simplicity, we'll use a temporary approach: keep it on stack and duplicate
+
+        self.compile_expression(scrutinee)?;
+
+        let mut end_jumps = Vec::new();
+
+        // Compile each arm
+        for (i, arm) in arms.iter().enumerate() {
+            let is_last = i == arms.len() - 1;
+
+            // For all arms except the last, we need to check if pattern matches
+            if !is_last {
+                // Duplicate scrutinee for pattern check
+                // We'll emit code to check the pattern and jump to next arm if not matched
+                let next_arm_jump = self.compile_pattern_check(scrutinee, &arm.pattern)?;
+
+                // Pattern matched, compile the body
+                self.compile_expression(&arm.body)?;
+
+                // Jump to end after executing this arm's body
+                let end_jump = self.emit(OpCode::OpJump, &[9999]);
+                end_jumps.push(end_jump);
+
+                // Patch jump to next arm
+                self.change_operand(next_arm_jump, self.current_instructions().len());
+
+                // When we jump here, stack is empty (OpEqual consumed scrutinee,
+                // OpJumpNotTruthy popped the boolean). Push scrutinee for next arm.
+                self.compile_expression(scrutinee)?;
+            } else {
+                // Last arm: pop scrutinee and compile body (assume it matches)
+                self.emit(OpCode::OpPop, &[]);
+                self.compile_expression(&arm.body)?;
+            }
+        }
+
+        // Patch all end jumps to point here
+        for jump_pos in end_jumps {
+            self.change_operand(jump_pos, self.current_instructions().len());
+        }
+
+        Ok(())
+    }
+
+    fn compile_pattern_check(
+        &mut self,
+        _scrutinee: &Expression,
+        pattern: &Pattern,
+    ) -> Result<usize, Diagnostic> {
+        match pattern {
+            Pattern::Wildcard => {
+                // Wildcard always matches, so we never jump to next arm
+                // Emit OpTrue and OpJumpNotTruthy (which will never jump)
+                // Actually, for wildcard we should always execute this arm
+                // So we return a dummy jump position that will never be used
+                // For simplicity, emit a condition that's always true
+                self.emit(OpCode::OpTrue, &[]);
+                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+            }
+            Pattern::Literal(expr) => {
+                // Push pattern value onto stack: [scrutinee, pattern]
+                // OpEqual compares and pushes boolean: [result]
+                // OpJumpNotTruthy jumps when false (no match), continues when true (match)
+                self.compile_expression(expr)?;
+                self.emit(OpCode::OpEqual, &[]);
+                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+            }
+            Pattern::None => {
+                // Check if scrutinee is None
+                self.emit(OpCode::OpNone, &[]);
+                self.emit(OpCode::OpEqual, &[]);
+                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+            }
+            Pattern::Some(_inner) => {
+                // For now, just check if it's Some type
+                // TODO: Implement proper pattern matching for Some(inner)
+                // This requires unwrapping the Some and recursively matching
+                // For simplicity, we'll leave this as a todo
+                return Err(Diagnostic::error("UNSUPPORTED PATTERN")
+                    .with_code("E031")
+                    .with_message("Pattern matching on Some(inner) is not yet implemented.")
+                    .with_hint("Use a simpler pattern or check if value is Some directly."));
+            }
+            Pattern::Identifier(_name) => {
+                // Identifier always matches and binds the value
+                // For now, we'll treat it like wildcard
+                // TODO: Implement proper binding
+                self.emit(OpCode::OpTrue, &[]);
+                Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
+            }
+        }
     }
 
     #[allow(clippy::result_large_err)]
