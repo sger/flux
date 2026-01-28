@@ -287,7 +287,9 @@ fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) ->
     while i < args.len() {
         if args[i] == "--root" {
             if i + 1 >= args.len() {
-                eprintln!("Usage: flux <file.flx> --root <path> [--root <path> ...]");
+                eprintln!(
+                    "Usage: flux <file.flx> --root <path> [--root <path> ...]\n       flux run <file.flx> --root <path> [--root <path> ...]"
+                );
                 return false;
             }
             let path = args.remove(i + 1);
