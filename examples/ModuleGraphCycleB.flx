@@ -1,0 +1,7 @@
+import ModuleGraphCycleA
+
+module ModuleGraphCycleB {
+  fun value() {
+    2;
+  }
+}

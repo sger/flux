@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use crate::frontend::{
-    diagnostic::Diagnostic, expression::Expression, position::Position, program::Program,
+    diagnostic::Diagnostic,
+    expression::Expression,
+    module_graph::{is_valid_module_name, module_binding_name},
+    position::Position,
+    program::Program,
     statement::Statement,
 };
 
@@ -99,7 +103,8 @@ impl Linter {
                 body,
                 position,
             } => {
-                self.define_binding(name, *position, BindingKind::Function);
+                let binding = module_binding_name(name);
+                self.define_binding(binding, *position, BindingKind::Function);
                 self.enter_scope();
                 for stmt in &body.statements {
                     self.lint_statement(stmt);
@@ -107,15 +112,19 @@ impl Linter {
                 self.finish_scope();
             }
             Statement::Import { name, position } => {
-                if !is_upper_camel(name) {
+                if !is_valid_module_name(name) {
                     self.push_warning(
                         "IMPORT NAME STYLE",
                         "W006",
                         *position,
-                        format!("`{}` should be UpperCamelCase.", name),
+                        format!(
+                            "`{}` should use UpperCamelCase segments separated by dots.",
+                            name
+                        ),
                     );
                 }
-                self.define_binding(name, *position, BindingKind::Import);
+                let binding = module_binding_name(name);
+                self.define_binding(binding, *position, BindingKind::Import);
             }
         }
     }
@@ -301,15 +310,4 @@ fn is_snake_case(name: &str) -> bool {
         .chars()
         .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
         && !trimmed.contains("__")
-}
-
-fn is_upper_camel(name: &str) -> bool {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    if !first.is_ascii_uppercase() {
-        return false;
-    }
-    chars.all(|ch| ch.is_ascii_alphanumeric())
 }

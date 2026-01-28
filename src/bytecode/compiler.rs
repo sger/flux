@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs, path::Path, rc::Rc};
+use std::{collections::HashSet, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -14,8 +14,7 @@ use crate::{
         block::Block,
         diagnostic::Diagnostic,
         expression::{Expression, MatchArm, Pattern},
-        lexer::Lexer,
-        parser::Parser,
+        module_graph::{is_valid_module_name, module_binding_name},
         position::Position,
         program::Program,
         statement::Statement,
@@ -33,6 +32,7 @@ pub struct Compiler {
     pub errors: Vec<Diagnostic>,
     file_path: String,
     imported_files: HashSet<String>,
+    file_scope_symbols: HashSet<String>,
 }
 
 impl Compiler {
@@ -57,6 +57,7 @@ impl Compiler {
             errors: Vec::new(),
             file_path: file_path.into(),
             imported_files: HashSet::new(),
+            file_scope_symbols: HashSet::new(),
         }
     }
 
@@ -67,11 +68,20 @@ impl Compiler {
         compiler
     }
 
+    pub fn set_file_path(&mut self, file_path: impl Into<String>) {
+        // Keep diagnostics anchored to the module currently being compiled.
+        self.file_path = file_path.into();
+        // Reset per-file name tracking for import collision checks.
+        self.file_scope_symbols.clear();
+    }
+
     fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
         Box::new(diag)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
+        // Ensure per-file tracking is clean for each compile pass.
+        self.file_scope_symbols.clear();
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
@@ -98,6 +108,9 @@ impl Compiler {
                 value,
                 position,
             } => {
+                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
+                    return Err(Self::boxed(self.make_import_collision_error(name, *position)));
+                }
                 if self.symbol_table.exists_in_current_scope(name) {
                     return Err(Self::boxed(self.make_redeclaration_error(name, *position)));
                 }
@@ -119,6 +132,9 @@ impl Compiler {
                 };
 
                 self.symbol_table.mark_assigned(name).ok();
+                if self.scope_index == 0 {
+                    self.file_scope_symbols.insert(name.clone());
+                }
             }
             Statement::Assign {
                 name,
@@ -175,22 +191,55 @@ impl Compiler {
                 position,
                 ..
             } => {
+                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
+                    return Err(Self::boxed(self.make_import_collision_error(name, *position)));
+                }
                 self.compile_function_statement(name, parameters, body, *position)?;
+                if self.scope_index == 0 {
+                    self.file_scope_symbols.insert(name.clone());
+                }
             }
             Statement::Module {
                 name,
                 body,
                 position,
             } => {
-                if !Self::is_uppercase_identifier(name) {
+                if self.scope_index > 0 {
+                    return Err(Self::boxed(
+                        Diagnostic::error("MODULE SCOPE")
+                            .with_code("E039")
+                            .with_file(self.file_path.clone())
+                            .with_position(*position)
+                            .with_message("Modules may only be declared at the top level."),
+                    ));
+                }
+                let binding_name = module_binding_name(name);
+                if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
+                    return Err(Self::boxed(
+                        self.make_import_collision_error(binding_name, *position),
+                    ));
+                }
+                if !is_valid_module_name(name) {
                     return Err(Self::boxed(self.make_module_name_error(name, *position)));
                 }
                 self.compile_module_statement(name, body, *position)?;
+                if self.scope_index == 0 {
+                    self.file_scope_symbols.insert(binding_name.to_string());
+                }
             }
             Statement::Import { name, position } => {
                 if self.scope_index > 0 {
                     return Err(Self::boxed(self.make_import_scope_error(name, *position)));
                 }
+                let binding_name = module_binding_name(name);
+                if self.file_scope_symbols.contains(binding_name) {
+                    return Err(Self::boxed(
+                        self.make_import_collision_error(binding_name, *position),
+                    ));
+                }
+                // Reserve the name for this file so later declarations can't collide.
+                self.file_scope_symbols
+                    .insert(binding_name.to_string());
                 self.compile_import_statement(name, *position)?;
             }
         }
@@ -799,26 +848,29 @@ impl Compiler {
         position: Position,
     ) -> CompileResult<()> {
         // Check if module is already defined
-        if self.symbol_table.exists_in_current_scope(name) {
-            return Err(Self::boxed(self.make_redeclaration_error(name, position)));
+        let binding_name = module_binding_name(name);
+        if self.symbol_table.exists_in_current_scope(binding_name) {
+            return Err(Self::boxed(
+                self.make_redeclaration_error(binding_name, position),
+            ));
         }
 
         // Define the module symbol early so functions can reference it
-        let module_symbol = self.symbol_table.define(name);
+        let module_symbol = self.symbol_table.define(binding_name);
 
         // Collect all functions from the module body and validate contents
         let mut function_names = Vec::new();
         for statement in &body.statements {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
-                    if fn_name == name {
+                    if fn_name == binding_name {
                         return Err(Self::boxed(
                             Diagnostic::error("MODULE NAME CLASH")
                                 .with_code("E018")
                                 .with_position(statement.position())
                                 .with_message(format!(
                                     "Module `{}` cannot define a function with the same name.",
-                                    name
+                                    binding_name
                                 ))
                                 .with_hint("Use a different function name."),
                         ));
@@ -906,76 +958,8 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_import_statement(&mut self, name: &str, position: Position) -> CompileResult<()> {
-        if self.symbol_table.exists_in_current_scope(name) {
-            return Err(Self::boxed(
-                self.make_import_collision_error(name, position),
-            ));
-        }
-
-        let base_dir = Path::new(&self.file_path)
-            .parent()
-            .unwrap_or(Path::new("."));
-        let candidates = [
-            base_dir.join(format!("{}.flx", name)),
-            base_dir.join(format!("{}.flx", name.to_lowercase())),
-        ];
-
-        let import_path = candidates.into_iter().find(|path| path.exists());
-        let import_path = match import_path {
-            Some(path) => path,
-            None => {
-                return Err(Self::boxed(
-                    Diagnostic::error("IMPORT NOT FOUND")
-                        .with_code("E032")
-                        .with_position(position)
-                        .with_message(format!("no module file found for `{}`", name))
-                        .with_hint(format!(
-                            "Looked for `{}` and `{}` next to this file.",
-                            base_dir.join(format!("{}.flx", name)).display(),
-                            base_dir
-                                .join(format!("{}.flx", name.to_lowercase()))
-                                .display()
-                        )),
-                ));
-            }
-        };
-
-        let canonical_path = fs::canonicalize(&import_path).unwrap_or(import_path);
-        let canonical_str = canonical_path.to_string_lossy().to_string();
-        if self.imported_files.contains(&canonical_str) {
-            return Ok(());
-        }
-        self.imported_files.insert(canonical_str.clone());
-
-        let source = fs::read_to_string(&canonical_path).map_err(|err| {
-            Self::boxed(
-                Diagnostic::error("IMPORT READ FAILED")
-                    .with_code("E033")
-                    .with_position(position)
-                    .with_message(format!("{}: {}", canonical_str, err)),
-            )
-        })?;
-
-        let lexer = Lexer::new(&source);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-
-        if !parser.errors.is_empty() {
-            for diag in parser.errors {
-                self.errors.push(diag.with_file(canonical_str.clone()));
-            }
-            return Ok(());
-        }
-
-        let previous_file_path = std::mem::replace(&mut self.file_path, canonical_str);
-        for statement in &program.statements {
-            if let Err(err) = self.compile_statement(statement) {
-                self.errors.push(*err);
-            }
-        }
-        self.file_path = previous_file_path;
-
+    fn compile_import_statement(&mut self, _name: &str, _position: Position) -> CompileResult<()> {
+        // Imports are resolved and loaded by the module graph; no bytecode needed here.
         Ok(())
     }
 
@@ -1148,13 +1132,6 @@ impl Compiler {
             .with_position(position)
             .with_message(format!("Cannot import `{}` inside a function.", name))
             .with_hint("Move the import to the top level.")
-    }
-
-    fn is_uppercase_identifier(name: &str) -> bool {
-        name.chars()
-            .next()
-            .map(|ch| ch.is_ascii_uppercase())
-            .unwrap_or(false)
     }
 
     fn find_duplicate_name(names: &[String]) -> Option<&str> {

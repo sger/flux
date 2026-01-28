@@ -1,6 +1,4 @@
-module Prism {
   fun main() {
     let f = fun(x, x) { x };
     print(f(1, 2));
   }
-}

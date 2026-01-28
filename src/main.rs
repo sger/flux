@@ -7,7 +7,11 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostic::render_diagnostics, formatter::format_source, lexer::Lexer, linter::Linter,
+        diagnostic::{Diagnostic, render_diagnostics},
+        formatter::format_source,
+        lexer::Lexer,
+        linter::Linter,
+        module_graph::ModuleGraph,
         parser::Parser,
     },
     runtime::vm::VM,
@@ -172,16 +176,48 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
                 return;
             }
 
+            let entry_path = Path::new(path);
+            let mut roots = Vec::new();
+            if let Some(parent) = entry_path.parent() {
+                roots.push(parent.to_path_buf());
+            }
+            let project_src = Path::new("src");
+            if project_src.exists() {
+                roots.push(project_src.to_path_buf());
+            }
+
+            let graph = match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
+            {
+                Ok(graph) => graph,
+                Err(diags) => {
+                    eprintln!("{}", render_diagnostics_multi(&diags));
+                    return;
+                }
+            };
+
             let mut compiler = Compiler::new_with_file_path(path);
-            if let Err(diags) = compiler.compile(&program) {
-                eprintln!("{}", render_diagnostics(&diags, Some(&source), Some(path)));
+            let mut compile_errors: Vec<Diagnostic> = Vec::new();
+            for node in graph.topo_order() {
+                compiler.set_file_path(node.path.to_string_lossy().to_string());
+                if let Err(mut diags) = compiler.compile(&node.program) {
+                    for diag in &mut diags {
+                        if diag.file.is_none() {
+                            diag.file = Some(node.path.to_string_lossy().to_string());
+                        }
+                    }
+                    compile_errors.append(&mut diags);
+                    break;
+                }
+            }
+            if !compile_errors.is_empty() {
+                eprintln!("{}", render_diagnostics_multi(&compile_errors));
                 return;
             }
 
             let bytecode = compiler.bytecode();
 
             let mut deps = Vec::new();
-            for dep in compiler.imported_files() {
+            for dep in graph.imported_files() {
                 if let Ok(hash) = hash_file(Path::new(&dep)) {
                     deps.push((dep, hash));
                 }
@@ -219,6 +255,20 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+fn render_diagnostics_multi(diagnostics: &[Diagnostic]) -> String {
+    diagnostics
+        .iter()
+        .map(|diag| {
+            let source = diag
+                .file
+                .as_deref()
+                .and_then(|file| fs::read_to_string(file).ok());
+            diag.render(source.as_deref(), diag.file.as_deref())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn is_flx_file(path: &str) -> bool {

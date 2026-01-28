@@ -1,6 +1,3 @@
-// Test Option types and match expressions
-
-module Main {
     fun main() {
         print("=== Option and Match Tests ===");
 
@@ -61,4 +58,3 @@ module Main {
 
         print("\n=== All tests completed ===");
     }
-}

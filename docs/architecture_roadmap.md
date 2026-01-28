@@ -11,6 +11,15 @@ This document outlines high-impact architectural improvements for Flux.
 - List/Map stdlib + Option ergonomics (`unwrap_or`, `map`, `and_then`).
 - Match guards (`pattern if condition -> expr`).
 
+### Module graph (imports, cycle detection, deterministic order)
+- Build a graph from each module to its direct imports (edge = `module -> import`).
+- Resolve and normalize module IDs (absolute path + canonical name) before graph insertion.
+- Enforce deterministic traversal: stable sort imports and visit order for identical builds.
+- Detect cycles (DFS with color marks or Tarjan SCC) and emit a single, focused error.
+- Produce a topological order for compilation/execution planning (reject if cycles exist).
+- Cache graph + topo order to support incremental builds and parallel compilation later.
+- See `docs/module_graph.md` for the full design notes.
+
 ## v0.0.2 Roadmap (language + tooling)
 
 ### Language core

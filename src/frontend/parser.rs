@@ -14,6 +14,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     peek_token: Token,
+    peek2_token: Token,
     pub errors: Vec<Diagnostic>,
 }
 
@@ -23,8 +24,10 @@ impl Parser {
             lexer,
             current_token: Token::new(TokenType::Eof, "", 0, 0),
             peek_token: Token::new(TokenType::Eof, "", 0, 0),
+            peek2_token: Token::new(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
         };
+        parser.next_token();
         parser.next_token();
         parser.next_token();
         parser
@@ -49,7 +52,8 @@ impl Parser {
 
     fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
-        self.peek_token = self.lexer.next_token();
+        self.peek_token = self.peek2_token.clone();
+        self.peek2_token = self.lexer.next_token();
     }
 
     fn synchronize_after_error(&mut self) {
@@ -231,7 +235,7 @@ impl Parser {
             return None;
         }
 
-        let name = self.current_token.literal.clone();
+        let name = self.parse_qualified_name()?;
 
         if !self.expect_peek(TokenType::LBrace) {
             return None;
@@ -253,11 +257,24 @@ impl Parser {
             return None;
         }
 
-        let name = self.current_token.literal.clone();
+        let name = self.parse_qualified_name()?;
 
         // No semicolon required for import statements
 
         Some(Statement::Import { name, position })
+    }
+
+    fn parse_qualified_name(&mut self) -> Option<String> {
+        let mut name = self.current_token.literal.clone();
+        while self.is_peek_token(TokenType::Dot) {
+            self.next_token(); // consume '.'
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            name.push('.');
+            name.push_str(&self.current_token.literal);
+        }
+        Some(name)
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -371,7 +388,18 @@ impl Parser {
     }
 
     fn parse_identifier(&mut self) -> Option<Expression> {
-        Some(Expression::Identifier(self.current_token.literal.clone()))
+        let mut name = self.current_token.literal.clone();
+        if is_uppercase_ident(&self.current_token) {
+            while self.is_peek_token(TokenType::Dot) && is_uppercase_ident(&self.peek2_token) {
+                self.next_token(); // consume '.'
+                if !self.expect_peek(TokenType::Ident) {
+                    return None;
+                }
+                name.push('.');
+                name.push_str(&self.current_token.literal);
+            }
+        }
+        Some(Expression::Identifier(name))
     }
 
     fn parse_integer(&mut self) -> Option<Expression> {
@@ -714,4 +742,15 @@ impl Parser {
                 )),
         );
     }
+}
+
+fn is_uppercase_ident(token: &Token) -> bool {
+    if token.token_type != TokenType::Ident {
+        return false;
+    }
+    token
+        .literal
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
 }

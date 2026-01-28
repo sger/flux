@@ -1,0 +1,7 @@
+import Data.MyFile
+
+module Main {
+  fun main() {
+    Data.MyFile.value();
+  }
+}

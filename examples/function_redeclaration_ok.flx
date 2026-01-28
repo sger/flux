@@ -1,4 +1,3 @@
-module Drift {
   fun my_func() {
     return 1;
   }
@@ -6,4 +5,3 @@ module Drift {
   fun my_other_func() {
     return my_func();
   }
-}

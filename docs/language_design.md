@@ -41,7 +41,7 @@ All code lives in modules. Modules provide namespacing and organization.
 - A module cannot define a function with the same name as the module.
 
 ```
-// math.flx
+// Math.flx
 module Math {
   // public
   fun square(x) {
@@ -915,7 +915,7 @@ I can't find a mod called `Maths`.
 Did you mean?
 
     Math       (standard library)
-    MyMath     (in ./src/mymath.flx)
+    MyMath     (in ./src/MyMath.flx)
 
 Available modules:
 
