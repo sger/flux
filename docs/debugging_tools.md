@@ -163,6 +163,50 @@ This unlocks:
 - better test assertions
 - future IDE integration
 
+## 5.1) ICE diagnostics (compiler bugs)
+
+ICE = Internal Compiler Error (a compiler bug, not user code).
+
+Example output:
+
+```
+-- INTERNAL COMPILER ERROR -- src/bytecode/compiler.rs -- [ICE002]
+
+unexpected symbol scope for assignment
+
+Hint: src/bytecode/compiler.rs:134 (flux::bytecode::compiler)
+```
+
+How to see it:
+- Run a compile path and it will print if an invariant is violated:
+  ```
+  cargo run -- run examples/option_match.flx
+  ```
+- For a demo, use `examples/ice_demo.flx` and force an ICE temporarily in the compiler.
+- If you hit the bytecode cache, remove it first: `rm -rf target/flux`.
+- ICEs should be rare; if you see one, it points directly at the Rust file/line.
+
+## 5.2) Leak detector mode (approx)
+
+Use a lightweight allocation counter to spot suspicious growth:
+
+```
+cargo run -- --leak-detector examples/option_match.flx
+```
+
+Example output:
+
+```
+Leak stats (approx):
+  compiled_functions: 12
+  closures: 6
+  arrays: 4
+  hashes: 2
+  somes: 18
+```
+
+This is not a full leak detector (no cycle detection), but it gives a quick signal.
+
 ## 6) Compiler debugging tools (often ignored, very important)
 
 ### AST pretty-printer
