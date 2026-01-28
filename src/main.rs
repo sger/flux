@@ -21,10 +21,19 @@ fn main() {
     }
 
     if args.len() < 2 {
+        print_help();
+        return;
+    }
+
+    if is_flx_file(&args[1]) {
+        run_file(&args[1], verbose);
         return;
     }
 
     match args[1].as_str() {
+        "-h" | "--help" | "help" => {
+            print_help();
+        }
         "run" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux run <file.flx>");
@@ -91,6 +100,28 @@ fn main() {
         }
         _ => {}
     }
+}
+
+fn print_help() {
+    println!(
+        "\
+Flux CLI
+
+Usage:
+  flux <file.flx>
+  flux run <file.flx>
+  flux tokens <file.flx>
+  flux bytecode <file.flx>
+  flux lint <file.flx>
+  flux fmt [--check] <file.flx>
+  flux cache-info <file.flx>
+  flux cache-info-file <file.fxc>
+
+Flags:
+  --verbose   Show cache status (hit/miss/store)
+  -h, --help  Show this help message
+"
+    );
 }
 
 fn run_file(path: &str, verbose: bool) {
