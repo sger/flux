@@ -81,6 +81,7 @@ Imports are only allowed at the top level (module scope), not inside functions.
 Importing a name that already exists in the current scope is an error.
 Qualified access requires an explicit import in the same file.
 Aliased imports replace the original qualifier (Haskell-style).
+Cyclic imports are rejected at compile time.
 
 ```
 // Full module import

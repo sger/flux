@@ -165,3 +165,27 @@ fn duplicate_module_across_roots_is_error() {
         .expect_err("expected duplicate module error");
     assert_eq!(first_code(err), "E041");
 }
+
+#[test]
+fn import_cycle_is_error() {
+    let root = temp_root("import_cycle");
+    let module_a = root.join("A.flx");
+    let module_b = root.join("B.flx");
+    write_file(
+        &module_a,
+        "import B\nmodule A { fun value() { 1; } }",
+    );
+    write_file(
+        &module_b,
+        "import A\nmodule B { fun value() { 2; } }",
+    );
+
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import A\nA.value();";
+    write_file(&entry_path, entry_source);
+    let program = parse_program(entry_source);
+
+    let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
+        .expect_err("expected import cycle error");
+    assert_eq!(first_code(err), "E035");
+}
