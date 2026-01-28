@@ -178,10 +178,12 @@ Hint: src/bytecode/compiler.rs:134 (flux::bytecode::compiler)
 ```
 
 How to see it:
-- Run any compile path and it will print if an invariant is violated:
+- Run a compile path and it will print if an invariant is violated:
   ```
   cargo run -- run examples/option_match.flx
   ```
+- For a demo, use `examples/ice_demo.flx` and force an ICE temporarily in the compiler.
+- If you hit the bytecode cache, remove it first: `rm -rf target/flux`.
 - ICEs should be rare; if you see one, it points directly at the Rust file/line.
 
 ## 6) Compiler debugging tools (often ignored, very important)

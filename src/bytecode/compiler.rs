@@ -23,6 +23,8 @@ use crate::{
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
 
+type CompileResult<T> = Result<T, Box<Diagnostic>>;
+
 pub struct Compiler {
     constants: Vec<Object>,
     pub symbol_table: SymbolTable,
@@ -65,11 +67,15 @@ impl Compiler {
         compiler
     }
 
+    fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
+        Box::new(diag)
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
-                self.errors.push(err);
+                self.errors.push(*err);
             }
         }
 
@@ -81,8 +87,7 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
-    fn compile_statement(&mut self, statement: &Statement) -> Result<(), Diagnostic> {
+    fn compile_statement(&mut self, statement: &Statement) -> CompileResult<()> {
         match statement {
             Statement::Expression { expression, .. } => {
                 self.compile_expression(expression)?;
@@ -94,7 +99,7 @@ impl Compiler {
                 position,
             } => {
                 if self.symbol_table.exists_in_current_scope(name) {
-                    return Err(self.make_redeclaration_error(name, *position));
+                    return Err(Self::boxed(self.make_redeclaration_error(name, *position)));
                 }
 
                 let symbol = self.symbol_table.define(name);
@@ -104,10 +109,12 @@ impl Compiler {
                     SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
                     SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
                     _ => {
-                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                            .with_code("ICE001")
-                            .with_message("unexpected symbol scope for let binding")
-                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE001")
+                                .with_message("unexpected symbol scope for let binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
                     }
                 };
 
@@ -119,18 +126,19 @@ impl Compiler {
                 position,
             } => {
                 // Check if variable exists
-                let symbol = self
-                    .symbol_table
-                    .resolve(name)
-                    .ok_or_else(|| self.make_undefined_variable_error(name, *position))?;
+                let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
+                    Self::boxed(self.make_undefined_variable_error(name, *position))
+                })?;
 
                 if symbol.symbol_scope == SymbolScope::Free {
-                    return Err(self.make_outer_assignment_error(name, *position));
+                    return Err(Self::boxed(
+                        self.make_outer_assignment_error(name, *position),
+                    ));
                 }
 
                 // Check if variable is already assigned (immutability check)
                 if symbol.is_assigned {
-                    return Err(self.make_immutability_error(name, *position));
+                    return Err(Self::boxed(self.make_immutability_error(name, *position)));
                 }
 
                 self.compile_expression(value)?;
@@ -139,10 +147,12 @@ impl Compiler {
                     SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
                     SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
                     _ => {
-                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                            .with_code("ICE002")
-                            .with_message("unexpected symbol scope for assignment")
-                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE002")
+                                .with_message("unexpected symbol scope for assignment")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
                     }
                 };
 
@@ -173,13 +183,13 @@ impl Compiler {
                 position,
             } => {
                 if !Self::is_uppercase_identifier(name) {
-                    return Err(self.make_module_name_error(name, *position));
+                    return Err(Self::boxed(self.make_module_name_error(name, *position)));
                 }
                 self.compile_module_statement(name, body, *position)?;
             }
             Statement::Import { name, position } => {
                 if self.scope_index > 0 {
-                    return Err(self.make_import_scope_error(name, *position));
+                    return Err(Self::boxed(self.make_import_scope_error(name, *position)));
                 }
                 self.compile_import_statement(name, *position)?;
             }
@@ -212,8 +222,7 @@ impl Compiler {
         };
     }
 
-    #[allow(clippy::result_large_err)]
-    fn compile_expression(&mut self, expression: &Expression) -> Result<(), Diagnostic> {
+    fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
         match expression {
             Expression::Integer(value) => {
                 let idx = self.add_constant(Object::Integer(*value));
@@ -236,8 +245,10 @@ impl Compiler {
             }
             Expression::Identifier(name) => {
                 let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                    Diagnostic::error(format!("undefined variable `{}`", name))
-                        .with_hint(format!("Define it first: let {} = ...;", name))
+                    Self::boxed(
+                        Diagnostic::error(format!("undefined variable `{}`", name))
+                            .with_hint(format!("Define it first: let {} = ...;", name)),
+                    )
                 })?;
                 self.load_symbol(&symbol);
             }
@@ -247,9 +258,11 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        return Err(Diagnostic::error("UNKNOWN PREFIX OPERATOR")
-                            .with_code("E010")
-                            .with_message(format!("Unknown prefix operator `{}`.", operator)));
+                        return Err(Self::boxed(
+                            Diagnostic::error("UNKNOWN PREFIX OPERATOR")
+                                .with_code("E010")
+                                .with_message(format!("Unknown prefix operator `{}`.", operator)),
+                        ));
                     }
                 };
             }
@@ -277,10 +290,14 @@ impl Compiler {
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     _ => {
-                        return Err(Diagnostic::error("UNKNOWN INFIX OPERATOR")
-                            .with_code("E011")
-                            .with_message(format!("Unknown infix operator `{}`.", operator))
-                            .with_hint("Use a supported operator like +, -, *, /, ==, !=, or >."));
+                        return Err(Self::boxed(
+                            Diagnostic::error("UNKNOWN INFIX OPERATOR")
+                                .with_code("E011")
+                                .with_message(format!("Unknown infix operator `{}`.", operator))
+                                .with_hint(
+                                    "Use a supported operator like +, -, *, /, ==, !=, or >.",
+                                ),
+                        ));
                     }
                 };
             }
@@ -330,13 +347,15 @@ impl Compiler {
             Expression::MemberAccess { object, member } => {
                 // Check if accessing a private member (starts with underscore)
                 if member.starts_with('_') {
-                    return Err(Diagnostic::error("PRIVATE MEMBER")
-                        .with_code("E021")
-                        .with_file(self.file_path.clone())
-                        .with_message(format!("Cannot access private member `{}`.", member))
-                        .with_hint(
-                            "Private members can only be accessed within the same module.",
-                        ));
+                    return Err(Self::boxed(
+                        Diagnostic::error("PRIVATE MEMBER")
+                            .with_code("E021")
+                            .with_file(self.file_path.clone())
+                            .with_message(format!("Cannot access private member `{}`.", member))
+                            .with_hint(
+                                "Private members can only be accessed within the same module.",
+                            ),
+                    ));
                 }
 
                 // Compile the object (e.g., the module identifier)
@@ -388,20 +407,21 @@ impl Compiler {
         }
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_function_literal(
         &mut self,
         parameters: &[String],
         body: &Block,
-    ) -> Result<(), Diagnostic> {
+    ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
-            return Err(Diagnostic::error("DUPLICATE PARAMETER")
-                .with_code("E012")
-                .with_message(format!(
-                    "Duplicate parameter `{}` in function literal.",
-                    name
-                ))
-                .with_hint("Parameter names must be unique."));
+            return Err(Self::boxed(
+                Diagnostic::error("DUPLICATE PARAMETER")
+                    .with_code("E012")
+                    .with_message(format!(
+                        "Duplicate parameter `{}` in function literal.",
+                        name
+                    ))
+                    .with_hint("Parameter names must be unique."),
+            ));
         }
 
         self.enter_scope();
@@ -439,13 +459,12 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_if_expression(
         &mut self,
         condition: &Expression,
         consequence: &Block,
         alternative: &Option<Block>,
-    ) -> Result<(), Diagnostic> {
+    ) -> CompileResult<()> {
         self.compile_expression(condition)?;
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
@@ -473,24 +492,27 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_match_expression(
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
-    ) -> Result<(), Diagnostic> {
+    ) -> CompileResult<()> {
         if arms.is_empty() {
-            return Err(Diagnostic::error("EMPTY MATCH")
-                .with_code("E030")
-                .with_message("Match expression must have at least one arm."));
+            return Err(Self::boxed(
+                Diagnostic::error("EMPTY MATCH")
+                    .with_code("E030")
+                    .with_message("Match expression must have at least one arm."),
+            ));
         }
         if arms.len() > 1 {
             for arm in &arms[..arms.len() - 1] {
                 if matches!(arm.pattern, Pattern::Identifier(_) | Pattern::Wildcard) {
-                    return Err(Diagnostic::error("INVALID PATTERN")
-                        .with_code("E034")
-                        .with_message("Catch-all patterns must be the final match arm.")
-                        .with_hint("Move `_` or the binding pattern to the last arm."));
+                    return Err(Self::boxed(
+                        Diagnostic::error("INVALID PATTERN")
+                            .with_code("E034")
+                            .with_message("Catch-all patterns must be the final match arm.")
+                            .with_hint("Move `_` or the binding pattern to the last arm."),
+                    ));
                 }
             }
         }
@@ -498,10 +520,12 @@ impl Compiler {
         if let Some(last) = arms.last()
             && !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_))
         {
-            return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
-                .with_code("E033")
-                .with_message("Match expressions must end with a `_` or identifier arm.")
-                .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"));
+            return Err(Self::boxed(
+                Diagnostic::error("NON-EXHAUSTIVE MATCH")
+                    .with_code("E033")
+                    .with_message("Match expressions must end with a `_` or identifier arm.")
+                    .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"),
+            ));
         }
 
         // Compile scrutinee once and store it in a temp local
@@ -516,10 +540,12 @@ impl Compiler {
                 self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
             }
             _ => {
-                return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                    .with_code("ICE003")
-                    .with_message("unexpected temp symbol scope in match scrutinee")
-                    .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                return Err(Self::boxed(
+                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                        .with_code("ICE003")
+                        .with_message("unexpected temp symbol scope in match scrutinee")
+                        .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                ));
             }
         };
 
@@ -567,12 +593,11 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_pattern_check(
         &mut self,
         scrutinee: &Symbol,
         pattern: &Pattern,
-    ) -> Result<Vec<usize>, Diagnostic> {
+    ) -> CompileResult<Vec<usize>> {
         match pattern {
             Pattern::Wildcard => {
                 // Wildcard always matches, so we never jump to next arm
@@ -618,15 +643,19 @@ impl Compiler {
                                 self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
                             }
                             _ => {
-                                return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                                    .with_code("ICE004")
-                                    .with_message("unexpected temp symbol scope in Some pattern")
-                                    .with_hint(format!(
-                                        "{}:{} ({})",
-                                        file!(),
-                                        line!(),
-                                        module_path!()
-                                    )));
+                                return Err(Self::boxed(
+                                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                                        .with_code("ICE004")
+                                        .with_message(
+                                            "unexpected temp symbol scope in Some pattern",
+                                        )
+                                        .with_hint(format!(
+                                            "{}:{} ({})",
+                                            file!(),
+                                            line!(),
+                                            module_path!()
+                                        )),
+                                ));
                             }
                         }
                         let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
@@ -645,11 +674,7 @@ impl Compiler {
         }
     }
 
-    fn compile_pattern_bind(
-        &mut self,
-        scrutinee: &Symbol,
-        pattern: &Pattern,
-    ) -> Result<(), Diagnostic> {
+    fn compile_pattern_bind(&mut self, scrutinee: &Symbol, pattern: &Pattern) -> CompileResult<()> {
         match pattern {
             Pattern::Identifier(name) => {
                 self.load_symbol(scrutinee);
@@ -662,10 +687,12 @@ impl Compiler {
                         self.emit(OpCode::OpSetLocal, &[symbol.index]);
                     }
                     _ => {
-                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                            .with_code("ICE005")
-                            .with_message("unexpected symbol scope for pattern binding")
-                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE005")
+                                .with_message("unexpected symbol scope for pattern binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
                     }
                 };
             }
@@ -681,10 +708,12 @@ impl Compiler {
                         self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
                     }
                     _ => {
-                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
-                            .with_code("ICE006")
-                            .with_message("unexpected temp symbol scope in Some binding")
-                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE006")
+                                .with_message("unexpected temp symbol scope in Some binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
                     }
                 }
                 self.compile_pattern_bind(&inner_symbol, inner)?;
@@ -694,28 +723,29 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_function_statement(
         &mut self,
         name: &str,
         parameters: &[String],
         body: &Block,
         position: Position,
-    ) -> Result<(), Diagnostic> {
+    ) -> CompileResult<()> {
         if self.symbol_table.exists_in_current_scope(name) {
-            return Err(self.make_redeclaration_error(name, position));
+            return Err(Self::boxed(self.make_redeclaration_error(name, position)));
         }
 
         if let Some(param) = Self::find_duplicate_name(parameters) {
-            return Err(Diagnostic::error("DUPLICATE PARAMETER")
-                .with_code("E012")
-                .with_file(self.file_path.clone())
-                .with_position(position)
-                .with_message(format!(
-                    "Duplicate parameter `{}` in function `{}`.",
-                    param, name
-                ))
-                .with_hint("Use distinct parameter names."));
+            return Err(Self::boxed(
+                Diagnostic::error("DUPLICATE PARAMETER")
+                    .with_code("E012")
+                    .with_file(self.file_path.clone())
+                    .with_position(position)
+                    .with_message(format!(
+                        "Duplicate parameter `{}` in function `{}`.",
+                        param, name
+                    ))
+                    .with_hint("Use distinct parameter names."),
+            ));
         }
 
         let symbol = self.symbol_table.define(name);
@@ -760,16 +790,15 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
     fn compile_module_statement(
         &mut self,
         name: &str,
         body: &Block,
         position: Position,
-    ) -> Result<(), Diagnostic> {
+    ) -> CompileResult<()> {
         // Check if module is already defined
         if self.symbol_table.exists_in_current_scope(name) {
-            return Err(self.make_redeclaration_error(name, position));
+            return Err(Self::boxed(self.make_redeclaration_error(name, position)));
         }
 
         // Define the module symbol early so functions can reference it
@@ -781,22 +810,26 @@ impl Compiler {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
                     if fn_name == name {
-                        return Err(Diagnostic::error("MODULE NAME CLASH")
-                            .with_code("E018")
-                            .with_position(statement.position())
-                            .with_message(format!(
-                                "Module `{}` cannot define a function with the same name.",
-                                name
-                            ))
-                            .with_hint("Use a different function name."));
+                        return Err(Self::boxed(
+                            Diagnostic::error("MODULE NAME CLASH")
+                                .with_code("E018")
+                                .with_position(statement.position())
+                                .with_message(format!(
+                                    "Module `{}` cannot define a function with the same name.",
+                                    name
+                                ))
+                                .with_hint("Use a different function name."),
+                        ));
                     }
                     function_names.push(fn_name.clone());
                 }
                 _ => {
-                    return Err(Diagnostic::error("INVALID MODULE CONTENT")
-                        .with_code("E019")
-                        .with_position(statement.position())
-                        .with_message("Modules can only contain function declarations."));
+                    return Err(Self::boxed(
+                        Diagnostic::error("INVALID MODULE CONTENT")
+                            .with_code("E019")
+                            .with_position(statement.position())
+                            .with_message("Modules can only contain function declarations."),
+                    ));
                 }
             }
         }
@@ -871,14 +904,11 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
-    fn compile_import_statement(
-        &mut self,
-        name: &str,
-        position: Position,
-    ) -> Result<(), Diagnostic> {
+    fn compile_import_statement(&mut self, name: &str, position: Position) -> CompileResult<()> {
         if self.symbol_table.exists_in_current_scope(name) {
-            return Err(self.make_import_collision_error(name, position));
+            return Err(Self::boxed(
+                self.make_import_collision_error(name, position),
+            ));
         }
 
         let base_dir = Path::new(&self.file_path)
@@ -893,17 +923,19 @@ impl Compiler {
         let import_path = match import_path {
             Some(path) => path,
             None => {
-                return Err(Diagnostic::error("IMPORT NOT FOUND")
-                    .with_code("E032")
-                    .with_position(position)
-                    .with_message(format!("no module file found for `{}`", name))
-                    .with_hint(format!(
-                        "Looked for `{}` and `{}` next to this file.",
-                        base_dir.join(format!("{}.flx", name)).display(),
-                        base_dir
-                            .join(format!("{}.flx", name.to_lowercase()))
-                            .display()
-                    )));
+                return Err(Self::boxed(
+                    Diagnostic::error("IMPORT NOT FOUND")
+                        .with_code("E032")
+                        .with_position(position)
+                        .with_message(format!("no module file found for `{}`", name))
+                        .with_hint(format!(
+                            "Looked for `{}` and `{}` next to this file.",
+                            base_dir.join(format!("{}.flx", name)).display(),
+                            base_dir
+                                .join(format!("{}.flx", name.to_lowercase()))
+                                .display()
+                        )),
+                ));
             }
         };
 
@@ -915,10 +947,12 @@ impl Compiler {
         self.imported_files.insert(canonical_str.clone());
 
         let source = fs::read_to_string(&canonical_path).map_err(|err| {
-            Diagnostic::error("IMPORT READ FAILED")
-                .with_code("E033")
-                .with_position(position)
-                .with_message(format!("{}: {}", canonical_str, err))
+            Self::boxed(
+                Diagnostic::error("IMPORT READ FAILED")
+                    .with_code("E033")
+                    .with_position(position)
+                    .with_message(format!("{}: {}", canonical_str, err)),
+            )
         })?;
 
         let lexer = Lexer::new(&source);
@@ -935,7 +969,7 @@ impl Compiler {
         let previous_file_path = std::mem::replace(&mut self.file_path, canonical_str);
         for statement in &program.statements {
             if let Err(err) = self.compile_statement(statement) {
-                self.errors.push(err);
+                self.errors.push(*err);
             }
         }
         self.file_path = previous_file_path;
@@ -943,8 +977,7 @@ impl Compiler {
         Ok(())
     }
 
-    #[allow(clippy::result_large_err)]
-    fn compile_block(&mut self, block: &Block) -> Result<(), Diagnostic> {
+    fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
         for statement in &block.statements {
             self.compile_statement(statement)?;
         }
