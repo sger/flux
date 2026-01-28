@@ -1,0 +1,11 @@
+// Test: non-exhaustive match should error (missing `_` arm)
+module Main {
+    fun main() {
+        let value = 2;
+        let label = match value {
+            1 -> "one";
+            2 -> "two";
+        };
+        print(label);
+    }
+}

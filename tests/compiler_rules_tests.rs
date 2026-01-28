@@ -113,3 +113,9 @@ fn outer_assignment_error() {
     let code = compile_err("fun outer() { let x = 1; let f = fun() { x = 2; }; }");
     assert_eq!(code, "E004");
 }
+
+#[test]
+fn match_non_exhaustive_error() {
+    let code = compile_err("let x = 2; match x { 1 -> 10; }");
+    assert_eq!(code, "E033");
+}
