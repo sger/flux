@@ -1,4 +1,7 @@
-use std::{collections::HashSet, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use crate::{
     bytecode::{
@@ -33,6 +36,9 @@ pub struct Compiler {
     file_path: String,
     imported_files: HashSet<String>,
     file_scope_symbols: HashSet<String>,
+    imported_modules: HashSet<String>,
+    import_aliases: HashMap<String, String>,
+    current_module_prefix: Option<String>,
 }
 
 impl Compiler {
@@ -58,6 +64,9 @@ impl Compiler {
             file_path: file_path.into(),
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
+            imported_modules: HashSet::new(),
+            import_aliases: HashMap::new(),
+            current_module_prefix: None,
         }
     }
 
@@ -73,6 +82,9 @@ impl Compiler {
         self.file_path = file_path.into();
         // Reset per-file name tracking for import collision checks.
         self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.current_module_prefix = None;
     }
 
     fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -82,6 +94,9 @@ impl Compiler {
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
         self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.current_module_prefix = None;
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
@@ -297,13 +312,24 @@ impl Compiler {
                 }
             }
             Expression::Identifier(name) => {
-                let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                    Self::boxed(
+                if let Some(symbol) = self.symbol_table.resolve(name) {
+                    self.load_symbol(&symbol);
+                } else if let Some(prefix) = &self.current_module_prefix {
+                    let qualified = format!("{}.{}", prefix, name);
+                    if let Some(symbol) = self.symbol_table.resolve(&qualified) {
+                        self.load_symbol(&symbol);
+                    } else {
+                        return Err(Self::boxed(
+                            Diagnostic::error(format!("undefined variable `{}`", name))
+                                .with_hint(format!("Define it first: let {} = ...;", name)),
+                        ));
+                    }
+                } else {
+                    return Err(Self::boxed(
                         Diagnostic::error(format!("undefined variable `{}`", name))
                             .with_hint(format!("Define it first: let {} = ...;", name)),
-                    )
-                })?;
-                self.load_symbol(&symbol);
+                    ));
+                }
             }
             Expression::Prefix { operator, right } => {
                 self.compile_expression(right)?;
@@ -398,6 +424,70 @@ impl Compiler {
                 self.emit(OpCode::OpCall, &[arguments.len()]);
             }
             Expression::MemberAccess { object, member } => {
+                let module_name = match object.as_ref() {
+                    Expression::Identifier(name) => {
+                        if let Some(target) = self.import_aliases.get(name) {
+                            Some(target.clone())
+                        } else if self.imported_modules.contains(name) {
+                            Some(name.clone())
+                        } else if self.current_module_prefix.as_deref() == Some(name.as_str()) {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(module_name) = module_name {
+                    if member.starts_with('_')
+                        && self.current_module_prefix.as_deref() != Some(module_name.as_str())
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::error("PRIVATE MEMBER")
+                                .with_code("E021")
+                                .with_file(self.file_path.clone())
+                                .with_message(format!(
+                                    "Cannot access private member `{}`.",
+                                    member
+                                ))
+                                .with_hint(
+                                    "Private members can only be accessed within the same module.",
+                                ),
+                        ));
+                    }
+
+                    let qualified = format!("{}.{}", module_name, member);
+                    if let Some(symbol) = self.symbol_table.resolve(&qualified) {
+                        self.load_symbol(&symbol);
+                        return Ok(());
+                    }
+
+                    return Err(Self::boxed(
+                        Diagnostic::error("UNKNOWN MODULE MEMBER")
+                            .with_message(format!(
+                                "Module `{}` has no member `{}`.",
+                                module_name, member
+                            ))
+                            .with_file(self.file_path.clone()),
+                    ));
+                }
+
+                if let Expression::Identifier(name) = object.as_ref()
+                    && module_name.is_none()
+                    && is_valid_module_name(name)
+                {
+                    let has_symbol = self.symbol_table.resolve(name).is_some();
+                    if !has_symbol {
+                        return Err(Self::boxed(
+                            Diagnostic::error("MODULE NOT IMPORTED")
+                                .with_message(format!("Module `{}` is not imported.", name))
+                                .with_hint(format!("Add `import {}` at the top level.", name))
+                                .with_file(self.file_path.clone()),
+                        ));
+                    }
+                }
+
                 // Check if accessing a private member (starts with underscore)
                 if member.starts_with('_') {
                     return Err(Self::boxed(
@@ -859,11 +949,7 @@ impl Compiler {
             ));
         }
 
-        // Define the module symbol early so functions can reference it
-        let module_symbol = self.symbol_table.define(binding_name);
-
         // Collect all functions from the module body and validate contents
-        let mut function_names = Vec::new();
         for statement in &body.statements {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
@@ -879,7 +965,6 @@ impl Compiler {
                                 .with_hint("Use a different function name."),
                         ));
                     }
-                    function_names.push(fn_name.clone());
                 }
                 _ => {
                     return Err(Self::boxed(
@@ -892,11 +977,11 @@ impl Compiler {
             }
         }
 
-        // Compile the module body in its own initializer scope so functions
-        // don't leak into the outer scope.
-        self.enter_scope();
+        self.imported_modules.insert(binding_name.to_string());
+        let previous_module = self.current_module_prefix.clone();
+        self.current_module_prefix = Some(binding_name.to_string());
 
-        // Compile each function in the module initializer scope
+        // Compile each function with a qualified name.
         for statement in &body.statements {
             if let Statement::Function {
                 name: fn_name,
@@ -905,59 +990,18 @@ impl Compiler {
                 position,
                 ..
             } = statement
-                && let Err(err) =
-                    self.compile_function_statement(fn_name, parameters, fn_body, *position)
             {
-                self.leave_scope();
-                return Err(err);
+                let qualified_name = format!("{}.{}", binding_name, fn_name);
+                if let Err(err) =
+                    self.compile_function_statement(&qualified_name, parameters, fn_body, *position)
+                {
+                    self.current_module_prefix = previous_module;
+                    return Err(err);
+                }
             }
         }
 
-        let public_function_names: Vec<_> = function_names
-            .into_iter()
-            .filter(|name| !name.starts_with('_'))
-            .collect();
-
-        // Now create a hash containing all the public module functions
-        // For each function, we need to: emit the key, load the function, emit the hash pair
-        let num_functions = public_function_names.len();
-        for fn_name in &public_function_names {
-            // Emit the key (function name as string)
-            let key_idx = self.add_constant(Object::String(fn_name.clone()));
-            self.emit(OpCode::OpConstant, &[key_idx]);
-
-            // Load the function value
-            if let Some(symbol) = self.symbol_table.resolve(fn_name) {
-                self.load_symbol(&symbol);
-            }
-        }
-
-        // Create the hash with all the function pairs and return it
-        self.emit(OpCode::OpHash, &[num_functions * 2]);
-        self.emit(OpCode::OpReturnValue, &[]);
-
-        let free_symbols = self.symbol_table.free_symbols.clone();
-        let num_locals = self.symbol_table.num_definitions;
-        let instructions = self.leave_scope();
-
-        for free in &free_symbols {
-            self.load_symbol(free);
-        }
-
-        let fn_idx = self.add_constant(Object::Function(Rc::new(CompiledFunction::new(
-            instructions,
-            num_locals,
-            0,
-        ))));
-        self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
-        self.emit(OpCode::OpCall, &[0]);
-
-        // Store the hash in the module variable
-        match module_symbol.symbol_scope {
-            SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[module_symbol.index]),
-            SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[module_symbol.index]),
-            _ => 0,
-        };
+        self.current_module_prefix = previous_module;
 
         Ok(())
     }
@@ -968,23 +1012,12 @@ impl Compiler {
         alias: Option<&str>,
         position: Position,
     ) -> CompileResult<()> {
+        let _ = position;
         if let Some(alias) = alias {
-            let module_symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                Self::boxed(
-                    Diagnostic::error("IMPORT NOT FOUND")
-                        .with_code("E032")
-                        .with_position(position)
-                        .with_message(format!("no module file found for `{}`", name)),
-                )
-            })?;
-            let alias_symbol = self.symbol_table.define(alias);
-            // Bind alias to the already-compiled module value.
-            self.load_symbol(&module_symbol);
-            match alias_symbol.symbol_scope {
-                SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[alias_symbol.index]),
-                SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[alias_symbol.index]),
-                _ => 0,
-            };
+            self.import_aliases
+                .insert(alias.to_string(), name.to_string());
+        } else {
+            self.imported_modules.insert(name.to_string());
         }
         Ok(())
     }
