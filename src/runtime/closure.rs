@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{compiled_function::CompiledFunction, object::Object};
+use crate::runtime::{compiled_function::CompiledFunction, leak_detector, object::Object};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
@@ -10,6 +10,7 @@ pub struct Closure {
 
 impl Closure {
     pub fn new(function: Rc<CompiledFunction>, free: Vec<Object>) -> Self {
+        leak_detector::record_closure();
         Self { function, free }
     }
 }

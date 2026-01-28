@@ -16,8 +16,16 @@ use flux::{
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
+    let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
+    let no_cache = args.iter().any(|arg| arg == "--no-cache");
     if verbose {
         args.retain(|arg| arg != "--verbose");
+    }
+    if leak_detector {
+        args.retain(|arg| arg != "--leak-detector");
+    }
+    if no_cache {
+        args.retain(|arg| arg != "--no-cache");
     }
 
     if args.len() < 2 {
@@ -26,7 +34,7 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(&args[1], verbose);
+        run_file(&args[1], verbose, leak_detector, no_cache);
         return;
     }
 
@@ -44,7 +52,7 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2], verbose)
+            run_file(&args[2], verbose, leak_detector, no_cache)
         }
         "tokens" => {
             if args.len() < 3 {
@@ -119,30 +127,37 @@ Usage:
 
 Flags:
   --verbose   Show cache status (hit/miss/store)
+  --leak-detector  Print approximate allocation stats after run
+  --no-cache  Disable bytecode cache for this run
   -h, --help  Show this help message
 "
     );
 }
 
-fn run_file(path: &str, verbose: bool) {
+fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let source_hash = hash_bytes(source.as_bytes());
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if let Some(bytecode) =
-                cache.load(Path::new(path), &source_hash, env!("CARGO_PKG_VERSION"))
-            {
+            if !no_cache {
+                if let Some(bytecode) =
+                    cache.load(Path::new(path), &source_hash, env!("CARGO_PKG_VERSION"))
+                {
+                    if verbose {
+                        eprintln!("cache: hit (bytecode loaded)");
+                    }
+                    let mut vm = VM::new(bytecode);
+                    if let Err(err) = vm.run() {
+                        eprintln!("Runtime error: {}", err);
+                    }
+                    if leak_detector {
+                        print_leak_stats();
+                    }
+                    return;
+                }
                 if verbose {
-                    eprintln!("cache: hit (bytecode loaded)");
+                    eprintln!("cache: miss (compiling)");
                 }
-                let mut vm = VM::new(bytecode);
-                if let Err(err) = vm.run() {
-                    eprintln!("Runtime error: {}", err);
-                }
-                return;
-            }
-            if verbose {
-                eprintln!("cache: miss (compiling)");
             }
 
             let lexer = Lexer::new(&source);
@@ -171,26 +186,39 @@ fn run_file(path: &str, verbose: bool) {
                     deps.push((dep, hash));
                 }
             }
-            let stored = cache
-                .store(
-                    Path::new(path),
-                    &source_hash,
-                    env!("CARGO_PKG_VERSION"),
-                    &bytecode,
-                    &deps,
-                )
-                .is_ok();
-            if verbose && stored {
-                eprintln!("cache: stored");
+            if !no_cache {
+                let stored = cache
+                    .store(
+                        Path::new(path),
+                        &source_hash,
+                        env!("CARGO_PKG_VERSION"),
+                        &bytecode,
+                        &deps,
+                    )
+                    .is_ok();
+                if verbose && stored {
+                    eprintln!("cache: stored");
+                }
             }
 
             let mut vm = VM::new(bytecode);
             if let Err(err) = vm.run() {
                 eprintln!("Runtime error: {}", err);
             }
+            if leak_detector {
+                print_leak_stats();
+            }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }
+}
+
+fn print_leak_stats() {
+    let stats = flux::runtime::leak_detector::snapshot();
+    println!(
+        "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
+        stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
+    );
 }
 
 fn is_flx_file(path: &str) -> bool {

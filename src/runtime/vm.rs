@@ -7,7 +7,7 @@ use crate::{
     },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
-        hash_key::HashKey, object::Object,
+        hash_key::HashKey, leak_detector, object::Object,
     },
 };
 
@@ -192,6 +192,7 @@ impl VM {
                 OpCode::OpNone => self.push(Object::None)?,
                 OpCode::OpSome => {
                     let value = self.pop()?;
+                    leak_detector::record_some();
                     self.push(Object::Some(Box::new(value)))?;
                 }
             }
@@ -202,6 +203,7 @@ impl VM {
 
     fn build_array(&self, start: usize, end: usize) -> Object {
         let elements: Vec<Object> = self.stack[start..end].to_vec();
+        leak_detector::record_array();
         Object::Array(elements)
     }
 
@@ -219,6 +221,7 @@ impl VM {
             hash.insert(hash_key, value.clone());
             i += 2;
         }
+        leak_detector::record_hash();
         Ok(Object::Hash(hash))
     }
 

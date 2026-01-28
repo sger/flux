@@ -186,6 +186,27 @@ How to see it:
 - If you hit the bytecode cache, remove it first: `rm -rf target/flux`.
 - ICEs should be rare; if you see one, it points directly at the Rust file/line.
 
+## 5.2) Leak detector mode (approx)
+
+Use a lightweight allocation counter to spot suspicious growth:
+
+```
+cargo run -- --leak-detector examples/option_match.flx
+```
+
+Example output:
+
+```
+Leak stats (approx):
+  compiled_functions: 12
+  closures: 6
+  arrays: 4
+  hashes: 2
+  somes: 18
+```
+
+This is not a full leak detector (no cycle detection), but it gives a quick signal.
+
 ## 6) Compiler debugging tools (often ignored, very important)
 
 ### AST pretty-printer

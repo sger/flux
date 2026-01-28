@@ -367,6 +367,8 @@ impl Compiler {
 
                 // Use index operation to access the member from the hash
                 self.emit(OpCode::OpIndex, &[]);
+                // Member access should yield the value, not Option.
+                self.emit(OpCode::OpUnwrapSome, &[]);
             }
             Expression::None => {
                 self.emit(OpCode::OpNone, &[]);
