@@ -1,0 +1,11 @@
+// Test: identifier pattern bindings are arm-local (final arm only)
+module Main {
+    fun main() {
+        let value = 7;
+        let label = match value {
+            1 -> "one";
+            x -> "fallback";
+        };
+        print(label);
+    }
+}

@@ -8,6 +8,7 @@ pub struct SymbolTable {
     store: HashMap<String, Symbol>,
     pub num_definitions: usize,
     pub free_symbols: Vec<Symbol>,
+    allow_free: bool,
 }
 
 impl SymbolTable {
@@ -17,6 +18,7 @@ impl SymbolTable {
             store: HashMap::new(),
             num_definitions: 0,
             free_symbols: Vec::new(),
+            allow_free: true,
         }
     }
 
@@ -26,6 +28,17 @@ impl SymbolTable {
             store: HashMap::new(),
             num_definitions: 0,
             free_symbols: Vec::new(),
+            allow_free: true,
+        }
+    }
+
+    pub fn new_block(outer: SymbolTable) -> Self {
+        Self {
+            outer: Some(Box::new(outer)),
+            store: HashMap::new(),
+            num_definitions: 0,
+            free_symbols: Vec::new(),
+            allow_free: false,
         }
     }
 
@@ -86,7 +99,11 @@ impl SymbolTable {
                     {
                         return Some(obj);
                     }
-                    Some(self.define_free(obj))
+                    if self.allow_free {
+                        Some(self.define_free(obj))
+                    } else {
+                        Some(obj)
+                    }
                 } else {
                     None
                 }
