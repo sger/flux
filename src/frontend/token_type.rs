@@ -93,6 +93,7 @@ define_tokens! {
         False  => "false",
         Module => "module",
         Import => "import",
+        As     => "as",
         Some   => "Some",
         None   => "None",
         Match  => "match",

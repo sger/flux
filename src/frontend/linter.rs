@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::frontend::{
     diagnostic::Diagnostic,
     expression::Expression,
-    module_graph::{is_valid_module_name, module_binding_name},
+    module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
     position::Position,
     program::Program,
     statement::Statement,
@@ -111,7 +111,11 @@ impl Linter {
                 }
                 self.finish_scope();
             }
-            Statement::Import { name, position } => {
+            Statement::Import {
+                name,
+                alias,
+                position,
+            } => {
                 if !is_valid_module_name(name) {
                     self.push_warning(
                         "IMPORT NAME STYLE",
@@ -123,7 +127,7 @@ impl Linter {
                         ),
                     );
                 }
-                let binding = module_binding_name(name);
+                let binding = import_binding_name(name, alias.as_deref());
                 self.define_binding(binding, *position, BindingKind::Import);
             }
         }

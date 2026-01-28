@@ -4,11 +4,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use flux::frontend::{
-    lexer::Lexer,
-    module_graph::ModuleGraph,
-    parser::Parser,
-    program::Program,
+use flux::{
+    bytecode::compiler::Compiler,
+    frontend::{
+        diagnostic::Diagnostic,
+        lexer::Lexer,
+        module_graph::ModuleGraph,
+        parser::Parser,
+        program::Program,
+    },
 };
 
 fn temp_root(label: &str) -> PathBuf {
@@ -42,6 +46,28 @@ fn first_code(diags: Vec<flux::frontend::diagnostic::Diagnostic>) -> String {
         .first()
         .and_then(|d| d.code.clone())
         .unwrap_or_default()
+}
+
+fn compile_with_graph(
+    entry_path: &Path,
+    entry_program: &Program,
+    roots: &[PathBuf],
+) -> Result<(), Vec<Diagnostic>> {
+    let graph = ModuleGraph::build_with_entry_and_roots(entry_path, entry_program, roots)?;
+    let mut compiler = Compiler::new_with_file_path(entry_path.display().to_string());
+    let mut errors = Vec::new();
+    for node in graph.topo_order() {
+        compiler.set_file_path(node.path.to_string_lossy().to_string());
+        if let Err(mut diags) = compiler.compile(&node.program) {
+            errors.append(&mut diags);
+            break;
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 #[test]
@@ -96,4 +122,22 @@ fn module_file_with_script_code_is_error() {
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected mixed module/script error");
     assert_eq!(first_code(err), "E037");
+}
+
+#[test]
+fn alias_import_compiles() {
+    let root = temp_root("alias_import");
+    let module_path = root.join("Data").join("MyFile.flx");
+    write_file(
+        &module_path,
+        "module Data.MyFile { fun value() { 1; } }",
+    );
+
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Data.MyFile as Alias\nAlias.value();";
+    write_file(&entry_path, entry_source);
+    let program = parse_program(entry_source);
+
+    compile_with_graph(&entry_path, &program, &[root])
+        .expect("expected alias import to compile");
 }

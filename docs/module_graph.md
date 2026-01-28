@@ -25,6 +25,7 @@ This document outlines the module graph design for Flux: how imports are modeled
 ## Qualified Access
 
 - Dotted module names are real namespaces; use the full name for access (e.g., `Data.List.value()`).
+- Imports may use aliases: `import Data.List as L` (aliases follow module naming rules).
 
 ### ModuleId normalization
 

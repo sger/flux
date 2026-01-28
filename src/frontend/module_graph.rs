@@ -148,12 +148,20 @@ pub fn module_binding_name(name: &str) -> &str {
     name
 }
 
+pub fn import_binding_name<'a>(name: &'a str, alias: Option<&'a str>) -> &'a str {
+    alias.unwrap_or(name)
+}
+
 pub fn is_valid_module_name(name: &str) -> bool {
     let segments: Vec<&str> = name.split('.').collect();
     if segments.is_empty() {
         return false;
     }
     segments.iter().all(|segment| is_valid_module_segment(segment))
+}
+
+pub fn is_valid_module_alias(name: &str) -> bool {
+    is_valid_module_segment(name)
 }
 
 fn is_valid_module_segment(segment: &str) -> bool {
@@ -199,8 +207,12 @@ fn resolve_imports(
     let mut edges = Vec::new();
 
     for statement in &program.statements {
-        let (name, position) = match statement {
-            Statement::Import { name, position } => (name.clone(), *position),
+        let (name, alias, position) = match statement {
+            Statement::Import {
+                name,
+                alias,
+                position,
+            } => (name.clone(), alias.clone(), *position),
             _ => continue,
         };
 
@@ -214,6 +226,20 @@ fn resolve_imports(
                     .with_file(path.display().to_string()),
             );
             continue;
+        }
+
+        if let Some(alias) = &alias {
+            if !is_valid_module_alias(alias) {
+                diagnostics.push(
+                    Diagnostic::error("INVALID MODULE ALIAS")
+                        .with_code("E040")
+                        .with_position(position)
+                        .with_message(format!("Invalid module alias `{}`.", alias))
+                        .with_hint("Use UpperCamelCase letters and digits (no dots).")
+                        .with_file(path.display().to_string()),
+                );
+                continue;
+            }
         }
 
         match resolve_import_path(path, &name, position, roots) {

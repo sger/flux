@@ -35,6 +35,7 @@ pub enum Statement {
     },
     Import {
         name: Identifier,
+        alias: Option<Identifier>,
         position: Position,
     },
 }
@@ -83,8 +84,21 @@ impl fmt::Display for Statement {
                 write!(f, "module {} {}", name, body)
             }
             Statement::Import { name, .. } => {
-                write!(f, "import {}", name)
+                if let Some(alias) = &self.get_import_alias() {
+                    write!(f, "import {} as {}", name, alias)
+                } else {
+                    write!(f, "import {}", name)
+                }
             }
+        }
+    }
+}
+
+impl Statement {
+    fn get_import_alias(&self) -> Option<&Identifier> {
+        match self {
+            Statement::Import { alias, .. } => alias.as_ref(),
+            _ => None,
         }
     }
 }

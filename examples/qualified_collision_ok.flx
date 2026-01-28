@@ -1,0 +1,5 @@
+import Foo.List
+import Bar.List
+
+print(Foo.List.value());
+print(Bar.List.value());
