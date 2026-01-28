@@ -1,0 +1,2 @@
+import Data.MyFile as MyFile
+Data.MyFile.value();

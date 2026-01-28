@@ -79,14 +79,24 @@ Flexible import system for accessing code from other modules.
 
 Imports are only allowed at the top level (module scope), not inside functions.
 Importing a name that already exists in the current scope is an error.
+Qualified access requires an explicit import in the same file.
+Aliased imports replace the original qualifier (Haskell-style).
 
 ```
-// Full mod import
+// Full module import
 import Math
 Math.square(5);      // use with prefix
+
+// Qualified nested import
+import Data.Math.Test
+Data.Math.Test.value();
+
+// Aliased import (use alias instead of full name)
+import Data.Math.Test as MathTest
+MathTest.value();
 ```
 
-Note: selective imports, aliases, and nested imports are planned but not implemented yet.
+Note: selective imports are still planned; aliases and nested module imports are supported.
 
 ### Bytecode Cache
 
@@ -998,8 +1008,9 @@ statement      = module_stmt
                | return_stmt
                | expr_stmt ;
 
-module_stmt    = "module" IDENT block ;
-import_stmt    = "import" IDENT ;
+module_stmt    = "module" qualified_name block ;
+import_stmt    = "import" qualified_name [ "as" IDENT ] ;
+qualified_name = IDENT ( "." IDENT )* ;
 function_stmt  = "fun" IDENT "(" parameters? ")" block ;
 let_stmt       = "let" IDENT "=" expression ";"? ;
 assign_stmt    = IDENT "=" expression ";"? ;

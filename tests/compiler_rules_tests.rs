@@ -50,6 +50,22 @@ fn compile_err_in(file_path: &str, input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_err_title(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let mut compiler = Compiler::new();
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first().map(|d| d.title.clone()).unwrap_or_default()
+}
+
 #[test]
 fn import_top_level_ok() {
     compile_ok_in(
@@ -88,6 +104,20 @@ fn module_name_lowercase_error() {
 fn module_name_clash_error() {
     let code = compile_err("module Math { fun Math() { 1; } }");
     assert_eq!(code, "E018");
+}
+
+#[test]
+fn qualified_use_requires_import() {
+    let title = compile_err_title("module Main { fun main() { Data.MyFile.value(); } }");
+    assert_eq!(title, "MODULE NOT IMPORTED");
+}
+
+#[test]
+fn alias_hides_original_qualifier() {
+    let title = compile_err_title(
+        "import Data.MyFile as MyFile module Main { fun main() { Data.MyFile.value(); } }",
+    );
+    assert_eq!(title, "MODULE NOT IMPORTED");
 }
 
 #[test]
