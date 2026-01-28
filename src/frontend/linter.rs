@@ -187,6 +187,17 @@ impl Linter {
             Expression::MemberAccess { object, .. } => {
                 self.lint_expression(object);
             }
+            Expression::None => {}
+            Expression::Some { value } => {
+                self.lint_expression(value);
+            }
+            Expression::Match { scrutinee, arms } => {
+                self.lint_expression(scrutinee);
+                for arm in arms {
+                    // TODO: Handle pattern bindings properly
+                    self.lint_expression(&arm.body);
+                }
+            }
         }
     }
 

@@ -12,6 +12,8 @@ pub enum Object {
     Boolean(bool),
     String(String),
     Null,
+    None,
+    Some(Box<Object>),
     ReturnValue(Box<Object>),
     Function(Rc<CompiledFunction>),
     Closure(Rc<Closure>),
@@ -28,6 +30,8 @@ impl fmt::Display for Object {
             Object::Boolean(v) => write!(f, "{}", v),
             Object::String(v) => write!(f, "\"{}\"", v),
             Object::Null => write!(f, "null"),
+            Object::None => write!(f, "None"),
+            Object::Some(v) => write!(f, "Some({})", v),
             Object::ReturnValue(v) => write!(f, "{}", v),
             Object::Function(_) => write!(f, "<function>"),
             Object::Closure(_) => write!(f, "<closure>"),
@@ -53,6 +57,8 @@ impl Object {
             Object::Boolean(_) => "Bool",
             Object::String(_) => "String",
             Object::Null => "Null",
+            Object::None => "None",
+            Object::Some(_) => "Some",
             Object::ReturnValue(_) => "ReturnValue",
             Object::Function(_) => "Function",
             Object::Closure(_) => "Closure",
@@ -63,7 +69,7 @@ impl Object {
     }
 
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Object::Boolean(false) | Object::Null)
+        !matches!(self, Object::Boolean(false) | Object::Null | Object::None)
     }
 
     pub fn to_hash_key(&self) -> Option<HashKey> {

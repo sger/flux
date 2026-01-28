@@ -1,7 +1,7 @@
 use crate::frontend::{
     block::Block,
     diagnostic::Diagnostic,
-    expression::Expression,
+    expression::{Expression, MatchArm, Pattern},
     lexer::Lexer,
     precedence::{Precedence, token_precedence},
     program::Program,
@@ -279,6 +279,9 @@ impl Parser {
             TokenType::String => self.parse_string(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::Null => self.parse_null(),
+            TokenType::None => self.parse_none(),
+            TokenType::Some => self.parse_some(),
+            TokenType::Match => self.parse_match_expression(),
             TokenType::Bang | TokenType::Minus => self.parse_prefix_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
             TokenType::LBracket => self.parse_array(),
@@ -420,6 +423,105 @@ impl Parser {
 
     fn parse_null(&self) -> Option<Expression> {
         Some(Expression::Null)
+    }
+
+    fn parse_none(&self) -> Option<Expression> {
+        Some(Expression::None)
+    }
+
+    fn parse_some(&mut self) -> Option<Expression> {
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+        self.next_token();
+        let value = self.parse_expression(Precedence::Lowest)?;
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+        Some(Expression::Some {
+            value: Box::new(value),
+        })
+    }
+
+    fn parse_match_expression(&mut self) -> Option<Expression> {
+        self.next_token();
+        let scrutinee = self.parse_expression(Precedence::Lowest)?;
+
+        if !self.expect_peek(TokenType::LBrace) {
+            return None;
+        }
+
+        let mut arms = Vec::new();
+
+        while !self.is_peek_token(TokenType::RBrace) {
+            self.next_token();
+            let pattern = self.parse_pattern()?;
+
+            if !self.expect_peek(TokenType::Arrow) {
+                return None;
+            }
+
+            self.next_token();
+            let body = self.parse_expression(Precedence::Lowest)?;
+
+            arms.push(MatchArm { pattern, body });
+
+            if self.is_peek_token(TokenType::Semicolon) {
+                self.next_token();
+            }
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            }
+        }
+
+        if !self.expect_peek(TokenType::RBrace) {
+            return None;
+        }
+
+        Some(Expression::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+        })
+    }
+
+    fn parse_pattern(&mut self) -> Option<Pattern> {
+        match &self.current_token.token_type {
+            TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard),
+            TokenType::Ident => Some(Pattern::Identifier(self.current_token.literal.clone())),
+            TokenType::None => Some(Pattern::None),
+            TokenType::Some => {
+                if !self.expect_peek(TokenType::LParen) {
+                    return None;
+                }
+                self.next_token();
+                let inner_pattern = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+                Some(Pattern::Some(Box::new(inner_pattern)))
+            }
+            TokenType::Int
+            | TokenType::Float
+            | TokenType::String
+            | TokenType::True
+            | TokenType::False => {
+                let expr = self.parse_prefix()?;
+                Some(Pattern::Literal(expr))
+            }
+            _ => {
+                self.errors.push(
+                    Diagnostic::error("INVALID PATTERN")
+                        .with_code("E106")
+                        .with_position(self.current_token.position)
+                        .with_message(format!(
+                            "Expected a pattern, found `{}`.",
+                            self.current_token.token_type
+                        )),
+                );
+                None
+            }
+        }
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {

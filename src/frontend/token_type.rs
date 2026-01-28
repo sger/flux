@@ -79,6 +79,7 @@ define_tokens! {
         RBracket  => "]",
         Colon     => ":",
         Dot       => ".",
+        Arrow     => "->",
 
     }
 
@@ -93,6 +94,9 @@ define_tokens! {
         Null   => "null",
         Module => "module",
         Import => "import",
+        Some   => "Some",
+        None   => "None",
+        Match  => "match",
 
         // ↓ Add new keywords here ↓
     }

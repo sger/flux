@@ -43,6 +43,10 @@ impl Lexer {
                 self.read_char();
                 Token::new(TokenType::NotEq, "!=", line, col)
             }
+            Some('-') if self.peek_char() == Some('>') => {
+                self.read_char();
+                Token::new(TokenType::Arrow, "->", line, col)
+            }
 
             // Single-character operators and delimiters
             Some('=') => Token::new(TokenType::Assign, "=", line, col),

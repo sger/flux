@@ -173,6 +173,11 @@ impl VM {
                     let left = self.pop()?;
                     self.execute_index_expression(left, index)?;
                 }
+                OpCode::OpNone => self.push(Object::None)?,
+                OpCode::OpSome => {
+                    let value = self.pop()?;
+                    self.push(Object::Some(Box::new(value)))?;
+                }
             }
             self.current_frame_mut().ip += 1;
         }
@@ -216,9 +221,9 @@ impl VM {
 
     fn execute_array_index(&mut self, elements: &[Object], index: i64) -> Result<(), String> {
         if index < 0 || index as usize >= elements.len() {
-            self.push(Object::Null)
+            self.push(Object::None)
         } else {
-            self.push(elements[index as usize].clone())
+            self.push(Object::Some(Box::new(elements[index as usize].clone())))
         }
     }
 
@@ -232,8 +237,8 @@ impl VM {
             .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
         match hash.get(&hash_key) {
-            Some(value) => self.push(value.clone()),
-            None => self.push(Object::Null),
+            Some(value) => self.push(Object::Some(Box::new(value.clone()))),
+            None => self.push(Object::None),
         }
     }
 
@@ -385,6 +390,22 @@ impl VM {
                     OpCode::OpEqual => false,
                     OpCode::OpNotEqual => true,
                     _ => return Err(format!("cannot compare null with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            (Object::None, Object::None) => {
+                let result = match opcode {
+                    OpCode::OpEqual => true,
+                    OpCode::OpNotEqual => false,
+                    _ => return Err(format!("cannot compare None with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            (Object::None, _) | (_, Object::None) => {
+                let result = match opcode {
+                    OpCode::OpEqual => false,
+                    OpCode::OpNotEqual => true,
+                    _ => return Err(format!("cannot compare None with {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
             }
@@ -573,11 +594,20 @@ mod tests {
 
     #[test]
     fn test_array_index() {
-        assert_eq!(run("[1, 2, 3][0];"), Object::Integer(1));
-        assert_eq!(run("[1, 2, 3][1];"), Object::Integer(2));
-        assert_eq!(run("[1, 2, 3][2];"), Object::Integer(3));
-        assert_eq!(run("[1, 2, 3][3];"), Object::Null);
-        assert_eq!(run("[1, 2, 3][-1];"), Object::Null);
+        assert_eq!(
+            run("[1, 2, 3][0];"),
+            Object::Some(Box::new(Object::Integer(1)))
+        );
+        assert_eq!(
+            run("[1, 2, 3][1];"),
+            Object::Some(Box::new(Object::Integer(2)))
+        );
+        assert_eq!(
+            run("[1, 2, 3][2];"),
+            Object::Some(Box::new(Object::Integer(3)))
+        );
+        assert_eq!(run("[1, 2, 3][3];"), Object::None);
+        assert_eq!(run("[1, 2, 3][-1];"), Object::None);
     }
 
     #[test]
@@ -593,9 +623,15 @@ mod tests {
 
     #[test]
     fn test_hash_index() {
-        assert_eq!(run(r#"{"a": 1}["a"];"#), Object::Integer(1));
-        assert_eq!(run(r#"{"a": 1}["b"];"#), Object::Null);
-        assert_eq!(run(r#"{1: "one"}[1];"#), Object::String("one".to_string()));
+        assert_eq!(
+            run(r#"{"a": 1}["a"];"#),
+            Object::Some(Box::new(Object::Integer(1)))
+        );
+        assert_eq!(run(r#"{"a": 1}["b"];"#), Object::None);
+        assert_eq!(
+            run(r#"{1: "one"}[1];"#),
+            Object::Some(Box::new(Object::String("one".to_string())))
+        );
     }
 
     #[test]
