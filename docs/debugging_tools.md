@@ -163,6 +163,27 @@ This unlocks:
 - better test assertions
 - future IDE integration
 
+## 5.1) ICE diagnostics (compiler bugs)
+
+ICE = Internal Compiler Error (a compiler bug, not user code).
+
+Example output:
+
+```
+-- INTERNAL COMPILER ERROR -- src/bytecode/compiler.rs -- [ICE002]
+
+unexpected symbol scope for assignment
+
+Hint: src/bytecode/compiler.rs:134 (flux::bytecode::compiler)
+```
+
+How to see it:
+- Run any compile path and it will print if an invariant is violated:
+  ```
+  cargo run -- run examples/option_match.flx
+  ```
+- ICEs should be rare; if you see one, it points directly at the Rust file/line.
+
 ## 6) Compiler debugging tools (often ignored, very important)
 
 ### AST pretty-printer

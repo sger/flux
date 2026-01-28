@@ -103,7 +103,12 @@ impl Compiler {
                 match symbol.symbol_scope {
                     SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
                     SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                    _ => 0,
+                    _ => {
+                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                            .with_code("ICE001")
+                            .with_message("unexpected symbol scope for let binding")
+                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                    }
                 };
 
                 self.symbol_table.mark_assigned(name).ok();
@@ -133,7 +138,12 @@ impl Compiler {
                 match symbol.symbol_scope {
                     SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
                     SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                    _ => 0,
+                    _ => {
+                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                            .with_code("ICE002")
+                            .with_message("unexpected symbol scope for assignment")
+                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                    }
                 };
 
                 // Mark as assigned
@@ -505,7 +515,12 @@ impl Compiler {
             SymbolScope::Local => {
                 self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
             }
-            _ => {}
+            _ => {
+                return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                    .with_code("ICE003")
+                    .with_message("unexpected temp symbol scope in match scrutinee")
+                    .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+            }
         };
 
         let mut end_jumps = Vec::new();
@@ -522,7 +537,7 @@ impl Compiler {
 
                 // Pattern matched, compile the body
                 self.enter_block_scope();
-                self.compile_pattern_bind(&temp_symbol, &arm.pattern);
+                self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
                 self.compile_expression(&arm.body)?;
                 self.leave_block_scope();
 
@@ -537,7 +552,7 @@ impl Compiler {
             } else {
                 // Last arm: bind identifier (if any) or drop scrutinee, then compile body
                 self.enter_block_scope();
-                self.compile_pattern_bind(&temp_symbol, &arm.pattern);
+                self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
                 self.compile_expression(&arm.body)?;
                 self.leave_block_scope();
             }
@@ -602,7 +617,17 @@ impl Compiler {
                             SymbolScope::Local => {
                                 self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
                             }
-                            _ => {}
+                            _ => {
+                                return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                                    .with_code("ICE004")
+                                    .with_message("unexpected temp symbol scope in Some pattern")
+                                    .with_hint(format!(
+                                        "{}:{} ({})",
+                                        file!(),
+                                        line!(),
+                                        module_path!()
+                                    )));
+                            }
                         }
                         let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
                         jumps.extend(inner_jumps);
@@ -620,7 +645,11 @@ impl Compiler {
         }
     }
 
-    fn compile_pattern_bind(&mut self, scrutinee: &Symbol, pattern: &Pattern) {
+    fn compile_pattern_bind(
+        &mut self,
+        scrutinee: &Symbol,
+        pattern: &Pattern,
+    ) -> Result<(), Diagnostic> {
         match pattern {
             Pattern::Identifier(name) => {
                 self.load_symbol(scrutinee);
@@ -632,7 +661,12 @@ impl Compiler {
                     SymbolScope::Local => {
                         self.emit(OpCode::OpSetLocal, &[symbol.index]);
                     }
-                    _ => {}
+                    _ => {
+                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                            .with_code("ICE005")
+                            .with_message("unexpected symbol scope for pattern binding")
+                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                    }
                 };
             }
             Pattern::Some(inner) => {
@@ -646,12 +680,18 @@ impl Compiler {
                     SymbolScope::Local => {
                         self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
                     }
-                    _ => {}
+                    _ => {
+                        return Err(Diagnostic::error("INTERNAL COMPILER ERROR")
+                            .with_code("ICE006")
+                            .with_message("unexpected temp symbol scope in Some binding")
+                            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())));
+                    }
                 }
-                self.compile_pattern_bind(&inner_symbol, inner);
+                self.compile_pattern_bind(&inner_symbol, inner)?;
             }
             Pattern::Wildcard | Pattern::Literal(_) | Pattern::None => {}
         }
+        Ok(())
     }
 
     #[allow(clippy::result_large_err)]
