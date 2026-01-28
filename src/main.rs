@@ -1,8 +1,8 @@
-use std::{env, fs, path::Path};
+use std::{env, fs, path::{Path, PathBuf}};
 
 use flux::{
     bytecode::{
-        bytecode_cache::{BytecodeCache, hash_bytes, hash_file},
+        bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key, hash_file},
         compiler::Compiler,
         op_code::disassemble,
     },
@@ -105,7 +105,7 @@ fn main() {
                 eprintln!("Usage: flux cache-info <file.flx>");
                 return;
             }
-            show_cache_info(&args[2]);
+            show_cache_info(&args[2], &roots);
         }
         "cache-info-file" => {
             if args.len() < 3 {
@@ -133,6 +133,7 @@ Usage:
   flux cache-info <file.flx>
   flux cache-info-file <file.fxc>
   flux <file.flx> --root <path> [--root <path> ...]
+  flux run <file.flx> --root <path> [--root <path> ...]
 
 Flags:
   --verbose   Show cache status (hit/miss/store)
@@ -154,10 +155,14 @@ fn run_file(
     match fs::read_to_string(path) {
         Ok(source) => {
             let source_hash = hash_bytes(source.as_bytes());
+            let entry_path = Path::new(path);
+            let roots = collect_roots(entry_path, extra_roots);
+            let roots_hash = roots_cache_hash(&roots);
+            let cache_key = hash_cache_key(&source_hash, &roots_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
             if !no_cache {
                 if let Some(bytecode) =
-                    cache.load(Path::new(path), &source_hash, env!("CARGO_PKG_VERSION"))
+                    cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
                     if verbose {
                         eprintln!("cache: hit (bytecode loaded)");
@@ -189,14 +194,7 @@ fn run_file(
             }
 
             let entry_path = Path::new(path);
-            let mut roots = extra_roots.to_vec();
-            if let Some(parent) = entry_path.parent() {
-                roots.push(parent.to_path_buf());
-            }
-            let project_src = Path::new("src");
-            if project_src.exists() {
-                roots.push(project_src.to_path_buf());
-            }
+            let roots = collect_roots(entry_path, extra_roots);
 
             let graph =
                 match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
@@ -239,7 +237,7 @@ fn run_file(
                 let stored = cache
                     .store(
                         Path::new(path),
-                        &source_hash,
+                        &cache_key,
                         env!("CARGO_PKG_VERSION"),
                         &bytecode,
                         &deps,
@@ -300,6 +298,39 @@ fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) ->
         i += 1;
     }
     true
+}
+
+fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots = extra_roots.to_vec();
+    if let Some(parent) = entry_path.parent() {
+        roots.push(parent.to_path_buf());
+    }
+    let project_src = Path::new("src");
+    if project_src.exists() {
+        roots.push(project_src.to_path_buf());
+    }
+    roots
+}
+
+fn normalize_roots_for_cache(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut normalized = Vec::new();
+    for root in roots {
+        let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        if !normalized.iter().any(|p| p == &canonical) {
+            normalized.push(canonical);
+        }
+    }
+    normalized
+}
+
+fn roots_cache_hash(roots: &[PathBuf]) -> [u8; 32] {
+    let normalized = normalize_roots_for_cache(roots);
+    let mut joined = String::new();
+    for root in normalized {
+        joined.push_str(&root.to_string_lossy());
+        joined.push('\n');
+    }
+    hash_bytes(joined.as_bytes())
 }
 
 fn is_flx_file(path: &str) -> bool {
@@ -405,7 +436,7 @@ fn fmt_file(path: &str, check: bool) {
     }
 }
 
-fn show_cache_info(path: &str) {
+fn show_cache_info(path: &str, extra_roots: &[PathBuf]) {
     let cache = BytecodeCache::new(Path::new("target").join("flux"));
     let source = match fs::read_to_string(path) {
         Ok(src) => src,
@@ -415,13 +446,17 @@ fn show_cache_info(path: &str) {
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let info = cache.inspect(Path::new(path), &source_hash);
+    let entry_path = Path::new(path);
+    let roots = collect_roots(entry_path, extra_roots);
+    let roots_hash = roots_cache_hash(&roots);
+    let cache_key = hash_cache_key(&source_hash, &roots_hash);
+    let info = cache.inspect(Path::new(path), &cache_key);
     match info {
         Some(info) => {
             println!("cache file: {}", info.cache_path.display());
             println!("format version: {}", info.format_version);
             println!("compiler version: {}", info.compiler_version);
-            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("cache key: {}", hex_string(&info.source_hash));
             println!("constants: {}", info.constants_count);
             println!("instructions: {} bytes", info.instructions_len);
             if info.deps.is_empty() {
@@ -452,7 +487,7 @@ fn show_cache_info_file(path: &str) {
             println!("cache file: {}", info.cache_path.display());
             println!("format version: {}", info.format_version);
             println!("compiler version: {}", info.compiler_version);
-            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("cache key: {}", hex_string(&info.source_hash));
             println!("constants: {}", info.constants_count);
             println!("instructions: {} bytes", info.instructions_len);
             if info.deps.is_empty() {

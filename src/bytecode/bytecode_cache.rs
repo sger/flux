@@ -36,10 +36,10 @@ impl BytecodeCache {
     pub fn load(
         &self,
         source_path: &Path,
-        source_hash: &[u8; 32],
+        cache_key: &[u8; 32],
         compiler_version: &str,
     ) -> Option<Bytecode> {
-        let path = self.cache_path(source_path, source_hash);
+        let path = self.cache_path(source_path, cache_key);
         let mut file = File::open(path).ok()?;
 
         let mut magic = [0u8; 4];
@@ -58,9 +58,9 @@ impl BytecodeCache {
             return None;
         }
 
-        let mut cached_source_hash = [0u8; 32];
-        file.read_exact(&mut cached_source_hash).ok()?;
-        if &cached_source_hash != source_hash {
+        let mut cached_key = [0u8; 32];
+        file.read_exact(&mut cached_key).ok()?;
+        if &cached_key != cache_key {
             return None;
         }
 
@@ -90,8 +90,8 @@ impl BytecodeCache {
         })
     }
 
-    pub fn inspect(&self, source_path: &Path, source_hash: &[u8; 32]) -> Option<CacheInfo> {
-        let path = self.cache_path(source_path, source_hash);
+    pub fn inspect(&self, source_path: &Path, cache_key: &[u8; 32]) -> Option<CacheInfo> {
+        let path = self.cache_path(source_path, cache_key);
         self.inspect_file(&path)
     }
 
@@ -182,19 +182,19 @@ impl BytecodeCache {
     pub fn store(
         &self,
         source_path: &Path,
-        source_hash: &[u8; 32],
+        cache_key: &[u8; 32],
         compiler_version: &str,
         bytecode: &Bytecode,
         deps: &[(String, [u8; 32])],
     ) -> std::io::Result<()> {
         fs::create_dir_all(&self.dir)?;
-        let path = self.cache_path(source_path, source_hash);
+        let path = self.cache_path(source_path, cache_key);
         let mut file = File::create(path)?;
 
         file.write_all(MAGIC)?;
         write_u16(&mut file, FORMAT_VERSION)?;
         write_string(&mut file, compiler_version)?;
-        file.write_all(source_hash)?;
+        file.write_all(cache_key)?;
 
         write_u32(&mut file, deps.len() as u32)?;
         for (dep_path, dep_hash) in deps {
@@ -213,12 +213,12 @@ impl BytecodeCache {
         Ok(())
     }
 
-    fn cache_path(&self, source_path: &Path, source_hash: &[u8; 32]) -> PathBuf {
+    fn cache_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
         let stem = source_path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("module");
-        let filename = format!("{}-{}.fxc", stem, to_hex(source_hash));
+        let filename = format!("{}-{}.fxc", stem, to_hex(cache_key));
         self.dir.join(filename)
     }
 }
@@ -235,6 +235,16 @@ pub fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
 pub fn hash_file(path: &Path) -> std::io::Result<[u8; 32]> {
     let data = fs::read(path)?;
     Ok(hash_bytes(&data))
+}
+
+pub fn hash_cache_key(source_hash: &[u8; 32], roots_hash: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(source_hash);
+    hasher.update(roots_hash);
+    let result = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&result);
+    out
 }
 
 fn to_hex(bytes: &[u8; 32]) -> String {
