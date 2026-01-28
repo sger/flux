@@ -129,7 +129,7 @@ impl Linter {
             | Expression::Float(_)
             | Expression::String(_)
             | Expression::Boolean(_)
-            | Expression::Null => {}
+            | Expression::None => {}
             Expression::Prefix { right, .. } => self.lint_expression(right),
             Expression::Infix { left, right, .. } => {
                 self.lint_expression(left);
@@ -187,7 +187,6 @@ impl Linter {
             Expression::MemberAccess { object, .. } => {
                 self.lint_expression(object);
             }
-            Expression::None => {}
             Expression::Some { value } => {
                 self.lint_expression(value);
             }

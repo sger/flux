@@ -278,7 +278,6 @@ impl Parser {
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
             TokenType::True | TokenType::False => self.parse_boolean(),
-            TokenType::Null => self.parse_null(),
             TokenType::None => self.parse_none(),
             TokenType::Some => self.parse_some(),
             TokenType::Match => self.parse_match_expression(),
@@ -419,10 +418,6 @@ impl Parser {
         Some(Expression::Boolean(
             self.current_token.token_type == TokenType::True,
         ))
-    }
-
-    fn parse_null(&self) -> Option<Expression> {
-        Some(Expression::Null)
     }
 
     fn parse_none(&self) -> Option<Expression> {

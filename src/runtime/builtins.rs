@@ -7,7 +7,7 @@ fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
             _ => println!("{}", arg),
         }
     }
-    Ok(Object::Null)
+    Ok(Object::None)
 }
 
 fn builtin_len(args: Vec<Object>) -> Result<Object, String> {
@@ -37,7 +37,7 @@ fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
     match &args[0] {
         Object::Array(arr) => {
             if arr.is_empty() {
-                Ok(Object::Null)
+                Ok(Object::None)
             } else {
                 Ok(arr[0].clone())
             }
@@ -59,7 +59,7 @@ fn builtin_last(args: Vec<Object>) -> Result<Object, String> {
     match &args[0] {
         Object::Array(arr) => {
             if arr.is_empty() {
-                Ok(Object::Null)
+                Ok(Object::None)
             } else {
                 Ok(arr[arr.len() - 1].clone())
             }
@@ -81,7 +81,7 @@ fn builtin_rest(args: Vec<Object>) -> Result<Object, String> {
     match &args[0] {
         Object::Array(arr) => {
             if arr.is_empty() {
-                Ok(Object::Null)
+                Ok(Object::None)
             } else {
                 Ok(Object::Array(arr[1..].to_vec()))
             }

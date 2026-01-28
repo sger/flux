@@ -31,9 +31,9 @@ impl VM {
 
         Self {
             constants: bytecode.constants,
-            stack: vec![Object::Null; STACK_SIZE],
+            stack: vec![Object::None; STACK_SIZE],
             sp: 0,
-            globals: vec![Object::Null; GLOBALS_SIZE],
+            globals: vec![Object::None; GLOBALS_SIZE],
             frames: vec![main_frame],
             frame_index: 0,
         }
@@ -58,7 +58,7 @@ impl VM {
                 OpCode::OpReturn => {
                     let bp = self.pop_frame().base_pointer;
                     self.sp = bp - 1;
-                    self.push(Object::Null)?;
+                    self.push(Object::None)?;
                 }
                 OpCode::OpGetLocal => {
                     let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
@@ -136,7 +136,7 @@ impl VM {
                 }
                 OpCode::OpTrue => self.push(Object::Boolean(true))?,
                 OpCode::OpFalse => self.push(Object::Boolean(false))?,
-                OpCode::OpNull => self.push(Object::Null)?,
+                OpCode::OpNull => self.push(Object::None)?,
                 OpCode::OpGetBuiltin => {
                     let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 1;
@@ -374,22 +374,6 @@ impl VM {
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
                     _ => return Err(format!("unknown string comparison: {:?}", opcode)),
-                };
-                self.push(Object::Boolean(result))
-            }
-            (Object::Null, Object::Null) => {
-                let result = match opcode {
-                    OpCode::OpEqual => true,
-                    OpCode::OpNotEqual => false,
-                    _ => return Err(format!("unknown null comparison: {:?}", opcode)),
-                };
-                self.push(Object::Boolean(result))
-            }
-            (Object::Null, _) | (_, Object::Null) => {
-                let result = match opcode {
-                    OpCode::OpEqual => false,
-                    OpCode::OpNotEqual => true,
-                    _ => return Err(format!("cannot compare null with {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
             }
