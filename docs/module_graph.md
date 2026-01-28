@@ -26,6 +26,7 @@ This document outlines the module graph design for Flux: how imports are modeled
 
 - Dotted module names are real namespaces; use the full name for access (e.g., `Data.List.value()`).
 - Imports may use aliases: `import Data.List as L` (aliases follow module naming rules).
+- Import resolution fails if the same module appears in multiple roots (duplicate module error).
 
 ### ModuleId normalization
 
