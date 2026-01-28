@@ -119,3 +119,9 @@ fn match_non_exhaustive_error() {
     let code = compile_err("let x = 2; match x { 1 -> 10; }");
     assert_eq!(code, "E033");
 }
+
+#[test]
+fn match_identifier_non_last_error() {
+    let code = compile_err("let x = 2; match x { y -> 1; _ -> 2; }");
+    assert_eq!(code, "E034");
+}

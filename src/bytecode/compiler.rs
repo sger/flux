@@ -474,11 +474,11 @@ impl Compiler {
                 .with_message("Match expression must have at least one arm."));
         }
         if let Some(last) = arms.last() {
-            if !matches!(last.pattern, Pattern::Wildcard) {
+            if !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_)) {
                 return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
                     .with_code("E033")
-                    .with_message("Match expressions must end with a `_` arm.")
-                    .with_hint("Add a catch-all arm: `_ -> ...`"));
+                    .with_message("Match expressions must end with a `_` or identifier arm.")
+                    .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"));
             }
         }
 
@@ -495,12 +495,21 @@ impl Compiler {
 
             // For all arms except the last, we need to check if pattern matches
             if !is_last {
+                if matches!(arm.pattern, Pattern::Identifier(_)) {
+                    return Err(Diagnostic::error("INVALID PATTERN")
+                        .with_code("E034")
+                        .with_message("Identifier patterns must be the final match arm.")
+                        .with_hint("Move the binding pattern to the last arm, or use `_`."));
+                }
+
                 // Duplicate scrutinee for pattern check
                 // We'll emit code to check the pattern and jump to next arm if not matched
                 let next_arm_jump = self.compile_pattern_check(scrutinee, &arm.pattern)?;
 
                 // Pattern matched, compile the body
+                self.enter_block_scope();
                 self.compile_expression(&arm.body)?;
+                self.leave_block_scope();
 
                 // Jump to end after executing this arm's body
                 let end_jump = self.emit(OpCode::OpJump, &[9999]);
@@ -513,9 +522,22 @@ impl Compiler {
                 // OpJumpNotTruthy popped the boolean). Push scrutinee for next arm.
                 self.compile_expression(scrutinee)?;
             } else {
-                // Last arm: pop scrutinee and compile body (assume it matches)
-                self.emit(OpCode::OpPop, &[]);
+                // Last arm: bind identifier (if any) or drop scrutinee, then compile body
+                self.enter_block_scope();
+                if let Pattern::Identifier(name) = &arm.pattern {
+                    let symbol = self.symbol_table.define(name.clone());
+                    match symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[symbol.index])
+                        }
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                        _ => 0,
+                    };
+                } else {
+                    self.emit(OpCode::OpPop, &[]);
+                }
                 self.compile_expression(&arm.body)?;
+                self.leave_block_scope();
             }
         }
 
@@ -847,6 +869,21 @@ impl Compiler {
         }
 
         scope.instructions
+    }
+
+    fn enter_block_scope(&mut self) {
+        let mut block_table = SymbolTable::new_block(self.symbol_table.clone());
+        block_table.num_definitions = self.symbol_table.num_definitions;
+        self.symbol_table = block_table;
+    }
+
+    fn leave_block_scope(&mut self) {
+        let num_definitions = self.symbol_table.num_definitions;
+        if let Some(outer) = self.symbol_table.outer.take() {
+            let mut outer = *outer;
+            outer.num_definitions = num_definitions;
+            self.symbol_table = outer;
+        }
     }
 
     pub fn bytecode(&self) -> Bytecode {
