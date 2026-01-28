@@ -1,0 +1,11 @@
+// Test: wildcard must be the final match arm
+module Main {
+    fun main() {
+        let value = 2;
+        let label = match value {
+            _ -> "any";
+            2 -> "two";
+        };
+        print(label);
+    }
+}
