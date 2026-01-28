@@ -1023,15 +1023,20 @@ postfix        = primary ( "(" arguments? ")"
 
 arguments      = expression ( "," expression )* ;
 
-primary        = INT | FLOAT | STRING | "true" | "false" | "null"
+primary        = INT | FLOAT | STRING | "true" | "false" | "None" | "Some" "(" expression ")"
                | IDENT
                | "(" expression ")"
                | "[" arguments? "]"
                | "{" hash_items? "}"
                | "fun" "(" parameters? ")" block
-               | if_expr ;
+               | if_expr
+               | match_expr ;
 
 if_expr        = "if" expression block ( "else" block )? ;
+match_expr     = "match" expression "{" match_arm ( ( "," | ";" ) match_arm )* "}" ;
+match_arm      = pattern "->" expression ;
+pattern        = "_" | IDENT | "None" | "Some" "(" pattern ")" | literal ;
+literal        = INT | FLOAT | STRING | "true" | "false" ;
 
 hash_items     = expression ":" expression ( "," expression ":" expression )* ;
 ```
@@ -1229,7 +1234,7 @@ fun get_user_data(id) with IO {
 |----------|--------|-----------|
 | Paradigm | Functional | Clean, predictable, composable |
 | Mutability | Immutable only | Eliminates state bugs |
-| Null | No null, use Option | Billion-dollar mistake avoided |
+| Nulls | None/Option only | Billion-dollar mistake avoided |
 | Types (v1) | Dynamic | Get pipeline working first |
 | Syntax | Brace-style | Familiar, easy to parse |
 | Semicolons | Required | Clear statement boundaries |

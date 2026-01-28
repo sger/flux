@@ -91,7 +91,6 @@ define_tokens! {
         Return => "return",
         True   => "true",
         False  => "false",
-        Null   => "null",
         Module => "module",
         Import => "import",
         Some   => "Some",

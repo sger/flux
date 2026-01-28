@@ -11,7 +11,6 @@ pub enum Object {
     Float(f64),
     Boolean(bool),
     String(String),
-    Null,
     None,
     Some(Box<Object>),
     ReturnValue(Box<Object>),
@@ -29,7 +28,6 @@ impl fmt::Display for Object {
             Object::Float(v) => write!(f, "{}", v),
             Object::Boolean(v) => write!(f, "{}", v),
             Object::String(v) => write!(f, "\"{}\"", v),
-            Object::Null => write!(f, "null"),
             Object::None => write!(f, "None"),
             Object::Some(v) => write!(f, "Some({})", v),
             Object::ReturnValue(v) => write!(f, "{}", v),
@@ -56,7 +54,6 @@ impl Object {
             Object::Float(_) => "Float",
             Object::Boolean(_) => "Bool",
             Object::String(_) => "String",
-            Object::Null => "Null",
             Object::None => "None",
             Object::Some(_) => "Some",
             Object::ReturnValue(_) => "ReturnValue",
@@ -69,7 +66,7 @@ impl Object {
     }
 
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Object::Boolean(false) | Object::Null | Object::None)
+        !matches!(self, Object::Boolean(false) | Object::None)
     }
 
     pub fn to_hash_key(&self) -> Option<HashKey> {
@@ -91,7 +88,6 @@ mod tests {
         assert_eq!(Object::Integer(42).to_string(), "42");
         assert_eq!(Object::Float(3.5).to_string(), "3.5");
         assert_eq!(Object::Boolean(true).to_string(), "true");
-        assert_eq!(Object::Null.to_string(), "null");
         assert_eq!(
             Object::Array(vec![Object::Integer(1), Object::Integer(2)]).to_string(),
             "[1, 2]"
@@ -104,7 +100,7 @@ mod tests {
         assert!(Object::Float(0.0).is_truthy());
         assert!(Object::Boolean(true).is_truthy());
         assert!(!Object::Boolean(false).is_truthy());
-        assert!(!Object::Null.is_truthy());
+        assert!(!Object::None.is_truthy());
     }
 
     #[test]

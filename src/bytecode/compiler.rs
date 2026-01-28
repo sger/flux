@@ -224,9 +224,6 @@ impl Compiler {
                     self.emit(OpCode::OpFalse, &[]);
                 }
             }
-            Expression::Null => {
-                self.emit(OpCode::OpNull, &[]);
-            }
             Expression::Identifier(name) => {
                 let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
                     Diagnostic::error(format!("undefined variable `{}`", name))
@@ -459,7 +456,7 @@ impl Compiler {
                 self.remove_last_pop();
             }
         } else {
-            self.emit(OpCode::OpNull, &[]);
+            self.emit(OpCode::OpNone, &[]);
         }
 
         self.change_operand(jump_pos, self.current_instructions().len());

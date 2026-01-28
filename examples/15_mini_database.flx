@@ -1,12 +1,12 @@
 // Test: Mini database with arrays and hashes
 // Expected output:
-// Alice
-// 30
-// Bob
-// 25
+// Some("Alice")
+// Some(30)
+// Some("Bob")
+// Some(25)
 // 2
-// Alice
-// Found: Charlie
+// Some("Alice")
+// Some("Charlie")
 // Not found
 
 // Database is an array of records (hashes)
@@ -16,11 +16,14 @@ let db = [
     {"id": 3, "name": "Charlie", "age": 35}
 ];
 
-// Get record by index
-print(db[0]["name"]);
-print(db[0]["age"]);
-print(db[1]["name"]);
-print(db[1]["age"]);
+// Get records by position
+let first_record = first(db);
+print(first_record["name"]);
+print(first_record["age"]);
+
+let second_record = first(rest(db));
+print(second_record["name"]);
+print(second_record["age"]);
 
 // Count records
 print(len(db));
@@ -28,10 +31,10 @@ print(len(db));
 // Find by ID
 fun findById(records, id) {
     if len(records) == 0 {
-        null;
+        None;
     } else {
         let record = first(records);
-        if record["id"] == id {
+        if record["id"] == Some(id) {
             record;
         } else {
             findById(rest(records), id);
@@ -45,10 +48,10 @@ print(found["name"]);
 // Find by name
 fun findByName(records, name) {
     if len(records) == 0 {
-        null;
+        None;
     } else {
         let record = first(records);
-        if record["name"] == name {
+        if record["name"] == Some(name) {
             record;
         } else {
             findByName(rest(records), name);
@@ -57,15 +60,15 @@ fun findByName(records, name) {
 }
 
 let charlie = findByName(db, "Charlie");
-if charlie == null {
+if charlie == None {
     print("Not found");
 } else {
-    print("Found: " + charlie["name"]);
+    print(charlie["name"]);
 };
 
 let nobody = findByName(db, "Nobody");
-if nobody == null {
+if nobody == None {
     print("Not found");
 } else {
-    print("Found: " + nobody["name"]);
+    print(nobody["name"]);
 };
