@@ -1,0 +1,7 @@
+import ModuleGraphC
+
+module ModuleGraphA {
+    fun value() {
+        ModuleGraphC.value();
+    }
+}

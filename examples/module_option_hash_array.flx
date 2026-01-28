@@ -1,7 +1,5 @@
-// Test: modules + Option + hash + array
 import UserUtils
 
-module Main {
     fun main() {
         let users = [UserUtils.make_user("Ana", 20), UserUtils.make_user("Bob", 15)];
 
@@ -28,7 +26,6 @@ module Main {
         print(show(second_age));
         return Some([first_age, second_age]);
     }
-}
 
 let result = Main.main();
 
@@ -37,4 +34,3 @@ match result {
   None -> print("no result");
   _ -> None;
 };
-

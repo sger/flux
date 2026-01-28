@@ -1,0 +1,7 @@
+import ModuleGraphA
+import ModuleGraphB
+
+  fun main() {
+    ModuleGraphA.value();
+    ModuleGraphB.value();
+  }

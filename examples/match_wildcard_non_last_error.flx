@@ -1,5 +1,3 @@
-// Test: wildcard must be the final match arm
-module Main {
     fun main() {
         let value = 2;
         let label = match value {
@@ -8,4 +6,3 @@ module Main {
         };
         print(label);
     }
-}

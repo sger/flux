@@ -6,6 +6,7 @@ pub mod expression;
 pub mod formatter;
 pub mod lexer;
 pub mod linter;
+pub mod module_graph;
 pub mod parser;
 pub mod position;
 pub mod precedence;

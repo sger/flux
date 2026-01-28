@@ -1,8 +1,5 @@
 import Math
 
-let unused_top = 1;
-
-module Main {
     fun main(unused_param) {
         let x = 1;
         let y = 2;
@@ -14,4 +11,3 @@ module Main {
         };
         print(f());
     }
-}

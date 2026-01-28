@@ -1,4 +1,3 @@
-module Lumen {
   fun main() {
     let x = 1;
 
@@ -8,4 +7,3 @@ module Lumen {
 
     f();
   }
-}

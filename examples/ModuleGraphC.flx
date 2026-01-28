@@ -1,0 +1,5 @@
+module ModuleGraphC {
+  fun value() {
+    3;
+  }
+}

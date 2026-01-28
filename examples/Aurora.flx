@@ -1,5 +1,3 @@
-module Aurora {
   fun echo(x, x) {
     return x;
   }
-}

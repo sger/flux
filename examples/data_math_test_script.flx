@@ -1,0 +1,3 @@
+import Data.Math.Test
+
+print(Data.Math.Test.value());
