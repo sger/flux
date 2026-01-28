@@ -473,6 +473,14 @@ impl Compiler {
                 .with_code("E030")
                 .with_message("Match expression must have at least one arm."));
         }
+        if let Some(last) = arms.last() {
+            if !matches!(last.pattern, Pattern::Wildcard) {
+                return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
+                    .with_code("E033")
+                    .with_message("Match expressions must end with a `_` arm.")
+                    .with_hint("Add a catch-all arm: `_ -> ...`"));
+            }
+        }
 
         // Compile scrutinee once and store it in a local variable
         // For simplicity, we'll use a temporary approach: keep it on stack and duplicate
