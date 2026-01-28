@@ -463,6 +463,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_match_expression(
         &mut self,
         scrutinee: &Expression,
@@ -484,13 +485,13 @@ impl Compiler {
             }
         }
 
-        if let Some(last) = arms.last() {
-            if !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_)) {
-                return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
-                    .with_code("E033")
-                    .with_message("Match expressions must end with a `_` or identifier arm.")
-                    .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"));
-            }
+        if let Some(last) = arms.last()
+            && !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_))
+        {
+            return Err(Diagnostic::error("NON-EXHAUSTIVE MATCH")
+                .with_code("E033")
+                .with_message("Match expressions must end with a `_` or identifier arm.")
+                .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"));
         }
 
         // Compile scrutinee once and store it in a temp local
@@ -533,7 +534,6 @@ impl Compiler {
                 for jump_pos in next_arm_jumps {
                     self.change_operand(jump_pos, self.current_instructions().len());
                 }
-
             } else {
                 // Last arm: bind identifier (if any) or drop scrutinee, then compile body
                 self.enter_block_scope();
@@ -552,6 +552,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::result_large_err)]
     fn compile_pattern_check(
         &mut self,
         scrutinee: &Symbol,
