@@ -387,7 +387,7 @@ fn validate_file_kind(
                 _ => {
                     diagnostics.push(
                         Diagnostic::error("INVALID MODULE FILE")
-                            .with_code("E037")
+                            .with_code("E042")
                             .with_position(statement.position())
                             .with_message(
                                 "Module files may only contain imports and a single module declaration.",

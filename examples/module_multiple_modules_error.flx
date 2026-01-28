@@ -1,0 +1,2 @@
+module ModuleMultipleModulesError { fun a() { 1; } }
+module AnotherModule { fun b() { 2; } }
