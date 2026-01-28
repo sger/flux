@@ -29,6 +29,7 @@ This document outlines the module graph design for Flux: how imports are modeled
 - Qualified access requires an explicit import in the same file.
 - Aliased imports replace the original qualifier (use `L.value()`, not `Data.List.value()`).
 - Import resolution fails if the same module appears in multiple roots (duplicate module error).
+- Cyclic imports are a hard error detected at compile time.
 
 ### ModuleId normalization
 
@@ -59,15 +60,25 @@ If a `Gray` node is encountered, a cycle exists. Report the cycle path from the 
 
 Alternative: Tarjan SCC (if we later need component output).
 
+## Cycle Detection
+
+Preferred: DFS with color marks.
+
+- `White`: unvisited
+- `Gray`: visiting (on recursion stack)
+- `Black`: done
+
+If a `Gray` node is encountered, a cycle exists. Report the cycle path from the stack.
+
 ## Topological Order
 
 - After building the graph, perform a topological sort.
 - If a cycle is detected, abort and emit a single cycle error with the path.
 - Output order must be stable given the same inputs.
 
-## Error Format (draft)
+## Error Format
 
-- Error code: `E1XXX` (reserve in central registry once it exists).
+- Error code: `E035`
 - Message: `import cycle detected: A -> B -> C -> A`
 - Attach: full module paths for each entry, plus import site span if available.
 
