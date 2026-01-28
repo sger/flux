@@ -2,6 +2,31 @@
 
 This document outlines high-impact architectural improvements for Flux.
 
+## v0.0.2 Roadmap (language + tooling)
+
+### Language core
+- Add List and Map modules (stdlib) with a minimal, stable API.
+- Add match guards: `pattern if condition -> expr` (huge usability win).
+- Option ergonomics: `is_some`, `unwrap_or`, `map`, `and_then`.
+- Diagnostics polish: consistent file/line/col, better hints for match errors.
+- Parser/VM tests: cover match guards, Some patterns, Option helpers.
+
+### Tooling (debugging roadmap)
+- See `docs/debugging_tools.md` for the full plan and examples.
+- VM instruction trace (flagged; per-step op + stack delta).
+- Stack dump (explicit command or trace option).
+- Source span mapping (bytecode offsets -> source lines).
+- Disassembler improvements (annotate constants, functions, spans).
+- REPL stepping (single-step + continue).
+- Structured errors (machine-readable diagnostics).
+- Symbol table dump (debug-only).
+- Differential testing (VM vs interpreter once available).
+
+### Nice-to-have
+- Simple formatter rules (indent only, preserve comments).
+- More stdlib: `contains`, `slice`.
+- Better module exports (explicit `pub` list or export rules).
+
 ## Near-term (stability + performance)
 
 - Remove per-instruction cloning in the VM loop (instruction fetch should borrow, not allocate).
