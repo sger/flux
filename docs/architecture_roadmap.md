@@ -2,6 +2,15 @@
 
 This document outlines high-impact architectural improvements for Flux.
 
+## Highest Priority
+
+- Module graph (imports, cycle detection, deterministic order).
+- Central error-code registry.
+- AST spans for all nodes (better diagnostics and tooling).
+- VM trace + stack dump + source mapping.
+- List/Map stdlib + Option ergonomics (`unwrap_or`, `map`, `and_then`).
+- Match guards (`pattern if condition -> expr`).
+
 ## v0.0.2 Roadmap (language + tooling)
 
 ### Language core
@@ -21,6 +30,9 @@ This document outlines high-impact architectural improvements for Flux.
 - Structured errors (machine-readable diagnostics).
 - Symbol table dump (debug-only).
 - Differential testing (VM vs interpreter once available).
+
+### Memory & GC
+- See `docs/gc_roadmap.md` for a staged plan (Rc now → tracing GC later).
 
 ### Nice-to-have
 - Simple formatter rules (indent only, preserve comments).

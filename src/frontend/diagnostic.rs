@@ -20,6 +20,16 @@ pub struct Diagnostic {
     pub hints: Vec<String>,
 }
 
+// ICE = Internal Compiler Error (a compiler bug, not user code).
+#[macro_export]
+macro_rules! ice {
+    ($msg:expr) => {
+        $crate::frontend::diagnostic::Diagnostic::error("INTERNAL COMPILER ERROR")
+            .with_message($msg)
+            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!()))
+    };
+}
+
 impl Diagnostic {
     pub fn error(title: impl Into<String>) -> Self {
         Self {

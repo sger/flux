@@ -6,6 +6,7 @@ pub mod closure;
 pub mod compiled_function;
 pub mod frame;
 pub mod hash_key;
+pub mod leak_detector;
 pub mod object;
 pub mod vm;
 
