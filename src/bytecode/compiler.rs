@@ -482,10 +482,19 @@ impl Compiler {
             }
         }
 
-        // Compile scrutinee once and store it in a local variable
-        // For simplicity, we'll use a temporary approach: keep it on stack and duplicate
-
+        // Compile scrutinee once and store it in a temp local
+        self.enter_block_scope();
         self.compile_expression(scrutinee)?;
+        let temp_symbol = self.symbol_table.define_temp();
+        match temp_symbol.symbol_scope {
+            SymbolScope::Global => {
+                self.emit(OpCode::OpSetGlobal, &[temp_symbol.index]);
+            }
+            SymbolScope::Local => {
+                self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
+            }
+            _ => {}
+        };
 
         let mut end_jumps = Vec::new();
 
@@ -504,7 +513,7 @@ impl Compiler {
 
                 // Duplicate scrutinee for pattern check
                 // We'll emit code to check the pattern and jump to next arm if not matched
-                let next_arm_jump = self.compile_pattern_check(scrutinee, &arm.pattern)?;
+                let next_arm_jump = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
 
                 // Pattern matched, compile the body
                 self.enter_block_scope();
@@ -518,13 +527,11 @@ impl Compiler {
                 // Patch jump to next arm
                 self.change_operand(next_arm_jump, self.current_instructions().len());
 
-                // When we jump here, stack is empty (OpEqual consumed scrutinee,
-                // OpJumpNotTruthy popped the boolean). Push scrutinee for next arm.
-                self.compile_expression(scrutinee)?;
             } else {
                 // Last arm: bind identifier (if any) or drop scrutinee, then compile body
                 self.enter_block_scope();
                 if let Pattern::Identifier(name) = &arm.pattern {
+                    self.load_symbol(&temp_symbol);
                     let symbol = self.symbol_table.define(name.clone());
                     match symbol.symbol_scope {
                         SymbolScope::Global => {
@@ -546,12 +553,13 @@ impl Compiler {
             self.change_operand(jump_pos, self.current_instructions().len());
         }
 
+        self.leave_block_scope();
         Ok(())
     }
 
     fn compile_pattern_check(
         &mut self,
-        _scrutinee: &Expression,
+        scrutinee: &Symbol,
         pattern: &Pattern,
     ) -> Result<usize, Diagnostic> {
         match pattern {
@@ -568,12 +576,14 @@ impl Compiler {
                 // Push pattern value onto stack: [scrutinee, pattern]
                 // OpEqual compares and pushes boolean: [result]
                 // OpJumpNotTruthy jumps when false (no match), continues when true (match)
+                self.load_symbol(scrutinee);
                 self.compile_expression(expr)?;
                 self.emit(OpCode::OpEqual, &[]);
                 Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))
             }
             Pattern::None => {
                 // Check if scrutinee is None
+                self.load_symbol(scrutinee);
                 self.emit(OpCode::OpNone, &[]);
                 self.emit(OpCode::OpEqual, &[]);
                 Ok(self.emit(OpCode::OpJumpNotTruthy, &[9999]))

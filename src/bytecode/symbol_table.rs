@@ -88,6 +88,17 @@ impl SymbolTable {
         symbol
     }
 
+    pub fn define_temp(&mut self) -> Symbol {
+        let scope = if self.outer.is_none() {
+            SymbolScope::Global
+        } else {
+            SymbolScope::Local
+        };
+        let symbol = Symbol::new("<temp>", scope, self.num_definitions);
+        self.num_definitions += 1;
+        symbol
+    }
+
     pub fn resolve(&mut self, name: &str) -> Option<Symbol> {
         match self.store.get(name) {
             Some(symbol) => Some(symbol.clone()),
