@@ -1,0 +1,5 @@
+module Dup.Mod {
+  fun value() {
+    2;
+  }
+}

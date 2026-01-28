@@ -141,3 +141,27 @@ fn alias_import_compiles() {
     compile_with_graph(&entry_path, &program, &[root])
         .expect("expected alias import to compile");
 }
+
+#[test]
+fn duplicate_module_across_roots_is_error() {
+    let root_a = temp_root("dupe_root_a");
+    let root_b = temp_root("dupe_root_b");
+    let module_rel = Path::new("Dup").join("Mod.flx");
+    write_file(
+        &root_a.join(&module_rel),
+        "module Dup.Mod { fun value() { 1; } }",
+    );
+    write_file(
+        &root_b.join(&module_rel),
+        "module Dup.Mod { fun value() { 2; } }",
+    );
+
+    let entry_path = root_a.join("Main.flx");
+    let entry_source = "import Dup.Mod\nDup.Mod.value();";
+    write_file(&entry_path, entry_source);
+    let program = parse_program(entry_source);
+
+    let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root_a, root_b])
+        .expect_err("expected duplicate module error");
+    assert_eq!(first_code(err), "E041");
+}

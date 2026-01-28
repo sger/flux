@@ -269,10 +269,18 @@ fn resolve_import_path(
     roots: &[PathBuf],
 ) -> Result<(ModuleId, PathBuf), Diagnostic> {
     let candidates = module_name_candidates(name, roots);
-    let import_path = candidates.into_iter().find(|path| path.exists());
-    let import_path = match import_path {
-        Some(path) => path,
-        None => {
+    let mut matches = Vec::new();
+    for candidate in candidates {
+        if candidate.exists() {
+            let canonical = fs::canonicalize(&candidate).unwrap_or(candidate);
+            if !matches.iter().any(|p: &PathBuf| p == &canonical) {
+                matches.push(canonical);
+            }
+        }
+    }
+
+    let import_path = match matches.len() {
+        0 => {
             return Err(
                 Diagnostic::error("IMPORT NOT FOUND")
                     .with_code("E032")
@@ -288,6 +296,24 @@ fn resolve_import_path(
                             .join(", "),
                         source_path.display()
                     )),
+            );
+        }
+        1 => matches.remove(0),
+        _ => {
+            return Err(
+                Diagnostic::error("DUPLICATE MODULE")
+                    .with_code("E041")
+                    .with_position(position)
+                    .with_message(format!("module `{}` is defined in multiple roots.", name))
+                    .with_hint(format!(
+                        "Found: {}",
+                        matches
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                    .with_file(source_path.display().to_string()),
             );
         }
     };

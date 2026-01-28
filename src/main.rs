@@ -22,6 +22,7 @@ fn main() {
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
+    let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
     }
@@ -31,6 +32,9 @@ fn main() {
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
     }
+    if !extract_roots(&mut args, &mut roots) {
+        return;
+    }
 
     if args.len() < 2 {
         print_help();
@@ -38,7 +42,7 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(&args[1], verbose, leak_detector, no_cache);
+        run_file(&args[1], verbose, leak_detector, no_cache, &roots);
         return;
     }
 
@@ -56,7 +60,7 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2], verbose, leak_detector, no_cache)
+            run_file(&args[2], verbose, leak_detector, no_cache, &roots)
         }
         "tokens" => {
             if args.len() < 3 {
@@ -128,17 +132,25 @@ Usage:
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
   flux cache-info-file <file.fxc>
+  flux <file.flx> --root <path> [--root <path> ...]
 
 Flags:
   --verbose   Show cache status (hit/miss/store)
   --leak-detector  Print approximate allocation stats after run
   --no-cache  Disable bytecode cache for this run
+  --root <path>  Add a module root (can be repeated)
   -h, --help  Show this help message
 "
     );
 }
 
-fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
+fn run_file(
+    path: &str,
+    verbose: bool,
+    leak_detector: bool,
+    no_cache: bool,
+    extra_roots: &[std::path::PathBuf],
+) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let source_hash = hash_bytes(source.as_bytes());
@@ -177,7 +189,7 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
             }
 
             let entry_path = Path::new(path);
-            let mut roots = Vec::new();
+            let mut roots = extra_roots.to_vec();
             if let Some(parent) = entry_path.parent() {
                 roots.push(parent.to_path_buf());
             }
@@ -186,7 +198,8 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
                 roots.push(project_src.to_path_buf());
             }
 
-            let graph = match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
+            let graph =
+                match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
             {
                 Ok(graph) => graph,
                 Err(diags) => {
@@ -269,6 +282,24 @@ fn render_diagnostics_multi(diagnostics: &[Diagnostic]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--root" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --root <path> [--root <path> ...]");
+                return false;
+            }
+            let path = args.remove(i + 1);
+            args.remove(i);
+            roots.push(std::path::PathBuf::from(path));
+            continue;
+        }
+        i += 1;
+    }
+    true
 }
 
 fn is_flx_file(path: &str) -> bool {
