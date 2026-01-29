@@ -504,7 +504,8 @@ fn topo_order(
         return Err(
             Diagnostic::error("IMPORT CYCLE")
                 .with_code("E035")
-                .with_message(format!("import cycle detected: {}", cycle_str)),
+                .with_message(format!("import cycle detected: {}", cycle_str))
+                .with_file(entry.as_str().to_string()),
         );
     }
 
