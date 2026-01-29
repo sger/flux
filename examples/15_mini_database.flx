@@ -4,7 +4,7 @@
 // Some(30)
 // Some("Bob")
 // Some(25)
-// 2
+// 3
 // Some("Alice")
 // Some("Charlie")
 // Not found
@@ -15,6 +15,14 @@ let db = [
     {"id": 2, "name": "Bob", "age": 25},
     {"id": 3, "name": "Charlie", "age": 35}
 ];
+
+fun opt_eq(opt, value) {
+    match opt {
+        Some(v) -> v == value;
+        None -> false;
+        _ -> false;
+    };
+}
 
 // Get records by position
 let first_record = first(db);
@@ -34,7 +42,7 @@ fun findById(records, id) {
         None;
     } else {
         let record = first(records);
-        if record["id"] == Some(id) {
+        if opt_eq(record["id"], id) {
             record;
         } else {
             findById(rest(records), id);
@@ -51,7 +59,7 @@ fun findByName(records, name) {
         None;
     } else {
         let record = first(records);
-        if record["name"] == Some(name) {
+        if opt_eq(record["name"], name) {
             record;
         } else {
             findByName(rest(records), name);
