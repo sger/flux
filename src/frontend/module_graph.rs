@@ -317,18 +317,18 @@ fn resolve_import_path(
 
 fn module_name_candidates(name: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
     let segments: Vec<&str> = name.split('.').collect();
-    let Some((head, tail)) = segments.split_first() else {
+    let Some(file_stem) = segments.last() else {
         return Vec::new();
     };
 
     let mut paths = Vec::new();
     for root in roots {
+        // Build directory path from all segments except the last
         let mut dir = root.clone();
         for segment in segments.iter().take(segments.len().saturating_sub(1)) {
             dir = dir.join(segment);
         }
 
-        let file_stem = tail.last().unwrap_or(head);
         paths.push(dir.join(format!("{}.flx", file_stem)));
     }
 
