@@ -487,20 +487,7 @@ impl Compiler {
                 };
 
                 if let Some(module_name) = module_name {
-                    if member.starts_with('_')
-                        && self.current_module_prefix.as_deref() != Some(module_name.as_str())
-                    {
-                        return Err(Self::boxed(
-                            Diagnostic::error("PRIVATE MEMBER")
-                                .with_code("E021")
-                                .with_file(self.file_path.clone())
-                                .with_span(expr_span)
-                                .with_message(format!("Cannot access private member `{}`.", member))
-                                .with_hint(
-                                    "Private members can only be accessed within the same module.",
-                                ),
-                        ));
-                    }
+                    self.check_private_member(member, expr_span, Some(module_name.as_str()))?;
 
                     let qualified = format!("{}.{}", module_name, member);
                     if let Some(symbol) = self.symbol_table.resolve(&qualified) {
@@ -534,19 +521,7 @@ impl Compiler {
                     }
                 }
 
-                // Check if accessing a private member (starts with underscore)
-                if member.starts_with('_') {
-                    return Err(Self::boxed(
-                        Diagnostic::error("PRIVATE MEMBER")
-                            .with_code("E021")
-                            .with_file(self.file_path.clone())
-                            .with_span(expr_span)
-                            .with_message(format!("Cannot access private member `{}`.", member))
-                            .with_hint(
-                                "Private members can only be accessed within the same module.",
-                            ),
-                    ));
-                }
+                self.check_private_member(member, expr_span, None)?;
 
                 // Compile the object (e.g., the module identifier)
                 self.compile_expression(object)?;
@@ -1121,6 +1096,32 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn check_private_member(
+        &self,
+        member: &str,
+        expr_span: Span,
+        module_name: Option<&str>,
+    ) -> CompileResult<()> {
+        if !member.starts_with('_') {
+            return Ok(());
+        }
+
+        let same_module = module_name
+            .is_some_and(|name| self.current_module_prefix.as_deref() == Some(name));
+        if same_module {
+            return Ok(());
+        }
+
+        Err(Self::boxed(
+            Diagnostic::error("PRIVATE MEMBER")
+                .with_code("E021")
+                .with_file(self.file_path.clone())
+                .with_span(expr_span)
+                .with_message(format!("Cannot access private member `{}`.", member))
+                .with_hint("Private members can only be accessed within the same module."),
+        ))
     }
     fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
