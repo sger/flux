@@ -1,0 +1,5 @@
+module Modules.Data.MyFile {
+  fun value() {
+    42;
+  }
+}

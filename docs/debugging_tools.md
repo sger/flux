@@ -61,6 +61,24 @@ struct Instruction {
 }
 ```
 
+Minimal design (first pass):
+- Store debug info per compiled function, keyed by bytecode offset (ip).
+- Each instruction byte maps to an optional `SourceLocation { file, span }`.
+- The VM uses `ip` to recover `file:line:col` for stack traces and runtime Errors.
+
+Data model sketch:
+```
+struct SourceLocation {
+    file: String,
+    span: Span, // start/end Position
+}
+
+struct FunctionDebugInfo {
+    name: Option<String>,
+    locations: Vec<Option<SourceLocation>>, // len == instructions.len()
+}
+```
+
 Then at runtime:
 
 ```
@@ -180,9 +198,9 @@ Hint: src/bytecode/compiler.rs:134 (flux::bytecode::compiler)
 How to see it:
 - Run a compile path and it will print if an invariant is violated:
   ```
-  cargo run -- run examples/option_match.flx
+  cargo run -- run examples/patterns/option_match.flx
   ```
-- For a demo, use `examples/ice_demo.flx` and force an ICE temporarily in the compiler.
+- For a demo, use `examples/Debug/IceDemo.flx` and force an ICE temporarily in the compiler.
 - If you hit the bytecode cache, remove it first: `rm -rf target/flux`.
 - ICEs should be rare; if you see one, it points directly at the Rust file/line.
 
@@ -191,7 +209,7 @@ How to see it:
 Use a lightweight allocation counter to spot suspicious growth:
 
 ```
-cargo run -- --leak-detector examples/option_match.flx
+cargo run -- --leak-detector examples/patterns/option_match.flx
 ```
 
 Example output:

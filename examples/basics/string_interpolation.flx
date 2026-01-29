@@ -1,0 +1,49 @@
+// String interpolation examples
+
+// Simple variable interpolation
+let name = "World";
+print("Hello #{name}!");
+
+// Expression interpolation
+print("Sum: #{1 + 2}");
+print("Math: #{10 * 5 + 2}");
+
+// Multiple interpolations
+let a = 10;
+let b = 20;
+print("#{a} + #{b} = #{a + b}");
+
+// Interpolation with function calls
+fun double(x) {
+    x * 2
+}
+print("Double of 5 is #{double(5)}");
+
+// Nested expressions
+let flag = true;
+print("Result: #{if flag { "yes" } else { "no" }}");
+
+// Escape sequences
+print("Tab:\there");
+print("Newline:\nhere");
+print("Quote:\"here\"");
+
+// Escaped interpolation (literal #{)
+print("Escaped: \#{not interpolated}");
+
+// to_string builtin
+print(to_string(42));
+print(to_string(3.14));
+print(to_string(true));
+print(to_string([1, 2, 3]));
+
+// Empty interpolation parts
+let x = "value";
+print("#{x}");
+
+// Boolean in interpolation
+print("Flag is #{true}");
+
+// Array in interpolation
+let arr = [1, 2, 3];
+print("Array: #{arr}");

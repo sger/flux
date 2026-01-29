@@ -1,8 +1,9 @@
 use crate::frontend::{
     block::Block,
     diagnostic::Diagnostic,
-    expression::{Expression, MatchArm, Pattern},
+    expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
+    position::Span,
     precedence::{Precedence, token_precedence},
     program::Program,
     statement::Statement,
@@ -14,6 +15,7 @@ pub struct Parser {
     lexer: Lexer,
     current_token: Token,
     peek_token: Token,
+    peek2_token: Token,
     pub errors: Vec<Diagnostic>,
 }
 
@@ -23,8 +25,10 @@ impl Parser {
             lexer,
             current_token: Token::new(TokenType::Eof, "", 0, 0),
             peek_token: Token::new(TokenType::Eof, "", 0, 0),
+            peek2_token: Token::new(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
         };
+        parser.next_token();
         parser.next_token();
         parser.next_token();
         parser
@@ -49,7 +53,12 @@ impl Parser {
 
     fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
-        self.peek_token = self.lexer.next_token();
+        self.peek_token = self.peek2_token.clone();
+        self.peek2_token = self.lexer.next_token();
+    }
+
+    fn span_from(&self, start: crate::frontend::position::Position) -> Span {
+        Span::new(start, self.current_token.position)
     }
 
     fn synchronize_after_error(&mut self) {
@@ -114,7 +123,7 @@ impl Parser {
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
         let expression = self.parse_expression(Precedence::Lowest)?;
 
         if self.is_peek_token(TokenType::Semicolon) {
@@ -123,12 +132,12 @@ impl Parser {
 
         Some(Statement::Expression {
             expression,
-            position,
+            span: self.span_from(start),
         })
     }
 
     fn parse_function_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
@@ -152,12 +161,12 @@ impl Parser {
             name,
             parameters,
             body,
-            position,
+            span: self.span_from(start),
         })
     }
 
     fn parse_return_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
         self.next_token();
 
         let value = if self.is_current_token(TokenType::Semicolon) {
@@ -170,11 +179,14 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Return { value, position })
+        Some(Statement::Return {
+            value,
+            span: self.span_from(start),
+        })
     }
 
     fn parse_let_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
@@ -197,12 +209,12 @@ impl Parser {
         Some(Statement::Let {
             name,
             value,
-            position,
+            span: self.span_from(start),
         })
     }
 
     fn parse_assignment_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
         let name = self.current_token.literal.clone();
 
         if !self.expect_peek(TokenType::Assign) {
@@ -220,18 +232,18 @@ impl Parser {
         Some(Statement::Assign {
             name,
             value,
-            position,
+            span: self.span_from(start),
         })
     }
 
     fn parse_module_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
 
-        let name = self.current_token.literal.clone();
+        let name = self.parse_qualified_name()?;
 
         if !self.expect_peek(TokenType::LBrace) {
             return None;
@@ -242,22 +254,48 @@ impl Parser {
         Some(Statement::Module {
             name,
             body,
-            position,
+            span: self.span_from(start),
         })
     }
 
     fn parse_import_statement(&mut self) -> Option<Statement> {
-        let position = self.current_token.position;
+        let start = self.current_token.position;
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
 
-        let name = self.current_token.literal.clone();
+        let name = self.parse_qualified_name()?;
+        let mut alias = None;
+
+        if self.is_peek_token(TokenType::As) {
+            self.next_token(); // consume 'as'
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            alias = Some(self.current_token.literal.clone());
+        }
 
         // No semicolon required for import statements
 
-        Some(Statement::Import { name, position })
+        Some(Statement::Import {
+            name,
+            alias,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_qualified_name(&mut self) -> Option<String> {
+        let mut name = self.current_token.literal.clone();
+        while self.is_peek_token(TokenType::Dot) {
+            self.next_token(); // consume '.'
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            name.push('.');
+            name.push_str(&self.current_token.literal);
+        }
+        Some(name)
     }
 
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
@@ -326,24 +364,30 @@ impl Parser {
     fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
         let operator = self.current_token.literal.clone();
         let precedence = self.current_precedence();
+        let start = left.span().start;
         self.next_token();
         let right = self.parse_expression(precedence)?;
+        let end = right.span().end;
         Some(Expression::Infix {
             left: Box::new(left),
             operator,
             right: Box::new(right),
+            span: Span::new(start, end),
         })
     }
 
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
+        let start = function.span().start;
         let arguments = self.parse_expression_list(TokenType::RParen)?;
         Some(Expression::Call {
             function: Box::new(function),
             arguments,
+            span: Span::new(start, self.current_token.position),
         })
     }
 
     fn parse_index_expression(&mut self, left: Expression) -> Option<Expression> {
+        let start = left.span().start;
         self.next_token();
         let index = self.parse_expression(Precedence::Lowest)?;
 
@@ -354,10 +398,12 @@ impl Parser {
         Some(Expression::Index {
             left: Box::new(left),
             index: Box::new(index),
+            span: Span::new(start, self.current_token.position),
         })
     }
 
     fn parse_member_access(&mut self, object: Expression) -> Option<Expression> {
+        let start = object.span().start;
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -367,16 +413,36 @@ impl Parser {
         Some(Expression::MemberAccess {
             object: Box::new(object),
             member,
+            span: Span::new(start, self.current_token.position),
         })
     }
 
     fn parse_identifier(&mut self) -> Option<Expression> {
-        Some(Expression::Identifier(self.current_token.literal.clone()))
+        let start = self.current_token.position;
+        let mut name = self.current_token.literal.clone();
+        if is_uppercase_ident(&self.current_token) {
+            while self.is_peek_token(TokenType::Dot) && is_uppercase_ident(&self.peek2_token) {
+                self.next_token(); // consume '.'
+                if !self.expect_peek(TokenType::Ident) {
+                    return None;
+                }
+                name.push('.');
+                name.push_str(&self.current_token.literal);
+            }
+        }
+        Some(Expression::Identifier {
+            name,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_integer(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         match self.current_token.literal.parse::<i64>() {
-            Ok(value) => Some(Expression::Integer(value)),
+            Ok(value) => Some(Expression::Integer {
+                value,
+                span: Span::new(start, self.current_token.position),
+            }),
             Err(_) => {
                 self.errors.push(
                     Diagnostic::error("INVALID INTEGER")
@@ -393,8 +459,12 @@ impl Parser {
     }
 
     fn parse_float(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         match self.current_token.literal.parse::<f64>() {
-            Ok(value) => Some(Expression::Float(value)),
+            Ok(value) => Some(Expression::Float {
+                value,
+                span: Span::new(start, self.current_token.position),
+            }),
             Err(_) => {
                 self.errors.push(
                     Diagnostic::error("INVALID FLOAT")
@@ -410,21 +480,128 @@ impl Parser {
         }
     }
 
-    fn parse_string(&self) -> Option<Expression> {
-        Some(Expression::String(self.current_token.literal.clone()))
+    fn parse_string(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        let first_part = self.current_token.literal.clone();
+
+        // Check if this is an interpolated string by looking at peek token
+        // If peek is an expression-start token, we have interpolation
+        if self.is_interpolation_expression_start() {
+            return self.parse_interpolated_string(start, first_part);
+        }
+
+        Some(Expression::String {
+            value: first_part,
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
+    /// Check if peek_token could be the start of an interpolation expression
+    fn is_interpolation_expression_start(&self) -> bool {
+        matches!(
+            self.peek_token.token_type,
+            TokenType::Ident
+                | TokenType::Int
+                | TokenType::Float
+                | TokenType::True
+                | TokenType::False
+                | TokenType::None
+                | TokenType::Some
+                | TokenType::Bang
+                | TokenType::Minus
+                | TokenType::LParen
+                | TokenType::LBracket
+                | TokenType::LBrace
+                | TokenType::If
+                | TokenType::Fun
+                | TokenType::Match
+                | TokenType::String
+        )
+    }
+
+    /// Parse an interpolated string like "Hello #{name}!"
+    fn parse_interpolated_string(
+        &mut self,
+        start: crate::frontend::position::Position,
+        first_literal: String,
+    ) -> Option<Expression> {
+        let mut parts = Vec::new();
+
+        // Add the first literal part if non-empty
+        if !first_literal.is_empty() {
+            parts.push(StringPart::Literal(first_literal));
+        }
+
+        loop {
+            // Parse the interpolation expression
+            self.next_token();
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            parts.push(StringPart::Interpolation(Box::new(expr)));
+
+            // Expect closing brace of interpolation
+            if !self.expect_peek(TokenType::RBrace) {
+                return None;
+            }
+
+            // After RBrace, check what's next
+            // It should be either String (more content) or StringEnd (end of string)
+            if self.is_peek_token(TokenType::String) {
+                // More string content with possibly more interpolations
+                self.next_token();
+                let literal = self.current_token.literal.clone();
+                if !literal.is_empty() {
+                    parts.push(StringPart::Literal(literal));
+                }
+                // Check if there's another interpolation
+                if !self.is_interpolation_expression_start() {
+                    // No more interpolations, but we got String not StringEnd - this shouldn't happen
+                    // Just break and return what we have
+                    break;
+                }
+                // Continue to parse next interpolation
+            } else if self.is_peek_token(TokenType::StringEnd) {
+                // End of interpolated string
+                self.next_token();
+                let final_literal = self.current_token.literal.clone();
+                if !final_literal.is_empty() {
+                    parts.push(StringPart::Literal(final_literal));
+                }
+                break;
+            } else {
+                // Unexpected token - report error
+                self.errors.push(
+                    Diagnostic::error("UNTERMINATED INTERPOLATION")
+                        .with_code("E107")
+                        .with_position(self.peek_token.position)
+                        .with_message("Expected string continuation or end after interpolation."),
+                );
+                return None;
+            }
+        }
+
+        Some(Expression::InterpolatedString {
+            parts,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_boolean(&self) -> Option<Expression> {
-        Some(Expression::Boolean(
-            self.current_token.token_type == TokenType::True,
-        ))
+        let start = self.current_token.position;
+        Some(Expression::Boolean {
+            value: self.current_token.token_type == TokenType::True,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_none(&self) -> Option<Expression> {
-        Some(Expression::None)
+        let start = self.current_token.position;
+        Some(Expression::None {
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_some(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
@@ -435,10 +612,12 @@ impl Parser {
         }
         Some(Expression::Some {
             value: Box::new(value),
+            span: Span::new(start, self.current_token.position),
         })
     }
 
     fn parse_match_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         self.next_token();
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
 
@@ -477,6 +656,7 @@ impl Parser {
         Some(Expression::Match {
             scrutinee: Box::new(scrutinee),
             arms,
+            span: Span::new(start, self.current_token.position),
         })
     }
 
@@ -520,12 +700,15 @@ impl Parser {
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         let operator = self.current_token.literal.clone();
         self.next_token();
         let right = self.parse_expression(Precedence::Prefix)?;
+        let end = right.span().end;
         Some(Expression::Prefix {
             operator,
             right: Box::new(right),
+            span: Span::new(start, end),
         })
     }
 
@@ -539,11 +722,16 @@ impl Parser {
     }
 
     fn parse_array(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         let elements = self.parse_expression_list(TokenType::RBracket)?;
-        Some(Expression::Array { elements })
+        Some(Expression::Array {
+            elements,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_hash(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         let mut pairs = Vec::new();
 
         while !self.is_peek_token(TokenType::RBrace) {
@@ -569,10 +757,14 @@ impl Parser {
             return None;
         }
 
-        Some(Expression::Hash { pairs })
+        Some(Expression::Hash {
+            pairs,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_if_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         self.next_token();
         let condition = self.parse_expression(Precedence::Lowest)?;
 
@@ -597,10 +789,12 @@ impl Parser {
             condition: Box::new(condition),
             consequence,
             alternative,
+            span: Span::new(start, self.current_token.position),
         })
     }
 
     fn parse_function_literal(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
@@ -612,7 +806,11 @@ impl Parser {
         }
 
         let body = self.parse_block();
-        Some(Expression::Function { parameters, body })
+        Some(Expression::Function {
+            parameters,
+            body,
+            span: Span::new(start, self.current_token.position),
+        })
     }
 
     fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
@@ -714,4 +912,15 @@ impl Parser {
                 )),
         );
     }
+}
+
+fn is_uppercase_ident(token: &Token) -> bool {
+    if token.token_type != TokenType::Ident {
+        return false;
+    }
+    token
+        .literal
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_uppercase())
 }

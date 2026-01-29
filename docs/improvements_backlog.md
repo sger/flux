@@ -20,11 +20,11 @@ This document tracks proposed features, fixes, and architectural improvements fo
 
 ## Recent Findings
 
-- `examples/import_collision_error.flx` hit the parser error for `;` (E102) before the import collision check.  
+- `examples/imports/import_collision_error.flx` hit the parser error for `;` (E102) before the import collision check.  
   **Status:** fixed by removing the semicolon.
 - `examples/duplicate_params_literal_error.flx` prints no line snippet (expected, since function literals lack position info).  
   **Status:** known limitation.
-- `examples/expected_token_error.flx` emits two errors: E105 (unexpected token) and E102 (expected expression).  
+- `examples/Errors/expected_token_error.flx` emits two errors: E105 (unexpected token) and E102 (expected expression).  
   **Status:** accepted; could suppress the follow-on error after a peek error.
 
 If needed:

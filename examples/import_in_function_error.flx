@@ -1,6 +1,0 @@
-module Main {
-  fun main() {
-    import Math
-    print(Math.square(5));
-  }
-}

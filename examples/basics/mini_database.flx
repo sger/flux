@@ -1,0 +1,82 @@
+// Test: Mini database with arrays and hashes
+// Expected output:
+// Some("Alice")
+// Some(30)
+// Some("Bob")
+// Some(25)
+// 3
+// Some("Alice")
+// Some("Charlie")
+// Not found
+
+// Database is an array of records (hashes)
+let db = [
+    {"id": 1, "name": "Alice", "age": 30},
+    {"id": 2, "name": "Bob", "age": 25},
+    {"id": 3, "name": "Charlie", "age": 35}
+];
+
+fun opt_eq(opt, value) {
+    match opt {
+        Some(v) -> v == value;
+        None -> false;
+        _ -> false;
+    };
+}
+
+// Get records by position
+let first_record = first(db);
+print(first_record["name"]);
+print(first_record["age"]);
+
+let second_record = first(rest(db));
+print(second_record["name"]);
+print(second_record["age"]);
+
+// Count records
+print(len(db));
+
+// Find by ID
+fun findById(records, id) {
+    if len(records) == 0 {
+        None;
+    } else {
+        let record = first(records);
+        if opt_eq(record["id"], id) {
+            record;
+        } else {
+            findById(rest(records), id);
+        };
+    };
+}
+
+let found = findById(db, 1);
+print(found["name"]);
+
+// Find by name
+fun findByName(records, name) {
+    if len(records) == 0 {
+        None;
+    } else {
+        let record = first(records);
+        if opt_eq(record["name"], name) {
+            record;
+        } else {
+            findByName(rest(records), name);
+        };
+    };
+}
+
+let charlie = findByName(db, "Charlie");
+if charlie == None {
+    print("Not found");
+} else {
+    print(charlie["name"]);
+};
+
+let nobody = findByName(db, "Nobody");
+if nobody == None {
+    print("Not found");
+} else {
+    print(nobody["name"]);
+};

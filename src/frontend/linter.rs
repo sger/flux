@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use crate::frontend::{
-    diagnostic::Diagnostic, expression::Expression, position::Position, program::Program,
+    diagnostic::Diagnostic,
+    expression::{Expression, StringPart},
+    module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
+    position::Position,
+    program::Program,
     statement::Statement,
 };
 
@@ -45,18 +49,14 @@ impl Linter {
 
     fn lint_statement(&mut self, statement: &Statement) {
         match statement {
-            Statement::Let {
-                name,
-                value,
-                position,
-            } => {
+            Statement::Let { name, value, span } => {
                 self.lint_expression(value);
-                self.define_binding(name, *position, BindingKind::Let);
+                self.define_binding(name, span.start, BindingKind::Let);
             }
             Statement::Assign {
                 name,
                 value,
-                position: _,
+                span: _,
             } => {
                 self.mark_used(name);
                 self.lint_expression(value);
@@ -73,63 +73,71 @@ impl Linter {
                 name,
                 parameters,
                 body,
-                position,
+                span,
                 ..
             } => {
                 if !is_snake_case(name) {
                     self.push_warning(
                         "FUNCTION NAME STYLE",
                         "W005",
-                        *position,
+                        span.start,
                         format!("`{}` should be snake_case.", name),
                     );
                 }
-                self.define_binding(name, *position, BindingKind::Function);
+                self.define_binding(name, span.start, BindingKind::Function);
                 self.enter_scope();
                 for param in parameters {
-                    self.define_binding(param, *position, BindingKind::Param);
+                    self.define_binding(param, span.start, BindingKind::Param);
                 }
                 for stmt in &body.statements {
                     self.lint_statement(stmt);
                 }
                 self.finish_scope();
             }
-            Statement::Module {
-                name,
-                body,
-                position,
-            } => {
-                self.define_binding(name, *position, BindingKind::Function);
+            Statement::Module { name, body, span } => {
+                let binding = module_binding_name(name);
+                self.define_binding(binding, span.start, BindingKind::Function);
                 self.enter_scope();
                 for stmt in &body.statements {
                     self.lint_statement(stmt);
                 }
                 self.finish_scope();
             }
-            Statement::Import { name, position } => {
-                if !is_upper_camel(name) {
+            Statement::Import { name, alias, span } => {
+                if !is_valid_module_name(name) {
                     self.push_warning(
                         "IMPORT NAME STYLE",
                         "W006",
-                        *position,
-                        format!("`{}` should be UpperCamelCase.", name),
+                        span.start,
+                        format!(
+                            "`{}` should use UpperCamelCase segments separated by dots.",
+                            name
+                        ),
                     );
                 }
-                self.define_binding(name, *position, BindingKind::Import);
+                let binding = import_binding_name(name, alias.as_deref());
+                self.define_binding(binding, span.start, BindingKind::Import);
             }
         }
     }
 
     fn lint_expression(&mut self, expression: &Expression) {
         match expression {
-            Expression::Identifier(name) => {
+            Expression::Identifier { name, .. } => {
                 self.mark_used(name);
             }
-            Expression::Integer(_)
-            | Expression::Float(_)
-            | Expression::String(_)
-            | Expression::Boolean(_)
-            | Expression::None => {}
+            Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::Boolean { .. }
+            | Expression::None { .. } => {}
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let StringPart::Interpolation(expr) = part {
+                        self.lint_expression(expr);
+                    }
+                }
+            }
             Expression::Prefix { right, .. } => self.lint_expression(right),
             Expression::Infix { left, right, .. } => {
                 self.lint_expression(left);
@@ -139,6 +147,7 @@ impl Linter {
                 condition,
                 consequence,
                 alternative,
+                ..
             } => {
                 self.lint_expression(condition);
                 for stmt in &consequence.statements {
@@ -150,7 +159,9 @@ impl Linter {
                     }
                 }
             }
-            Expression::Function { parameters, body } => {
+            Expression::Function {
+                parameters, body, ..
+            } => {
                 self.enter_scope();
                 for param in parameters {
                     self.define_binding(param, Position::default(), BindingKind::Param);
@@ -163,22 +174,23 @@ impl Linter {
             Expression::Call {
                 function,
                 arguments,
+                ..
             } => {
                 self.lint_expression(function);
                 for arg in arguments {
                     self.lint_expression(arg);
                 }
             }
-            Expression::Array { elements } => {
+            Expression::Array { elements, .. } => {
                 for el in elements {
                     self.lint_expression(el);
                 }
             }
-            Expression::Index { left, index } => {
+            Expression::Index { left, index, .. } => {
                 self.lint_expression(left);
                 self.lint_expression(index);
             }
-            Expression::Hash { pairs } => {
+            Expression::Hash { pairs, .. } => {
                 for (k, v) in pairs {
                     self.lint_expression(k);
                     self.lint_expression(v);
@@ -187,10 +199,12 @@ impl Linter {
             Expression::MemberAccess { object, .. } => {
                 self.lint_expression(object);
             }
-            Expression::Some { value } => {
+            Expression::Some { value, .. } => {
                 self.lint_expression(value);
             }
-            Expression::Match { scrutinee, arms } => {
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 self.lint_expression(scrutinee);
                 for arm in arms {
                     // TODO: Handle pattern bindings properly
@@ -301,15 +315,4 @@ fn is_snake_case(name: &str) -> bool {
         .chars()
         .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
         && !trimmed.contains("__")
-}
-
-fn is_upper_camel(name: &str) -> bool {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    if !first.is_ascii_uppercase() {
-        return false;
-    }
-    chars.all(|ch| ch.is_ascii_alphanumeric())
 }

@@ -1,13 +1,20 @@
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use flux::{
     bytecode::{
-        bytecode_cache::{BytecodeCache, hash_bytes, hash_file},
+        bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key, hash_file},
         compiler::Compiler,
         op_code::disassemble,
     },
     frontend::{
-        diagnostic::render_diagnostics, formatter::format_source, lexer::Lexer, linter::Linter,
+        diagnostic::{Diagnostic, render_diagnostics},
+        formatter::format_source,
+        lexer::Lexer,
+        linter::Linter,
+        module_graph::ModuleGraph,
         parser::Parser,
     },
     runtime::vm::VM,
@@ -17,15 +24,27 @@ fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
+    let trace = args.iter().any(|arg| arg == "--trace");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
+    let roots_only = args.iter().any(|arg| arg == "--roots-only");
+    let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
     }
     if leak_detector {
         args.retain(|arg| arg != "--leak-detector");
     }
+    if trace {
+        args.retain(|arg| arg != "--trace");
+    }
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
+    }
+    if roots_only {
+        args.retain(|arg| arg != "--roots-only");
+    }
+    if !extract_roots(&mut args, &mut roots) {
+        return;
     }
 
     if args.len() < 2 {
@@ -34,7 +53,15 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(&args[1], verbose, leak_detector, no_cache);
+        run_file(
+            &args[1],
+            verbose,
+            leak_detector,
+            trace,
+            no_cache,
+            roots_only,
+            &roots,
+        );
         return;
     }
 
@@ -52,7 +79,15 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2], verbose, leak_detector, no_cache)
+            run_file(
+                &args[2],
+                verbose,
+                leak_detector,
+                trace,
+                no_cache,
+                roots_only,
+                &roots,
+            )
         }
         "tokens" => {
             if args.len() < 3 {
@@ -97,7 +132,7 @@ fn main() {
                 eprintln!("Usage: flux cache-info <file.flx>");
                 return;
             }
-            show_cache_info(&args[2]);
+            show_cache_info(&args[2], &roots);
         }
         "cache-info-file" => {
             if args.len() < 3 {
@@ -124,29 +159,47 @@ Usage:
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
   flux cache-info-file <file.fxc>
+  flux <file.flx> --root <path> [--root <path> ...]
+  flux run <file.flx> --root <path> [--root <path> ...]
 
 Flags:
   --verbose   Show cache status (hit/miss/store)
+  --trace  Print VM instruction trace
   --leak-detector  Print approximate allocation stats after run
   --no-cache  Disable bytecode cache for this run
+  --root <path>  Add a module root (can be repeated)
+  --roots-only  Use only explicitly provided --root values
   -h, --help  Show this help message
 "
     );
 }
 
-fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
+fn run_file(
+    path: &str,
+    verbose: bool,
+    leak_detector: bool,
+    trace: bool,
+    no_cache: bool,
+    roots_only: bool,
+    extra_roots: &[std::path::PathBuf],
+) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let source_hash = hash_bytes(source.as_bytes());
+            let entry_path = Path::new(path);
+            let roots = collect_roots(entry_path, extra_roots, roots_only);
+            let roots_hash = roots_cache_hash(&roots);
+            let cache_key = hash_cache_key(&source_hash, &roots_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
             if !no_cache {
                 if let Some(bytecode) =
-                    cache.load(Path::new(path), &source_hash, env!("CARGO_PKG_VERSION"))
+                    cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
                     if verbose {
                         eprintln!("cache: hit (bytecode loaded)");
                     }
                     let mut vm = VM::new(bytecode);
+                    vm.set_trace(trace);
                     if let Err(err) = vm.run() {
                         eprintln!("Runtime error: {}", err);
                     }
@@ -172,16 +225,41 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
                 return;
             }
 
+            let entry_path = Path::new(path);
+            let roots = collect_roots(entry_path, extra_roots, roots_only);
+
+            let graph = match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
+            {
+                Ok(graph) => graph,
+                Err(diags) => {
+                    eprintln!("{}", render_diagnostics_multi(&diags));
+                    return;
+                }
+            };
+
             let mut compiler = Compiler::new_with_file_path(path);
-            if let Err(diags) = compiler.compile(&program) {
-                eprintln!("{}", render_diagnostics(&diags, Some(&source), Some(path)));
+            let mut compile_errors: Vec<Diagnostic> = Vec::new();
+            for node in graph.topo_order() {
+                compiler.set_file_path(node.path.to_string_lossy().to_string());
+                if let Err(mut diags) = compiler.compile(&node.program) {
+                    for diag in &mut diags {
+                        if diag.file.is_none() {
+                            diag.file = Some(node.path.to_string_lossy().to_string());
+                        }
+                    }
+                    compile_errors.append(&mut diags);
+                    break;
+                }
+            }
+            if !compile_errors.is_empty() {
+                eprintln!("{}", render_diagnostics_multi(&compile_errors));
                 return;
             }
 
             let bytecode = compiler.bytecode();
 
             let mut deps = Vec::new();
-            for dep in compiler.imported_files() {
+            for dep in graph.imported_files() {
                 if let Ok(hash) = hash_file(Path::new(&dep)) {
                     deps.push((dep, hash));
                 }
@@ -190,7 +268,7 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
                 let stored = cache
                     .store(
                         Path::new(path),
-                        &source_hash,
+                        &cache_key,
                         env!("CARGO_PKG_VERSION"),
                         &bytecode,
                         &deps,
@@ -202,6 +280,7 @@ fn run_file(path: &str, verbose: bool, leak_detector: bool, no_cache: bool) {
             }
 
             let mut vm = VM::new(bytecode);
+            vm.set_trace(trace);
             if let Err(err) = vm.run() {
                 eprintln!("Runtime error: {}", err);
             }
@@ -219,6 +298,75 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+fn render_diagnostics_multi(diagnostics: &[Diagnostic]) -> String {
+    diagnostics
+        .iter()
+        .map(|diag| {
+            let source = diag
+                .file
+                .as_deref()
+                .and_then(|file| fs::read_to_string(file).ok());
+            diag.render(source.as_deref(), diag.file.as_deref())
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--root" {
+            if i + 1 >= args.len() {
+                eprintln!(
+                    "Usage: flux <file.flx> --root <path> [--root <path> ...]\n       flux run <file.flx> --root <path> [--root <path> ...]"
+                );
+                return false;
+            }
+            let path = args.remove(i + 1);
+            args.remove(i);
+            roots.push(std::path::PathBuf::from(path));
+            continue;
+        }
+        i += 1;
+    }
+    true
+}
+
+fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -> Vec<PathBuf> {
+    let mut roots = extra_roots.to_vec();
+    if !roots_only {
+        if let Some(parent) = entry_path.parent() {
+            roots.push(parent.to_path_buf());
+        }
+        let project_src = Path::new("src");
+        if project_src.exists() {
+            roots.push(project_src.to_path_buf());
+        }
+    }
+    roots
+}
+
+fn normalize_roots_for_cache(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut normalized = Vec::new();
+    for root in roots {
+        let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        if !normalized.iter().any(|p| p == &canonical) {
+            normalized.push(canonical);
+        }
+    }
+    normalized
+}
+
+fn roots_cache_hash(roots: &[PathBuf]) -> [u8; 32] {
+    let normalized = normalize_roots_for_cache(roots);
+    let mut joined = String::new();
+    for root in normalized {
+        joined.push_str(&root.to_string_lossy());
+        joined.push('\n');
+    }
+    hash_bytes(joined.as_bytes())
 }
 
 fn is_flx_file(path: &str) -> bool {
@@ -324,7 +472,7 @@ fn fmt_file(path: &str, check: bool) {
     }
 }
 
-fn show_cache_info(path: &str) {
+fn show_cache_info(path: &str, extra_roots: &[PathBuf]) {
     let cache = BytecodeCache::new(Path::new("target").join("flux"));
     let source = match fs::read_to_string(path) {
         Ok(src) => src,
@@ -334,13 +482,17 @@ fn show_cache_info(path: &str) {
         }
     };
     let source_hash = hash_bytes(source.as_bytes());
-    let info = cache.inspect(Path::new(path), &source_hash);
+    let entry_path = Path::new(path);
+    let roots = collect_roots(entry_path, extra_roots, false);
+    let roots_hash = roots_cache_hash(&roots);
+    let cache_key = hash_cache_key(&source_hash, &roots_hash);
+    let info = cache.inspect(Path::new(path), &cache_key);
     match info {
         Some(info) => {
             println!("cache file: {}", info.cache_path.display());
             println!("format version: {}", info.format_version);
             println!("compiler version: {}", info.compiler_version);
-            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("cache key: {}", hex_string(&info.source_hash));
             println!("constants: {}", info.constants_count);
             println!("instructions: {} bytes", info.instructions_len);
             if info.deps.is_empty() {
@@ -371,7 +523,7 @@ fn show_cache_info_file(path: &str) {
             println!("cache file: {}", info.cache_path.display());
             println!("format version: {}", info.format_version);
             println!("compiler version: {}", info.compiler_version);
-            println!("source hash: {}", hex_string(&info.source_hash));
+            println!("cache key: {}", hex_string(&info.source_hash));
             println!("constants: {}", info.constants_count);
             println!("instructions: {} bytes", info.instructions_len);
             if info.deps.is_empty() {

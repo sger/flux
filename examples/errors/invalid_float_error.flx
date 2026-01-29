@@ -1,0 +1,4 @@
+// Intended to trigger E104 (INVALID FLOAT). Currently parses as a valid float.
+// TODO: tighten float parsing to make E104 reachable.
+let x = 999999999999999999999999999999999999999999999999999999.0;
+print(x);

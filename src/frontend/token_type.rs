@@ -80,7 +80,8 @@ define_tokens! {
         Colon     => ":",
         Dot       => ".",
         Arrow     => "->",
-
+        InterpolationStart => "#{",
+        StringEnd => "STRING_END",
     }
 
     keywords {
@@ -93,6 +94,7 @@ define_tokens! {
         False  => "false",
         Module => "module",
         Import => "import",
+        As     => "as",
         Some   => "Some",
         None   => "None",
         Match  => "match",

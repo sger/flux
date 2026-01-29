@@ -5,11 +5,20 @@ This document outlines high-impact architectural improvements for Flux.
 ## Highest Priority
 
 - Module graph (imports, cycle detection, deterministic order).
-- Central error-code registry.
+- Central error-code registry (`src/frontend/error_codes.rs`).
 - AST spans for all nodes (better diagnostics and tooling).
 - VM trace + stack dump + source mapping.
 - List/Map stdlib + Option ergonomics (`unwrap_or`, `map`, `and_then`).
 - Match guards (`pattern if condition -> expr`).
+
+### Module graph (imports, cycle detection, deterministic order)
+- Build a graph from each module to its direct imports (edge = `module -> import`).
+- Resolve and normalize module IDs (absolute path + canonical name) before graph insertion.
+- Enforce deterministic traversal: stable sort imports and visit order for identical builds.
+- Detect cycles (DFS with color marks or Tarjan SCC) and emit a single, focused error.
+- Produce a topological order for compilation/execution planning (reject if cycles exist).
+- Cache graph + topo order to support incremental builds and parallel compilation later.
+- See `docs/ModuleGraph.md` for the full design notes.
 
 ## v0.0.2 Roadmap (language + tooling)
 
@@ -17,7 +26,7 @@ This document outlines high-impact architectural improvements for Flux.
 - Add List and Map modules (stdlib) with a minimal, stable API.
 - Add match guards: `pattern if condition -> expr` (huge usability win).
 - Option ergonomics: `is_some`, `unwrap_or`, `map`, `and_then`.
-- Diagnostics polish: consistent file/line/col, better hints for match errors.
+- Diagnostics polish: consistent file/line/col, better hints for match Errors.
 - Parser/VM tests: cover match guards, Some patterns, Option helpers.
 
 ### Tooling (debugging roadmap)

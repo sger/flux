@@ -1,0 +1,10 @@
+module Math {
+  fun _secret() { 1; }
+}
+
+module Main {
+  fun main() {
+    Math
+      ._secret();
+  }
+}

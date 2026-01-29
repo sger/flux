@@ -1,14 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use flux::frontend::{expression::Expression, program::Program, statement::Statement};
+    use flux::frontend::{
+        expression::Expression, position::Span, program::Program, statement::Statement,
+    };
 
     #[test]
     fn display_let() {
         let program = Program {
             statements: vec![Statement::Let {
                 name: "x".to_string(),
-                value: Expression::Integer(5),
-                position: Default::default(),
+                value: Expression::Integer {
+                    value: 5,
+                    span: Span::default(),
+                },
+                span: Span::default(),
             }],
         };
 
@@ -18,9 +23,16 @@ mod tests {
     #[test]
     fn display_infix() {
         let expr = Expression::Infix {
-            left: Box::new(Expression::Integer(1)),
+            left: Box::new(Expression::Integer {
+                value: 1,
+                span: Span::default(),
+            }),
             operator: "+".to_string(),
-            right: Box::new(Expression::Integer(2)),
+            right: Box::new(Expression::Integer {
+                value: 2,
+                span: Span::default(),
+            }),
+            span: Span::default(),
         };
         assert_eq!(expr.to_string(), "(1 + 2)");
     }
@@ -29,10 +41,20 @@ mod tests {
     fn display_array() {
         let expr = Expression::Array {
             elements: vec![
-                Expression::Integer(1),
-                Expression::Integer(2),
-                Expression::Integer(3),
+                Expression::Integer {
+                    value: 1,
+                    span: Span::default(),
+                },
+                Expression::Integer {
+                    value: 2,
+                    span: Span::default(),
+                },
+                Expression::Integer {
+                    value: 3,
+                    span: Span::default(),
+                },
             ],
+            span: Span::default(),
         };
         assert_eq!(expr.to_string(), "[1, 2, 3]");
     }
@@ -40,7 +62,17 @@ mod tests {
     #[test]
     fn display_hash() {
         let expr = Expression::Hash {
-            pairs: vec![(Expression::String("a".to_string()), Expression::Integer(1))],
+            pairs: vec![(
+                Expression::String {
+                    value: "a".to_string(),
+                    span: Span::default(),
+                },
+                Expression::Integer {
+                    value: 1,
+                    span: Span::default(),
+                },
+            )],
+            span: Span::default(),
         };
         assert_eq!(expr.to_string(), "{\"a\": 1}");
     }

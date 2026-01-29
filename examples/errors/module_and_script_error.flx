@@ -1,0 +1,7 @@
+import Modules.Data.MyFile
+
+fun value() {
+  1;
+}
+
+Modules.Data.MyFile.value();

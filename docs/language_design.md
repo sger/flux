@@ -41,8 +41,8 @@ All code lives in modules. Modules provide namespacing and organization.
 - A module cannot define a function with the same name as the module.
 
 ```
-// math.flx
-module Math {
+// Modules/Math.flx
+module Modules.Math {
   // public
   fun square(x) {
     x * x;
@@ -62,10 +62,10 @@ module Math {
   }
 }
 
-// main.flx file
-import Math
+// Modules/Main.flx
+import Modules.Math
 
-module Main {
+module Modules.Main {
   fun main() {
     print(Math.square(5));
     print(Math._private_function()); // error fun is private
@@ -79,14 +79,35 @@ Flexible import system for accessing code from other modules.
 
 Imports are only allowed at the top level (module scope), not inside functions.
 Importing a name that already exists in the current scope is an error.
+Qualified access requires an explicit import in the same file.
+Aliased imports replace the original qualifier (Haskell-style).
+Cyclic imports are rejected at compile time.
 
 ```
-// Full mod import
-import Math
+// Full module import
+import Modules.Math
 Math.square(5);      // use with prefix
+
+// Qualified nested import
+import Modules.Data.Math.Test
+Modules.Data.Math.Test.value();
+
+// Aliased import (use alias instead of full name)
+import Modules.Data.Math.Test as MathTest
+MathTest.value();
 ```
 
-Note: selective imports, aliases, and nested imports are planned but not implemented yet.
+Note: selective imports are still planned; aliases and nested module imports are supported.
+
+### Module Roots
+
+Import resolution searches the entry file directory and `./src` by default.
+You can add roots with `--root`, or use `--roots-only` to ignore implicit roots.
+
+```
+flux run examples/roots/duplicate_root_import_error.flx --root examples/roots/root_a --root examples/roots/root_b
+flux run examples/roots/duplicate_root_import_error.flx --roots-only --root examples/roots/root_a --root examples/roots/root_b
+```
 
 ### Bytecode Cache
 
@@ -105,26 +126,26 @@ Flux emits human-friendly diagnostics with stable error codes.
 
 | Code | Title | Example | Example file |
 | --- | --- | --- | --- |
-| E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/function_redeclaration_error.flx` |
+| E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/functions/function_redeclaration_error.flx` |
 | E003 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
-| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/closure_outer_assign_error.flx` |
+| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
 | E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
 | E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
 | E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
 | E012 | DUPLICATE PARAMETER | `fun f(x, x) { x }` | `examples/duplicate_params_error.flx` |
-| E016 | INVALID MODULE NAME | `module math { }` | `examples/module_name_lowercase_error.flx` |
-| E018 | MODULE NAME CLASH | `module Math { fun Math() {} }` | `examples/module_name_clobber_error.flx` |
+| E016 | INVALID MODULE NAME | `module math { }` | `examples/Errors/module_name_lowercase_error.flx` |
+| E018 | MODULE NAME CLASH | `module Math { fun Math() {} }` | `examples/Errors/module_name_clobber_error.flx` |
 | E019 | INVALID MODULE CONTENT | `module Math { let x = 1; }` | — |
 | E021 | PRIVATE MEMBER | `Math._private()` | — |
-| E030 | IMPORT NAME COLLISION | `let Math = 1; import Math` | `examples/import_collision_error.flx` |
-| E031 | IMPORT SCOPE | `fun main() { import Math }` | `examples/import_in_function_error.flx` |
+| E030 | IMPORT NAME COLLISION | `let Math = 1; import Modules.Math` | `examples/imports/import_collision_error.flx` |
+| E031 | IMPORT SCOPE | `fun main() { import Modules.Math }` | `examples/imports/import_in_function_error.flx` |
 | E032 | IMPORT NOT FOUND | `import Missing` | — |
 | E033 | IMPORT READ FAILED | `import Broken` | — |
-| E101 | UNKNOWN KEYWORD | `fn main() {}` | `examples/unknown_keyword_fn_error.flx` |
-| E102 | EXPECTED EXPRESSION | `;` | `examples/import_semicolon_error.flx` |
+| E101 | UNKNOWN KEYWORD | `fn main() {}` | `examples/Errors/unknown_keyword_fn_error.flx` |
+| E102 | EXPECTED EXPRESSION | `;` | `examples/imports/import_semicolon_error.flx` |
 | E103 | INVALID INTEGER | `let x = 12_3z;` | — |
 | E104 | INVALID FLOAT | `let x = 1.2.3;` | — |
-| E105 | UNEXPECTED TOKEN | `print((1 + 2);` | `examples/expected_token_error.flx` |
+| E105 | UNEXPECTED TOKEN | `print((1 + 2);` | `examples/Errors/expected_token_error.flx` |
 
 ### Functions
 
@@ -915,7 +936,7 @@ I can't find a mod called `Maths`.
 Did you mean?
 
     Math       (standard library)
-    MyMath     (in ./src/mymath.flx)
+    MyMath     (in ./src/MyMath.flx)
 
 Available modules:
 
@@ -998,8 +1019,9 @@ statement      = module_stmt
                | return_stmt
                | expr_stmt ;
 
-module_stmt    = "module" IDENT block ;
-import_stmt    = "import" IDENT ;
+module_stmt    = "module" qualified_name block ;
+import_stmt    = "import" qualified_name [ "as" IDENT ] ;
+qualified_name = IDENT ( "." IDENT )* ;
 function_stmt  = "fun" IDENT "(" parameters? ")" block ;
 let_stmt       = "let" IDENT "=" expression ";"? ;
 assign_stmt    = IDENT "=" expression ";"? ;
@@ -1048,7 +1070,7 @@ Note: structs/enums, match, for, pipelines, directives, and types are planned bu
 ## Example Program
 
 ```
-import Math
+import Modules.Math
 
 module Main {
   fun main() {

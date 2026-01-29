@@ -1,0 +1,5 @@
+import Modules.Foo.List
+import Modules.Bar.List
+
+print(Modules.Foo.List.value());
+print(Modules.Bar.List.value());

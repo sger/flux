@@ -37,6 +37,7 @@ pub enum OpCode {
     OpSome = 31,
     OpIsSome = 32,
     OpUnwrapSome = 33,
+    OpToString = 34,
 }
 
 impl From<u8> for OpCode {
@@ -76,6 +77,7 @@ impl From<u8> for OpCode {
             31 => OpCode::OpSome,
             32 => OpCode::OpIsSome,
             33 => OpCode::OpUnwrapSome,
+            34 => OpCode::OpToString,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
