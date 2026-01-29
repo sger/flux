@@ -14,10 +14,42 @@ let users = [
     {"name": "Bob", "age": 30}
 ];
 
-print(users[0]["name"]);
-print(users[1]["name"]);
-print(users[0]["age"]);
-print(users[1]["age"]);
+let first_user = users[0];
+let second_user = users[1];
+
+let first_name = match first_user {
+    Some(u) -> u["name"];
+    None -> "unknown";
+    _ -> "unknown";
+};
+let second_name = match second_user {
+    Some(u) -> u["name"];
+    None -> "unknown";
+    _ -> "unknown";
+};
+let first_age = match first_user {
+    Some(u) -> u["age"];
+    None -> 0;
+    _ -> 0;
+};
+let second_age = match second_user {
+    Some(u) -> u["age"];
+    None -> 0;
+    _ -> 0;
+};
+
+print(first_name);
+
+match first_name {
+  Some(v) -> print("unwrap value #{v}");
+  None -> print("unknown");
+  _ -> print("unknown");
+};
+
+
+print(second_name);
+print(first_age);
+print(second_age);
 
 // Hash with array values
 let skills = {
@@ -25,6 +57,16 @@ let skills = {
     "count": 3
 };
 
-print(skills["languages"][0]);
-print(skills["languages"][1]);
+let first_lang = match skills["languages"] {
+    Some(v) -> v[0];
+    None -> "no languages";
+    _ -> "no languages";
+};
+let second_lang = match skills["languages"] {
+    Some(v) -> v[1];
+    None -> "no languages";
+    _ -> "no languages";
+};
+print(first_lang);
+print(second_lang);
 print(skills["count"]);

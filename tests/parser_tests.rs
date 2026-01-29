@@ -99,6 +99,20 @@ mod tests {
     }
 
     #[test]
+    fn test_string_interpolation_simple() {
+        let program = parse(r#""Hello #{name}""#);
+        assert_eq!(program.statements.len(), 1);
+        assert_eq!(program.to_string(), "\"Hello #{name}\"");
+    }
+
+    #[test]
+    fn test_string_interpolation_expression() {
+        let program = parse(r#""Sum #{1 + 2}""#);
+        assert_eq!(program.statements.len(), 1);
+        assert_eq!(program.to_string(), "\"Sum #{(1 + 2)}\"");
+    }
+
+    #[test]
     fn test_boolean_literals() {
         let program = parse("true; false;");
         assert_eq!(program.statements.len(), 2);
