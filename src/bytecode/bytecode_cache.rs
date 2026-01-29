@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     bytecode::{
         bytecode::Bytecode,
-        debug_info::{FunctionDebugInfo, SourceLocation},
+        debug_info::{FunctionDebugInfo, InstructionLocation, Location},
     },
     frontend::position::{Position, Span},
     runtime::compiled_function::CompiledFunction,
@@ -17,7 +17,7 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = 2;
+const FORMAT_VERSION: u16 = 3;
 
 pub struct BytecodeCache {
     dir: PathBuf,
@@ -394,13 +394,18 @@ fn write_function_debug_info(
                     write_string(writer, name)?;
                 }
             }
+            write_u32(writer, info.files.len() as u32)?;
+            for file in &info.files {
+                write_string(writer, file)?;
+            }
             write_u32(writer, info.locations.len() as u32)?;
-            for location in &info.locations {
-                match location {
+            for entry in &info.locations {
+                write_u32(writer, entry.offset as u32)?;
+                match &entry.location {
                     None => writer.write_all(&[0])?,
                     Some(location) => {
                         writer.write_all(&[1])?;
-                        write_string(writer, &location.file)?;
+                        write_u32(writer, location.file_id)?;
                         write_span(writer, &location.span)?;
                     }
                 }
@@ -425,21 +430,29 @@ fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebugInfo> {
         Some(read_string(reader)?)
     };
 
+    let files_len = read_u32(reader)? as usize;
+    let mut files = Vec::with_capacity(files_len);
+    for _ in 0..files_len {
+        files.push(read_string(reader)?);
+    }
+
     let locations_len = read_u32(reader)? as usize;
     let mut locations = Vec::with_capacity(locations_len);
     for _ in 0..locations_len {
+        let offset = read_u32(reader)? as usize;
         let mut loc_flag = [0u8; 1];
         reader.read_exact(&mut loc_flag).ok()?;
-        if loc_flag[0] == 0 {
-            locations.push(None);
-            continue;
-        }
-        let file = read_string(reader)?;
-        let span = read_span(reader)?;
-        locations.push(Some(SourceLocation { file, span }));
+        let location = if loc_flag[0] == 0 {
+            None
+        } else {
+            let file_id = read_u32(reader)? as u32;
+            let span = read_span(reader)?;
+            Some(Location { file_id, span })
+        };
+        locations.push(InstructionLocation { offset, location });
     }
 
-    Some(FunctionDebugInfo::new(name, locations))
+    Some(FunctionDebugInfo::new(name, files, locations))
 }
 
 fn write_position(writer: &mut File, position: &Position) -> std::io::Result<()> {

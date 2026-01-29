@@ -1,0 +1,5 @@
+module Modules.Foo.List {
+  fun value() {
+    10;
+  }
+}

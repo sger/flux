@@ -21,6 +21,7 @@ fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
+    let trace = args.iter().any(|arg| arg == "--trace");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let mut roots = Vec::new();
@@ -29,6 +30,9 @@ fn main() {
     }
     if leak_detector {
         args.retain(|arg| arg != "--leak-detector");
+    }
+    if trace {
+        args.retain(|arg| arg != "--trace");
     }
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
@@ -46,7 +50,15 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(&args[1], verbose, leak_detector, no_cache, roots_only, &roots);
+        run_file(
+            &args[1],
+            verbose,
+            leak_detector,
+            trace,
+            no_cache,
+            roots_only,
+            &roots,
+        );
         return;
     }
 
@@ -64,7 +76,15 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2], verbose, leak_detector, no_cache, roots_only, &roots)
+            run_file(
+                &args[2],
+                verbose,
+                leak_detector,
+                trace,
+                no_cache,
+                roots_only,
+                &roots,
+            )
         }
         "tokens" => {
             if args.len() < 3 {
@@ -141,6 +161,7 @@ Usage:
 
 Flags:
   --verbose   Show cache status (hit/miss/store)
+  --trace  Print VM instruction trace
   --leak-detector  Print approximate allocation stats after run
   --no-cache  Disable bytecode cache for this run
   --root <path>  Add a module root (can be repeated)
@@ -154,6 +175,7 @@ fn run_file(
     path: &str,
     verbose: bool,
     leak_detector: bool,
+    trace: bool,
     no_cache: bool,
     roots_only: bool,
     extra_roots: &[std::path::PathBuf],
@@ -174,6 +196,7 @@ fn run_file(
                         eprintln!("cache: hit (bytecode loaded)");
                     }
                     let mut vm = VM::new(bytecode);
+                    vm.set_trace(trace);
                     if let Err(err) = vm.run() {
                         eprintln!("Runtime error: {}", err);
                     }
@@ -255,6 +278,7 @@ fn run_file(
             }
 
             let mut vm = VM::new(bytecode);
+            vm.set_trace(trace);
             if let Err(err) = vm.run() {
                 eprintln!("Runtime error: {}", err);
             }

@@ -1,5 +1,5 @@
 // Importing this module triggers E019 (INVALID MODULE CONTENT)
 // because its body contains a non-function declaration.
-import ModuleInvalidContentError
+import Errors.ModuleInvalidContentError
 
-print(ModuleInvalidContentError.x);
+print(Errors.ModuleInvalidContentError.x);

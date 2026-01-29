@@ -1,5 +1,0 @@
-module Bar.List {
-  fun value() {
-    20;
-  }
-}

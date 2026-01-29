@@ -1,3 +1,0 @@
-import Data.MyFile as MyFile
-
-print(MyFile.value());

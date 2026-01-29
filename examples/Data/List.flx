@@ -1,5 +1,0 @@
-module Data.Other {
-  fun value() {
-    1;
-  }
-}

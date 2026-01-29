@@ -1,5 +1,0 @@
-module Purple.Muse {
-  fun exclaim(text) {
-    text + "!";
-  }
-}

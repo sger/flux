@@ -1,3 +1,3 @@
-module Broken {
+module Errors.Broken {
   fun value() { 1; }
 }

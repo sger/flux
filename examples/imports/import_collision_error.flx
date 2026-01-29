@@ -1,0 +1,4 @@
+  fun main() {
+    let Math = 1;
+    import Modules.Math
+  }

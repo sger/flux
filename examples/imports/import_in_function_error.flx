@@ -1,0 +1,4 @@
+  fun main() {
+    import Modules.Math
+    print(Math.square(5));
+  }

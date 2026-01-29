@@ -1,0 +1,3 @@
+import Errors.ScriptOnly
+
+ScriptOnly;

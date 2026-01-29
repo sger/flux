@@ -1,0 +1,2 @@
+module Errors.ModuleMultipleModulesError { fun a() { 1; } }
+module Errors.AnotherModule { fun b() { 2; } }
