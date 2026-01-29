@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::{
     bytecode::{
         bytecode::Bytecode,
-        op_code::{OpCode, read_u8, read_u16},
+        op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
@@ -21,11 +21,12 @@ pub struct VM {
     pub globals: Vec<Object>,
     frames: Vec<Frame>,
     frame_index: usize,
+    trace: bool,
 }
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
-        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0);
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
         let main_closure = Closure::new(Rc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
 
@@ -36,13 +37,28 @@ impl VM {
             globals: vec![Object::None; GLOBALS_SIZE],
             frames: vec![main_frame],
             frame_index: 0,
+            trace: false,
         }
     }
 
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.trace = enabled;
+    }
+
     pub fn run(&mut self) -> Result<(), String> {
+        match self.run_inner() {
+            Ok(()) => Ok(()),
+            Err(err) => Err(self.format_runtime_error(&err)),
+        }
+    }
+
+    fn run_inner(&mut self) -> Result<(), String> {
         while self.current_frame().ip < self.current_frame().instructions().len() {
             let ip = self.current_frame().ip;
             let op = OpCode::from(self.current_frame().instructions()[ip]);
+            if self.trace {
+                self.trace_instruction(ip, op);
+            }
 
             match op {
                 OpCode::OpCurrentClosure => {
@@ -195,10 +211,114 @@ impl VM {
                     leak_detector::record_some();
                     self.push(Object::Some(Box::new(value)))?;
                 }
+                OpCode::OpToString => {
+                    let value = self.pop()?;
+                    self.push(Object::String(value.to_string_value()))?;
+                }
             }
             self.current_frame_mut().ip += 1;
         }
         Ok(())
+    }
+
+    fn format_runtime_error(&self, message: &str) -> String {
+        let mut out = String::new();
+        out.push_str(message);
+
+        if self.frames.is_empty() {
+            return out;
+        }
+
+        out.push_str("\nStack trace:");
+        for frame in self.frames[..=self.frame_index].iter().rev() {
+            out.push_str("\n  at ");
+            let (name, location) = self.format_frame(frame);
+            out.push_str(&name);
+            if let Some(loc) = location {
+                out.push_str(" (");
+                out.push_str(&loc);
+                out.push(')');
+            }
+        }
+        out
+    }
+
+    fn format_frame(&self, frame: &Frame) -> (String, Option<String>) {
+        let debug_info = frame.closure.function.debug_info.as_ref();
+        let name = debug_info
+            .and_then(|info| info.name.clone())
+            .unwrap_or_else(|| "<anonymous>".to_string());
+        let location = debug_info.and_then(|info| {
+            info.location_at(frame.ip).and_then(|loc| {
+                info.file_for(loc.file_id).map(|file| {
+                    format!(
+                        "{}:{}:{}",
+                        render_display_path(file),
+                        loc.span.start.line,
+                        loc.span.start.column
+                    )
+                })
+            })
+        });
+        (name, location)
+    }
+
+    fn trace_instruction(&self, ip: usize, op: OpCode) {
+        let instructions = self.current_frame().instructions();
+        let widths = operand_widths(op);
+        let mut operands = Vec::new();
+        let mut offset = ip + 1;
+        for width in widths {
+            match width {
+                1 => {
+                    operands.push(read_u8(instructions, offset) as usize);
+                    offset += 1;
+                }
+                2 => {
+                    operands.push(read_u16(instructions, offset) as usize);
+                    offset += 2;
+                }
+                _ => {}
+            }
+        }
+        let operand_str = if operands.is_empty() {
+            "".to_string()
+        } else {
+            format!(
+                " {}",
+                operands
+                    .iter()
+                    .map(|o| o.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        };
+        println!("IP={:04} {}{}", ip, op, operand_str);
+        self.trace_stack();
+        self.trace_locals();
+    }
+
+    fn trace_stack(&self) {
+        let items: Vec<String> = self.stack[..self.sp]
+            .iter()
+            .map(|obj| obj.to_string())
+            .collect();
+        println!("  stack: [{}]", items.join(", "));
+    }
+
+    fn trace_locals(&self) {
+        let frame = self.current_frame();
+        let bp = frame.base_pointer;
+        let locals = frame.closure.function.num_locals;
+        if locals == 0 {
+            return;
+        }
+        let end = (bp + locals).min(self.stack.len());
+        let items: Vec<String> = self.stack[bp..end]
+            .iter()
+            .map(|obj| obj.to_string())
+            .collect();
+        println!("  locals: [{}]", items.join(", "));
     }
 
     fn build_array(&self, start: usize, end: usize) -> Object {
@@ -493,6 +613,17 @@ impl VM {
     pub fn last_popped_stack_elem(&self) -> &Object {
         &self.stack[self.sp]
     }
+}
+
+fn render_display_path(file: &str) -> String {
+    let path = std::path::Path::new(file);
+    if path.is_absolute()
+        && let Ok(cwd) = std::env::current_dir()
+        && let Ok(stripped) = path.strip_prefix(&cwd)
+    {
+        return stripped.to_string_lossy().to_string();
+    }
+    file.to_string()
 }
 
 #[cfg(test)]

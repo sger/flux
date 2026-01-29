@@ -113,6 +113,16 @@ fn builtin_push(args: Vec<Object>) -> Result<Object, String> {
     }
 }
 
+fn builtin_to_string(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=1",
+            args.len()
+        ));
+    }
+    Ok(Object::String(args[0].to_string_value()))
+}
+
 /// All built-in functions in order (index matters for OpGetBuiltin)
 pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
@@ -138,6 +148,10 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "push",
         func: builtin_push,
+    },
+    BuiltinFunction {
+        name: "to_string",
+        func: builtin_to_string,
     },
 ];
 

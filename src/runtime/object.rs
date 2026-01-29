@@ -77,6 +77,34 @@ impl Object {
             _ => None,
         }
     }
+
+    /// Convert any value to a string representation for interpolation.
+    /// Unlike Display, this doesn't add quotes around strings.
+    pub fn to_string_value(&self) -> String {
+        match self {
+            Object::Integer(v) => v.to_string(),
+            Object::Float(v) => v.to_string(),
+            Object::Boolean(v) => v.to_string(),
+            Object::String(v) => v.clone(),
+            Object::None => "None".to_string(),
+            Object::Some(v) => format!("Some({})", v.to_string_value()),
+            Object::ReturnValue(v) => v.to_string_value(),
+            Object::Function(_) => "<function>".to_string(),
+            Object::Closure(_) => "<closure>".to_string(),
+            Object::Builtin(_) => "<builtin>".to_string(),
+            Object::Array(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string_value()).collect();
+                format!("[{}]", items.join(", "))
+            }
+            Object::Hash(pairs) => {
+                let items: Vec<String> = pairs
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_string_value()))
+                    .collect();
+                format!("{{{}}}", items.join(", "))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

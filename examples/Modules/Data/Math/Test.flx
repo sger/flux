@@ -1,0 +1,5 @@
+module Modules.Data.Math.Test {
+  fun value() {
+    7;
+  }
+}

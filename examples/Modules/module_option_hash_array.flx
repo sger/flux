@@ -1,0 +1,37 @@
+import Modules.UserUtils
+import Modules.Main
+
+    fun main() {
+        let users = [UserUtils.make_user("Ana", 20), UserUtils.make_user("Bob", 15)];
+
+        let first_age = match users[0] {
+            Some(u) -> UserUtils.age_if_adult(u);
+            None -> None;
+            _ -> None;
+        };
+        let second_age = match users[1] {
+            Some(u) -> UserUtils.age_if_adult(u);
+            None -> None;
+            _ -> None;
+        };
+
+        let show = fun(opt) {
+            return match opt {
+                Some(v) -> v;
+                None -> 0;
+                _ -> 0;
+            };
+        };
+
+        print(show(first_age));
+        print(show(second_age));
+        return Some([first_age, second_age]);
+    }
+
+let result = Main.main();
+
+match result {
+  Some(ages) -> print(ages);
+  None -> print("no result");
+  _ -> None;
+};

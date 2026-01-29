@@ -1,0 +1,3 @@
+// Intended to trigger E011 (UNKNOWN INFIX OPERATOR).
+// If this is rejected by the parser, the error may be E105 instead.
+1 %% 2;

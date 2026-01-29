@@ -97,6 +97,39 @@ mod tests {
     }
 
     #[test]
+    fn string_interpolation_tokens_simple() {
+        let input = r#""Hello #{name}""#;
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            (TokenType::String, "Hello "),
+            (TokenType::Ident, "name"),
+            (TokenType::RBrace, "}"),
+            (TokenType::StringEnd, ""),
+            (TokenType::Eof, ""),
+        ];
+
+        for (expected_type, expected_literal) in expected {
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type);
+            assert_eq!(tok.literal, expected_literal);
+        }
+    }
+
+    #[test]
+    fn string_interpolation_escape_literal() {
+        let input = r#""Hello \#{name}""#;
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::String);
+        assert_eq!(tok.literal, "Hello #{name}");
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::Eof);
+    }
+
+    #[test]
     fn comments() {
         let input = r#"
 // This is a comment

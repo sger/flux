@@ -1,0 +1,7 @@
+import ModuleGraph.ModuleGraphC
+
+module ModuleGraph.ModuleGraphB {
+  fun value() {
+    ModuleGraph.ModuleGraphC.value();
+  }
+}

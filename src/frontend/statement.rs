@@ -1,54 +1,72 @@
 use std::fmt;
 
-use crate::frontend::{Identifier, block::Block, expression::Expression, position::Position};
+use crate::frontend::{
+    Identifier,
+    block::Block,
+    expression::Expression,
+    position::{Position, Span},
+};
 
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let {
         name: Identifier,
         value: Expression,
-        position: Position,
+        span: Span,
     },
     Return {
         value: Option<Expression>,
-        position: Position,
+        span: Span,
     },
     Expression {
         expression: Expression,
-        position: Position,
+        span: Span,
     },
     Function {
         name: Identifier,
         parameters: Vec<Identifier>,
         body: Block,
-        position: Position,
+        span: Span,
     },
     Assign {
         name: Identifier,
         value: Expression,
-        position: Position,
+        span: Span,
     },
     Module {
         name: Identifier,
         body: Block,
-        position: Position,
+        span: Span,
     },
     Import {
         name: Identifier,
-        position: Position,
+        alias: Option<Identifier>,
+        span: Span,
     },
 }
 
 impl Statement {
     pub fn position(&self) -> Position {
         match self {
-            Statement::Let { position, .. } => *position,
-            Statement::Return { position, .. } => *position,
-            Statement::Expression { position, .. } => *position,
-            Statement::Function { position, .. } => *position,
-            Statement::Assign { position, .. } => *position,
-            Statement::Module { position, .. } => *position,
-            Statement::Import { position, .. } => *position,
+            Statement::Let { span, .. } => span.start,
+            Statement::Return { span, .. } => span.start,
+            Statement::Expression { span, .. } => span.start,
+            Statement::Function { span, .. } => span.start,
+            Statement::Assign { span, .. } => span.start,
+            Statement::Module { span, .. } => span.start,
+            Statement::Import { span, .. } => span.start,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Statement::Let { span, .. } => *span,
+            Statement::Return { span, .. } => *span,
+            Statement::Expression { span, .. } => *span,
+            Statement::Function { span, .. } => *span,
+            Statement::Assign { span, .. } => *span,
+            Statement::Module { span, .. } => *span,
+            Statement::Import { span, .. } => *span,
         }
     }
 }
@@ -83,8 +101,21 @@ impl fmt::Display for Statement {
                 write!(f, "module {} {}", name, body)
             }
             Statement::Import { name, .. } => {
-                write!(f, "import {}", name)
+                if let Some(alias) = &self.get_import_alias() {
+                    write!(f, "import {} as {}", name, alias)
+                } else {
+                    write!(f, "import {}", name)
+                }
             }
+        }
+    }
+}
+
+impl Statement {
+    fn get_import_alias(&self) -> Option<&Identifier> {
+        match self {
+            Statement::Import { alias, .. } => alias.as_ref(),
+            _ => None,
         }
     }
 }

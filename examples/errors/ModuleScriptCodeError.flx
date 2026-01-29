@@ -1,0 +1,2 @@
+module Errors.ModuleScriptCodeError { fun value() { 1; } }
+1;
