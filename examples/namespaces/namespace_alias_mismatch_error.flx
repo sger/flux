@@ -1,0 +1,2 @@
+import Modules.Data.MyFile as MyFile
+Modules.Data.MyFile.value();

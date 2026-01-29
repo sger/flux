@@ -24,10 +24,10 @@ This document outlines the module graph design for Flux: how imports are modeled
 
 ## Qualified Access
 
-- Dotted module names are real namespaces; use the full name for access (e.g., `Data.List.value()`).
-- Imports may use aliases: `import Data.List as L` (aliases follow module naming rules).
+- Dotted module names are real namespaces; use the full name for access (e.g., `Modules.Data.List.value()`).
+- Imports may use aliases: `import Modules.Data.List as L` (aliases follow module naming rules).
 - Qualified access requires an explicit import in the same file.
-- Aliased imports replace the original qualifier (use `L.value()`, not `Data.List.value()`).
+- Aliased imports replace the original qualifier (use `L.value()`, not `Modules.Data.List.value()`).
 - Import resolution fails if the same module appears in multiple roots (duplicate module error).
 - Cyclic imports are a hard error detected at compile time.
 

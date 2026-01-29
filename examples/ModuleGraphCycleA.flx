@@ -1,7 +1,0 @@
-import ModuleGraphCycleB
-
-module ModuleGraphCycleA {
-  fun value() {
-    1;
-  }
-}

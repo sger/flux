@@ -1,0 +1,7 @@
+import ModuleGraph.ModuleGraphA
+import ModuleGraph.ModuleGraphB
+
+  fun main() {
+    ModuleGraph.ModuleGraphA.value();
+    ModuleGraph.ModuleGraphB.value();
+  }

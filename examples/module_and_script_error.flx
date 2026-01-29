@@ -1,7 +1,0 @@
-import Data.MyFile
-
-fun value() {
-  1;
-}
-
-Data.MyFile.value();

@@ -7,7 +7,7 @@ use crate::{
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
-        debug_info::{FunctionDebugInfo, SourceLocation},
+        debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
@@ -279,20 +279,29 @@ impl Compiler {
         self.scopes[self.scope_index]
             .instructions
             .extend_from_slice(instruction);
-        self.add_locations(instruction.len(), span);
+        self.add_location(pos, span);
         pos
     }
 
-    fn add_locations(&mut self, len: usize, span: Option<Span>) {
-        let location = span.map(|span| SourceLocation {
-            file: self.file_path.clone(),
-            span,
-        });
-        for _ in 0..len {
-            self.scopes[self.scope_index]
-                .locations
-                .push(location.clone());
+    fn add_location(&mut self, offset: usize, span: Option<Span>) {
+        let file_id = self.file_id_for_current();
+        let location = span.map(|span| Location { file_id, span });
+        self.scopes[self.scope_index]
+            .locations
+            .push(InstructionLocation { offset, location });
+    }
+
+    fn file_id_for_current(&mut self) -> u32 {
+        let files = &mut self.scopes[self.scope_index].files;
+        if let Some((index, _)) = files
+            .iter()
+            .enumerate()
+            .find(|(_, file)| file.as_str() == self.file_path)
+        {
+            return index as u32;
         }
+        files.push(self.file_path.clone());
+        (files.len() - 1) as u32
     }
 
     fn set_last_instruction(&mut self, op_code: OpCode, pos: usize) {
@@ -614,7 +623,7 @@ impl Compiler {
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         let num_locals = self.symbol_table.num_definitions;
-        let (instructions, locations) = self.leave_scope();
+        let (instructions, locations, files) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -624,7 +633,7 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
-            Some(FunctionDebugInfo::new(None, locations)),
+            Some(FunctionDebugInfo::new(None, files, locations)),
         ))));
 
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
@@ -942,7 +951,7 @@ impl Compiler {
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         let num_locals = self.symbol_table.num_definitions;
-        let (instructions, locations) = self.leave_scope();
+        let (instructions, locations, files) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -952,7 +961,7 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
-            Some(FunctionDebugInfo::new(Some(name.to_string()), locations)),
+            Some(FunctionDebugInfo::new(Some(name.to_string()), files, locations)),
         ))));
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
 
@@ -1065,14 +1074,20 @@ impl Compiler {
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
     }
 
-    fn leave_scope(&mut self) -> (Instructions, Vec<Option<SourceLocation>>) {
+    fn leave_scope(
+        &mut self,
+    ) -> (
+        Instructions,
+        Vec<InstructionLocation>,
+        Vec<String>,
+    ) {
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {
             self.symbol_table = *outer;
         }
 
-        (scope.instructions, scope.locations)
+        (scope.instructions, scope.locations, scope.files)
     }
 
     fn enter_block_scope(&mut self) {
@@ -1096,6 +1111,7 @@ impl Compiler {
             constants: self.constants.clone(),
             debug_info: Some(FunctionDebugInfo::new(
                 Some("<main>".to_string()),
+                self.scopes[self.scope_index].files.clone(),
                 self.scopes[self.scope_index].locations.clone(),
             )),
         }
@@ -1118,7 +1134,13 @@ impl Compiler {
         self.scopes[self.scope_index]
             .instructions
             .truncate(last_pos);
-        self.scopes[self.scope_index].locations.truncate(last_pos);
+        while let Some(last) = self.scopes[self.scope_index].locations.last() {
+            if last.offset >= last_pos {
+                self.scopes[self.scope_index].locations.pop();
+            } else {
+                break;
+            }
+        }
         self.scopes[self.scope_index].last_instruction = previous;
     }
 

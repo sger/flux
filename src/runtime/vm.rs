@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::{
     bytecode::{
         bytecode::Bytecode,
-        op_code::{OpCode, read_u8, read_u16},
+        op_code::{operand_widths, OpCode, read_u8, read_u16},
     },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
@@ -21,6 +21,7 @@ pub struct VM {
     pub globals: Vec<Object>,
     frames: Vec<Frame>,
     frame_index: usize,
+    trace: bool,
 }
 
 impl VM {
@@ -41,7 +42,12 @@ impl VM {
             globals: vec![Object::None; GLOBALS_SIZE],
             frames: vec![main_frame],
             frame_index: 0,
+            trace: false,
         }
+    }
+
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.trace = enabled;
     }
 
     pub fn run(&mut self) -> Result<(), String> {
@@ -55,6 +61,9 @@ impl VM {
         while self.current_frame().ip < self.current_frame().instructions().len() {
             let ip = self.current_frame().ip;
             let op = OpCode::from(self.current_frame().instructions()[ip]);
+            if self.trace {
+                self.trace_instruction(ip, op);
+            }
 
             match op {
                 OpCode::OpCurrentClosure => {
@@ -217,7 +226,7 @@ impl VM {
         let mut out = String::new();
         out.push_str(message);
 
-        if self.frame_index == 0 && self.frames.is_empty() {
+        if self.frames.is_empty() {
             return out;
         }
 
@@ -241,16 +250,62 @@ impl VM {
             .and_then(|info| info.name.clone())
             .unwrap_or_else(|| "<anonymous>".to_string());
         let location = debug_info
-            .and_then(|info| info.location_at(frame.ip))
-            .map(|loc| {
-                format!(
-                    "{}:{}:{}",
-                    render_display_path(&loc.file),
-                    loc.span.start.line,
-                    loc.span.start.column
-                )
-            });
+            .and_then(|info| info.location_at(frame.ip).and_then(|loc| {
+                info.file_for(loc.file_id).map(|file| {
+                    format!(
+                        "{}:{}:{}",
+                        render_display_path(file),
+                        loc.span.start.line,
+                        loc.span.start.column
+                    )
+                })
+            }));
         (name, location)
+    }
+
+    fn trace_instruction(&self, ip: usize, op: OpCode) {
+        let instructions = self.current_frame().instructions();
+        let widths = operand_widths(op);
+        let mut operands = Vec::new();
+        let mut offset = ip + 1;
+        for width in widths {
+            match width {
+                1 => {
+                    operands.push(read_u8(instructions, offset) as usize);
+                    offset += 1;
+                }
+                2 => {
+                    operands.push(read_u16(instructions, offset) as usize);
+                    offset += 2;
+                }
+                _ => {}
+            }
+        }
+        let operand_str = if operands.is_empty() {
+            "".to_string()
+        } else {
+            format!(" {}", operands.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(" "))
+        };
+        println!("IP={:04} {}{}", ip, op, operand_str);
+        self.trace_stack();
+        self.trace_locals();
+    }
+
+    fn trace_stack(&self) {
+        let items: Vec<String> = self.stack[..self.sp].iter().map(|obj| obj.to_string()).collect();
+        println!("  stack: [{}]", items.join(", "));
+    }
+
+    fn trace_locals(&self) {
+        let frame = self.current_frame();
+        let bp = frame.base_pointer;
+        let locals = frame.closure.function.num_locals;
+        if locals == 0 {
+            return;
+        }
+        let end = (bp + locals).min(self.stack.len());
+        let items: Vec<String> = self.stack[bp..end].iter().map(|obj| obj.to_string()).collect();
+        println!("  locals: [{}]", items.join(", "));
     }
 
     fn build_array(&self, start: usize, end: usize) -> Object {

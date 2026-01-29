@@ -1,3 +1,0 @@
-import Data.MyFile as MyAlias
-
-MyAlias.value();

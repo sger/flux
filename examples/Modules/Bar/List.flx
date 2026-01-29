@@ -1,0 +1,5 @@
+module Modules.Bar.List {
+  fun value() {
+    20;
+  }
+}

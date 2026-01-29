@@ -7,16 +7,17 @@ A small, functional language with a custom bytecode VM.
 - **Functions**: `fun` declarations, closures, higher-order functions
 - **Immutability**: `let` bindings are immutable; reassignment is rejected
 - **Scoping**: lexical scoping, closures, and free variables
-- **Modules**: static, qualified namespaces (`module Name { ... }`), public by default, `_private` hidden
-- **Imports**: top-level only, explicit qualified access, aliases supported (Haskell-style), collisions are errors, cycles rejected
-- **Data types**: integers, floats, booleans, strings, null
+- **Modules**: static, qualified namespaces (`module Name { ... }`), public by default, `_private` hidden; module names must start uppercase
+- **Imports**: top-level only, explicit qualified access, aliases supported (Haskell-style); collisions are errors; cycles rejected
+- **Data types**: integers, floats, booleans, strings, `None`/`Some`
 - **Collections**: arrays and hash maps, indexing with `[]`
 - **Control flow**: `if` / `else`, `return`
 - **Builtins**: `print`, `len`, `first`, `last`, `rest`, `push`
-- **Diagnostics**: human-friendly errors with codes, file/line/column, caret highlighting, and actionable hints
+- **Diagnostics**: errors with codes, file/line/column, caret highlighting; multi-line spans supported
+- **VM trace**: `--trace` instruction/stack/locals logging
 - **Linter**: unused vars/params/imports, shadowing, naming style
 - **Formatter**: `flux fmt` (indentation-only, preserves comments)
-- **Bytecode cache**: `.fxc` cache with dependency hashing and inspection tools
+- **Bytecode cache**: `.fxc` cache with dependency hashing and inspection tools (debug info included)
 
 ## Running Flux
 
@@ -30,22 +31,22 @@ cargo run -- --verbose run path/to/file.flx
 Flux uses static, qualified modules (Haskell-style). Imports are required for qualified access.
 
 ```flux
-// examples/Data/MyFile.flx
-module Data.MyFile {
+// examples/Modules/Data/MyFile.flx
+module Modules.Data.MyFile {
   fun value() { 42; }
 }
 
-// examples/Main.flx
-import Data.MyFile
-print(Data.MyFile.value());
+// examples/Modules/Main.flx
+import Modules.Data.MyFile
+print(Modules.Data.MyFile.value());
 ```
 
 Aliases replace the original qualifier:
 
 ```flux
-import Data.MyFile as MyFile
+import Modules.Data.MyFile as MyFile
 print(MyFile.value());
-// Data.MyFile.value(); // error: module not imported
+// Modules.Data.MyFile.value(); // error: module not imported
 ```
 
 Cycles are rejected at compile time (E035).
@@ -56,8 +57,8 @@ By default, Flux searches the entry file directory and `./src` as module roots.
 Use `--root` to add roots, or `--roots-only` to make them exclusive.
 
 ```
-cargo run -- --root examples/root_a --root examples/root_b examples/duplicate_root_import_error.flx
-cargo run -- --roots-only --root examples/root_a --root examples/root_b examples/duplicate_root_import_error.flx
+cargo run -- --root examples/roots/root_a --root examples/roots/root_b examples/roots/duplicate_root_import_error.flx
+cargo run -- --roots-only --root examples/roots/root_a --root examples/roots/root_b examples/roots/duplicate_root_import_error.flx
 ```
 
 ## Tooling
@@ -72,10 +73,32 @@ cargo run -- cache-info path/to/file.flx
 cargo run -- cache-info-file path/to/file.fxc
 ```
 
+## Running Examples
+
+Use the helper script to run any example with the right module roots:
+
+```
+scripts/run_examples.sh basics/print.flx
+scripts/run_examples.sh ModuleGraph/ --no-cache
+scripts/run_examples.sh ModuleGraph/module_graph_main.flx --no-cache --trace
+```
+
+Run with no args to see usage + the example list:
+
+```
+scripts/run_examples.sh
+```
+
+Run all examples (passes extra flags to each run):
+
+```
+scripts/run_examples.sh --all --no-cache
+```
+
 ## Basic Examples
 
 ```flux
-// 01_print.flx
+// basics/print.flx
 print("hello world");
 print(42);
 print(true);
@@ -83,7 +106,7 @@ print(false);
 ```
 
 ```flux
-// 02_arithmetic.flx
+// basics/arithmetic.flx
 print(1 + 2);
 print(10 - 3);
 print(4 * 5);
@@ -92,7 +115,7 @@ print(2 + 3 * 4);
 ```
 
 ```flux
-// 03_prefix.flx
+// basics/prefix.flx
 print(-5);
 print(-10);
 print(-(-5));
@@ -102,7 +125,7 @@ print(!!true);
 ```
 
 ```flux
-// 04_comparison.flx
+// basics/comparison.flx
 print(1 < 2);
 print(2 < 1);
 print(2 > 1);
@@ -114,7 +137,7 @@ print(1 != 1);
 ```
 
 ```flux
-// 05_variables.flx
+// basics/variables.flx
 let x = 5;
 print(x);
 let y = 10;
@@ -127,7 +150,7 @@ print(flag);
 ```
 
 ```flux
-// 06_complex_expr.flx
+// basics/complex_expr.flx
 let a = 5;
 let b = 10;
 let c = 2;
@@ -141,7 +164,7 @@ print(result);
 ```
 
 ```flux
-// 07_strings.flx
+// basics/strings.flx
 let greeting = "hello";
 let target = " world";
 print(greeting + target);
@@ -152,7 +175,7 @@ print("a" + "b" + "c");
 ```
 
 ```flux
-// 08_if_else.flx
+// basics/if_else.flx
 if true {
     print("yes");
 };
@@ -179,7 +202,7 @@ print(max);
 ```
 
 ```flux
-// 09_arrays_basic.flx
+// basics/arrays_basic.flx
 let arr = [1, 2, 3];
 print(arr);
 let empty = [];
@@ -193,7 +216,7 @@ print(mixed[2]);
 ```
 
 ```flux
-// 10_array_builtins.flx
+// basics/array_builtins.flx
 let arr = [1, 2, 3, 4, 5];
 print(len(arr));
 print(len([]));
@@ -207,7 +230,7 @@ print(rest([]));
 ```
 
 ```flux
-// 11_hash_basic.flx
+// basics/hash_basic.flx
 let h = {"a": 1, "b": 2, "c": 3};
 print(h["a"]);
 print(h["b"]);
@@ -218,7 +241,7 @@ print(nums[2]);
 ```
 
 ```flux
-// 12_fibonacci.flx
+// basics/fibonacci.flx
 fun fib(n) {
     if n < 2 {
         n;
@@ -237,7 +260,7 @@ print(fib(10));
 ```
 
 ```flux
-// 13_array_hash_combo.flx
+// basics/array_hash_combo.flx
 let users = [
     {"name": "Alice", "age": 25},
     {"name": "Bob", "age": 30}
@@ -256,7 +279,7 @@ print(skills["count"]);
 ```
 
 ```flux
-// 14_array_iteration.flx
+// basics/array_iteration.flx
 fun printAll(arr) {
     if len(arr) == 0 {
         print("done");
@@ -288,22 +311,22 @@ print(count([10, 20, 30]));
 
 ```flux
 // Qualified access without an import.
-print(Data.MyFile.value()); // MODULE NOT IMPORTED
+print(Modules.Data.MyFile.value()); // MODULE NOT IMPORTED
 ```
 
 ```flux
 // Alias replaces the original qualifier.
-import Data.MyFile as MyFile
-Data.MyFile.value(); // MODULE NOT IMPORTED
+import Modules.Data.MyFile as MyFile
+Modules.Data.MyFile.value(); // MODULE NOT IMPORTED
 ```
 
 ```flux
 // Import cycle across module files.
-import ModuleGraphCycleA
-ModuleGraphCycleA.value(); // IMPORT CYCLE (E035)
+import ModuleGraph.ModuleGraphCycleA
+ModuleGraph.ModuleGraphCycleA.value(); // IMPORT CYCLE (E035)
 ```
 
-More error-triggering examples live under `examples/errors/`.
+More error-triggering examples live under `examples/Errors/`.
 
 ## Cache
 

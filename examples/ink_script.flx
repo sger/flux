@@ -1,3 +1,0 @@
-import Amber.Ink
-
-print(Amber.Ink.greet_twice("Flux"));

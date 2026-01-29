@@ -1,5 +1,0 @@
-import Math;
-
-  fun main() {
-    print(Math.square(5));
-  }

@@ -1,11 +1,13 @@
 use crate::bytecode::{
-    debug_info::SourceLocation, emitted_instruction::EmittedInstruction, op_code::Instructions,
+    debug_info::InstructionLocation, emitted_instruction::EmittedInstruction,
+    op_code::Instructions,
 };
 
 #[derive(Debug, Clone)]
 pub struct CompilationScope {
     pub instructions: Instructions,
-    pub locations: Vec<Option<SourceLocation>>,
+    pub files: Vec<String>,
+    pub locations: Vec<InstructionLocation>,
     pub last_instruction: EmittedInstruction,
     pub previous_instruction: EmittedInstruction,
 }
@@ -14,6 +16,7 @@ impl CompilationScope {
     pub fn new() -> Self {
         Self {
             instructions: Instructions::new(),
+            files: Vec::new(),
             locations: Vec::new(),
             last_instruction: EmittedInstruction::default(),
             previous_instruction: EmittedInstruction::default(),
