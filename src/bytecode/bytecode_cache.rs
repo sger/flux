@@ -7,12 +7,17 @@ use std::{
 use sha2::{Digest, Sha256};
 
 use crate::{
-    bytecode::bytecode::Bytecode, runtime::compiled_function::CompiledFunction,
+    bytecode::{
+        bytecode::Bytecode,
+        debug_info::{FunctionDebugInfo, SourceLocation},
+    },
+    frontend::position::{Position, Span},
+    runtime::compiled_function::CompiledFunction,
     runtime::object::Object,
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = 1;
+const FORMAT_VERSION: u16 = 2;
 
 pub struct BytecodeCache {
     dir: PathBuf,
@@ -83,10 +88,12 @@ impl BytecodeCache {
         let instructions_len = read_u32(&mut file)? as usize;
         let mut instructions = vec![0u8; instructions_len];
         file.read_exact(&mut instructions).ok()?;
+        let debug_info = read_function_debug_info(&mut file);
 
         Some(Bytecode {
             instructions,
             constants,
+            debug_info,
         })
     }
 
@@ -105,6 +112,9 @@ impl BytecodeCache {
         }
 
         let version = read_u16(&mut file)?;
+        if version != FORMAT_VERSION {
+            return None;
+        }
         let compiler_version = read_string(&mut file)?;
 
         let mut cached_source_hash = [0u8; 32];
@@ -150,7 +160,10 @@ impl BytecodeCache {
             return None;
         }
 
-        let _version = read_u16(&mut file)?;
+        let version = read_u16(&mut file)?;
+        if version != FORMAT_VERSION {
+            return None;
+        }
         let _compiler_version = read_string(&mut file)?;
 
         let mut _source_hash = [0u8; 32];
@@ -173,9 +186,12 @@ impl BytecodeCache {
         let mut instructions = vec![0u8; instructions_len];
         file.read_exact(&mut instructions).ok()?;
 
+        let debug_info = read_function_debug_info(&mut file);
+
         Some(Bytecode {
             instructions,
             constants,
+            debug_info,
         })
     }
 
@@ -209,6 +225,7 @@ impl BytecodeCache {
 
         write_u32(&mut file, bytecode.instructions.len() as u32)?;
         file.write_all(&bytecode.instructions)?;
+        write_function_debug_info(&mut file, bytecode.debug_info.as_ref())?;
 
         Ok(())
     }
@@ -327,7 +344,8 @@ fn write_object(writer: &mut File, obj: &Object) -> std::io::Result<()> {
             write_u16(writer, func.num_locals as u16)?;
             write_u16(writer, func.num_parameters as u16)?;
             write_u32(writer, func.instructions.len() as u32)?;
-            writer.write_all(&func.instructions)
+            writer.write_all(&func.instructions)?;
+            write_function_debug_info(writer, func.debug_info.as_ref())
         }
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -349,12 +367,102 @@ fn read_object(reader: &mut File) -> Option<Object> {
             let instructions_len = read_u32(reader)? as usize;
             let mut instructions = vec![0u8; instructions_len];
             reader.read_exact(&mut instructions).ok()?;
+            let debug_info = read_function_debug_info(reader);
             Some(Object::Function(std::rc::Rc::new(CompiledFunction::new(
                 instructions,
                 num_locals,
                 num_parameters,
+                debug_info,
             ))))
         }
         _ => None,
     }
+}
+
+fn write_function_debug_info(
+    writer: &mut File,
+    debug_info: Option<&FunctionDebugInfo>,
+) -> std::io::Result<()> {
+    match debug_info {
+        None => writer.write_all(&[0]),
+        Some(info) => {
+            writer.write_all(&[1])?;
+            match &info.name {
+                None => writer.write_all(&[0])?,
+                Some(name) => {
+                    writer.write_all(&[1])?;
+                    write_string(writer, name)?;
+                }
+            }
+            write_u32(writer, info.locations.len() as u32)?;
+            for location in &info.locations {
+                match location {
+                    None => writer.write_all(&[0])?,
+                    Some(location) => {
+                        writer.write_all(&[1])?;
+                        write_string(writer, &location.file)?;
+                        write_span(writer, &location.span)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebugInfo> {
+    let mut flag = [0u8; 1];
+    reader.read_exact(&mut flag).ok()?;
+    if flag[0] == 0 {
+        return None;
+    }
+
+    let mut name_flag = [0u8; 1];
+    reader.read_exact(&mut name_flag).ok()?;
+    let name = if name_flag[0] == 0 {
+        None
+    } else {
+        Some(read_string(reader)?)
+    };
+
+    let locations_len = read_u32(reader)? as usize;
+    let mut locations = Vec::with_capacity(locations_len);
+    for _ in 0..locations_len {
+        let mut loc_flag = [0u8; 1];
+        reader.read_exact(&mut loc_flag).ok()?;
+        if loc_flag[0] == 0 {
+            locations.push(None);
+            continue;
+        }
+        let file = read_string(reader)?;
+        let span = read_span(reader)?;
+        locations.push(Some(SourceLocation { file, span }));
+    }
+
+    Some(FunctionDebugInfo::new(name, locations))
+}
+
+fn write_position(writer: &mut File, position: &Position) -> std::io::Result<()> {
+    write_u32(writer, position.line as u32)?;
+    write_u32(writer, position.column as u32)?;
+    Ok(())
+}
+
+fn read_position(reader: &mut File) -> Option<Position> {
+    Some(Position::new(
+        read_u32(reader)? as usize,
+        read_u32(reader)? as usize,
+    ))
+}
+
+fn write_span(writer: &mut File, span: &Span) -> std::io::Result<()> {
+    write_position(writer, &span.start)?;
+    write_position(writer, &span.end)?;
+    Ok(())
+}
+
+fn read_span(reader: &mut File) -> Option<Span> {
+    let start = read_position(reader)?;
+    let end = read_position(reader)?;
+    Some(Span::new(start, end))
 }

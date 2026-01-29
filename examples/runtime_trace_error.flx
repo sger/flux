@@ -1,0 +1,6 @@
+// Triggers a runtime error to exercise stack traces.
+fun boom() {
+  1 + None;
+}
+
+boom();

@@ -96,7 +96,12 @@ impl Diagnostic {
         let yellow = "\u{1b}[33m";
         let red = "\u{1b}[31m";
         let reset = "\u{1b}[0m";
-        let file = self.file.as_deref().or(default_file).unwrap_or("<unknown>");
+        let file = self
+            .file
+            .as_deref()
+            .or(default_file)
+            .map(render_display_path)
+            .unwrap_or_else(|| "<unknown>".to_string());
         let code = self.code.as_deref().unwrap_or("E000");
 
         if use_color {
@@ -194,4 +199,16 @@ fn get_source_line(source: &str, line: usize) -> Option<&str> {
     }
 
     source.lines().nth(line.saturating_sub(1))
+}
+
+fn render_display_path(file: &str) -> String {
+    let path = std::path::Path::new(file);
+    if path.is_absolute() {
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Ok(stripped) = path.strip_prefix(&cwd) {
+                return stripped.to_string_lossy().to_string();
+            }
+        }
+    }
+    file.to_string()
 }

@@ -61,6 +61,24 @@ struct Instruction {
 }
 ```
 
+Minimal design (first pass):
+- Store debug info per compiled function, keyed by bytecode offset (ip).
+- Each instruction byte maps to an optional `SourceLocation { file, span }`.
+- The VM uses `ip` to recover `file:line:col` for stack traces and runtime errors.
+
+Data model sketch:
+```
+struct SourceLocation {
+    file: String,
+    span: Span, // start/end Position
+}
+
+struct FunctionDebugInfo {
+    name: Option<String>,
+    locations: Vec<Option<SourceLocation>>, // len == instructions.len()
+}
+```
+
 Then at runtime:
 
 ```
