@@ -226,7 +226,9 @@ fn resolve_imports(
             continue;
         }
 
-        if let Some(alias) = &alias && !is_valid_module_alias(alias) {
+        if let Some(alias) = &alias
+            && !is_valid_module_alias(alias)
+        {
             diagnostics.push(
                 error_codes::diag(&error_codes::INVALID_MODULE_ALIAS)
                     .with_position(position)

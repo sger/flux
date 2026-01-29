@@ -1076,11 +1076,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_import_statement(
-        &mut self,
-        name: &str,
-        alias: Option<&str>,
-    ) -> CompileResult<()> {
+    fn compile_import_statement(&mut self, name: &str, alias: Option<&str>) -> CompileResult<()> {
         if let Some(alias) = alias {
             self.import_aliases
                 .insert(alias.to_string(), name.to_string());
@@ -1108,8 +1104,8 @@ impl Compiler {
             return Ok(());
         }
 
-        let same_module = module_name
-            .is_some_and(|name| self.current_module_prefix.as_deref() == Some(name));
+        let same_module =
+            module_name.is_some_and(|name| self.current_module_prefix.as_deref() == Some(name));
         if same_module {
             return Ok(());
         }
