@@ -1,6 +1,5 @@
 use crate::bytecode::{
-    debug_info::InstructionLocation, emitted_instruction::EmittedInstruction,
-    op_code::Instructions,
+    debug_info::InstructionLocation, emitted_instruction::EmittedInstruction, op_code::Instructions,
 };
 
 #[derive(Debug, Clone)]

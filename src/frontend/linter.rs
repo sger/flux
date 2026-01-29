@@ -94,11 +94,7 @@ impl Linter {
                 }
                 self.finish_scope();
             }
-            Statement::Module {
-                name,
-                body,
-                span,
-            } => {
+            Statement::Module { name, body, span } => {
                 let binding = module_binding_name(name);
                 self.define_binding(binding, span.start, BindingKind::Function);
                 self.enter_scope();
@@ -107,11 +103,7 @@ impl Linter {
                 }
                 self.finish_scope();
             }
-            Statement::Import {
-                name,
-                alias,
-                span,
-            } => {
+            Statement::Import { name, alias, span } => {
                 if !is_valid_module_name(name) {
                     self.push_warning(
                         "IMPORT NAME STYLE",

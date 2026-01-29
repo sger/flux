@@ -7,10 +7,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     frontend::{
-        diagnostic::Diagnostic,
-        lexer::Lexer,
-        module_graph::ModuleGraph,
-        parser::Parser,
+        diagnostic::Diagnostic, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
         program::Program,
     },
 };
@@ -37,7 +34,11 @@ fn parse_program(source: &str) -> Program {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     program
 }
 
@@ -90,10 +91,7 @@ fn importing_script_is_error() {
 fn module_path_mismatch_is_error() {
     let root = temp_root("path_mismatch");
     let module_path = root.join("Data").join("List.flx");
-    write_file(
-        &module_path,
-        "module Data.Other { fun value() { 1; } }",
-    );
+    write_file(&module_path, "module Data.Other { fun value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.List\n1;";
@@ -109,10 +107,7 @@ fn module_path_mismatch_is_error() {
 fn module_file_with_script_code_is_error() {
     let root = temp_root("module_script");
     let module_path = root.join("Mixed.flx");
-    write_file(
-        &module_path,
-        "module Mixed { fun value() { 1; } }\n1;",
-    );
+    write_file(&module_path, "module Mixed { fun value() { 1; } }\n1;");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Mixed\n1;";
@@ -128,18 +123,14 @@ fn module_file_with_script_code_is_error() {
 fn alias_import_compiles() {
     let root = temp_root("alias_import");
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(
-        &module_path,
-        "module Data.MyFile { fun value() { 1; } }",
-    );
+    write_file(&module_path, "module Data.MyFile { fun value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
     write_file(&entry_path, entry_source);
     let program = parse_program(entry_source);
 
-    compile_with_graph(&entry_path, &program, &[root])
-        .expect("expected alias import to compile");
+    compile_with_graph(&entry_path, &program, &[root]).expect("expected alias import to compile");
 }
 
 #[test]
@@ -171,14 +162,8 @@ fn import_cycle_is_error() {
     let root = temp_root("import_cycle");
     let module_a = root.join("A.flx");
     let module_b = root.join("B.flx");
-    write_file(
-        &module_a,
-        "import B\nmodule A { fun value() { 1; } }",
-    );
-    write_file(
-        &module_b,
-        "import A\nmodule B { fun value() { 2; } }",
-    );
+    write_file(&module_a, "import B\nmodule A { fun value() { 1; } }");
+    write_file(&module_b, "import A\nmodule B { fun value() { 2; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import A\nA.value();";

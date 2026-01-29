@@ -1,8 +1,4 @@
-use flux::frontend::{
-    lexer::Lexer,
-    parser::Parser,
-    position::Position,
-};
+use flux::frontend::{lexer::Lexer, parser::Parser, position::Position};
 
 #[test]
 fn span_covers_simple_infix() {
@@ -10,7 +6,11 @@ fn span_covers_simple_infix() {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
     let stmt = program.statements.first().expect("missing statement");
     let span = stmt.span();
     assert_eq!(span.start, Position::new(1, 1));

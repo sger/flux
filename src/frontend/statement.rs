@@ -1,6 +1,11 @@
 use std::fmt;
 
-use crate::frontend::{Identifier, block::Block, expression::Expression, position::{Position, Span}};
+use crate::frontend::{
+    Identifier,
+    block::Block,
+    expression::Expression,
+    position::{Position, Span},
+};
 
 #[derive(Debug, Clone)]
 pub enum Statement {

@@ -33,8 +33,14 @@ impl FunctionDebugInfo {
     }
 
     pub fn location_at(&self, ip: usize) -> Option<&Location> {
-        match self.locations.binary_search_by_key(&ip, |entry| entry.offset) {
-            Ok(index) => self.locations.get(index).and_then(|entry| entry.location.as_ref()),
+        match self
+            .locations
+            .binary_search_by_key(&ip, |entry| entry.offset)
+        {
+            Ok(index) => self
+                .locations
+                .get(index)
+                .and_then(|entry| entry.location.as_ref()),
             Err(index) => index
                 .checked_sub(1)
                 .and_then(|prev| self.locations.get(prev))
