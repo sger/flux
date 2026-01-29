@@ -22,6 +22,7 @@ fn main() {
     let verbose = args.iter().any(|arg| arg == "--verbose");
     let leak_detector = args.iter().any(|arg| arg == "--leak-detector");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
+    let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -31,6 +32,9 @@ fn main() {
     }
     if no_cache {
         args.retain(|arg| arg != "--no-cache");
+    }
+    if roots_only {
+        args.retain(|arg| arg != "--roots-only");
     }
     if !extract_roots(&mut args, &mut roots) {
         return;
@@ -42,7 +46,7 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(&args[1], verbose, leak_detector, no_cache, &roots);
+        run_file(&args[1], verbose, leak_detector, no_cache, roots_only, &roots);
         return;
     }
 
@@ -60,7 +64,7 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(&args[2], verbose, leak_detector, no_cache, &roots)
+            run_file(&args[2], verbose, leak_detector, no_cache, roots_only, &roots)
         }
         "tokens" => {
             if args.len() < 3 {
@@ -140,6 +144,7 @@ Flags:
   --leak-detector  Print approximate allocation stats after run
   --no-cache  Disable bytecode cache for this run
   --root <path>  Add a module root (can be repeated)
+  --roots-only  Use only explicitly provided --root values
   -h, --help  Show this help message
 "
     );
@@ -150,13 +155,14 @@ fn run_file(
     verbose: bool,
     leak_detector: bool,
     no_cache: bool,
+    roots_only: bool,
     extra_roots: &[std::path::PathBuf],
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let source_hash = hash_bytes(source.as_bytes());
             let entry_path = Path::new(path);
-            let roots = collect_roots(entry_path, extra_roots);
+            let roots = collect_roots(entry_path, extra_roots, roots_only);
             let roots_hash = roots_cache_hash(&roots);
             let cache_key = hash_cache_key(&source_hash, &roots_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
@@ -194,7 +200,7 @@ fn run_file(
             }
 
             let entry_path = Path::new(path);
-            let roots = collect_roots(entry_path, extra_roots);
+            let roots = collect_roots(entry_path, extra_roots, roots_only);
 
             let graph =
                 match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
@@ -302,14 +308,16 @@ fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) ->
     true
 }
 
-fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf]) -> Vec<PathBuf> {
+fn collect_roots(entry_path: &Path, extra_roots: &[PathBuf], roots_only: bool) -> Vec<PathBuf> {
     let mut roots = extra_roots.to_vec();
-    if let Some(parent) = entry_path.parent() {
-        roots.push(parent.to_path_buf());
-    }
-    let project_src = Path::new("src");
-    if project_src.exists() {
-        roots.push(project_src.to_path_buf());
+    if !roots_only {
+        if let Some(parent) = entry_path.parent() {
+            roots.push(parent.to_path_buf());
+        }
+        let project_src = Path::new("src");
+        if project_src.exists() {
+            roots.push(project_src.to_path_buf());
+        }
     }
     roots
 }
@@ -449,7 +457,7 @@ fn show_cache_info(path: &str, extra_roots: &[PathBuf]) {
     };
     let source_hash = hash_bytes(source.as_bytes());
     let entry_path = Path::new(path);
-    let roots = collect_roots(entry_path, extra_roots);
+    let roots = collect_roots(entry_path, extra_roots, false);
     let roots_hash = roots_cache_hash(&roots);
     let cache_key = hash_cache_key(&source_hash, &roots_hash);
     let info = cache.inspect(Path::new(path), &cache_key);
