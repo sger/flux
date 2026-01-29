@@ -7,6 +7,7 @@ use crate::{
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
+        debug_info::{FunctionDebugInfo, SourceLocation},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
@@ -18,7 +19,7 @@ use crate::{
         diagnostic::Diagnostic,
         expression::{Expression, MatchArm, Pattern},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
-        position::Position,
+        position::{Position, Span},
         program::Program,
         statement::Statement,
     },
@@ -39,6 +40,7 @@ pub struct Compiler {
     imported_modules: HashSet<String>,
     import_aliases: HashMap<String, String>,
     current_module_prefix: Option<String>,
+    current_span: Option<Span>,
 }
 
 impl Compiler {
@@ -67,6 +69,7 @@ impl Compiler {
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
             current_module_prefix: None,
+            current_span: None,
         }
     }
 
@@ -85,6 +88,7 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.current_module_prefix = None;
+        self.current_span = None;
     }
 
     fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -113,7 +117,10 @@ impl Compiler {
     }
 
     fn compile_statement(&mut self, statement: &Statement) -> CompileResult<()> {
-        match statement {
+        let previous_span = self.current_span;
+        self.current_span = Some(statement.span());
+        let result = (|| {
+            match statement {
             Statement::Expression { expression, .. } => {
                 self.compile_expression(expression)?;
                 self.emit(OpCode::OpPop, &[]);
@@ -253,24 +260,39 @@ impl Compiler {
                 self.file_scope_symbols.insert(binding_name.to_string());
                 self.compile_import_statement(name, alias.as_deref(), position)?;
             }
-        }
-
-        Ok(())
+            }
+            Ok(())
+        })();
+        self.current_span = previous_span;
+        result
     }
 
     fn emit(&mut self, op_code: OpCode, operands: &[usize]) -> usize {
         let instruction = make(op_code, operands);
-        let pos = self.add_instruction(&instruction);
+        let pos = self.add_instruction(&instruction, self.current_span);
         self.set_last_instruction(op_code, pos);
         pos
     }
 
-    fn add_instruction(&mut self, instruction: &[u8]) -> usize {
+    fn add_instruction(&mut self, instruction: &[u8], span: Option<Span>) -> usize {
         let pos = self.scopes[self.scope_index].instructions.len();
         self.scopes[self.scope_index]
             .instructions
             .extend_from_slice(instruction);
+        self.add_locations(instruction.len(), span);
         pos
+    }
+
+    fn add_locations(&mut self, len: usize, span: Option<Span>) {
+        let location = span.map(|span| SourceLocation {
+            file: self.file_path.clone(),
+            span,
+        });
+        for _ in 0..len {
+            self.scopes[self.scope_index]
+                .locations
+                .push(location.clone());
+        }
     }
 
     fn set_last_instruction(&mut self, op_code: OpCode, pos: usize) {
@@ -283,6 +305,8 @@ impl Compiler {
     }
 
     fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
+        let previous_span = self.current_span;
+        self.current_span = Some(expression.span());
         match expression {
             Expression::Integer { value, .. } => {
                 let idx = self.add_constant(Object::Integer(*value));
@@ -526,6 +550,7 @@ impl Compiler {
                 self.compile_match_expression(scrutinee, arms)?;
             }
         }
+        self.current_span = previous_span;
         Ok(())
     }
 
@@ -589,7 +614,7 @@ impl Compiler {
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         let num_locals = self.symbol_table.num_definitions;
-        let instructions = self.leave_scope();
+        let (instructions, locations) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -599,6 +624,7 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
+            Some(FunctionDebugInfo::new(None, locations)),
         ))));
 
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
@@ -916,7 +942,7 @@ impl Compiler {
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         let num_locals = self.symbol_table.num_definitions;
-        let instructions = self.leave_scope();
+        let (instructions, locations) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -926,6 +952,7 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
+            Some(FunctionDebugInfo::new(Some(name.to_string()), locations)),
         ))));
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
 
@@ -1038,14 +1065,14 @@ impl Compiler {
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
     }
 
-    fn leave_scope(&mut self) -> Instructions {
+    fn leave_scope(&mut self) -> (Instructions, Vec<Option<SourceLocation>>) {
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {
             self.symbol_table = *outer;
         }
 
-        scope.instructions
+        (scope.instructions, scope.locations)
     }
 
     fn enter_block_scope(&mut self) {
@@ -1067,6 +1094,10 @@ impl Compiler {
         Bytecode {
             instructions: self.scopes[self.scope_index].instructions.clone(),
             constants: self.constants.clone(),
+            debug_info: Some(FunctionDebugInfo::new(
+                Some("<main>".to_string()),
+                self.scopes[self.scope_index].locations.clone(),
+            )),
         }
     }
 
@@ -1087,6 +1118,7 @@ impl Compiler {
         self.scopes[self.scope_index]
             .instructions
             .truncate(last_pos);
+        self.scopes[self.scope_index].locations.truncate(last_pos);
         self.scopes[self.scope_index].last_instruction = previous;
     }
 

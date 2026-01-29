@@ -25,7 +25,12 @@ pub struct VM {
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
-        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0);
+        let main_fn = CompiledFunction::new(
+            bytecode.instructions,
+            0,
+            0,
+            bytecode.debug_info,
+        );
         let main_closure = Closure::new(Rc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
 
@@ -40,6 +45,13 @@ impl VM {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
+        match self.run_inner() {
+            Ok(()) => Ok(()),
+            Err(err) => Err(self.format_runtime_error(&err)),
+        }
+    }
+
+    fn run_inner(&mut self) -> Result<(), String> {
         while self.current_frame().ip < self.current_frame().instructions().len() {
             let ip = self.current_frame().ip;
             let op = OpCode::from(self.current_frame().instructions()[ip]);
@@ -199,6 +211,46 @@ impl VM {
             self.current_frame_mut().ip += 1;
         }
         Ok(())
+    }
+
+    fn format_runtime_error(&self, message: &str) -> String {
+        let mut out = String::new();
+        out.push_str(message);
+
+        if self.frame_index == 0 && self.frames.is_empty() {
+            return out;
+        }
+
+        out.push_str("\nStack trace:");
+        for frame in self.frames[..=self.frame_index].iter().rev() {
+            out.push_str("\n  at ");
+            let (name, location) = self.format_frame(frame);
+            out.push_str(&name);
+            if let Some(loc) = location {
+                out.push_str(" (");
+                out.push_str(&loc);
+                out.push(')');
+            }
+        }
+        out
+    }
+
+    fn format_frame(&self, frame: &Frame) -> (String, Option<String>) {
+        let debug_info = frame.closure.function.debug_info.as_ref();
+        let name = debug_info
+            .and_then(|info| info.name.clone())
+            .unwrap_or_else(|| "<anonymous>".to_string());
+        let location = debug_info
+            .and_then(|info| info.location_at(frame.ip))
+            .map(|loc| {
+                format!(
+                    "{}:{}:{}",
+                    render_display_path(&loc.file),
+                    loc.span.start.line,
+                    loc.span.start.column
+                )
+            });
+        (name, location)
     }
 
     fn build_array(&self, start: usize, end: usize) -> Object {
@@ -493,6 +545,18 @@ impl VM {
     pub fn last_popped_stack_elem(&self) -> &Object {
         &self.stack[self.sp]
     }
+}
+
+fn render_display_path(file: &str) -> String {
+    let path = std::path::Path::new(file);
+    if path.is_absolute() {
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Ok(stripped) = path.strip_prefix(&cwd) {
+                return stripped.to_string_lossy().to_string();
+            }
+        }
+    }
+    file.to_string()
 }
 
 #[cfg(test)]
