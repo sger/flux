@@ -269,7 +269,7 @@ impl Compiler {
                     }
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name.to_string());
-                    self.compile_import_statement(name, alias.as_deref(), position)?;
+                    self.compile_import_statement(name, alias.as_deref())?;
                 }
             }
             Ok(())
@@ -1105,9 +1105,7 @@ impl Compiler {
         &mut self,
         name: &str,
         alias: Option<&str>,
-        position: Position,
     ) -> CompileResult<()> {
-        let _ = position;
         if let Some(alias) = alias {
             self.import_aliases
                 .insert(alias.to_string(), name.to_string());
@@ -1281,7 +1279,7 @@ impl Compiler {
 
     fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
         Diagnostic::error("IMPORT NAME COLLISION")
-            .with_code("E030")
+            .with_code("E043")
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(format!(

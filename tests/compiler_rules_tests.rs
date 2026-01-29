@@ -83,7 +83,7 @@ fn import_in_function_error() {
 #[test]
 fn import_name_collision_error() {
     let code = compile_err_in("examples/test.flx", "let Math = 1; import Math");
-    assert_eq!(code, "E030");
+    assert_eq!(code, "E043");
 }
 
 #[test]

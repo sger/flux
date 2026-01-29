@@ -100,6 +100,10 @@ pub const INVALID_MODULE_FILE: ErrorCode = ErrorCode {
     code: "E042",
     title: "INVALID MODULE FILE",
 };
+pub const IMPORT_NAME_COLLISION: ErrorCode = ErrorCode {
+    code: "E043",
+    title: "IMPORT NAME COLLISION",
+};
 pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
     code: "E101",
     title: "UNKNOWN KEYWORD",
@@ -150,6 +154,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     INVALID_MODULE_ALIAS,
     DUPLICATE_MODULE,
     INVALID_MODULE_FILE,
+    IMPORT_NAME_COLLISION,
     UNKNOWN_KEYWORD,
     EXPECTED_EXPRESSION,
     INVALID_INTEGER,
