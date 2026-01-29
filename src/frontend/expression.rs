@@ -3,6 +3,12 @@ use std::fmt;
 use crate::frontend::{Identifier, block::Block, position::Span};
 
 #[derive(Debug, Clone)]
+pub enum StringPart {
+    Literal(String),
+    Interpolation(Box<Expression>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Pattern {
     Wildcard,
     Literal(Expression),
@@ -33,6 +39,10 @@ pub enum Expression {
     },
     String {
         value: String,
+        span: Span,
+    },
+    InterpolatedString {
+        parts: Vec<StringPart>,
         span: Span,
     },
     Boolean {
@@ -105,6 +115,16 @@ impl fmt::Display for Expression {
             Expression::Integer { value, .. } => write!(f, "{}", value),
             Expression::Float { value, .. } => write!(f, "{}", value),
             Expression::String { value, .. } => write!(f, "\"{}\"", value),
+            Expression::InterpolatedString { parts, .. } => {
+                write!(f, "\"")?;
+                for part in parts {
+                    match part {
+                        StringPart::Literal(s) => write!(f, "{}", s)?,
+                        StringPart::Interpolation(expr) => write!(f, "#{{{}}}", expr)?,
+                    }
+                }
+                write!(f, "\"")
+            }
             Expression::Boolean { value, .. } => write!(f, "{}", value),
             Expression::Prefix {
                 operator, right, ..
@@ -181,6 +201,7 @@ impl Expression {
             | Expression::Integer { span, .. }
             | Expression::Float { span, .. }
             | Expression::String { span, .. }
+            | Expression::InterpolatedString { span, .. }
             | Expression::Boolean { span, .. }
             | Expression::Prefix { span, .. }
             | Expression::Infix { span, .. }

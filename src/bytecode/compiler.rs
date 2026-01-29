@@ -17,7 +17,7 @@ use crate::{
     frontend::{
         block::Block,
         diagnostic::Diagnostic,
-        expression::{Expression, MatchArm, Pattern},
+        expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         position::{Position, Span},
         program::Program,
@@ -56,6 +56,7 @@ impl Compiler {
         symbol_table.define_builtin(3, "last");
         symbol_table.define_builtin(4, "rest");
         symbol_table.define_builtin(5, "push");
+        symbol_table.define_builtin(6, "to_string");
 
         Self {
             constants: Vec::new(),
@@ -338,6 +339,9 @@ impl Compiler {
             Expression::String { value, .. } => {
                 let idx = self.add_constant(Object::String(value.clone()));
                 self.emit(OpCode::OpConstant, &[idx]);
+            }
+            Expression::InterpolatedString { parts, .. } => {
+                self.compile_interpolated_string(parts)?;
             }
             Expression::Boolean { value, .. } => {
                 if *value {
@@ -647,6 +651,44 @@ impl Compiler {
         ))));
 
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
+
+        Ok(())
+    }
+
+    fn compile_interpolated_string(&mut self, parts: &[StringPart]) -> CompileResult<()> {
+        if parts.is_empty() {
+            // Empty interpolated string - just push an empty string
+            let idx = self.add_constant(Object::String(String::new()));
+            self.emit(OpCode::OpConstant, &[idx]);
+            return Ok(());
+        }
+
+        // Compile the first part
+        match &parts[0] {
+            StringPart::Literal(s) => {
+                let idx = self.add_constant(Object::String(s.clone()));
+                self.emit(OpCode::OpConstant, &[idx]);
+            }
+            StringPart::Interpolation(expr) => {
+                self.compile_expression(expr)?;
+                self.emit(OpCode::OpToString, &[]);
+            }
+        }
+
+        // Compile remaining parts, concatenating each with OpAdd
+        for part in &parts[1..] {
+            match part {
+                StringPart::Literal(s) => {
+                    let idx = self.add_constant(Object::String(s.clone()));
+                    self.emit(OpCode::OpConstant, &[idx]);
+                }
+                StringPart::Interpolation(expr) => {
+                    self.compile_expression(expr)?;
+                    self.emit(OpCode::OpToString, &[]);
+                }
+            }
+            self.emit(OpCode::OpAdd, &[]);
+        }
 
         Ok(())
     }

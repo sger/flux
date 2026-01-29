@@ -211,6 +211,10 @@ impl VM {
                     leak_detector::record_some();
                     self.push(Object::Some(Box::new(value)))?;
                 }
+                OpCode::OpToString => {
+                    let value = self.pop()?;
+                    self.push(Object::String(value.to_string_value()))?;
+                }
             }
             self.current_frame_mut().ip += 1;
         }
