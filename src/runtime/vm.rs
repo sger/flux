@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 use crate::{
     bytecode::{
         bytecode::Bytecode,
-        op_code::{operand_widths, OpCode, read_u8, read_u16},
+        op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
@@ -26,12 +26,7 @@ pub struct VM {
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
-        let main_fn = CompiledFunction::new(
-            bytecode.instructions,
-            0,
-            0,
-            bytecode.debug_info,
-        );
+        let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
         let main_closure = Closure::new(Rc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
 
@@ -249,8 +244,8 @@ impl VM {
         let name = debug_info
             .and_then(|info| info.name.clone())
             .unwrap_or_else(|| "<anonymous>".to_string());
-        let location = debug_info
-            .and_then(|info| info.location_at(frame.ip).and_then(|loc| {
+        let location = debug_info.and_then(|info| {
+            info.location_at(frame.ip).and_then(|loc| {
                 info.file_for(loc.file_id).map(|file| {
                     format!(
                         "{}:{}:{}",
@@ -259,7 +254,8 @@ impl VM {
                         loc.span.start.column
                     )
                 })
-            }));
+            })
+        });
         (name, location)
     }
 
@@ -284,7 +280,14 @@ impl VM {
         let operand_str = if operands.is_empty() {
             "".to_string()
         } else {
-            format!(" {}", operands.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(" "))
+            format!(
+                " {}",
+                operands
+                    .iter()
+                    .map(|o| o.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
         };
         println!("IP={:04} {}{}", ip, op, operand_str);
         self.trace_stack();
@@ -292,7 +295,10 @@ impl VM {
     }
 
     fn trace_stack(&self) {
-        let items: Vec<String> = self.stack[..self.sp].iter().map(|obj| obj.to_string()).collect();
+        let items: Vec<String> = self.stack[..self.sp]
+            .iter()
+            .map(|obj| obj.to_string())
+            .collect();
         println!("  stack: [{}]", items.join(", "));
     }
 
@@ -304,7 +310,10 @@ impl VM {
             return;
         }
         let end = (bp + locals).min(self.stack.len());
-        let items: Vec<String> = self.stack[bp..end].iter().map(|obj| obj.to_string()).collect();
+        let items: Vec<String> = self.stack[bp..end]
+            .iter()
+            .map(|obj| obj.to_string())
+            .collect();
         println!("  locals: [{}]", items.join(", "));
     }
 
@@ -604,12 +613,11 @@ impl VM {
 
 fn render_display_path(file: &str) -> String {
     let path = std::path::Path::new(file);
-    if path.is_absolute() {
-        if let Ok(cwd) = std::env::current_dir() {
-            if let Ok(stripped) = path.strip_prefix(&cwd) {
-                return stripped.to_string_lossy().to_string();
-            }
-        }
+    if path.is_absolute()
+        && let Ok(cwd) = std::env::current_dir()
+        && let Ok(stripped) = path.strip_prefix(&cwd)
+    {
+        return stripped.to_string_lossy().to_string();
     }
     file.to_string()
 }

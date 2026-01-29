@@ -159,7 +159,9 @@ impl fmt::Display for Expression {
             Expression::MemberAccess { object, member, .. } => {
                 write!(f, "{}.{}", object, member)
             }
-            Expression::Match { scrutinee, arms, .. } => {
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 write!(f, "match {} {{", scrutinee)?;
                 for arm in arms {
                     write!(f, " {} -> {};", arm.pattern, arm.body)?;

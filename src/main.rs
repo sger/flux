@@ -1,4 +1,7 @@
-use std::{env, fs, path::{Path, PathBuf}};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use flux::{
     bytecode::{
@@ -225,8 +228,7 @@ fn run_file(
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
-            let graph =
-                match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
+            let graph = match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
             {
                 Ok(graph) => graph,
                 Err(diags) => {

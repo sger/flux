@@ -129,8 +129,7 @@ impl Diagnostic {
             for line_no in start_line..=end_line {
                 if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
                     let line_len = line_text.len();
-                    let (caret_start, caret_end) = if line_no == start_line && line_no == end_line
-                    {
+                    let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
                         let start = span.start.column.min(line_len);
                         let end = span.end.column.min(line_len);
                         let end = end.max(start + 1);
@@ -203,12 +202,11 @@ fn get_source_line(source: &str, line: usize) -> Option<&str> {
 
 fn render_display_path(file: &str) -> String {
     let path = std::path::Path::new(file);
-    if path.is_absolute() {
-        if let Ok(cwd) = std::env::current_dir() {
-            if let Ok(stripped) = path.strip_prefix(&cwd) {
-                return stripped.to_string_lossy().to_string();
-            }
-        }
+    if path.is_absolute()
+        && let Ok(cwd) = std::env::current_dir()
+        && let Ok(stripped) = path.strip_prefix(&cwd)
+    {
+        return stripped.to_string_lossy().to_string();
     }
     file.to_string()
 }

@@ -121,145 +121,155 @@ impl Compiler {
         self.current_span = Some(statement.span());
         let result = (|| {
             match statement {
-            Statement::Expression { expression, .. } => {
-                self.compile_expression(expression)?;
-                self.emit(OpCode::OpPop, &[]);
-            }
-            Statement::Let { name, value, span } => {
-                let position = span.start;
-                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    return Err(Self::boxed(
-                        self.make_import_collision_error(name, position),
-                    ));
+                Statement::Expression { expression, .. } => {
+                    self.compile_expression(expression)?;
+                    self.emit(OpCode::OpPop, &[]);
                 }
-                if self.symbol_table.exists_in_current_scope(name) {
-                    return Err(Self::boxed(self.make_redeclaration_error(name, position)));
-                }
-
-                let symbol = self.symbol_table.define(name);
-                self.compile_expression(value)?;
-
-                match symbol.symbol_scope {
-                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
-                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                    _ => {
+                Statement::Let { name, value, span } => {
+                    let position = span.start;
+                    if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE001")
-                                .with_message("unexpected symbol scope for let binding")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_import_collision_error(name, position),
                         ));
                     }
-                };
+                    if self.symbol_table.exists_in_current_scope(name) {
+                        return Err(Self::boxed(self.make_redeclaration_error(name, position)));
+                    }
 
-                self.symbol_table.mark_assigned(name).ok();
-                if self.scope_index == 0 {
-                    self.file_scope_symbols.insert(name.clone());
+                    let symbol = self.symbol_table.define(name);
+                    self.compile_expression(value)?;
+
+                    match symbol.symbol_scope {
+                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(
+                                Diagnostic::error("INTERNAL COMPILER ERROR")
+                                    .with_code("ICE001")
+                                    .with_message("unexpected symbol scope for let binding")
+                                    .with_hint(format!(
+                                        "{}:{} ({})",
+                                        file!(),
+                                        line!(),
+                                        module_path!()
+                                    )),
+                            ));
+                        }
+                    };
+
+                    self.symbol_table.mark_assigned(name).ok();
+                    if self.scope_index == 0 {
+                        self.file_scope_symbols.insert(name.clone());
+                    }
                 }
-            }
-            Statement::Assign { name, value, span } => {
-                let position = span.start;
-                // Check if variable exists
-                let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                    Self::boxed(self.make_undefined_variable_error(name, position))
-                })?;
+                Statement::Assign { name, value, span } => {
+                    let position = span.start;
+                    // Check if variable exists
+                    let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
+                        Self::boxed(self.make_undefined_variable_error(name, position))
+                    })?;
 
-                if symbol.symbol_scope == SymbolScope::Free {
-                    return Err(Self::boxed(
-                        self.make_outer_assignment_error(name, position),
-                    ));
-                }
-
-                // Check if variable is already assigned (immutability check)
-                if symbol.is_assigned {
-                    return Err(Self::boxed(self.make_immutability_error(name, position)));
-                }
-
-                self.compile_expression(value)?;
-
-                match symbol.symbol_scope {
-                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
-                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                    _ => {
+                    if symbol.symbol_scope == SymbolScope::Free {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE002")
-                                .with_message("unexpected symbol scope for assignment")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_outer_assignment_error(name, position),
                         ));
                     }
-                };
 
-                // Mark as assigned
-                self.symbol_table.mark_assigned(name).ok();
-            }
-            Statement::Return { value, .. } => match value {
-                Some(expr) => {
-                    self.compile_expression(expr)?;
-                    self.emit(OpCode::OpReturnValue, &[]);
+                    // Check if variable is already assigned (immutability check)
+                    if symbol.is_assigned {
+                        return Err(Self::boxed(self.make_immutability_error(name, position)));
+                    }
+
+                    self.compile_expression(value)?;
+
+                    match symbol.symbol_scope {
+                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(
+                                Diagnostic::error("INTERNAL COMPILER ERROR")
+                                    .with_code("ICE002")
+                                    .with_message("unexpected symbol scope for assignment")
+                                    .with_hint(format!(
+                                        "{}:{} ({})",
+                                        file!(),
+                                        line!(),
+                                        module_path!()
+                                    )),
+                            ));
+                        }
+                    };
+
+                    // Mark as assigned
+                    self.symbol_table.mark_assigned(name).ok();
                 }
-                None => {
-                    self.emit(OpCode::OpReturn, &[]);
+                Statement::Return { value, .. } => match value {
+                    Some(expr) => {
+                        self.compile_expression(expr)?;
+                        self.emit(OpCode::OpReturnValue, &[]);
+                    }
+                    None => {
+                        self.emit(OpCode::OpReturn, &[]);
+                    }
+                },
+                Statement::Function {
+                    name,
+                    parameters,
+                    body,
+                    span,
+                    ..
+                } => {
+                    let position = span.start;
+                    if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
+                        return Err(Self::boxed(
+                            self.make_import_collision_error(name, position),
+                        ));
+                    }
+                    self.compile_function_statement(name, parameters, body, position)?;
+                    if self.scope_index == 0 {
+                        self.file_scope_symbols.insert(name.clone());
+                    }
                 }
-            },
-            Statement::Function {
-                name,
-                parameters,
-                body,
-                span,
-                ..
-            } => {
-                let position = span.start;
-                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    return Err(Self::boxed(
-                        self.make_import_collision_error(name, position),
-                    ));
+                Statement::Module { name, body, span } => {
+                    let position = span.start;
+                    if self.scope_index > 0 {
+                        return Err(Self::boxed(
+                            Diagnostic::error("MODULE SCOPE")
+                                .with_code("E039")
+                                .with_file(self.file_path.clone())
+                                .with_position(position)
+                                .with_message("Modules may only be declared at the top level."),
+                        ));
+                    }
+                    let binding_name = module_binding_name(name);
+                    if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
+                        return Err(Self::boxed(
+                            self.make_import_collision_error(binding_name, position),
+                        ));
+                    }
+                    if !is_valid_module_name(name) {
+                        return Err(Self::boxed(self.make_module_name_error(name, position)));
+                    }
+                    self.compile_module_statement(name, body, position)?;
+                    if self.scope_index == 0 {
+                        self.file_scope_symbols.insert(binding_name.to_string());
+                    }
                 }
-                self.compile_function_statement(name, parameters, body, position)?;
-                if self.scope_index == 0 {
-                    self.file_scope_symbols.insert(name.clone());
-                }
-            }
-            Statement::Module { name, body, span } => {
-                let position = span.start;
-                if self.scope_index > 0 {
-                    return Err(Self::boxed(
-                        Diagnostic::error("MODULE SCOPE")
-                            .with_code("E039")
-                            .with_file(self.file_path.clone())
-                            .with_position(position)
-                            .with_message("Modules may only be declared at the top level."),
-                    ));
-                }
-                let binding_name = module_binding_name(name);
-                if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
-                    return Err(Self::boxed(
-                        self.make_import_collision_error(binding_name, position),
-                    ));
-                }
-                if !is_valid_module_name(name) {
-                    return Err(Self::boxed(self.make_module_name_error(name, position)));
-                }
-                self.compile_module_statement(name, body, position)?;
-                if self.scope_index == 0 {
+                Statement::Import { name, alias, span } => {
+                    let position = span.start;
+                    if self.scope_index > 0 {
+                        return Err(Self::boxed(self.make_import_scope_error(name, position)));
+                    }
+                    let binding_name = import_binding_name(name, alias.as_deref());
+                    if self.file_scope_symbols.contains(binding_name) {
+                        return Err(Self::boxed(
+                            self.make_import_collision_error(binding_name, position),
+                        ));
+                    }
+                    // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name.to_string());
+                    self.compile_import_statement(name, alias.as_deref(), position)?;
                 }
-            }
-            Statement::Import { name, alias, span } => {
-                let position = span.start;
-                if self.scope_index > 0 {
-                    return Err(Self::boxed(self.make_import_scope_error(name, position)));
-                }
-                let binding_name = import_binding_name(name, alias.as_deref());
-                if self.file_scope_symbols.contains(binding_name) {
-                    return Err(Self::boxed(
-                        self.make_import_collision_error(binding_name, position),
-                    ));
-                }
-                // Reserve the name for this file so later declarations can't collide.
-                self.file_scope_symbols.insert(binding_name.to_string());
-                self.compile_import_statement(name, alias.as_deref(), position)?;
-            }
             }
             Ok(())
         })();
@@ -461,9 +471,9 @@ impl Compiler {
                     Expression::Identifier { name, .. } => {
                         if let Some(target) = self.import_aliases.get(name) {
                             Some(target.clone())
-                        } else if self.imported_modules.contains(name) {
-                            Some(name.clone())
-                        } else if self.current_module_prefix.as_deref() == Some(name.as_str()) {
+                        } else if self.imported_modules.contains(name)
+                            || self.current_module_prefix.as_deref() == Some(name.as_str())
+                        {
                             Some(name.clone())
                         } else {
                             None
@@ -961,7 +971,11 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
-            Some(FunctionDebugInfo::new(Some(name.to_string()), files, locations)),
+            Some(FunctionDebugInfo::new(
+                Some(name.to_string()),
+                files,
+                locations,
+            )),
         ))));
         self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
 
@@ -1074,13 +1088,7 @@ impl Compiler {
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
     }
 
-    fn leave_scope(
-        &mut self,
-    ) -> (
-        Instructions,
-        Vec<InstructionLocation>,
-        Vec<String>,
-    ) {
+    fn leave_scope(&mut self) -> (Instructions, Vec<InstructionLocation>, Vec<String>) {
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {

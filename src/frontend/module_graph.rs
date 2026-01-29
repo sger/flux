@@ -5,13 +5,8 @@ use std::{
 };
 
 use crate::frontend::{
-    diagnostic::Diagnostic,
-    error_codes,
-    lexer::Lexer,
-    parser::Parser,
-    position::Position,
-    program::Program,
-    statement::Statement,
+    diagnostic::Diagnostic, error_codes, lexer::Lexer, parser::Parser, position::Position,
+    program::Program, statement::Statement,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -121,7 +116,7 @@ impl ModuleGraph {
             return Err(diagnostics);
         }
 
-        let order = topo_order(&nodes, &entry_id).map_err(|diag| vec![diag])?;
+        let order = topo_order(&nodes, &entry_id).map_err(|diag| vec![*diag])?;
 
         Ok(Self {
             entry: entry_id,
@@ -162,7 +157,9 @@ pub fn is_valid_module_name(name: &str) -> bool {
     if segments.is_empty() {
         return false;
     }
-    segments.iter().all(|segment| is_valid_module_segment(segment))
+    segments
+        .iter()
+        .all(|segment| is_valid_module_segment(segment))
 }
 
 pub fn is_valid_module_alias(name: &str) -> bool {
@@ -182,9 +179,11 @@ fn is_valid_module_segment(segment: &str) -> bool {
 
 fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
     let source = fs::read_to_string(path).map_err(|err| {
-        vec![error_codes::diag(&error_codes::IMPORT_READ_FAILED)
-            .with_message(format!("{}: {}", path.display(), err))
-            .with_file(path.display().to_string())]
+        vec![
+            error_codes::diag(&error_codes::IMPORT_READ_FAILED)
+                .with_message(format!("{}: {}", path.display(), err))
+                .with_file(path.display().to_string()),
+        ]
     })?;
 
     let lexer = Lexer::new(&source);
@@ -227,17 +226,15 @@ fn resolve_imports(
             continue;
         }
 
-        if let Some(alias) = &alias {
-            if !is_valid_module_alias(alias) {
-                diagnostics.push(
-                    error_codes::diag(&error_codes::INVALID_MODULE_ALIAS)
-                        .with_position(position)
-                        .with_message(format!("Invalid module alias `{}`.", alias))
-                        .with_hint("Use UpperCamelCase letters and digits (no dots).")
-                        .with_file(path.display().to_string()),
-                );
-                continue;
-            }
+        if let Some(alias) = &alias && !is_valid_module_alias(alias) {
+            diagnostics.push(
+                error_codes::diag(&error_codes::INVALID_MODULE_ALIAS)
+                    .with_position(position)
+                    .with_message(format!("Invalid module alias `{}`.", alias))
+                    .with_hint("Use UpperCamelCase letters and digits (no dots).")
+                    .with_file(path.display().to_string()),
+            );
+            continue;
         }
 
         match resolve_import_path(path, &name, position, roots) {
@@ -249,7 +246,7 @@ fn resolve_imports(
                     target_path,
                 });
             }
-            Err(diag) => diagnostics.push(diag),
+            Err(diag) => diagnostics.push(*diag),
         }
     }
 
@@ -265,7 +262,7 @@ fn resolve_import_path(
     name: &str,
     position: Position,
     roots: &[PathBuf],
-) -> Result<(ModuleId, PathBuf), Diagnostic> {
+) -> Result<(ModuleId, PathBuf), Box<Diagnostic>> {
     let candidates = module_name_candidates(name, roots);
     let mut matches = Vec::new();
     for candidate in candidates {
@@ -279,7 +276,7 @@ fn resolve_import_path(
 
     let import_path = match matches.len() {
         0 => {
-            return Err(
+            return Err(Box::new(
                 error_codes::diag(&error_codes::IMPORT_NOT_FOUND)
                     .with_position(position)
                     .with_message(format!("no module file found for `{}`", name))
@@ -293,11 +290,11 @@ fn resolve_import_path(
                             .join(", "),
                         source_path.display()
                     )),
-            );
+            ));
         }
         1 => matches.remove(0),
         _ => {
-            return Err(
+            return Err(Box::new(
                 error_codes::diag(&error_codes::DUPLICATE_MODULE)
                     .with_position(position)
                     .with_message(format!("module `{}` is defined in multiple roots.", name))
@@ -310,7 +307,7 @@ fn resolve_import_path(
                             .join(", ")
                     ))
                     .with_file(source_path.display().to_string()),
-            );
+            ));
         }
     };
 
@@ -448,7 +445,7 @@ enum Color {
 fn topo_order(
     nodes: &HashMap<ModuleId, ModuleNode>,
     entry: &ModuleId,
-) -> Result<Vec<ModuleId>, Diagnostic> {
+) -> Result<Vec<ModuleId>, Box<Diagnostic>> {
     let mut colors: HashMap<ModuleId, Color> = HashMap::new();
     let mut stack: Vec<ModuleId> = Vec::new();
     let mut order: Vec<ModuleId> = Vec::new();
@@ -492,11 +489,11 @@ fn topo_order(
             .map(|id| id.as_str())
             .collect::<Vec<_>>()
             .join(" -> ");
-        return Err(
+        return Err(Box::new(
             error_codes::diag(&error_codes::IMPORT_CYCLE)
                 .with_message(format!("import cycle detected: {}", cycle_str))
                 .with_file(entry.as_str().to_string()),
-        );
+        ));
     }
 
     Ok(order)

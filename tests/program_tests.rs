@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use flux::frontend::{expression::Expression, position::Span, program::Program, statement::Statement};
+    use flux::frontend::{
+        expression::Expression, position::Span, program::Program, statement::Statement,
+    };
 
     #[test]
     fn display_let() {
