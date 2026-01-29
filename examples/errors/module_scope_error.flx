@@ -1,0 +1,6 @@
+// Triggers E039 (MODULE SCOPE)
+fun main() {
+  module Inner {
+    fun value() { 1; }
+  }
+}

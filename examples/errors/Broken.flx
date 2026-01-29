@@ -1,0 +1,3 @@
+module Broken {
+  fun value() { 1; }
+}

@@ -1,0 +1,4 @@
+// Triggers E019 (INVALID MODULE CONTENT)
+module ModuleInvalidContentError {
+  let x = 1;
+}

@@ -118,16 +118,15 @@ impl Compiler {
                 self.compile_expression(expression)?;
                 self.emit(OpCode::OpPop, &[]);
             }
-            Statement::Let {
-                name,
-                value,
-                position,
-            } => {
+            Statement::Let { name, value, span } => {
+                let position = span.start;
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    return Err(Self::boxed(self.make_import_collision_error(name, *position)));
+                    return Err(Self::boxed(
+                        self.make_import_collision_error(name, position),
+                    ));
                 }
                 if self.symbol_table.exists_in_current_scope(name) {
-                    return Err(Self::boxed(self.make_redeclaration_error(name, *position)));
+                    return Err(Self::boxed(self.make_redeclaration_error(name, position)));
                 }
 
                 let symbol = self.symbol_table.define(name);
@@ -151,25 +150,22 @@ impl Compiler {
                     self.file_scope_symbols.insert(name.clone());
                 }
             }
-            Statement::Assign {
-                name,
-                value,
-                position,
-            } => {
+            Statement::Assign { name, value, span } => {
+                let position = span.start;
                 // Check if variable exists
                 let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                    Self::boxed(self.make_undefined_variable_error(name, *position))
+                    Self::boxed(self.make_undefined_variable_error(name, position))
                 })?;
 
                 if symbol.symbol_scope == SymbolScope::Free {
                     return Err(Self::boxed(
-                        self.make_outer_assignment_error(name, *position),
+                        self.make_outer_assignment_error(name, position),
                     ));
                 }
 
                 // Check if variable is already assigned (immutability check)
                 if symbol.is_assigned {
-                    return Err(Self::boxed(self.make_immutability_error(name, *position)));
+                    return Err(Self::boxed(self.make_immutability_error(name, position)));
                 }
 
                 self.compile_expression(value)?;
@@ -203,63 +199,59 @@ impl Compiler {
                 name,
                 parameters,
                 body,
-                position,
+                span,
                 ..
             } => {
+                let position = span.start;
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    return Err(Self::boxed(self.make_import_collision_error(name, *position)));
+                    return Err(Self::boxed(
+                        self.make_import_collision_error(name, position),
+                    ));
                 }
-                self.compile_function_statement(name, parameters, body, *position)?;
+                self.compile_function_statement(name, parameters, body, position)?;
                 if self.scope_index == 0 {
                     self.file_scope_symbols.insert(name.clone());
                 }
             }
-            Statement::Module {
-                name,
-                body,
-                position,
-            } => {
+            Statement::Module { name, body, span } => {
+                let position = span.start;
                 if self.scope_index > 0 {
                     return Err(Self::boxed(
                         Diagnostic::error("MODULE SCOPE")
                             .with_code("E039")
                             .with_file(self.file_path.clone())
-                            .with_position(*position)
+                            .with_position(position)
                             .with_message("Modules may only be declared at the top level."),
                     ));
                 }
                 let binding_name = module_binding_name(name);
                 if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
                     return Err(Self::boxed(
-                        self.make_import_collision_error(binding_name, *position),
+                        self.make_import_collision_error(binding_name, position),
                     ));
                 }
                 if !is_valid_module_name(name) {
-                    return Err(Self::boxed(self.make_module_name_error(name, *position)));
+                    return Err(Self::boxed(self.make_module_name_error(name, position)));
                 }
-                self.compile_module_statement(name, body, *position)?;
+                self.compile_module_statement(name, body, position)?;
                 if self.scope_index == 0 {
                     self.file_scope_symbols.insert(binding_name.to_string());
                 }
             }
-            Statement::Import {
-                name,
-                alias,
-                position,
-            } => {
+            Statement::Import { name, alias, span } => {
+                let position = span.start;
                 if self.scope_index > 0 {
-                    return Err(Self::boxed(self.make_import_scope_error(name, *position)));
+                    return Err(Self::boxed(self.make_import_scope_error(name, position)));
                 }
                 let binding_name = import_binding_name(name, alias.as_deref());
                 if self.file_scope_symbols.contains(binding_name) {
                     return Err(Self::boxed(
-                        self.make_import_collision_error(binding_name, *position),
+                        self.make_import_collision_error(binding_name, position),
                     ));
                 }
                 // Reserve the name for this file so later declarations can't collide.
-                self.file_scope_symbols
-                    .insert(binding_name.to_string());
-                self.compile_import_statement(name, alias.as_deref(), *position)?;
+                self.file_scope_symbols.insert(binding_name.to_string());
+                self.compile_import_statement(name, alias.as_deref(), position)?;
             }
         }
 
@@ -292,26 +284,26 @@ impl Compiler {
 
     fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
         match expression {
-            Expression::Integer(value) => {
+            Expression::Integer { value, .. } => {
                 let idx = self.add_constant(Object::Integer(*value));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
-            Expression::Float(value) => {
+            Expression::Float { value, .. } => {
                 let idx = self.add_constant(Object::Float(*value));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
-            Expression::String(value) => {
+            Expression::String { value, .. } => {
                 let idx = self.add_constant(Object::String(value.clone()));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
-            Expression::Boolean(value) => {
+            Expression::Boolean { value, .. } => {
                 if *value {
                     self.emit(OpCode::OpTrue, &[]);
                 } else {
                     self.emit(OpCode::OpFalse, &[]);
                 }
             }
-            Expression::Identifier(name) => {
+            Expression::Identifier { name, .. } => {
                 if let Some(symbol) = self.symbol_table.resolve(name) {
                     self.load_symbol(&symbol);
                 } else if let Some(prefix) = &self.current_module_prefix {
@@ -331,7 +323,9 @@ impl Compiler {
                     ));
                 }
             }
-            Expression::Prefix { operator, right } => {
+            Expression::Prefix {
+                operator, right, ..
+            } => {
                 self.compile_expression(right)?;
                 match operator.as_str() {
                     "!" => self.emit(OpCode::OpBang, &[]),
@@ -349,6 +343,7 @@ impl Compiler {
                 left,
                 operator,
                 right,
+                ..
             } => {
                 if operator == "<" {
                     self.compile_expression(right)?;
@@ -384,19 +379,22 @@ impl Compiler {
                 condition,
                 consequence,
                 alternative,
+                ..
             } => {
                 self.compile_if_expression(condition, consequence, alternative)?;
             }
-            Expression::Function { parameters, body } => {
+            Expression::Function {
+                parameters, body, ..
+            } => {
                 self.compile_function_literal(parameters, body)?;
             }
-            Expression::Array { elements } => {
+            Expression::Array { elements, .. } => {
                 for el in elements {
                     self.compile_expression(el)?;
                 }
                 self.emit(OpCode::OpArray, &[elements.len()]);
             }
-            Expression::Hash { pairs } => {
+            Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
                 sorted_pairs.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
 
@@ -406,7 +404,7 @@ impl Compiler {
                 }
                 self.emit(OpCode::OpHash, &[pairs.len() * 2]);
             }
-            Expression::Index { left, index } => {
+            Expression::Index { left, index, .. } => {
                 self.compile_expression(left)?;
                 self.compile_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
@@ -414,6 +412,7 @@ impl Compiler {
             Expression::Call {
                 function,
                 arguments,
+                ..
             } => {
                 self.compile_expression(function)?;
 
@@ -423,9 +422,10 @@ impl Compiler {
 
                 self.emit(OpCode::OpCall, &[arguments.len()]);
             }
-            Expression::MemberAccess { object, member } => {
+            Expression::MemberAccess { object, member, .. } => {
+                let expr_span = expression.span();
                 let module_name = match object.as_ref() {
-                    Expression::Identifier(name) => {
+                    Expression::Identifier { name, .. } => {
                         if let Some(target) = self.import_aliases.get(name) {
                             Some(target.clone())
                         } else if self.imported_modules.contains(name) {
@@ -447,10 +447,8 @@ impl Compiler {
                             Diagnostic::error("PRIVATE MEMBER")
                                 .with_code("E021")
                                 .with_file(self.file_path.clone())
-                                .with_message(format!(
-                                    "Cannot access private member `{}`.",
-                                    member
-                                ))
+                                .with_span(expr_span)
+                                .with_message(format!("Cannot access private member `{}`.", member))
                                 .with_hint(
                                     "Private members can only be accessed within the same module.",
                                 ),
@@ -465,6 +463,7 @@ impl Compiler {
 
                     return Err(Self::boxed(
                         Diagnostic::error("UNKNOWN MODULE MEMBER")
+                            .with_span(expr_span)
                             .with_message(format!(
                                 "Module `{}` has no member `{}`.",
                                 module_name, member
@@ -473,7 +472,7 @@ impl Compiler {
                     ));
                 }
 
-                if let Expression::Identifier(name) = object.as_ref()
+                if let Expression::Identifier { name, .. } = object.as_ref()
                     && module_name.is_none()
                     && is_valid_module_name(name)
                 {
@@ -494,6 +493,7 @@ impl Compiler {
                         Diagnostic::error("PRIVATE MEMBER")
                             .with_code("E021")
                             .with_file(self.file_path.clone())
+                            .with_span(expr_span)
                             .with_message(format!("Cannot access private member `{}`.", member))
                             .with_hint(
                                 "Private members can only be accessed within the same module.",
@@ -513,14 +513,16 @@ impl Compiler {
                 // Member access should yield the value, not Option.
                 self.emit(OpCode::OpUnwrapSome, &[]);
             }
-            Expression::None => {
+            Expression::None { .. } => {
                 self.emit(OpCode::OpNone, &[]);
             }
-            Expression::Some { value } => {
+            Expression::Some { value, .. } => {
                 self.compile_expression(value)?;
                 self.emit(OpCode::OpSome, &[]);
             }
-            Expression::Match { scrutinee, arms } => {
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 self.compile_match_expression(scrutinee, arms)?;
             }
         }
@@ -987,13 +989,14 @@ impl Compiler {
                 name: fn_name,
                 parameters,
                 body: fn_body,
-                position,
+                span,
                 ..
             } = statement
             {
+                let position = span.start;
                 let qualified_name = format!("{}.{}", binding_name, fn_name);
                 if let Err(err) =
-                    self.compile_function_statement(&qualified_name, parameters, fn_body, *position)
+                    self.compile_function_statement(&qualified_name, parameters, fn_body, position)
                 {
                     self.current_module_prefix = previous_module;
                     return Err(err);

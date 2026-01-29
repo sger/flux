@@ -1,0 +1,5 @@
+// Triggers E106 (INVALID PATTERN): pattern token is invalid.
+let x = match 1 {
+    + -> 1;
+};
+print(x);

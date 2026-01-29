@@ -303,6 +303,8 @@ import ModuleGraphCycleA
 ModuleGraphCycleA.value(); // IMPORT CYCLE (E035)
 ```
 
+More error-triggering examples live under `examples/errors/`.
+
 ## Cache
 
 Flux caches compiled bytecode under `target/flux/` using `.fxc` files. The cache is invalidated if
