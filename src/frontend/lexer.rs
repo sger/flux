@@ -10,6 +10,10 @@ pub struct Lexer {
     current_char: Option<char>,
     line: usize,
     column: usize,
+    /// Are we in the middle of an interpolated string (after processing #{)?
+    in_string: bool,
+    /// Brace nesting depth within an interpolation expression
+    interpolation_depth: usize,
 }
 
 impl Lexer {
@@ -21,6 +25,8 @@ impl Lexer {
             current_char: None,
             line: 1,
             column: 0,
+            in_string: false,
+            interpolation_depth: 0,
         };
         lexer.read_char();
         lexer
@@ -28,6 +34,11 @@ impl Lexer {
 
     /// Get the next token from the input
     pub fn next_token(&mut self) -> Token {
+        // If we're in the middle of an interpolated string, continue reading it
+        if self.in_string && self.interpolation_depth == 0 {
+            return self.continue_string();
+        }
+
         self.skip_ignorable();
 
         let line = self.line;
@@ -59,8 +70,18 @@ impl Lexer {
             Some('>') => Token::new(TokenType::Gt, ">", line, col),
             Some('(') => Token::new(TokenType::LParen, "(", line, col),
             Some(')') => Token::new(TokenType::RParen, ")", line, col),
-            Some('{') => Token::new(TokenType::LBrace, "{", line, col),
-            Some('}') => Token::new(TokenType::RBrace, "}", line, col),
+            Some('{') => {
+                if self.in_string {
+                    self.interpolation_depth += 1;
+                }
+                Token::new(TokenType::LBrace, "{", line, col)
+            }
+            Some('}') => {
+                if self.in_string && self.interpolation_depth > 0 {
+                    self.interpolation_depth -= 1;
+                }
+                Token::new(TokenType::RBrace, "}", line, col)
+            }
             Some(',') => Token::new(TokenType::Comma, ",", line, col),
             Some(';') => Token::new(TokenType::Semicolon, ";", line, col),
             Some('[') => Token::new(TokenType::LBracket, "[", line, col),
@@ -70,8 +91,7 @@ impl Lexer {
 
             // String literals
             Some('"') => {
-                let string = self.read_string();
-                return Token::new(TokenType::String, string, line, col);
+                return self.read_string_start();
             }
 
             // End of file
@@ -190,25 +210,102 @@ impl Lexer {
         (literal, is_float)
     }
 
-    fn read_string(&mut self) -> String {
+    /// Read the start of a string (called when we see opening ")
+    fn read_string_start(&mut self) -> Token {
+        let line = self.line;
+        let col = self.column;
         self.read_char(); // skip opening quote
-        let start = self.position;
+
+        let (content, _ended, has_interpolation) = self.read_string_content();
+
+        if has_interpolation {
+            // String has interpolation - mark that we're in a string
+            // depth = 1 because we already consumed the opening { of #{
+            self.in_string = true;
+            self.interpolation_depth = 1;
+            Token::new(TokenType::String, content, line, col)
+        } else {
+            // Simple string with no interpolation (or unterminated)
+            Token::new(TokenType::String, content, line, col)
+        }
+    }
+
+    /// Continue reading a string after an interpolation expression
+    fn continue_string(&mut self) -> Token {
+        let line = self.line;
+        let col = self.column;
+
+        let (content, _ended, has_interpolation) = self.read_string_content();
+
+        if has_interpolation {
+            // More interpolations to come - reset depth since we consumed #{
+            self.interpolation_depth = 1;
+            Token::new(TokenType::String, content, line, col)
+        } else {
+            // End of interpolated string
+            self.in_string = false;
+            Token::new(TokenType::StringEnd, content, line, col)
+        }
+    }
+
+    /// Read string content until we hit closing quote or interpolation start
+    /// Returns (content, ended_with_quote, has_interpolation)
+    fn read_string_content(&mut self) -> (String, bool, bool) {
+        let mut result = String::new();
 
         while let Some(c) = self.current_char {
-            if c == '"' {
-                break;
+            match c {
+                '"' => {
+                    // End of string
+                    self.read_char(); // consume closing quote
+                    return (result, true, false);
+                }
+                '#' if self.peek_char() == Some('{') => {
+                    // Start of interpolation
+                    self.read_char(); // consume '#'
+                    self.read_char(); // consume '{'
+                    return (result, false, true);
+                }
+                '\\' => {
+                    // Escape sequence
+                    self.read_char(); // consume backslash
+                    if let Some(escaped) = self.read_escape_sequence() {
+                        result.push(escaped);
+                    }
+                }
+                _ => {
+                    result.push(c);
+                    self.read_char();
+                }
             }
-            self.read_char();
         }
 
-        let result: String = self.input[start..self.position].iter().collect();
+        // Hit EOF without closing quote
+        (result, false, false)
+    }
 
-        // Consume the closing quote
-        if self.current_char == Some('"') {
-            self.read_char();
-        }
-
+    /// Process an escape sequence after seeing backslash
+    fn read_escape_sequence(&mut self) -> Option<char> {
+        let result = match self.current_char {
+            Some('n') => Some('\n'),
+            Some('t') => Some('\t'),
+            Some('r') => Some('\r'),
+            Some('\\') => Some('\\'),
+            Some('"') => Some('"'),
+            Some('#') => Some('#'), // \# for literal #
+            Some(c) => {
+                // Unknown escape - just return the character as-is
+                Some(c)
+            }
+            None => None,
+        };
+        self.read_char();
         result
+    }
+
+    /// Check if we're currently inside an interpolation expression
+    pub fn is_in_interpolation(&self) -> bool {
+        self.in_string && self.interpolation_depth == 0
     }
 }
 

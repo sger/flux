@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::frontend::{
     diagnostic::Diagnostic,
-    expression::Expression,
+    expression::{Expression, StringPart},
     module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
     position::Position,
     program::Program,
@@ -131,6 +131,13 @@ impl Linter {
             | Expression::String { .. }
             | Expression::Boolean { .. }
             | Expression::None { .. } => {}
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let StringPart::Interpolation(expr) = part {
+                        self.lint_expression(expr);
+                    }
+                }
+            }
             Expression::Prefix { right, .. } => self.lint_expression(right),
             Expression::Infix { left, right, .. } => {
                 self.lint_expression(left);

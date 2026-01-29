@@ -1,7 +1,7 @@
 use crate::frontend::{
     block::Block,
     diagnostic::Diagnostic,
-    expression::{Expression, MatchArm, Pattern},
+    expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
     precedence::{Precedence, token_precedence},
@@ -480,10 +480,107 @@ impl Parser {
         }
     }
 
-    fn parse_string(&self) -> Option<Expression> {
+    fn parse_string(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+        let first_part = self.current_token.literal.clone();
+
+        // Check if this is an interpolated string by looking at peek token
+        // If peek is an expression-start token, we have interpolation
+        if self.is_interpolation_expression_start() {
+            return self.parse_interpolated_string(start, first_part);
+        }
+
         Some(Expression::String {
-            value: self.current_token.literal.clone(),
+            value: first_part,
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
+    /// Check if peek_token could be the start of an interpolation expression
+    fn is_interpolation_expression_start(&self) -> bool {
+        matches!(
+            self.peek_token.token_type,
+            TokenType::Ident
+                | TokenType::Int
+                | TokenType::Float
+                | TokenType::True
+                | TokenType::False
+                | TokenType::None
+                | TokenType::Some
+                | TokenType::Bang
+                | TokenType::Minus
+                | TokenType::LParen
+                | TokenType::LBracket
+                | TokenType::LBrace
+                | TokenType::If
+                | TokenType::Fun
+                | TokenType::Match
+                | TokenType::String
+        )
+    }
+
+    /// Parse an interpolated string like "Hello #{name}!"
+    fn parse_interpolated_string(
+        &mut self,
+        start: crate::frontend::position::Position,
+        first_literal: String,
+    ) -> Option<Expression> {
+        let mut parts = Vec::new();
+
+        // Add the first literal part if non-empty
+        if !first_literal.is_empty() {
+            parts.push(StringPart::Literal(first_literal));
+        }
+
+        loop {
+            // Parse the interpolation expression
+            self.next_token();
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            parts.push(StringPart::Interpolation(Box::new(expr)));
+
+            // Expect closing brace of interpolation
+            if !self.expect_peek(TokenType::RBrace) {
+                return None;
+            }
+
+            // After RBrace, check what's next
+            // It should be either String (more content) or StringEnd (end of string)
+            if self.is_peek_token(TokenType::String) {
+                // More string content with possibly more interpolations
+                self.next_token();
+                let literal = self.current_token.literal.clone();
+                if !literal.is_empty() {
+                    parts.push(StringPart::Literal(literal));
+                }
+                // Check if there's another interpolation
+                if !self.is_interpolation_expression_start() {
+                    // No more interpolations, but we got String not StringEnd - this shouldn't happen
+                    // Just break and return what we have
+                    break;
+                }
+                // Continue to parse next interpolation
+            } else if self.is_peek_token(TokenType::StringEnd) {
+                // End of interpolated string
+                self.next_token();
+                let final_literal = self.current_token.literal.clone();
+                if !final_literal.is_empty() {
+                    parts.push(StringPart::Literal(final_literal));
+                }
+                break;
+            } else {
+                // Unexpected token - report error
+                self.errors.push(
+                    Diagnostic::error("UNTERMINATED INTERPOLATION")
+                        .with_code("E107")
+                        .with_position(self.peek_token.position)
+                        .with_message("Expected string continuation or end after interpolation."),
+                );
+                return None;
+            }
+        }
+
+        Some(Expression::InterpolatedString {
+            parts,
             span: Span::new(start, self.current_token.position),
         })
     }

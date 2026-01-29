@@ -80,7 +80,8 @@ define_tokens! {
         Colon     => ":",
         Dot       => ".",
         Arrow     => "->",
-
+        InterpolationStart => "#{",
+        StringEnd => "STRING_END",
     }
 
     keywords {
