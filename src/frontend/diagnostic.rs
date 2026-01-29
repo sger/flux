@@ -1,4 +1,4 @@
-use crate::frontend::position::Position;
+use crate::frontend::position::{Position, Span};
 use std::env;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,6 +17,7 @@ pub struct Diagnostic {
     pub message: Option<String>,
     pub file: Option<String>,
     pub position: Option<Position>,
+    pub span: Option<Span>,
     pub hints: Vec<String>,
 }
 
@@ -39,6 +40,7 @@ impl Diagnostic {
             message: None,
             file: None,
             position: None,
+            span: None,
             hints: Vec::new(),
         }
     }
@@ -51,6 +53,7 @@ impl Diagnostic {
             message: None,
             file: None,
             position: None,
+            span: None,
             hints: Vec::new(),
         }
     }
@@ -72,6 +75,13 @@ impl Diagnostic {
 
     pub fn with_position(mut self, position: Position) -> Self {
         self.position = Some(position);
+        self.span = Some(Span::new(position, position));
+        self
+    }
+
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.position = Some(span.start);
+        self.span = Some(span);
         self
     }
 
@@ -84,6 +94,7 @@ impl Diagnostic {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
         let yellow = "\u{1b}[33m";
+        let red = "\u{1b}[31m";
         let reset = "\u{1b}[0m";
         let file = self.file.as_deref().or(default_file).unwrap_or("<unknown>");
         let code = self.code.as_deref().unwrap_or("E000");
@@ -105,29 +116,51 @@ impl Diagnostic {
         if let Some(position) = self.position {
             let _display_column = position.column + 1;
 
-            if let Some(line_text) = source.and_then(|src| get_source_line(src, position.line)) {
-                let line_str = position.line.to_string();
-                let gutter_width = line_str.len();
-                let caret_indent = position.column.min(line_text.len());
-                out.push('\n');
-                out.push_str(&format!(
-                    "{:>width$} | {}\n",
-                    position.line,
-                    line_text,
-                    width = gutter_width
-                ));
-                out.push_str(&format!(
-                    "{:>width$} | {}",
-                    "",
-                    " ".repeat(caret_indent),
-                    width = gutter_width
-                ));
-                if use_color {
-                    out.push_str(yellow);
-                }
-                out.push('^');
-                if use_color {
-                    out.push_str(reset);
+            let span = self.span.unwrap_or_else(|| Span::new(position, position));
+            let start_line = span.start.line;
+            let end_line = span.end.line.max(start_line);
+            let line_width = end_line.to_string().len();
+
+            for line_no in start_line..=end_line {
+                if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
+                    let line_len = line_text.len();
+                    let (caret_start, caret_end) = if line_no == start_line && line_no == end_line
+                    {
+                        let start = span.start.column.min(line_len);
+                        let end = span.end.column.min(line_len);
+                        let end = end.max(start + 1);
+                        (start, end)
+                    } else if line_no == start_line {
+                        let start = span.start.column.min(line_len);
+                        (start, line_len.max(start + 1))
+                    } else if line_no == end_line {
+                        let end = span.end.column.min(line_len);
+                        (0, end.max(1))
+                    } else {
+                        (0, line_len.max(1))
+                    };
+
+                    out.push('\n');
+                    out.push_str(&format!(
+                        "{:>width$} | {}\n",
+                        line_no,
+                        line_text,
+                        width = line_width
+                    ));
+                    out.push_str(&format!(
+                        "{:>width$} | {}",
+                        "",
+                        " ".repeat(caret_start),
+                        width = line_width
+                    ));
+                    if use_color {
+                        out.push_str(red);
+                    }
+                    let caret_len = caret_end.saturating_sub(caret_start).max(1);
+                    out.push_str(&"^".repeat(caret_len));
+                    if use_color {
+                        out.push_str(reset);
+                    }
                 }
             }
         }

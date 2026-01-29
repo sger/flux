@@ -1,0 +1,5 @@
+// Triggers E033 (IMPORT READ FAILED)
+// Make the module file unreadable to reproduce:
+//   chmod 000 examples/errors/Broken.flx
+import Broken
+Broken.value();

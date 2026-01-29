@@ -212,11 +212,7 @@ fn resolve_imports(
 
     for statement in &program.statements {
         let (name, alias, position) = match statement {
-            Statement::Import {
-                name,
-                alias,
-                position,
-            } => (name.clone(), alias.clone(), *position),
+            Statement::Import { name, alias, span } => (name.clone(), alias.clone(), span.start),
             _ => continue,
         };
 
@@ -363,8 +359,8 @@ fn validate_file_kind(
     let mut module_decls: Vec<(String, Position)> = Vec::new();
 
     for statement in &program.statements {
-        if let Statement::Module { name, position, .. } = statement {
-            module_decls.push((name.clone(), *position));
+        if let Statement::Module { name, span, .. } = statement {
+            module_decls.push((name.clone(), span.start));
         }
     }
 

@@ -1,0 +1,8 @@
+import Blue.Quill as Quill
+import Purple.Muse as Muse
+
+module Amber.Ink {
+  fun greet_twice(name) {
+    Muse.exclaim(Quill.greet(name)) + " " + Quill.greet(name);
+  }
+}
