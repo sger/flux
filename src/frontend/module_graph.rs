@@ -5,7 +5,12 @@ use std::{
 };
 
 use crate::frontend::{
-    diagnostic::Diagnostic, lexer::Lexer, parser::Parser, position::Position, program::Program,
+    diagnostic::Diagnostic,
+    error_codes,
+    lexer::Lexer,
+    parser::Parser,
+    position::Position,
+    program::Program,
     statement::Statement,
 };
 
@@ -177,8 +182,7 @@ fn is_valid_module_segment(segment: &str) -> bool {
 
 fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
     let source = fs::read_to_string(path).map_err(|err| {
-        vec![Diagnostic::error("IMPORT READ FAILED")
-            .with_code("E033")
+        vec![error_codes::diag(&error_codes::IMPORT_READ_FAILED)
             .with_message(format!("{}: {}", path.display(), err))
             .with_file(path.display().to_string())]
     })?;
@@ -218,8 +222,7 @@ fn resolve_imports(
 
         if !is_valid_module_name(&name) {
             diagnostics.push(
-                Diagnostic::error("INVALID MODULE NAME")
-                    .with_code("E016")
+                error_codes::diag(&error_codes::INVALID_MODULE_NAME)
                     .with_position(position)
                     .with_message(format!("Invalid module name `{}`.", name))
                     .with_hint("Use UpperCamelCase segments separated by dots.")
@@ -231,8 +234,7 @@ fn resolve_imports(
         if let Some(alias) = &alias {
             if !is_valid_module_alias(alias) {
                 diagnostics.push(
-                    Diagnostic::error("INVALID MODULE ALIAS")
-                        .with_code("E040")
+                    error_codes::diag(&error_codes::INVALID_MODULE_ALIAS)
                         .with_position(position)
                         .with_message(format!("Invalid module alias `{}`.", alias))
                         .with_hint("Use UpperCamelCase letters and digits (no dots).")
@@ -282,8 +284,7 @@ fn resolve_import_path(
     let import_path = match matches.len() {
         0 => {
             return Err(
-                Diagnostic::error("IMPORT NOT FOUND")
-                    .with_code("E032")
+                error_codes::diag(&error_codes::IMPORT_NOT_FOUND)
                     .with_position(position)
                     .with_message(format!("no module file found for `{}`", name))
                     .with_hint(format!(
@@ -301,8 +302,7 @@ fn resolve_import_path(
         1 => matches.remove(0),
         _ => {
             return Err(
-                Diagnostic::error("DUPLICATE MODULE")
-                    .with_code("E041")
+                error_codes::diag(&error_codes::DUPLICATE_MODULE)
                     .with_position(position)
                     .with_message(format!("module `{}` is defined in multiple roots.", name))
                     .with_hint(format!(
@@ -370,8 +370,7 @@ fn validate_file_kind(
 
     if module_decls.len() > 1 {
         diagnostics.push(
-            Diagnostic::error("MULTIPLE MODULES")
-                .with_code("E037")
+            error_codes::diag(&error_codes::MULTIPLE_MODULES)
                 .with_message("Files may declare exactly one module.")
                 .with_file(path.display().to_string()),
         );
@@ -386,8 +385,7 @@ fn validate_file_kind(
                 Statement::Module { .. } => {}
                 _ => {
                     diagnostics.push(
-                        Diagnostic::error("INVALID MODULE FILE")
-                            .with_code("E042")
+                        error_codes::diag(&error_codes::INVALID_MODULE_FILE)
                             .with_position(statement.position())
                             .with_message(
                                 "Module files may only contain imports and a single module declaration.",
@@ -401,8 +399,7 @@ fn validate_file_kind(
 
         if !is_valid_module_name(&module_name) {
             diagnostics.push(
-                Diagnostic::error("INVALID MODULE NAME")
-                    .with_code("E016")
+                error_codes::diag(&error_codes::INVALID_MODULE_NAME)
                     .with_position(position)
                     .with_message(format!("Invalid module name `{}`.", module_name))
                     .with_hint("Use UpperCamelCase segments separated by dots.")
@@ -410,8 +407,7 @@ fn validate_file_kind(
             );
         } else if !module_name_matches_path(&module_name, path, roots) {
             diagnostics.push(
-                Diagnostic::error("MODULE PATH MISMATCH")
-                    .with_code("E038")
+                error_codes::diag(&error_codes::MODULE_PATH_MISMATCH)
                     .with_position(position)
                     .with_message(format!(
                         "Module `{}` does not match file path `{}`.",
@@ -424,8 +420,7 @@ fn validate_file_kind(
         }
     } else if !is_entry {
         diagnostics.push(
-            Diagnostic::error("SCRIPT NOT IMPORTABLE")
-                .with_code("E036")
+            error_codes::diag(&error_codes::SCRIPT_NOT_IMPORTABLE)
                 .with_message("Scripts cannot be imported; add a module declaration.")
                 .with_file(path.display().to_string()),
         );
@@ -502,8 +497,7 @@ fn topo_order(
             .collect::<Vec<_>>()
             .join(" -> ");
         return Err(
-            Diagnostic::error("IMPORT CYCLE")
-                .with_code("E035")
+            error_codes::diag(&error_codes::IMPORT_CYCLE)
                 .with_message(format!("import cycle detected: {}", cycle_str))
                 .with_file(entry.as_str().to_string()),
         );

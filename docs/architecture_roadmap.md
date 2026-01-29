@@ -5,7 +5,7 @@ This document outlines high-impact architectural improvements for Flux.
 ## Highest Priority
 
 - Module graph (imports, cycle detection, deterministic order).
-- Central error-code registry.
+- Central error-code registry (`src/frontend/error_codes.rs`).
 - AST spans for all nodes (better diagnostics and tooling).
 - VM trace + stack dump + source mapping.
 - List/Map stdlib + Option ergonomics (`unwrap_or`, `map`, `and_then`).
