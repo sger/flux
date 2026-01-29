@@ -99,6 +99,16 @@ MathTest.value();
 
 Note: selective imports are still planned; aliases and nested module imports are supported.
 
+### Module Roots
+
+Import resolution searches the entry file directory and `./src` by default.
+You can add roots with `--root`, or use `--roots-only` to ignore implicit roots.
+
+```
+flux run examples/duplicate_root_import_error.flx --root examples/root_a --root examples/root_b
+flux run examples/duplicate_root_import_error.flx --roots-only --root examples/root_a --root examples/root_b
+```
+
 ### Bytecode Cache
 
 Flux caches compiled bytecode in `.fxc` files under `target/flux/`. The cache is invalidated if the
