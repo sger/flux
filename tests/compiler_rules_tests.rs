@@ -165,10 +165,7 @@ fn match_wildcard_non_last_error() {
 #[test]
 fn forward_reference_simple() {
     // Function g calls function f, which is defined after g
-    compile_ok_in(
-        "test.flx",
-        "fun g() { f(); } fun f() { 1; }",
-    );
+    compile_ok_in("test.flx", "fun g() { f(); } fun f() { 1; }");
 }
 
 #[test]
@@ -210,10 +207,7 @@ fn self_recursion_still_works() {
 #[test]
 fn forward_reference_with_variables() {
     // Forward reference with let bindings in between
-    compile_ok_in(
-        "test.flx",
-        "fun f() { g(); } let x = 10; fun g() { x; }",
-    );
+    compile_ok_in("test.flx", "fun f() { g(); } let x = 10; fun g() { x; }");
 }
 
 #[test]

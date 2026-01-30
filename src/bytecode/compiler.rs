@@ -110,12 +110,14 @@ impl Compiler {
                 let position = span.start;
                 // Check for duplicate declaration first (takes precedence)
                 if self.symbol_table.exists_in_current_scope(name) {
-                    self.errors.push(self.make_redeclaration_error(name, position));
+                    self.errors
+                        .push(self.make_redeclaration_error(name, position));
                     continue;
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    self.errors.push(self.make_import_collision_error(name, position));
+                    self.errors
+                        .push(self.make_import_collision_error(name, position));
                     continue;
                 }
                 // Predeclare the function name
