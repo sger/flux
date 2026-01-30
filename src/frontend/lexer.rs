@@ -54,6 +54,14 @@ impl Lexer {
                 self.read_char();
                 Token::new(TokenType::NotEq, "!=", line, col)
             }
+            Some('<') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::Lte, "<=", line, col)
+            }
+            Some('>') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::Gte, ">=", line, col)
+            }
             Some('-') if self.peek_char() == Some('>') => {
                 self.read_char();
                 Token::new(TokenType::Arrow, "->", line, col)

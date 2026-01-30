@@ -427,6 +427,13 @@ impl Compiler {
                     return Ok(());
                 }
 
+                if operator == "<=" {
+                    self.compile_expression(left)?;
+                    self.compile_expression(right)?;
+                    self.emit(OpCode::OpLessThanOrEqual, &[]);
+                    return Ok(());
+                }
+
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
@@ -438,6 +445,7 @@ impl Compiler {
                     "==" => self.emit(OpCode::OpEqual, &[]),
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
+                    ">=" => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     _ => {
                         return Err(Self::boxed(
                             Diagnostic::error("UNKNOWN INFIX OPERATOR")
