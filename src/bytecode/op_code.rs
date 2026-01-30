@@ -41,6 +41,7 @@ pub enum OpCode {
     OpIsSome = 35,
     OpUnwrapSome = 36,
     OpToString = 37,
+    OpJumpTruthy = 38, // Jump if top of stack is truthy (for || operator)
 }
 
 impl From<u8> for OpCode {
@@ -84,6 +85,7 @@ impl From<u8> for OpCode {
             35 => OpCode::OpIsSome,
             36 => OpCode::OpUnwrapSome,
             37 => OpCode::OpToString,
+            38 => OpCode::OpJumpTruthy,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -100,6 +102,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpConstant
         | OpCode::OpJump
         | OpCode::OpJumpNotTruthy
+        | OpCode::OpJumpTruthy
         | OpCode::OpGetGlobal
         | OpCode::OpSetGlobal
         | OpCode::OpArray

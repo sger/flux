@@ -66,7 +66,15 @@ impl Lexer {
                 self.read_char();
                 Token::new(TokenType::Arrow, "->", line, col)
             }
-
+            // Logical operators
+            Some('&') if self.peek_char() == Some('&') => {
+                self.read_char();
+                Token::new(TokenType::And, "&&", line, col)
+            }
+            Some('|') if self.peek_char() == Some('|') => {
+                self.read_char();
+                Token::new(TokenType::Or, "||", line, col)
+            }
             // Single-character operators and delimiters
             Some('=') => Token::new(TokenType::Assign, "=", line, col),
             Some('!') => Token::new(TokenType::Bang, "!", line, col),

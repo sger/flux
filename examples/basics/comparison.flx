@@ -33,3 +33,11 @@ print(2 <= 1);
 print(2 >= 1);
 print(2 >= 2);
 print(1 >= 2);
+
+print(true && true);    // true
+print(true && false);   // false
+print(false && true);   // false (right side not evaluated)
+
+print(true || false);   // true (right side not evaluated)
+print(false || true);   // true
+print(false || false);  // false

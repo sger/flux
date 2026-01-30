@@ -433,6 +433,24 @@ impl Compiler {
                     self.emit(OpCode::OpLessThanOrEqual, &[]);
                     return Ok(());
                 }
+                // a && b: if a is falsy, result is a (short-circuit); otherwise result is b
+                // OpJumpNotTruthy: peeks value, jumps if falsy (keeps value), pops if truthy
+                if operator == "&&" {
+                    self.compile_expression(left)?;
+                    let jump_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+                    self.compile_expression(right)?;
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+                // a || b: if a is truthy, result is a (short-circuit); otherwise result is b
+                // OpJumpTruthy: peeks value, jumps if truthy (keeps value), pops if falsy
+                if operator == "||" {
+                    self.compile_expression(left)?;
+                    let jump_pos = self.emit(OpCode::OpJumpTruthy, &[9999]);
+                    self.compile_expression(right)?;
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
 
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
@@ -723,6 +741,10 @@ impl Compiler {
 
         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
         self.change_operand(jump_not_truthy_pos, self.current_instructions().len());
+
+        // Pop the condition value that was left on stack when we jumped here
+        // (OpJumpNotTruthy keeps value on stack when jumping for short-circuit support)
+        self.emit(OpCode::OpPop, &[]);
 
         if let Some(alt) = alternative {
             self.compile_block(alt)?;
