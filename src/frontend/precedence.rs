@@ -6,7 +6,7 @@ pub enum Precedence {
     Equals,      // ==, !=
     LessGreater, // <, >, <=, >=  (TODO: Implement <= and >=)
     Sum,         // +, -
-    Product,     // *, /
+    Product,     // *, /, %  (TODO: Implement %)
     Prefix,      // -x, !x
     Call,        // fn(x)
     Index,       // array[index]
@@ -19,6 +19,7 @@ pub fn token_precedence(token_type: &TokenType) -> Precedence {
         TokenType::Lte | TokenType::Gte => Precedence::LessGreater,
         TokenType::Plus | TokenType::Minus => Precedence::Sum,
         TokenType::Asterisk | TokenType::Slash => Precedence::Product,
+        TokenType::Percent => Precedence::Product,
         TokenType::LParen => Precedence::Call,
         TokenType::LBracket | TokenType::Dot => Precedence::Index,
         _ => Precedence::Lowest,

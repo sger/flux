@@ -442,6 +442,7 @@ impl Compiler {
                     "-" => self.emit(OpCode::OpSub, &[]),
                     "*" => self.emit(OpCode::OpMul, &[]),
                     "/" => self.emit(OpCode::OpDiv, &[]),
+                    "%" => self.emit(OpCode::OpMod, &[]),
                     "==" => self.emit(OpCode::OpEqual, &[]),
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),

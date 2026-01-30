@@ -350,6 +350,7 @@ impl Parser {
             | TokenType::Minus
             | TokenType::Asterisk
             | TokenType::Slash
+            | TokenType::Percent
             | TokenType::Lt
             | TokenType::Gt
             | TokenType::Lte

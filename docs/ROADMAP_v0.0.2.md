@@ -21,12 +21,12 @@ This roadmap focuses on completing the core language features needed for practic
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  M1: Core Operators          ████████░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  M2: Pipe Operator           ░░░░░░░░████░░░░░░░░░░░░░░░░░░░░  │
-│  M3: Either Type             ░░░░░░░░░░░░████████░░░░░░░░░░░░  │
-│  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░████░░░░░░░░  │
-│  M5: Essential Builtins      ░░░░░░░░░░░░░░░░░░░░░░░░████████  │
-│  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░████  │
+│  M1: Core Operators          ████████████░░░░░░░░░░░░░░░░░░░░  │ 33% (1/3)
+│  M2: Pipe Operator           ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M3: Either Type             ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M5: Essential Builtins      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -35,27 +35,36 @@ This roadmap focuses on completing the core language features needed for practic
 ## Milestone 1: Core Operators
 
 **Priority:** Critical
-**Status:** Not Started
+**Status:** In Progress (1/3 complete)
 
-### 1.1 Comparison Operators: `<=` and `>=`
+### 1.1 Comparison Operators: `<=` and `>=` ✅
 
-| Task | File(s) | Effort |
+**Status:** COMPLETED
+
+| Task | File(s) | Status |
 |------|---------|--------|
-| Add `LessEqual`, `GreaterEqual` tokens | `token_type.rs` | Small |
-| Lexer: recognize `<=` and `>=` | `lexer.rs` | Small |
-| Parser: parse as infix operators | `parser.rs` | Small |
-| Add `OpLessEqual`, `OpGreaterEqual` opcodes | `op_code.rs` | Small |
-| Compiler: emit new opcodes | `compiler.rs` | Small |
-| VM: execute comparisons | `vm.rs` | Small |
-| Tests | `tests/` | Small |
+| Add `Lte`, `Gte` tokens | `token_type.rs` | ✅ Done |
+| Lexer: recognize `<=` and `>=` | `lexer.rs` | ✅ Done |
+| Parser: parse as infix operators | `parser.rs` | ✅ Done |
+| Add `OpLessThanOrEqual`, `OpGreaterThanOrEqual` opcodes | `op_code.rs` | ✅ Done |
+| Compiler: emit new opcodes | `compiler.rs` | ✅ Done |
+| VM: execute comparisons | `vm.rs` | ✅ Done |
+| Tests | `tests/` | ✅ Done |
+| Update examples | `examples/basics/comparison.flx` | ✅ Done |
 
-**Acceptance Criteria:**
+**Acceptance Criteria:** ✅ ALL PASSING
 ```flux
-print(5 <= 5);   // true
-print(5 <= 4);   // false
-print(3 >= 3);   // true
-print(3 >= 4);   // false
+print(5 <= 5);   // true  ✅
+print(5 <= 4);   // false ✅
+print(3 >= 3);   // true  ✅
+print(3 >= 4);   // false ✅
 ```
+
+**Implementation Notes:**
+- Opcodes are sequential (OpLessThanOrEqual = 8, OpGreaterThanOrEqual = 9)
+- Works with integers, floats, mixed numeric types, and strings
+- 18 comprehensive unit tests added
+- Example file updated with 6 test cases
 
 ### 1.2 Modulo Operator: `%`
 
@@ -125,7 +134,9 @@ print(called);  // false (side_effect not called)
 
 ### 1.4 Milestone 1 Deliverables
 
-- [ ] All 5 operators working: `<=`, `>=`, `%`, `&&`, `||`
+- [x] ✅ Comparison operators: `<=`, `>=` (DONE)
+- [ ] Modulo operator: `%`
+- [ ] Logical operators: `&&`, `||`
 - [ ] Proper precedence: `&&` binds tighter than `||`
 - [ ] Short-circuit evaluation for `&&` and `||`
 - [ ] Unit tests for all operators
