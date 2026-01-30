@@ -882,4 +882,74 @@ mod tests {
         assert_eq!(run("1 % 10;"), Object::Integer(1)); // smaller % larger
         assert_eq!(run("0 % 5;"), Object::Integer(0)); // zero % n
     }
+
+    #[test]
+    fn test_pipe_operator() {
+        // Basic pipe: value |> function
+        assert_eq!(
+            run("let double = fun(x) { x * 2; }; 5 |> double;"),
+            Object::Integer(10)
+        );
+
+        // Chained pipes: value |> f |> g
+        assert_eq!(
+            run("let double = fun(x) { x * 2; }; let triple = fun(x) { x * 3; }; 5 |> double |> triple;"),
+            Object::Integer(30)
+        );
+
+        // Pipe with additional arguments: value |> function(arg)
+        assert_eq!(
+            run("let add = fun(x, y) { x + y; }; 5 |> add(3);"),
+            Object::Integer(8)
+        );
+
+        // Pipe with multiple additional arguments
+        assert_eq!(
+            run("let sum3 = fun(a, b, c) { a + b + c; }; 1 |> sum3(2, 3);"),
+            Object::Integer(6)
+        );
+
+        // Complex chain with mixed calls
+        assert_eq!(
+            run(r#"
+                let double = fun(x) { x * 2; };
+                let add = fun(x, y) { x + y; };
+                let square = fun(x) { x * x; };
+                2 |> double |> add(10) |> square;
+            "#),
+            Object::Integer(196) // ((2*2) + 10)^2 = 14^2 = 196
+        );
+
+        // Pipe preserves argument order (left side becomes first arg)
+        assert_eq!(
+            run("let subtract = fun(a, b) { a - b; }; 10 |> subtract(3);"),
+            Object::Integer(7) // 10 - 3 = 7
+        );
+
+        // Pipe with string operations
+        assert_eq!(
+            run(r#"
+                let greet = fun(name) { "Hello, " + name; };
+                let exclaim = fun(s) { s + "!"; };
+                "World" |> greet |> exclaim;
+            "#),
+            Object::String("Hello, World!".to_string())
+        );
+
+        // Pipe with array operations
+        assert_eq!(
+            run("let getFirst = fun(arr) { first(arr); }; [1, 2, 3] |> getFirst;"),
+            Object::Integer(1)
+        );
+
+        // Nested pipe expressions
+        assert_eq!(
+            run(r#"
+                let inc = fun(x) { x + 1; };
+                let double = fun(x) { x * 2; };
+                (3 |> inc) |> double;
+            "#),
+            Object::Integer(8) // (3+1) * 2 = 8
+        );
+    }
 }

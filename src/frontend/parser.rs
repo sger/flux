@@ -359,6 +359,7 @@ impl Parser {
             | TokenType::NotEq
             | TokenType::And
             | TokenType::Or => self.parse_infix_expression(left),
+            TokenType::Pipe => self.parse_pipe_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),
@@ -379,6 +380,59 @@ impl Parser {
             right: Box::new(right),
             span: Span::new(start, end),
         })
+    }
+
+    // Pipe operator: a |> f(b, c) transforms to f(a, b, c)
+    fn parse_pipe_expression(&mut self, left: Expression) -> Option<Expression> {
+        let start = left.span().start;
+        let precedence = self.current_precedence();
+        self.next_token(); // consume |>
+
+        // Parse the right side - could be identifier or call
+        let right = self.parse_expression(precedence)?;
+
+        // Transform based on what we got
+        match right {
+            // a |> f => f(a)
+            Expression::Identifier { name, span } => {
+                Some(Expression::Call {
+                    function: Box::new(Expression::Identifier { name, span: span.clone() }),
+                    arguments: vec![left],
+                    span: Span::new(start, span.end),
+                })
+            }
+            // a |> Module.func => Module.func(a)
+            Expression::MemberAccess { object, member, span } => {
+                Some(Expression::Call {
+                    function: Box::new(Expression::MemberAccess {
+                        object,
+                        member,
+                        span: span.clone(),
+                    }),
+                    arguments: vec![left],
+                    span: Span::new(start, span.end),
+                })
+            }
+            // a |> f(b, c) => f(a, b, c)
+            Expression::Call { function, mut arguments, span } => {
+                arguments.insert(0, left);
+                Some(Expression::Call {
+                    function,
+                    arguments,
+                    span: Span::new(start, span.end),
+                })
+            }
+            _ => {
+                self.errors.push(
+                    Diagnostic::error("INVALID PIPE TARGET")
+                        .with_code("E103")
+                        .with_position(self.current_token.position)
+                        .with_message("Pipe operator expects a function or function call.")
+                        .with_hint("Use `value |> func` or `value |> func(arg)`"),
+                );
+                None
+            }
+        }
     }
 
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
