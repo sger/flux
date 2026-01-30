@@ -1,13 +1,22 @@
 module Modules.Math {
+  // Forward reference: quadruple uses double which is defined below
+  fun quadruple(x) {
+    double(double(x));
+  }
 
-  // let test a = 2;
+  // Forward reference: triple uses double which is defined below
+  fun triple(x) {
+    x + double(x);
+  }
 
-  // public
+  fun double(x) {
+    x * 2;
+  }
+
   fun square(x) {
     x * x;
   }
-  
-  // public
+
   fun cube(x) {
     x * square(x);
   }
@@ -16,18 +25,34 @@ module Modules.Math {
     cube(100);
   }
 
+  // Mutual recursion: isEven and isOdd call each other
+  fun isEven(n) {
+    if n == 0 {
+      true;
+    } else {
+      isOdd(n - 1);
+    }
+  }
+
+  fun isOdd(n) {
+    if n == 0 {
+      false;
+    } else {
+      isEven(n - 1);
+    }
+  }
+
   fun _private_function() {
     print("_private_function");
   }
 
   fun calling_private_from_public_function() {
-    // print(test);
     print("calling_private_from_public_function");
     _private_function();
     return 42;
   }
 }
 
-//print(Math.cube(10));
+// print(Math.cube(10));
 // print(Math.call_another_function());
-//print(Math.calling_private_from_public_function());
+// print(Math.calling_private_from_public_function());

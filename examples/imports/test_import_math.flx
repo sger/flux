@@ -1,7 +1,25 @@
-import Modules.Math
+// Run with: scripts/run_examples.sh imports/test_import_math.flx
+// Or: cargo run -- --root examples examples/imports/test_import_math.flx
 
-print(Math.square(5));         // OK
+import Modules.Math as Math
+
+// Using alias (Math instead of Modules.Math)
+// See test_import_math_qualified.flx for fully qualified example
+
+// Basic functions
+print(Math.square(5));         // 25
+print(Math.cube(3));           // 27
+
+// Forward reference examples: quadruple and triple use double (defined after them)
+print(Math.double(5));         // 10
+print(Math.triple(5));         // 15
+print(Math.quadruple(3));      // 12
+
+// Mutual recursion: isEven and isOdd call each other
+print(Math.isEven(10));        // true
+print(Math.isOdd(10));         // false
+print(Math.isEven(7));         // false
+print(Math.isOdd(7));          // true
+
 // print(Math._private_function()); // should error (private)
-//square(5);                      // should error (no leak)
-
-
+// square(5);                       // should error (no leak)

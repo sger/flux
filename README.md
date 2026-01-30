@@ -4,7 +4,7 @@ A small, functional language with a custom bytecode VM.
 
 ## Current Features
 
-- **Functions**: `fun` declarations, closures, higher-order functions
+- **Functions**: `fun` declarations, closures, higher-order functions, forward references, mutual recursion
 - **Immutability**: `let` bindings are immutable; reassignment is rejected
 - **Scoping**: lexical scoping, closures, and free variables
 - **Modules**: static, qualified namespaces (`module Name { ... }`), public by default, `_private` hidden; module names must start uppercase
@@ -24,6 +24,43 @@ A small, functional language with a custom bytecode VM.
 ```
 cargo run -- path/to/file.flx
 cargo run -- --verbose run path/to/file.flx
+```
+
+## Forward References and Mutual Recursion
+
+Functions can reference other functions defined later in the same scope. This enables mutual recursion and flexible code organization:
+
+```flux
+// functions/forward_reference.flx
+fun main() {
+    print(greet("World"));  // calls greet() defined below
+    print(isEven(10));      // mutual recursion
+}
+
+fun greet(name) {
+    "Hello, " + name + "!";
+}
+
+// Mutual recursion: isEven and isOdd call each other
+fun isEven(n) {
+    if n == 0 { true; } else { isOdd(n - 1); }
+}
+
+fun isOdd(n) {
+    if n == 0 { false; } else { isEven(n - 1); }
+}
+
+main();
+```
+
+Forward references also work within modules:
+
+```flux
+module Math {
+    // quadruple uses double which is defined below
+    fun quadruple(x) { double(double(x)); }
+    fun double(x) { x * 2; }
+}
 ```
 
 ## Modules and Imports

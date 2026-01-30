@@ -161,3 +161,82 @@ fn match_wildcard_non_last_error() {
     let code = compile_err("let x = 2; match x { _ -> 1; 2 -> 2; }");
     assert_eq!(code, "E034");
 }
+
+#[test]
+fn forward_reference_simple() {
+    // Function g calls function f, which is defined after g
+    compile_ok_in(
+        "test.flx",
+        "fun g() { f(); } fun f() { 1; }",
+    );
+}
+
+#[test]
+fn forward_reference_nested_call() {
+    // Function a calls b, b calls c, c is defined last
+    compile_ok_in(
+        "test.flx",
+        "fun a() { b(); } fun b() { c(); } fun c() { 42; }",
+    );
+}
+
+#[test]
+fn mutual_recursion_two_functions() {
+    // Functions f and g call each other
+    compile_ok_in(
+        "test.flx",
+        "fun f(x) { if x > 0 { g(x - 1); } else { 0; } } fun g(x) { if x > 0 { f(x - 1); } else { 1; } }",
+    );
+}
+
+#[test]
+fn mutual_recursion_three_functions() {
+    // Functions a, b, c form a circular dependency
+    compile_ok_in(
+        "test.flx",
+        "fun a(x) { if x > 0 { b(x - 1); } else { 0; } } fun b(x) { if x > 0 { c(x - 1); } else { 1; } } fun c(x) { if x > 0 { a(x - 1); } else { 2; } }",
+    );
+}
+
+#[test]
+fn self_recursion_still_works() {
+    // Ensure basic recursion still works
+    compile_ok_in(
+        "test.flx",
+        "fun factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }",
+    );
+}
+
+#[test]
+fn forward_reference_with_variables() {
+    // Forward reference with let bindings in between
+    compile_ok_in(
+        "test.flx",
+        "fun f() { g(); } let x = 10; fun g() { x; }",
+    );
+}
+
+#[test]
+fn duplicate_function_still_errors() {
+    // Ensure duplicate function names still produce an error
+    let code = compile_err("fun f() { 1; } fun f() { 2; }");
+    assert_eq!(code, "E001");
+}
+
+#[test]
+fn module_forward_reference() {
+    // Function in module uses another function defined later in the same module
+    compile_ok_in(
+        "test.flx",
+        "module Math { fun quadruple(x) { double(double(x)); } fun double(x) { x * 2; } }",
+    );
+}
+
+#[test]
+fn module_mutual_recursion() {
+    // Functions within a module call each other
+    compile_ok_in(
+        "test.flx",
+        "module Parity { fun isEven(n) { if n == 0 { true; } else { isOdd(n - 1); } } fun isOdd(n) { if n == 0 { false; } else { isEven(n - 1); } } }",
+    );
+}
