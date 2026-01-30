@@ -4,7 +4,7 @@ use crate::frontend::token_type::TokenType;
 pub enum Precedence {
     Lowest,
     Equals,      // ==, !=
-    LessGreater, // <, >
+    LessGreater, // <, >, <=, >=  (TODO: Implement <= and >=)
     Sum,         // +, -
     Product,     // *, /
     Prefix,      // -x, !x
@@ -16,6 +16,7 @@ pub fn token_precedence(token_type: &TokenType) -> Precedence {
     match token_type {
         TokenType::Eq | TokenType::NotEq => Precedence::Equals,
         TokenType::Lt | TokenType::Gt => Precedence::LessGreater,
+        TokenType::Lte | TokenType::Gte => Precedence::LessGreater,
         TokenType::Plus | TokenType::Minus => Precedence::Sum,
         TokenType::Asterisk | TokenType::Slash => Precedence::Product,
         TokenType::LParen => Precedence::Call,

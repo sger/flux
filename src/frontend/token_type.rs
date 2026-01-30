@@ -63,7 +63,9 @@ define_tokens! {
         Slash    => "/",
         Bang     => "!",
         Lt       => "<",
-        Gt       => ">",
+        Gt       => ">",  // TODO: Implement greater than or equal operator
+        Lte      => "<=",
+        Gte      => ">=",
         Eq       => "==",
         NotEq    => "!=",
         Assign   => "=",
@@ -98,7 +100,5 @@ define_tokens! {
         Some   => "Some",
         None   => "None",
         Match  => "match",
-
-        // ↓ Add new keywords here ↓
     }
 }

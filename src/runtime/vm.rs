@@ -133,6 +133,9 @@ impl VM {
                 OpCode::OpEqual | OpCode::OpNotEqual | OpCode::OpGreaterThan => {
                     self.execute_comparison(op)?;
                 }
+                OpCode::OpLessThanOrEqual | OpCode::OpGreaterThanOrEqual => {
+                    self.execute_comparison(op)?;
+                }
                 OpCode::OpBang => {
                     let operand = self.pop()?;
                     self.push(Object::Boolean(!operand.is_truthy()))?;
@@ -466,6 +469,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -475,6 +480,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -485,6 +492,8 @@ impl VM {
                     OpCode::OpEqual => l == *r,
                     OpCode::OpNotEqual => l != *r,
                     OpCode::OpGreaterThan => l > *r,
+                    OpCode::OpLessThanOrEqual => l <= *r,
+                    OpCode::OpGreaterThanOrEqual => l >= *r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -495,6 +504,8 @@ impl VM {
                     OpCode::OpEqual => *l == r,
                     OpCode::OpNotEqual => *l != r,
                     OpCode::OpGreaterThan => *l > r,
+                    OpCode::OpLessThanOrEqual => *l <= r,
+                    OpCode::OpGreaterThanOrEqual => *l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -512,6 +523,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown string comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -790,5 +803,31 @@ mod tests {
                 Object::Integer(3),
             ])
         );
+    }
+
+    #[test]
+    fn test_less_than_or_equal_operator() {
+        assert_eq!(run("5 <= 10;"), Object::Boolean(true));
+        assert_eq!(run("10 <= 5;"), Object::Boolean(false));
+        assert_eq!(run("5 <= 5;"), Object::Boolean(true));
+        assert_eq!(run("5.5 <= 10.5;"), Object::Boolean(true));
+        assert_eq!(run("10.5 <= 5.5;"), Object::Boolean(false));
+        assert_eq!(run("5.5 <= 5.5;"), Object::Boolean(true));
+        assert_eq!(run(r#""apple" <= "banana";"#), Object::Boolean(true));
+        assert_eq!(run(r#""banana" <= "apple";"#), Object::Boolean(false));
+        assert_eq!(run(r#""apple" <= "apple";"#), Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_greater_than_or_equal_operator() {
+        assert_eq!(run("10 >= 5;"), Object::Boolean(true));
+        assert_eq!(run("5 >= 10;"), Object::Boolean(false));
+        assert_eq!(run("5 >= 5;"), Object::Boolean(true));
+        assert_eq!(run("10.5 >= 5.5;"), Object::Boolean(true));
+        assert_eq!(run("5.5 >= 10.5;"), Object::Boolean(false));
+        assert_eq!(run("5.5 >= 5.5;"), Object::Boolean(true));
+        assert_eq!(run(r#""banana" >= "apple";"#), Object::Boolean(true));
+        assert_eq!(run(r#""apple" >= "banana";"#), Object::Boolean(false));
+        assert_eq!(run(r#""apple" >= "apple";"#), Object::Boolean(true));
     }
 }

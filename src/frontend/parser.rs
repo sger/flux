@@ -352,6 +352,8 @@ impl Parser {
             | TokenType::Slash
             | TokenType::Lt
             | TokenType::Gt
+            | TokenType::Lte
+            | TokenType::Gte
             | TokenType::Eq
             | TokenType::NotEq => self.parse_infix_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
