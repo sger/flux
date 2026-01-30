@@ -511,6 +511,9 @@ impl Compiler {
                 self.compile_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
             }
+            // Note: Pipe operator (|>) is handled at parse time by transforming
+            // `a |> f(b, c)` into `f(a, b, c)` - a regular Call expression.
+            // No special compilation needed here.
             Expression::Call {
                 function,
                 arguments,

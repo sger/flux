@@ -3,6 +3,7 @@ use crate::frontend::token_type::TokenType;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
     Lowest,
+    Pipe,        // |> lowest precedence for chaining
     LogicalOr,   // || lower precedence than &&
     LogicalAnd,  // && higher precedence than ||
     Equals,      // ==, !=
@@ -16,6 +17,7 @@ pub enum Precedence {
 
 pub fn token_precedence(token_type: &TokenType) -> Precedence {
     match token_type {
+        TokenType::Pipe => Precedence::Pipe,
         TokenType::Or => Precedence::LogicalOr,
         TokenType::And => Precedence::LogicalAnd,
         TokenType::Eq | TokenType::NotEq => Precedence::Equals,

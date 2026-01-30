@@ -75,6 +75,9 @@ define_tokens! {
         And => "&&",
         Or => "||",
 
+        // Pipe operator
+        Pipe => "|>",
+
         // Delimiters
         LParen    => "(",
         RParen    => ")",

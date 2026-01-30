@@ -1,0 +1,31 @@
+// Test: Pipe operator |>
+// The pipe operator passes the left value as the first argument to the right function
+
+// Helper functions for testing
+fun double(x) { x * 2 }
+fun add(x, y) { x + y }
+fun triple(x) { x * 3 }
+
+// Basic pipe: value |> function
+let result1 = 5 |> double;
+print(result1);  // 10
+
+// Chained pipes: value |> f |> g
+let result2 = 5 |> double |> triple;
+print(result2);  // 30
+
+// Pipe with additional arguments: value |> function(arg)
+let result3 = 5 |> add(3);
+print(result3);  // 8
+
+// Complex chain
+let result4 = 2 |> double |> add(10) |> triple;
+print(result4);  // (2*2 + 10) * 3 = 42
+
+// Pipe with print
+5 |> double |> print;  // 10
+
+// Pipe preserves order
+fun subtract(a, b) { a - b }
+let result5 = 10 |> subtract(3);
+print(result5);  // 7 (10 - 3, not 3 - 10)

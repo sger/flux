@@ -1,0 +1,47 @@
+// Test: Pipe operator with module functions
+// Demonstrates using |> with imported module functions
+
+import Modules.Math as Math
+import Modules.StringUtils as StringUtils
+
+// Using pipe with Math module functions
+// 5 |> double |> square = (5 * 2)^2 = 100
+let result1 = 5 |> Math.double |> Math.square;
+print(result1);  // 100
+
+// Chain multiple math operations
+// 2 |> double |> triple = (2 * 2) + (2 * 2 * 2) = 4 + 8 = 12
+let result2 = 2 |> Math.double |> Math.triple;
+print(result2);  // 12
+
+// Using pipe with StringUtils module functions
+let greeting = "World" |> StringUtils.greet |> StringUtils.exclaim;
+print(greeting);  // Hello, World!
+
+// Chain string transformations
+let formatted = "data" |> StringUtils.bracket |> StringUtils.parenthesize;
+print(formatted);  // ([data])
+
+// Complex pipeline with multiple module functions
+let result3 = "value"
+    |> StringUtils.quote
+    |> StringUtils.bracket
+    |> StringUtils.parenthesize;
+print(result3);  // (["value"])
+
+// Pipe with additional arguments
+let wrapped = "content" |> StringUtils.wrap("<", ">");
+print(wrapped);  // <content>
+
+// Mix module functions and local functions
+fun addTen(x) { x + 10 }
+
+let result4 = 3 |> Math.square |> addTen |> Math.double;
+print(result4);  // ((3^2) + 10) * 2 = 19 * 2 = 38
+
+// Using isEven/isOdd with pipe
+let evenCheck = 4 |> Math.isEven;
+print(evenCheck);  // true
+
+let oddCheck = 5 |> Math.isOdd;
+print(oddCheck);  // true
