@@ -1,0 +1,21 @@
+// Run with: scripts/run_examples.sh imports/test_import_math_qualified.flx
+// Or: cargo run -- --root examples examples/imports/test_import_math_qualified.flx
+
+import Modules.Math
+
+// Using fully qualified module name (no alias)
+
+// Basic functions
+print(Modules.Math.square(5));         // 25
+print(Modules.Math.cube(3));           // 27
+
+// Forward reference examples: quadruple and triple use double (defined after them)
+print(Modules.Math.double(5));         // 10
+print(Modules.Math.triple(5));         // 15
+print(Modules.Math.quadruple(3));      // 12
+
+// Mutual recursion: isEven and isOdd call each other
+print(Modules.Math.isEven(10));        // true
+print(Modules.Math.isOdd(10));         // false
+print(Modules.Math.isEven(7));         // false
+print(Modules.Math.isOdd(7));          // true
