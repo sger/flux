@@ -1,0 +1,43 @@
+// Example demonstrating forward references and mutual recursion
+//
+// Forward references work for:
+// - Top-level functions (shown below)
+// - Functions within modules (see examples/Modules/Math.flx)
+
+// Function that uses another function defined later
+fun main() {
+    print("Testing forward references...");
+    let result = greet("World");
+    print(result);
+
+    print("Testing mutual recursion...");
+    print(isEven(10));  // Should print true
+    print(isOdd(10));   // Should print false
+    print(isEven(7));   // Should print false
+    print(isOdd(7));    // Should print true
+}
+
+// This function is used by main() but defined after it
+fun greet(name) {
+    "Hello, " + name + "!";
+}
+
+// Mutual recursion: isEven calls isOdd and vice versa
+fun isEven(n) {
+    if n == 0 {
+        true;
+    } else {
+        isOdd(n - 1);
+    }
+}
+
+fun isOdd(n) {
+    if n == 0 {
+        false;
+    } else {
+        isEven(n - 1);
+    }
+}
+
+// Call main to start the program
+main();
