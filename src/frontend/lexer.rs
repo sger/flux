@@ -75,6 +75,11 @@ impl Lexer {
                 self.read_char();
                 Token::new(TokenType::Or, "||", line, col)
             }
+            // Pipe operator
+            Some('|') if self.peek_char() == Some('>') => {
+                self.read_char();
+                Token::new(TokenType::Pipe, "|>", line, col)
+            }
             // Single-character operators and delimiters
             Some('=') => Token::new(TokenType::Assign, "=", line, col),
             Some('!') => Token::new(TokenType::Bang, "!", line, col),
