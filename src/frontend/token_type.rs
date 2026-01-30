@@ -61,9 +61,10 @@ define_tokens! {
         Minus    => "-",
         Asterisk => "*",
         Slash    => "/",
+        Percent => "%",
         Bang     => "!",
         Lt       => "<",
-        Gt       => ">",  // TODO: Implement greater than or equal operator
+        Gt       => ">",
         Lte      => "<=",
         Gte      => ">=",
         Eq       => "==",

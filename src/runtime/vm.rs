@@ -130,6 +130,9 @@ impl VM {
                 OpCode::OpAdd | OpCode::OpSub | OpCode::OpMul | OpCode::OpDiv => {
                     self.execute_binary_operation(op)?;
                 }
+                OpCode::OpMod => {
+                    self.execute_binary_operation(op)?;
+                }
                 OpCode::OpEqual | OpCode::OpNotEqual | OpCode::OpGreaterThan => {
                     self.execute_comparison(op)?;
                 }
@@ -412,6 +415,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown integer operator: {:?}", op)),
                 };
                 self.push(Object::Integer(result))
@@ -422,6 +426,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -433,6 +438,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -444,6 +450,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -829,5 +836,34 @@ mod tests {
         assert_eq!(run(r#""banana" >= "apple";"#), Object::Boolean(true));
         assert_eq!(run(r#""apple" >= "banana";"#), Object::Boolean(false));
         assert_eq!(run(r#""apple" >= "apple";"#), Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_modulo_operator() {
+        // Integer modulo
+        assert_eq!(run("10 % 3;"), Object::Integer(1));
+        assert_eq!(run("7 % 2;"), Object::Integer(1));  // odd check
+        assert_eq!(run("8 % 2;"), Object::Integer(0));  // even check
+        assert_eq!(run("15 % 4;"), Object::Integer(3));
+        assert_eq!(run("100 % 7;"), Object::Integer(2));
+        assert_eq!(run("5 % 5;"), Object::Integer(0));
+
+        // Float modulo
+        assert_eq!(run("10.5 % 3.0;"), Object::Float(1.5));
+        assert_eq!(run("7.5 % 2.0;"), Object::Float(1.5));
+        assert_eq!(run("10.0 % 3.0;"), Object::Float(1.0));
+        assert_eq!(run("5.5 % 2.5;"), Object::Float(0.5));
+
+        // Mixed integer-float modulo
+        assert_eq!(run("10 % 3.0;"), Object::Float(1.0));
+        assert_eq!(run("7 % 2.5;"), Object::Float(2.0));
+
+        // Mixed float-integer modulo
+        assert_eq!(run("10.5 % 3;"), Object::Float(1.5));
+        assert_eq!(run("7.5 % 2;"), Object::Float(1.5));
+
+        // Edge cases
+        assert_eq!(run("1 % 10;"), Object::Integer(1));  // smaller % larger
+        assert_eq!(run("0 % 5;"), Object::Integer(0));   // zero % n
     }
 }

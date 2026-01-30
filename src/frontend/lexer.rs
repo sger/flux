@@ -74,6 +74,7 @@ impl Lexer {
             Some('-') => Token::new(TokenType::Minus, "-", line, col),
             Some('*') => Token::new(TokenType::Asterisk, "*", line, col),
             Some('/') => Token::new(TokenType::Slash, "/", line, col),
+            Some('%') => Token::new(TokenType::Percent, "%", line, col),
             Some('<') => Token::new(TokenType::Lt, "<", line, col),
             Some('>') => Token::new(TokenType::Gt, ">", line, col),
             Some('(') => Token::new(TokenType::LParen, "(", line, col),
