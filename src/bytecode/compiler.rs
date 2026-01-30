@@ -102,6 +102,32 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.current_module_prefix = None;
+
+        // PASS 1: Predeclare all module-level function names
+        // This enables forward references and mutual recursion
+        for statement in &program.statements {
+            if let Statement::Function { name, span, .. } = statement {
+                let position = span.start;
+                // Check for duplicate declaration first (takes precedence)
+                if self.symbol_table.exists_in_current_scope(name) {
+                    self.errors
+                        .push(self.make_redeclaration_error(name, position));
+                    continue;
+                }
+                // Check for import collision
+                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
+                    self.errors
+                        .push(self.make_import_collision_error(name, position));
+                    continue;
+                }
+                // Predeclare the function name
+                self.symbol_table.define(name);
+                self.file_scope_symbols.insert(name.clone());
+            }
+        }
+
+        // PASS 2: Compile all statements
+        // Function bodies can now reference any function defined at module level
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
@@ -221,13 +247,15 @@ impl Compiler {
                     ..
                 } => {
                     let position = span.start;
-                    if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                        return Err(Self::boxed(
-                            self.make_import_collision_error(name, position),
-                        ));
+                    // For top-level functions, checks were already done in pass 1
+                    // Only check for nested functions (scope_index > 0)
+                    if self.scope_index > 0 && self.symbol_table.exists_in_current_scope(name) {
+                        return Err(Self::boxed(self.make_redeclaration_error(name, position)));
                     }
                     self.compile_function_statement(name, parameters, body, position)?;
+                    // For nested functions, add to file_scope_symbols
                     if self.scope_index == 0 {
+                        // Already added in pass 1 for top-level functions
                         self.file_scope_symbols.insert(name.clone());
                     }
                 }
@@ -939,10 +967,6 @@ impl Compiler {
         body: &Block,
         position: Position,
     ) -> CompileResult<()> {
-        if self.symbol_table.exists_in_current_scope(name) {
-            return Err(Self::boxed(self.make_redeclaration_error(name, position)));
-        }
-
         if let Some(param) = Self::find_duplicate_name(parameters) {
             return Err(Self::boxed(
                 Diagnostic::error("DUPLICATE PARAMETER")
@@ -957,7 +981,14 @@ impl Compiler {
             ));
         }
 
-        let symbol = self.symbol_table.define(name);
+        // Resolve the symbol - it may have been predeclared in pass 1
+        let symbol = if let Some(existing) = self.symbol_table.resolve(name) {
+            // Use the existing symbol from pass 1
+            existing
+        } else {
+            // Define new symbol (for nested functions or non-predeclared cases)
+            self.symbol_table.define(name)
+        };
 
         self.enter_scope();
         self.symbol_table.define_function_name(name);
@@ -1050,7 +1081,30 @@ impl Compiler {
         let previous_module = self.current_module_prefix.clone();
         self.current_module_prefix = Some(binding_name.to_string());
 
-        // Compile each function with a qualified name.
+        // PASS 1: Predeclare all module function names with qualified names
+        // This enables forward references within the module
+        for statement in &body.statements {
+            if let Statement::Function {
+                name: fn_name,
+                span,
+                ..
+            } = statement
+            {
+                let position = span.start;
+                let qualified_name = format!("{}.{}", binding_name, fn_name);
+                // Check for duplicate declaration
+                if self.symbol_table.exists_in_current_scope(&qualified_name) {
+                    self.current_module_prefix = previous_module;
+                    return Err(Self::boxed(
+                        self.make_redeclaration_error(&qualified_name, position),
+                    ));
+                }
+                // Predeclare the function
+                self.symbol_table.define(&qualified_name);
+            }
+        }
+
+        // PASS 2: Compile each function body
         for statement in &body.statements {
             if let Statement::Function {
                 name: fn_name,
