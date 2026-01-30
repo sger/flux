@@ -71,6 +71,10 @@ define_tokens! {
         NotEq    => "!=",
         Assign   => "=",
 
+        // Logical operators
+        And => "&&",
+        Or => "||",
+
         // Delimiters
         LParen    => "(",
         RParen    => ")",

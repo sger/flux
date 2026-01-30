@@ -3,10 +3,12 @@ use crate::frontend::token_type::TokenType;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
     Lowest,
+    LogicalOr,   // || lower precedence than &&
+    LogicalAnd,  // && higher precedence than ||
     Equals,      // ==, !=
-    LessGreater, // <, >, <=, >=  (TODO: Implement <= and >=)
+    LessGreater, // <, >, <=, >=
     Sum,         // +, -
-    Product,     // *, /, %  (TODO: Implement %)
+    Product,     // *, /, %
     Prefix,      // -x, !x
     Call,        // fn(x)
     Index,       // array[index]
@@ -14,6 +16,8 @@ pub enum Precedence {
 
 pub fn token_precedence(token_type: &TokenType) -> Precedence {
     match token_type {
+        TokenType::Or => Precedence::LogicalOr,
+        TokenType::And => Precedence::LogicalAnd,
         TokenType::Eq | TokenType::NotEq => Precedence::Equals,
         TokenType::Lt | TokenType::Gt => Precedence::LessGreater,
         TokenType::Lte | TokenType::Gte => Precedence::LessGreater,

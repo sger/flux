@@ -107,9 +107,25 @@ impl VM {
                 OpCode::OpJumpNotTruthy => {
                     let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
-                    let condition = self.pop()?;
+                    // Peek instead of pop - value stays on stack for short-circuit operators
+                    let condition = self.stack[self.sp - 1].clone();
                     if !condition.is_truthy() {
                         self.current_frame_mut().ip = pos - 1;
+                    } else {
+                        // Only pop if we're NOT jumping (for && operator)
+                        self.sp -= 1;
+                    }
+                }
+                OpCode::OpJumpTruthy => {
+                    let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
+                    self.current_frame_mut().ip += 2;
+                    // Peek instead of pop - value stays on stack for short-circuit operators
+                    let condition = self.stack[self.sp - 1].clone();
+                    if condition.is_truthy() {
+                        self.current_frame_mut().ip = pos - 1;
+                    } else {
+                        // Only pop if we're NOT jumping (for || operator)
+                        self.sp -= 1;
                     }
                 }
                 OpCode::OpGetGlobal => {
@@ -842,8 +858,8 @@ mod tests {
     fn test_modulo_operator() {
         // Integer modulo
         assert_eq!(run("10 % 3;"), Object::Integer(1));
-        assert_eq!(run("7 % 2;"), Object::Integer(1));  // odd check
-        assert_eq!(run("8 % 2;"), Object::Integer(0));  // even check
+        assert_eq!(run("7 % 2;"), Object::Integer(1)); // odd check
+        assert_eq!(run("8 % 2;"), Object::Integer(0)); // even check
         assert_eq!(run("15 % 4;"), Object::Integer(3));
         assert_eq!(run("100 % 7;"), Object::Integer(2));
         assert_eq!(run("5 % 5;"), Object::Integer(0));
@@ -863,7 +879,7 @@ mod tests {
         assert_eq!(run("7.5 % 2;"), Object::Float(1.5));
 
         // Edge cases
-        assert_eq!(run("1 % 10;"), Object::Integer(1));  // smaller % larger
-        assert_eq!(run("0 % 5;"), Object::Integer(0));   // zero % n
+        assert_eq!(run("1 % 10;"), Object::Integer(1)); // smaller % larger
+        assert_eq!(run("0 % 5;"), Object::Integer(0)); // zero % n
     }
 }

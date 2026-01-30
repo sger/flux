@@ -356,7 +356,9 @@ impl Parser {
             | TokenType::Lte
             | TokenType::Gte
             | TokenType::Eq
-            | TokenType::NotEq => self.parse_infix_expression(left),
+            | TokenType::NotEq
+            | TokenType::And
+            | TokenType::Or => self.parse_infix_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),
