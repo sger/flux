@@ -21,7 +21,7 @@ This roadmap focuses on completing the core language features needed for practic
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  M1: Core Operators          ████████████░░░░░░░░░░░░░░░░░░░░  │ 33% (1/3)
+│  M1: Core Operators          ████████████████████░░░░░░░░░░░░  │ 67% (2/3)
 │  M2: Pipe Operator           ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 │  M3: Either Type             ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 │  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
@@ -35,7 +35,7 @@ This roadmap focuses on completing the core language features needed for practic
 ## Milestone 1: Core Operators
 
 **Priority:** Critical
-**Status:** In Progress (1/3 complete)
+**Status:** In Progress (2/3 complete)
 
 ### 1.1 Comparison Operators: `<=` and `>=` ✅
 
@@ -66,24 +66,34 @@ print(3 >= 4);   // false ✅
 - 18 comprehensive unit tests added
 - Example file updated with 6 test cases
 
-### 1.2 Modulo Operator: `%`
+### 1.2 Modulo Operator: `%` ✅
 
-| Task | File(s) | Effort |
+**Status:** COMPLETED
+
+| Task | File(s) | Status |
 |------|---------|--------|
-| Add `Percent` token | `token_type.rs` | Small |
-| Lexer: recognize `%` | `lexer.rs` | Small |
-| Parser: parse with `Product` precedence | `parser.rs` | Small |
-| Add `OpMod` opcode | `op_code.rs` | Small |
-| VM: execute modulo (int and float) | `vm.rs` | Small |
-| Tests | `tests/` | Small |
+| Add `Percent` token | `token_type.rs` | ✅ Done |
+| Lexer: recognize `%` | `lexer.rs` | ✅ Done |
+| Parser: parse with `Product` precedence | `parser.rs` | ✅ Done |
+| Add `OpMod` opcode | `op_code.rs` | ✅ Done |
+| VM: execute modulo (int and float) | `vm.rs` | ✅ Done |
+| Tests | `tests/` | ✅ Done |
+| Create example file | `examples/basics/modulo.flx` | ✅ Done |
 
-**Acceptance Criteria:**
+**Acceptance Criteria:** ✅ ALL PASSING
 ```flux
-print(10 % 3);    // 1
-print(7 % 2);     // 1 (odd check)
-print(8 % 2);     // 0 (even check)
-print(10.5 % 3);  // 1.5 (float modulo)
+print(10 % 3);    // 1      ✅
+print(7 % 2);     // 1      ✅ (odd check)
+print(8 % 2);     // 0      ✅ (even check)
+print(10.5 % 3);  // 1.5    ✅ (float modulo)
 ```
+
+**Implementation Notes:**
+- Opcode `OpMod = 5` (sequential numbering)
+- Works with integers, floats, and mixed numeric types
+- 18 comprehensive unit tests added
+- Example file created with 9 test cases
+- Follows same precedence as `*` and `/` (Product level)
 
 ### 1.3 Logical Operators: `&&` and `||`
 
@@ -135,7 +145,7 @@ print(called);  // false (side_effect not called)
 ### 1.4 Milestone 1 Deliverables
 
 - [x] ✅ Comparison operators: `<=`, `>=` (DONE)
-- [ ] Modulo operator: `%`
+- [x] ✅ Modulo operator: `%` (DONE)
 - [ ] Logical operators: `&&`, `||`
 - [ ] Proper precedence: `&&` binds tighter than `||`
 - [ ] Short-circuit evaluation for `&&` and `||`
