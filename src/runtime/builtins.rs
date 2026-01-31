@@ -228,6 +228,60 @@ fn builtin_max(args: Vec<Object>) -> Result<Object, String> {
     }
 }
 
+/// type_of(x) - Return the type name of a value as a string
+fn builtin_type_of(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "type_of", "type_of(x)")?;
+    Ok(Object::String(args[0].type_name().to_string()))
+}
+
+/// is_int(x) - Check if value is an integer
+fn builtin_is_int(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_int", "is_int(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Integer(_))))
+}
+
+/// is_float(x) - Check if value is a float
+fn builtin_is_float(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_float", "is_float(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Float(_))))
+}
+
+/// is_string(x) - Check if value is a string
+fn builtin_is_string(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_string", "is_string(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::String(_))))
+}
+
+/// is_bool(x) - Check if value is a boolean
+fn builtin_is_bool(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_bool", "is_bool(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Boolean(_))))
+}
+
+/// is_array(x) - Check if value is an array
+fn builtin_is_array(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_array", "is_array(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Array(_))))
+}
+
+/// is_hash(x) - Check if value is a hash
+fn builtin_is_hash(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_hash", "is_hash(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Hash(_))))
+}
+
+/// is_none(x) - Check if value is None
+fn builtin_is_none(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_none", "is_none(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::None)))
+}
+
+/// is_some(x) - Check if value is Some
+fn builtin_is_some(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "is_some", "is_some(x)")?;
+    Ok(Object::Boolean(matches!(args[0], Object::Some(_))))
+}
+
 fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
     for arg in args {
         match &arg {
@@ -583,6 +637,42 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "max",
         func: builtin_max,
+    },
+    BuiltinFunction {
+        name: "type_of",
+        func: builtin_type_of,
+    },
+    BuiltinFunction {
+        name: "is_int",
+        func: builtin_is_int,
+    },
+    BuiltinFunction {
+        name: "is_float",
+        func: builtin_is_float,
+    },
+    BuiltinFunction {
+        name: "is_string",
+        func: builtin_is_string,
+    },
+    BuiltinFunction {
+        name: "is_bool",
+        func: builtin_is_bool,
+    },
+    BuiltinFunction {
+        name: "is_array",
+        func: builtin_is_array,
+    },
+    BuiltinFunction {
+        name: "is_hash",
+        func: builtin_is_hash,
+    },
+    BuiltinFunction {
+        name: "is_none",
+        func: builtin_is_none,
+    },
+    BuiltinFunction {
+        name: "is_some",
+        func: builtin_is_some,
     },
 ];
 
@@ -1287,5 +1377,153 @@ mod tests {
     fn test_builtin_max_type_error() {
         let result = builtin_max(vec![Object::Integer(1), Object::String("a".to_string())]);
         assert!(result.is_err());
+    }
+
+    // =============================================================================
+    // Type Checking Builtins Tests (5.5)
+    // =============================================================================
+
+    #[test]
+    fn test_builtin_type_of_int() {
+        let result = builtin_type_of(vec![Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::String("Int".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_float() {
+        let result = builtin_type_of(vec![Object::Float(3.14)]).unwrap();
+        assert_eq!(result, Object::String("Float".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_string() {
+        let result = builtin_type_of(vec![Object::String("hello".to_string())]).unwrap();
+        assert_eq!(result, Object::String("String".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_bool() {
+        let result = builtin_type_of(vec![Object::Boolean(true)]).unwrap();
+        assert_eq!(result, Object::String("Bool".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_array() {
+        let result = builtin_type_of(vec![Object::Array(vec![Object::Integer(1)])]).unwrap();
+        assert_eq!(result, Object::String("Array".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_hash() {
+        let result = builtin_type_of(vec![Object::Hash(std::collections::HashMap::new())]).unwrap();
+        assert_eq!(result, Object::String("Hash".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_none() {
+        let result = builtin_type_of(vec![Object::None]).unwrap();
+        assert_eq!(result, Object::String("None".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_type_of_some() {
+        let result = builtin_type_of(vec![Object::Some(Box::new(Object::Integer(42)))]).unwrap();
+        assert_eq!(result, Object::String("Some".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_is_int_true() {
+        let result = builtin_is_int(vec![Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_int_false() {
+        let result = builtin_is_int(vec![Object::Float(3.14)]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_float_true() {
+        let result = builtin_is_float(vec![Object::Float(3.14)]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_float_false() {
+        let result = builtin_is_float(vec![Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_string_true() {
+        let result = builtin_is_string(vec![Object::String("hello".to_string())]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_string_false() {
+        let result = builtin_is_string(vec![Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_bool_true() {
+        let result = builtin_is_bool(vec![Object::Boolean(true)]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_bool_false() {
+        let result = builtin_is_bool(vec![Object::Integer(0)]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_array_true() {
+        let result = builtin_is_array(vec![Object::Array(vec![])]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_array_false() {
+        let result = builtin_is_array(vec![Object::String("hello".to_string())]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_hash_true() {
+        let result = builtin_is_hash(vec![Object::Hash(std::collections::HashMap::new())]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_hash_false() {
+        let result = builtin_is_hash(vec![Object::Array(vec![])]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_none_true() {
+        let result = builtin_is_none(vec![Object::None]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_none_false() {
+        let result = builtin_is_none(vec![Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_is_some_true() {
+        let result = builtin_is_some(vec![Object::Some(Box::new(Object::Integer(42)))]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_is_some_false() {
+        let result = builtin_is_some(vec![Object::None]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
     }
 }
