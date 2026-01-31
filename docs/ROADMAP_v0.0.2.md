@@ -25,7 +25,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  M5: Essential Builtins      ██████████████████████████░░░░░░  │ 80% (4/5)
+│  M5: Essential Builtins      ████████████████████████████████  │ 100% (5/5) ✅
 │  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -526,14 +526,53 @@ print(clamp(-5, 0, 10));   // 0
 print(clamp(5, 0, 10));    // 5
 ```
 
-### 5.5 Type Checking Builtins
+### 5.5 Type Checking Builtins ✅
 
-| Builtin | Signature | Priority |
-|---------|-----------|----------|
-| `type_of(x)` | `Any -> String` | High |
-| `is_int(x)` | `Any -> Bool` | Medium |
-| `is_string(x)` | `Any -> Bool` | Medium |
-| `is_array(x)` | `Any -> Bool` | Medium |
+| Builtin | Signature | Status |
+|---------|-----------|--------|
+| `type_of(x)` | `Any -> String` | ✅ |
+| `is_int(x)` | `Any -> Bool` | ✅ |
+| `is_float(x)` | `Any -> Bool` | ✅ |
+| `is_string(x)` | `Any -> Bool` | ✅ |
+| `is_bool(x)` | `Any -> Bool` | ✅ |
+| `is_array(x)` | `Any -> Bool` | ✅ |
+| `is_hash(x)` | `Any -> Bool` | ✅ |
+| `is_none(x)` | `Any -> Bool` | ✅ |
+| `is_some(x)` | `Any -> Bool` | ✅ |
+
+```flux
+// type_of - get type name as string
+print(type_of(42));           // "Int"
+print(type_of(3.14));         // "Float"
+print(type_of("hello"));      // "String"
+print(type_of(true));         // "Bool"
+print(type_of([1, 2, 3]));    // "Array"
+print(type_of({"a": 1}));     // "Hash"
+print(type_of(None));         // "None"
+print(type_of(Some(42)));     // "Some"
+
+// is_* - type checking predicates
+print(is_int(42));            // true
+print(is_int(3.14));          // false
+print(is_float(3.14));        // true
+print(is_string("hello"));    // true
+print(is_bool(true));         // true
+print(is_array([1, 2]));      // true
+print(is_hash({"a": 1}));     // true
+print(is_none(None));         // true
+print(is_some(Some(42)));     // true
+
+// Practical example: Safe type conversion
+fun safeAdd(a, b) {
+    if is_int(a) && is_int(b) {
+        a + b
+    } else {
+        None
+    }
+}
+print(safeAdd(1, 2));         // 3
+print(safeAdd(1, "hello"));   // None
+```
 
 ### 5.6 Implementation Priority for v0.0.2
 
@@ -552,10 +591,10 @@ print(clamp(5, 0, 10));    // 5
 
 ### 5.7 Milestone 5 Deliverables
 
-- [ ] 10+ new builtins (must have list)
-- [ ] Unit tests for each builtin
-- [ ] Documentation
-- [ ] Example files demonstrating usage
+- [x] 10+ new builtins (must have list) - 35 total builtins implemented
+- [x] Unit tests for each builtin - 89 unit tests
+- [x] Documentation
+- [x] Example files demonstrating usage
 
 ---
 

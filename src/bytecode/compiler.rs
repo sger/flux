@@ -76,6 +76,16 @@ impl Compiler {
         symbol_table.define_builtin(23, "abs");
         symbol_table.define_builtin(24, "min");
         symbol_table.define_builtin(25, "max");
+        // Type Checking Builtins (5.5)
+        symbol_table.define_builtin(26, "type_of");
+        symbol_table.define_builtin(27, "is_int");
+        symbol_table.define_builtin(28, "is_float");
+        symbol_table.define_builtin(29, "is_string");
+        symbol_table.define_builtin(30, "is_bool");
+        symbol_table.define_builtin(31, "is_array");
+        symbol_table.define_builtin(32, "is_hash");
+        symbol_table.define_builtin(33, "is_none");
+        symbol_table.define_builtin(34, "is_some");
 
         Self {
             constants: Vec::new(),
