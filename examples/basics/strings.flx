@@ -13,3 +13,13 @@ let desc = " is awesome";
 print(lang + desc);
 
 print("a" + "b" + "c");
+
+print(split("hello world", " "));
+print(split("hello%world", "%"));
+print(split("hello", "{"));
+
+print(upper("hello world"));
+print(lower("HELLO world"));
+
+print(chars("HELLO world"));
+print(substring("HELLO world", 0, 3));

@@ -62,6 +62,13 @@ impl Compiler {
         symbol_table.define_builtin(9, "contains");
         symbol_table.define_builtin(10, "slice");
         symbol_table.define_builtin(11, "sort");
+        symbol_table.define_builtin(12, "split");
+        symbol_table.define_builtin(13, "join");
+        symbol_table.define_builtin(14, "trim");
+        symbol_table.define_builtin(15, "upper");
+        symbol_table.define_builtin(16, "lower");
+        symbol_table.define_builtin(17, "chars");
+        symbol_table.define_builtin(18, "substring");
 
         Self {
             constants: Vec::new(),
