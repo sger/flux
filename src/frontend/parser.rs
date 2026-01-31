@@ -318,6 +318,8 @@ impl Parser {
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),
             TokenType::Some => self.parse_some(),
+            TokenType::Left => self.parse_left(),
+            TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
             TokenType::Bang | TokenType::Minus => self.parse_prefix_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
@@ -394,27 +396,34 @@ impl Parser {
         // Transform based on what we got
         match right {
             // a |> f => f(a)
-            Expression::Identifier { name, span } => {
-                Some(Expression::Call {
-                    function: Box::new(Expression::Identifier { name, span: span.clone() }),
-                    arguments: vec![left],
-                    span: Span::new(start, span.end),
-                })
-            }
+            Expression::Identifier { name, span } => Some(Expression::Call {
+                function: Box::new(Expression::Identifier {
+                    name,
+                    span: span.clone(),
+                }),
+                arguments: vec![left],
+                span: Span::new(start, span.end),
+            }),
             // a |> Module.func => Module.func(a)
-            Expression::MemberAccess { object, member, span } => {
-                Some(Expression::Call {
-                    function: Box::new(Expression::MemberAccess {
-                        object,
-                        member,
-                        span: span.clone(),
-                    }),
-                    arguments: vec![left],
-                    span: Span::new(start, span.end),
-                })
-            }
+            Expression::MemberAccess {
+                object,
+                member,
+                span,
+            } => Some(Expression::Call {
+                function: Box::new(Expression::MemberAccess {
+                    object,
+                    member,
+                    span: span.clone(),
+                }),
+                arguments: vec![left],
+                span: Span::new(start, span.end),
+            }),
             // a |> f(b, c) => f(a, b, c)
-            Expression::Call { function, mut arguments, span } => {
+            Expression::Call {
+                function,
+                mut arguments,
+                span,
+            } => {
                 arguments.insert(0, left);
                 Some(Expression::Call {
                     function,
@@ -675,6 +684,46 @@ impl Parser {
         })
     }
 
+    fn parse_left(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+
+        Some(Expression::Left {
+            value: Box::new(value),
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
+    fn parse_right(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+
+        Some(Expression::Right {
+            value: Box::new(value),
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
     fn parse_match_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         self.next_token();
@@ -734,6 +783,28 @@ impl Parser {
                     return None;
                 }
                 Some(Pattern::Some(Box::new(inner_pattern)))
+            }
+            TokenType::Left => {
+                if !self.expect_peek(TokenType::LParen) {
+                    return None;
+                }
+                self.next_token();
+                let inner_pattern = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+                Some(Pattern::Left(Box::new(inner_pattern)))
+            }
+            TokenType::Right => {
+                if !self.expect_peek(TokenType::LParen) {
+                    return None;
+                }
+                self.next_token();
+                let inner_pattern = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+                Some(Pattern::Right(Box::new(inner_pattern)))
             }
             TokenType::Int
             | TokenType::Float

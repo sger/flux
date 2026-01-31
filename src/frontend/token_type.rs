@@ -108,5 +108,7 @@ define_tokens! {
         Some   => "Some",
         None   => "None",
         Match  => "match",
+        Left   => "Left",
+        Right  => "Right",
     }
 }

@@ -15,6 +15,8 @@ pub enum Pattern {
     Identifier(Identifier),
     None,
     Some(Box<Pattern>),
+    Left(Box<Pattern>),
+    Right(Box<Pattern>),
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +108,15 @@ pub enum Expression {
         value: Box<Expression>,
         span: Span,
     },
+    // Either type expressions
+    Left {
+        value: Box<Expression>,
+        span: Span,
+    },
+    Right {
+        value: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl fmt::Display for Expression {
@@ -190,6 +201,8 @@ impl fmt::Display for Expression {
             }
             Expression::None { .. } => write!(f, "None"),
             Expression::Some { value, .. } => write!(f, "Some({})", value),
+            Expression::Left { value, .. } => write!(f, "Left({})", value),
+            Expression::Right { value, .. } => write!(f, "Right({})", value),
         }
     }
 }
@@ -215,6 +228,8 @@ impl Expression {
             | Expression::Match { span, .. }
             | Expression::None { span, .. }
             | Expression::Some { span, .. } => *span,
+            // Either type expressions
+            Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
         }
     }
 }
@@ -227,6 +242,8 @@ impl fmt::Display for Pattern {
             Pattern::Identifier(ident) => write!(f, "{}", ident),
             Pattern::None => write!(f, "None"),
             Pattern::Some(pattern) => write!(f, "Some({})", pattern),
+            Pattern::Left(pattern) => write!(f, "Left({})", pattern),
+            Pattern::Right(pattern) => write!(f, "Right({})", pattern),
         }
     }
 }
