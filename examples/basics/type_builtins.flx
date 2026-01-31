@@ -1,0 +1,132 @@
+// Test: Type Checking builtin functions
+// Expected output:
+// Int
+// Float
+// String
+// Bool
+// Array
+// Hash
+// None
+// Some
+// true
+// false
+// false
+// true
+// false
+// true
+// false
+// true
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// Practical examples:
+// Some(3)
+// None
+// an integer: 42
+// a string: hello
+// an array with 3 elements
+// Right(25)
+// Left(age must be an integer, got String)
+
+// =============================================================================
+// Type Checking Builtins (Milestone 5.5)
+// =============================================================================
+
+// type_of - get type name as string
+print(type_of(42));           // "Int"
+print(type_of(3.14));         // "Float"
+print(type_of("hello"));      // "String"
+print(type_of(true));         // "Bool"
+print(type_of([1, 2, 3]));    // "Array"
+print(type_of({"a": 1}));     // "Hash"
+print(type_of(None));         // "None"
+print(type_of(Some(42)));     // "Some"
+
+// is_int - check if value is an integer
+print(is_int(42));            // true
+print(is_int(3.14));          // false
+print(is_int("hello"));       // false
+
+// is_float - check if value is a float
+print(is_float(3.14));        // true
+print(is_float(42));          // false
+
+// is_string - check if value is a string
+print(is_string("hello"));    // true
+print(is_string(42));         // false
+
+// is_bool - check if value is a boolean
+print(is_bool(true));         // true
+print(is_bool(false));        // true
+print(is_bool(0));            // false
+
+// is_array - check if value is an array
+print(is_array([1, 2, 3]));   // true
+print(is_array("hello"));     // false
+
+// is_hash - check if value is a hash
+print(is_hash({"a": 1}));     // true
+print(is_hash([1, 2]));       // false
+
+// is_none - check if value is None
+print(is_none(None));         // true
+print(is_none(42));           // false
+
+// is_some - check if value is Some
+print(is_some(Some(42)));     // true
+print(is_some(None));         // false
+
+// =============================================================================
+// Practical Examples
+// =============================================================================
+
+print("Practical examples:");
+
+// Example 1: Safe type conversion
+fun safeAdd(a, b) {
+    if is_int(a) && is_int(b) {
+        Some(a + b)
+    } else {
+        None
+    }
+}
+print(safeAdd(1, 2));         // Some(3)
+print(safeAdd(1, "hello"));   // None
+
+// Example 2: Type-based dispatch
+fun describe(value) {
+    if is_int(value) {
+        "an integer: " + to_string(value)
+    } else {
+        if is_string(value) {
+            "a string: " + value
+        } else {
+            if is_array(value) {
+                "an array with " + to_string(len(value)) + " elements"
+            } else {
+                "unknown type: " + type_of(value)
+            }
+        }
+    }
+}
+print(describe(42));          // "an integer: 42"
+print(describe("hello"));     // "a string: hello"
+print(describe([1, 2, 3]));   // "an array with 3 elements"
+
+// Example 3: Validate function arguments
+fun requireInt(name, value) {
+    if !is_int(value) {
+        Left(name + " must be an integer, got " + type_of(value))
+    } else {
+        Right(value)
+    }
+}
+print(requireInt("age", 25));      // Right(25)
+print(requireInt("age", "old"));   // Left("age must be an integer, got String")

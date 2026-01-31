@@ -57,6 +57,35 @@ impl Compiler {
         symbol_table.define_builtin(4, "rest");
         symbol_table.define_builtin(5, "push");
         symbol_table.define_builtin(6, "to_string");
+        symbol_table.define_builtin(7, "concat");
+        symbol_table.define_builtin(8, "reverse");
+        symbol_table.define_builtin(9, "contains");
+        symbol_table.define_builtin(10, "slice");
+        symbol_table.define_builtin(11, "sort");
+        symbol_table.define_builtin(12, "split");
+        symbol_table.define_builtin(13, "join");
+        symbol_table.define_builtin(14, "trim");
+        symbol_table.define_builtin(15, "upper");
+        symbol_table.define_builtin(16, "lower");
+        symbol_table.define_builtin(17, "chars");
+        symbol_table.define_builtin(18, "substring");
+        symbol_table.define_builtin(19, "keys");
+        symbol_table.define_builtin(20, "values");
+        symbol_table.define_builtin(21, "has_key");
+        symbol_table.define_builtin(22, "merge");
+        symbol_table.define_builtin(23, "abs");
+        symbol_table.define_builtin(24, "min");
+        symbol_table.define_builtin(25, "max");
+        // Type Checking Builtins (5.5)
+        symbol_table.define_builtin(26, "type_of");
+        symbol_table.define_builtin(27, "is_int");
+        symbol_table.define_builtin(28, "is_float");
+        symbol_table.define_builtin(29, "is_string");
+        symbol_table.define_builtin(30, "is_bool");
+        symbol_table.define_builtin(31, "is_array");
+        symbol_table.define_builtin(32, "is_hash");
+        symbol_table.define_builtin(33, "is_none");
+        symbol_table.define_builtin(34, "is_some");
 
         Self {
             constants: Vec::new(),
@@ -427,6 +456,31 @@ impl Compiler {
                     return Ok(());
                 }
 
+                if operator == "<=" {
+                    self.compile_expression(left)?;
+                    self.compile_expression(right)?;
+                    self.emit(OpCode::OpLessThanOrEqual, &[]);
+                    return Ok(());
+                }
+                // a && b: if a is falsy, result is a (short-circuit); otherwise result is b
+                // OpJumpNotTruthy: peeks value, jumps if falsy (keeps value), pops if truthy
+                if operator == "&&" {
+                    self.compile_expression(left)?;
+                    let jump_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+                    self.compile_expression(right)?;
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+                // a || b: if a is truthy, result is a (short-circuit); otherwise result is b
+                // OpJumpTruthy: peeks value, jumps if truthy (keeps value), pops if falsy
+                if operator == "||" {
+                    self.compile_expression(left)?;
+                    let jump_pos = self.emit(OpCode::OpJumpTruthy, &[9999]);
+                    self.compile_expression(right)?;
+                    self.change_operand(jump_pos, self.current_instructions().len());
+                    return Ok(());
+                }
+
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
@@ -435,9 +489,11 @@ impl Compiler {
                     "-" => self.emit(OpCode::OpSub, &[]),
                     "*" => self.emit(OpCode::OpMul, &[]),
                     "/" => self.emit(OpCode::OpDiv, &[]),
+                    "%" => self.emit(OpCode::OpMod, &[]),
                     "==" => self.emit(OpCode::OpEqual, &[]),
                     "!=" => self.emit(OpCode::OpNotEqual, &[]),
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
+                    ">=" => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     _ => {
                         return Err(Self::boxed(
                             Diagnostic::error("UNKNOWN INFIX OPERATOR")
@@ -484,6 +540,9 @@ impl Compiler {
                 self.compile_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
             }
+            // Note: Pipe operator (|>) is handled at parse time by transforming
+            // `a |> f(b, c)` into `f(a, b, c)` - a regular Call expression.
+            // No special compilation needed here.
             Expression::Call {
                 function,
                 arguments,
@@ -569,6 +628,15 @@ impl Compiler {
             Expression::Some { value, .. } => {
                 self.compile_expression(value)?;
                 self.emit(OpCode::OpSome, &[]);
+            }
+            // Either type expressions
+            Expression::Left { value, .. } => {
+                self.compile_expression(value)?;
+                self.emit(OpCode::OpLeft, &[]);
+            }
+            Expression::Right { value, .. } => {
+                self.compile_expression(value)?;
+                self.emit(OpCode::OpRight, &[]);
             }
             Expression::Match {
                 scrutinee, arms, ..
@@ -714,6 +782,10 @@ impl Compiler {
 
         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
         self.change_operand(jump_not_truthy_pos, self.current_instructions().len());
+
+        // Pop the condition value that was left on stack when we jumped here
+        // (OpJumpNotTruthy keeps value on stack when jumping for short-circuit support)
+        self.emit(OpCode::OpPop, &[]);
 
         if let Some(alt) = alternative {
             self.compile_block(alt)?;
@@ -901,6 +973,92 @@ impl Compiler {
                     }
                 }
             }
+            Pattern::Left(inner) => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsLeft, &[]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                match inner.as_ref() {
+                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    _ => {
+                        let inner_symbol = self.symbol_table.define_temp();
+                        self.load_symbol(scrutinee);
+                        self.emit(OpCode::OpUnwrapLeft, &[]);
+
+                        match inner_symbol.symbol_scope {
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                            }
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                            }
+                            _ => {
+                                return Err(Self::boxed(
+                                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                                        .with_code("ICE007")
+                                        .with_message(
+                                            "unexpected temp symbol scope in Left pattern",
+                                        )
+                                        .with_hint(format!(
+                                            "{}:{} ({})",
+                                            file!(),
+                                            line!(),
+                                            module_path!()
+                                        )),
+                                ));
+                            }
+                        }
+
+                        let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
+                        jumps.extend(inner_jumps);
+                        Ok(jumps)
+                    }
+                }
+            }
+            Pattern::Right(inner) => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsRight, &[]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                match inner.as_ref() {
+                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    _ => {
+                        let inner_symbol = self.symbol_table.define_temp();
+                        self.load_symbol(scrutinee);
+                        self.emit(OpCode::OpUnwrapRight, &[]);
+
+                        match inner_symbol.symbol_scope {
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                            }
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                            }
+                            _ => {
+                                return Err(Self::boxed(
+                                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                                        .with_code("ICE007")
+                                        .with_message(
+                                            "unexpected temp symbol scope in Right pattern",
+                                        )
+                                        .with_hint(format!(
+                                            "{}:{} ({})",
+                                            file!(),
+                                            line!(),
+                                            module_path!()
+                                        )),
+                                ));
+                            }
+                        }
+
+                        let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
+                        jumps.extend(inner_jumps);
+                        Ok(jumps)
+                    }
+                }
+            }
             Pattern::Identifier(_name) => {
                 // Identifier always matches and binds the value
                 // For now, we'll treat it like wildcard
@@ -949,6 +1107,52 @@ impl Compiler {
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE006")
                                 .with_message("unexpected temp symbol scope in Some binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
+                    }
+                }
+                self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            // Either type pattern bindings
+            Pattern::Left(inner) => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpUnwrapLeft, &[]);
+
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE009")
+                                .with_message("unexpected temp symbol scope in Left binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
+                    }
+                }
+                self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            Pattern::Right(inner) => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpUnwrapRight, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE010")
+                                .with_message("unexpected temp symbol scope in Right binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
                     }

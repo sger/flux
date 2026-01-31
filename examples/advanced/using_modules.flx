@@ -1,0 +1,64 @@
+// Test: Using Modules with Pipelines and Lambdas
+// Run with: cargo run -- --root examples examples/advanced/using_modules.flx
+// Expected output:
+// Using imported module functions:
+// Doubled: [2, 4, 6, 8, 10]
+// Evens: [2, 4]
+// Sum: 15
+// Composing with lambdas:
+// Triple then add 1: 16
+// Applied 4 times: 80
+// Pipeline with module functions:
+// HELLO
+// WORLD
+// FLUX
+
+import Modules.FunctionalUtils as FU
+
+print("Using imported module functions:");
+
+let nums = [1, 2, 3, 4, 5];
+
+// Use map with lambda
+let doubled = FU.map(nums, \x -> x * 2);
+print("Doubled: " + to_string(doubled));
+
+// Use filter with lambda
+let evens = FU.filter(nums, \x -> x % 2 == 0);
+print("Evens: " + to_string(evens));
+
+// Use reduce with lambda
+let sum = FU.reduce(nums, 0, \(acc, x) -> acc + x);
+print("Sum: " + to_string(sum));
+
+// =============================================================================
+// Composing Functions
+// =============================================================================
+
+print("Composing with lambdas:");
+
+let triple = \x -> x * 3;
+let addOne = \x -> x + 1;
+
+// Compose: addOne(triple(x))
+let tripleAndAdd = FU.compose(addOne, triple);
+print("Triple then add 1: " + to_string(tripleAndAdd(5)));  // 5*3+1 = 16
+
+// Apply function multiple times
+let double = \x -> x * 2;
+let result = FU.applyN(double, 4, 5);  // 5 -> 10 -> 20 -> 40 -> 80
+print("Applied 4 times: " + to_string(result));
+
+// =============================================================================
+// Pipeline with Module Functions
+// =============================================================================
+
+print("Pipeline with module functions:");
+
+let words = ["hello", "world", "flux"];
+
+// Map uppercase using pipe inside lambda
+let uppercased = FU.map(words, \w -> w |> upper);
+print(first(uppercased));
+print(first(rest(uppercased)));
+print(first(rest(rest(uppercased))));

@@ -1,0 +1,109 @@
+// Either Pattern Matching Examples
+// Demonstrates various ways to match on Left and Right values
+
+// Basic Left/Right matching
+fun handleResult(result) {
+    match result {
+        Left(err) -> "Error: " + err;
+        Right(val) -> "Value: " + to_string(val);
+        _ -> "Unknown";
+    }
+}
+
+print(handleResult(Left("not found")));
+print(handleResult(Right(42)));
+
+// Matching with simple actions
+fun isSuccess(result) {
+    match result {
+        Right(_) -> true;
+        _ -> false;
+    }
+}
+
+fun isFailure(result) {
+    match result {
+        Left(_) -> true;
+        _ -> false;
+    }
+}
+
+print(isSuccess(Right(1)));
+print(isSuccess(Left("err")));
+print(isFailure(Left("err")));
+print(isFailure(Right(1)));
+
+// Chain of operations with Either
+fun divide(a, b) {
+    if b == 0 {
+        Left("division by zero")
+    } else {
+        Right(a / b)
+    }
+}
+
+fun addTen(result) {
+    match result {
+        Right(v) -> Right(v + 10);
+        Left(e) -> Left(e);
+        _ -> Left("unknown error");
+    }
+}
+
+fun multiplyByTwo(result) {
+    match result {
+        Right(v) -> Right(v * 2);
+        Left(e) -> Left(e);
+        _ -> Left("unknown error");
+    }
+}
+
+// Chain: divide(20, 4) = Right(5) -> addTen -> Right(15) -> multiplyByTwo -> Right(30)
+let r1 = divide(20, 4);
+let r2 = addTen(r1);
+let r3 = multiplyByTwo(r2);
+print(r3);
+
+// Chain with error: divide(20, 0) = Left(...) -> error propagates
+let e1 = divide(20, 0);
+let e2 = addTen(e1);
+let e3 = multiplyByTwo(e2);
+print(e3);
+
+// Get value or default
+fun getOr(result, default) {
+    match result {
+        Right(v) -> v;
+        _ -> default;
+    }
+}
+
+print(getOr(Right(42), 0));
+print(getOr(Left("error"), 0));
+
+// Map over Right values
+fun mapRight(result, f) {
+    match result {
+        Right(v) -> Right(f(v));
+        Left(e) -> Left(e);
+        _ -> result;
+    }
+}
+
+let doubled = mapRight(Right(21), fun(x) { x * 2 });
+print(doubled);
+
+let failed = mapRight(Left("oops"), fun(x) { x * 2 });
+print(failed);
+
+// Swap Left and Right
+fun swap(result) {
+    match result {
+        Left(v) -> Right(v);
+        Right(v) -> Left(v);
+        _ -> result;
+    }
+}
+
+print(swap(Left(1)));
+print(swap(Right(2)));

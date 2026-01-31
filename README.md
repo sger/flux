@@ -4,15 +4,18 @@ A small, functional language with a custom bytecode VM.
 
 ## Current Features
 
-- **Functions**: `fun` declarations, closures, higher-order functions, forward references, mutual recursion
+- **Functions**: `fun` declarations, closures, higher-order functions, forward references, mutual recursion, lambda shorthand (`\x -> x + 1`)
 - **Immutability**: `let` bindings are immutable; reassignment is rejected
 - **Scoping**: lexical scoping, closures, and free variables
 - **Modules**: static, qualified namespaces (`module Name { ... }`), public by default, `_private` hidden; module names must start uppercase
 - **Imports**: top-level only, explicit qualified access, aliases supported (Haskell-style); collisions are errors; cycles rejected
-- **Data types**: integers, floats, booleans, strings, `None`/`Some`
+- **Data types**: integers, floats, booleans, strings, `None`/`Some`, `Left`/`Right` (Either)
 - **Collections**: arrays and hash maps, indexing with `[]`
+- **Operators**: comparison (`<=`, `>=`), modulo (`%`), logical (`&&`, `||`), pipe (`|>`)
 - **Control flow**: `if` / `else`, `return`
-- **Builtins**: `print`, `len`, `first`, `last`, `rest`, `push`
+- **Builtins (array)**: `concat`, `reverse`, `contains`, `slice`, `sort`
+- **Builtins (string)**: `split`, `join`, `trim`, `upper`, `lower`, `chars`, `substring`
+- **Builtins (core)**: `print`, `len`, `first`, `last`, `rest`, `push`, `to_string`
 - **Diagnostics**: errors with codes, file/line/column, caret highlighting; multi-line spans supported
 - **VM trace**: `--trace` instruction/stack/locals logging
 - **Linter**: unused vars/params/imports, shadowing, naming style

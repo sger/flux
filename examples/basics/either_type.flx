@@ -1,0 +1,81 @@
+// Either Type Examples
+// Left and Right are used for values that can be one of two types
+// By convention: Left = error/failure, Right = success/value
+
+// Basic Left and Right creation
+let success = Right(42);
+let failure = Left("error occurred");
+
+print(success);
+print(failure);
+
+// Pattern matching on Either
+fun describe(result) {
+    match result {
+        Left(err) -> "Error: " + err;
+        Right(val) -> "Success: " + to_string(val);
+        _ -> "unknown";
+    }
+}
+
+print(describe(success));
+print(describe(failure));
+
+// Safe division that returns Either
+fun safeDivide(a, b) {
+    if b == 0 {
+        Left("division by zero")
+    } else {
+        Right(a / b)
+    }
+}
+
+let result1 = safeDivide(10, 2);
+let result2 = safeDivide(10, 0);
+
+print(result1);
+print(result2);
+
+// Handle the results
+match result1 {
+    Left(err) -> print("Failed: " + err);
+    Right(val) -> print("Result: " + to_string(val));
+    _ -> print("unknown");
+}
+
+match result2 {
+    Left(err) -> print("Failed: " + err);
+    Right(val) -> print("Result: " + to_string(val));
+    _ -> print("unknown");
+}
+
+// Using wildcard pattern
+fun isRight(either) {
+    match either {
+        Right(_) -> true;
+        _ -> false;
+    }
+}
+
+fun isLeft(either) {
+    match either {
+        Left(_) -> true;
+        _ -> false;
+    }
+}
+
+print(isRight(Right(1)));
+print(isRight(Left("x")));
+print(isLeft(Left("x")));
+print(isLeft(Right(1)));
+
+// Get value or default
+fun getOrElse(either, defaultVal) {
+    match either {
+        Right(x) -> x;
+        _ -> defaultVal;
+    }
+}
+
+print(getOrElse(Right(100), 0));
+print(getOrElse(Left("error"), 0));
