@@ -110,14 +110,25 @@ if [[ $# -gt 0 ]]; then
   cmd+=("$@")
 fi
 
-# Run and capture output to check for stack overflow
+# Run and capture output to check for errors
 output=$("${cmd[@]}" 2>&1) && status=0 || status=$?
+stack_trace_detected=0
 
 echo "$output"
 
 # Check for stack overflow in output
 if echo "$output" | grep -qi "stack overflow"; then
   echo "Error: Stack overflow detected, stopping execution" >&2
+  exit 1
+fi
+
+# Detect stack trace and log at the end.
+if echo "$output" | grep -q "Stack trace:"; then
+  stack_trace_detected=1
+fi
+
+if [[ $stack_trace_detected -eq 1 ]]; then
+  echo "Error: Stack trace detected, stopping execution" >&2
   exit 1
 fi
 

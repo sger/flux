@@ -10,7 +10,7 @@ pub struct BuiltinFunction {
 
 impl fmt::Debug for BuiltinFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BuiltinFucntion({})", self.name)
+        write!(f, "BuiltinFunction({})", self.name)
     }
 }
 

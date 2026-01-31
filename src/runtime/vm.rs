@@ -5,6 +5,7 @@ use crate::{
         bytecode::Bytecode,
         op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
+    frontend::position::Span,
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
         hash_key::HashKey, leak_detector, object::Object,
@@ -277,25 +278,96 @@ impl VM {
     }
 
     fn format_runtime_error(&self, message: &str) -> String {
+        let (message, hint) = split_hint(message);
+        let (title, details) = split_first_line(message);
         let mut out = String::new();
-        out.push_str(message);
-
-        if self.frames.is_empty() {
-            return out;
+        let use_color = std::env::var_os("NO_COLOR").is_none();
+        if use_color {
+            out.push_str("\u{1b}[33m");
+        }
+        out.push_str("-- Runtime error: ");
+        out.push_str(title.trim());
+        if use_color {
+            out.push_str("\u{1b}[0m");
         }
 
-        out.push_str("\nStack trace:");
-        for frame in self.frames[..=self.frame_index].iter().rev() {
-            out.push_str("\n  at ");
-            let (name, location) = self.format_frame(frame);
-            out.push_str(&name);
-            if let Some(loc) = location {
-                out.push_str(" (");
-                out.push_str(&loc);
-                out.push(')');
+        if !details.trim().is_empty() {
+            out.push_str("\n\n");
+            out.push_str(details.trim());
+        }
+
+        if let Some((file, span)) = self.current_location() {
+            if let Ok(source) = std::fs::read_to_string(&file) {
+                if let Some(line_text) = get_source_line(&source, span.start.line) {
+                    let display_file = render_display_path(&file);
+                    out.push_str("\n\n  --> ");
+                    out.push_str(&format!(
+                        "{}:{}:{}",
+                        display_file, span.start.line, span.start.column
+                    ));
+                    out.push_str("\n   |");
+                    let line_no = span.start.line;
+                    let line_width = line_no.to_string().len();
+                    out.push_str("\n");
+                    out.push_str(&format!(
+                        "{:>width$} | {}",
+                        line_no,
+                        line_text,
+                        width = line_width
+                    ));
+                    out.push_str("\n");
+                    let line_len = line_text.len();
+                    let caret_start = span.start.column.min(line_len);
+                    let caret_end = if span.start.line == span.end.line {
+                        span.end.column.min(line_len).max(caret_start + 1)
+                    } else {
+                        line_len.max(caret_start + 1)
+                    };
+                    out.push_str(&format!(
+                        "{:>width$} | {}",
+                        "",
+                        " ".repeat(caret_start),
+                        width = line_width
+                    ));
+                    if use_color {
+                        out.push_str("\u{1b}[31m");
+                    }
+                    out.push_str(&"^".repeat(
+                        caret_end.saturating_sub(caret_start).max(1),
+                    ));
+                    if use_color {
+                        out.push_str("\u{1b}[0m");
+                    }
+                }
+            }
+        }
+
+        if let Some(hint) = hint {
+            out.push_str("\n\n");
+            out.push_str(hint.trim());
+        }
+
+        if !self.frames.is_empty() {
+            out.push_str("\n\nStack trace:");
+            for frame in self.frames[..=self.frame_index].iter().rev() {
+                out.push_str("\n  at ");
+                let (name, location) = self.format_frame(frame);
+                out.push_str(&name);
+                if let Some(loc) = location {
+                    out.push_str(" (");
+                    out.push_str(&loc);
+                    out.push(')');
+                }
             }
         }
         out
+    }
+
+    fn current_location(&self) -> Option<(String, Span)> {
+        let debug_info = self.current_frame().closure.function.debug_info.as_ref()?;
+        let location = debug_info.location_at(self.current_frame().ip)?;
+        let file = debug_info.file_for(location.file_id)?;
+        Some((file.to_string(), location.span))
     }
 
     fn format_frame(&self, frame: &Frame) -> (String, Option<String>) {
@@ -729,6 +801,29 @@ fn render_display_path(file: &str) -> String {
         return stripped.to_string_lossy().to_string();
     }
     file.to_string()
+}
+
+fn split_hint(message: &str) -> (&str, Option<&str>) {
+    if let Some(index) = message.find("\nHint:") {
+        (&message[..index], Some(&message[index..]))
+    } else {
+        (message, None)
+    }
+}
+
+fn split_first_line(message: &str) -> (&str, &str) {
+    if let Some(index) = message.find('\n') {
+        (&message[..index], &message[index + 1..])
+    } else {
+        (message, "")
+    }
+}
+
+fn get_source_line(source: &str, line: usize) -> Option<&str> {
+    if line == 0 {
+        return None;
+    }
+    source.lines().nth(line.saturating_sub(1))
 }
 
 #[cfg(test)]

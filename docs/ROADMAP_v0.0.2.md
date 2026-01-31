@@ -25,7 +25,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  M5: Essential Builtins      ██████░░░░░░░░░░░░░░░░░░░░░░░░░░  │ 20% (1/5)
+│  M5: Essential Builtins      ████████████░░░░░░░░░░░░░░░░░░░░  │ 40% (2/5)
 │  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -454,17 +454,17 @@ numbers
 - Unit tests: 17 tests for array builtins
 - Example file: `examples/basics/array_builtins.flx`
 
-### 5.2 String Builtins
+### 5.2 String Builtins ✅ COMPLETE
 
 | Builtin | Signature | Priority |
 |---------|-----------|----------|
-| `split(s, delim)` | `String, String -> Array` | Critical |
-| `join(arr, delim)` | `Array, String -> String` | Critical |
-| `trim(s)` | `String -> String` | High |
-| `upper(s)` | `String -> String` | Medium |
-| `lower(s)` | `String -> String` | Medium |
-| `chars(s)` | `String -> Array` | Medium |
-| `substring(s, start, end)` | `String, Int, Int -> String` | Medium |
+| `split(s, delim)` | `String, String -> Array` | ✅ Done |
+| `join(arr, delim)` | `Array, String -> String` | ✅ Done |
+| `trim(s)` | `String -> String` | ✅ Done |
+| `upper(s)` | `String -> String` | ✅ Done |
+| `lower(s)` | `String -> String` | ✅ Done |
+| `chars(s)` | `String -> Array` | ✅ Done |
+| `substring(s, start, end)` | `String, Int, Int -> String` | ✅ Done |
 
 ### 5.3 Hash Builtins
 
