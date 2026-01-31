@@ -73,6 +73,9 @@ impl Compiler {
         symbol_table.define_builtin(20, "values");
         symbol_table.define_builtin(21, "has_key");
         symbol_table.define_builtin(22, "merge");
+        symbol_table.define_builtin(23, "abs");
+        symbol_table.define_builtin(24, "min");
+        symbol_table.define_builtin(25, "max");
 
         Self {
             constants: Vec::new(),
