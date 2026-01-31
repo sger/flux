@@ -42,6 +42,13 @@ pub enum OpCode {
     OpUnwrapSome = 36,
     OpToString = 37,
     OpJumpTruthy = 38, // Jump if top of stack is truthy (for || operator)
+    // Either type opcodes
+    OpLeft = 39,        // Wrap top of stack in Left
+    OpRight = 40,       // Wrap top of stack in Right
+    OpIsLeft = 41,      // Check if top of stack is Left
+    OpIsRight = 42,     // Check if top of stack is Right
+    OpUnwrapLeft = 43,  // Unwrap Left value
+    OpUnwrapRight = 44, // Unwrap Right value
 }
 
 impl From<u8> for OpCode {
@@ -86,6 +93,12 @@ impl From<u8> for OpCode {
             36 => OpCode::OpUnwrapSome,
             37 => OpCode::OpToString,
             38 => OpCode::OpJumpTruthy,
+            39 => OpCode::OpLeft,
+            40 => OpCode::OpRight,
+            41 => OpCode::OpIsLeft,
+            42 => OpCode::OpIsRight,
+            43 => OpCode::OpUnwrapLeft,
+            44 => OpCode::OpUnwrapRight,
             _ => panic!("Unknown opcode {}", byte),
         }
     }

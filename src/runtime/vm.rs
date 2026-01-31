@@ -233,6 +233,39 @@ impl VM {
                     leak_detector::record_some();
                     self.push(Object::Some(Box::new(value)))?;
                 }
+                // Either type operations
+                OpCode::OpLeft => {
+                    let value = self.pop()?;
+                    self.push(Object::Left(Box::new(value)))?;
+                }
+                OpCode::OpRight => {
+                    let value = self.pop()?;
+                    self.push(Object::Right(Box::new(value)))?;
+                }
+                OpCode::OpIsLeft => {
+                    let value = self.pop()?;
+                    let result = matches!(value, Object::Left(_));
+                    self.push(Object::Boolean(result))?;
+                }
+                OpCode::OpIsRight => {
+                    let value = self.pop()?;
+                    let result = matches!(value, Object::Right(_));
+                    self.push(Object::Boolean(result))?;
+                }
+                OpCode::OpUnwrapLeft => {
+                    let value = self.pop()?;
+                    match value {
+                        Object::Left(inner) => self.push(*inner)?,
+                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Left value")),
+                    }
+                }
+                OpCode::OpUnwrapRight => {
+                    let value = self.pop()?;
+                    match value {
+                        Object::Right(inner) => self.push(*inner)?,
+                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Right value")),
+                    }
+                }
                 OpCode::OpToString => {
                     let value = self.pop()?;
                     self.push(Object::String(value.to_string_value()))?;
@@ -568,6 +601,42 @@ impl VM {
                 };
                 self.push(Object::Boolean(result))
             }
+            // Some comparison
+            (Object::Some(l), Object::Some(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Some with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Left comparison
+            (Object::Left(l), Object::Left(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Left with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Right comparison
+            (Object::Right(l), Object::Right(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Right with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Left vs Right (always not equal)
+            (Object::Left(_), Object::Right(_)) | (Object::Right(_), Object::Left(_)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => false,
+                    OpCode::OpNotEqual => true,
+                    _ => return Err(format!("cannot compare Left with Right using {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
             _ => Err(format!(
                 "unsupported comparison: {} and {}",
                 left.type_name(),
@@ -893,7 +962,9 @@ mod tests {
 
         // Chained pipes: value |> f |> g
         assert_eq!(
-            run("let double = fun(x) { x * 2; }; let triple = fun(x) { x * 3; }; 5 |> double |> triple;"),
+            run(
+                "let double = fun(x) { x * 2; }; let triple = fun(x) { x * 3; }; 5 |> double |> triple;"
+            ),
             Object::Integer(30)
         );
 
@@ -950,6 +1021,253 @@ mod tests {
                 (3 |> inc) |> double;
             "#),
             Object::Integer(8) // (3+1) * 2 = 8
+        );
+    }
+
+    #[test]
+    fn test_either_left_right() {
+        // Basic Left creation
+        assert_eq!(
+            run("Left(42);"),
+            Object::Left(Box::new(Object::Integer(42)))
+        );
+
+        // Basic Right creation
+        assert_eq!(
+            run("Right(42);"),
+            Object::Right(Box::new(Object::Integer(42)))
+        );
+
+        // Left with string
+        assert_eq!(
+            run(r#"Left("error");"#),
+            Object::Left(Box::new(Object::String("error".to_string())))
+        );
+
+        // Right with string
+        assert_eq!(
+            run(r#"Right("success");"#),
+            Object::Right(Box::new(Object::String("success".to_string())))
+        );
+
+        // Nested Left
+        assert_eq!(
+            run("Left(Left(1));"),
+            Object::Left(Box::new(Object::Left(Box::new(Object::Integer(1)))))
+        );
+
+        // Nested Right
+        assert_eq!(
+            run("Right(Right(1));"),
+            Object::Right(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        );
+
+        // Left containing Right
+        assert_eq!(
+            run("Left(Right(42));"),
+            Object::Left(Box::new(Object::Right(Box::new(Object::Integer(42)))))
+        );
+
+        // Right containing Left
+        assert_eq!(
+            run("Right(Left(42));"),
+            Object::Right(Box::new(Object::Left(Box::new(Object::Integer(42)))))
+        );
+    }
+
+    #[test]
+    fn test_either_pattern_matching() {
+        // Simple Left match with wildcard
+        assert_eq!(
+            run(r#"
+                let x = Left(1);
+                match x {
+                    Left(_) -> true;
+                    _ -> false;
+                };
+            "#),
+            Object::Boolean(true)
+        );
+
+        // Simple Right match with wildcard
+        assert_eq!(
+            run(r#"
+                let x = Right(1);
+                match x {
+                    Right(_) -> true;
+                    _ -> false;
+                };
+            "#),
+            Object::Boolean(true)
+        );
+
+        // Left doesn't match Right pattern
+        assert_eq!(
+            run(r#"
+                let x = Left(1);
+                match x {
+                    Right(_) -> true;
+                    _ -> false;
+                };
+            "#),
+            Object::Boolean(false)
+        );
+
+        // Right doesn't match Left pattern
+        assert_eq!(
+            run(r#"
+                let x = Right(1);
+                match x {
+                    Left(_) -> true;
+                    _ -> false;
+                };
+            "#),
+            Object::Boolean(false)
+        );
+
+        // Match on Left with binding
+        assert_eq!(
+            run(r#"
+                let x = Left(42);
+                match x {
+                    Left(v) -> v;
+                    _ -> 0;
+                };
+            "#),
+            Object::Integer(42)
+        );
+
+        // Match on Right with binding
+        assert_eq!(
+            run(r#"
+                let x = Right(42);
+                match x {
+                    Right(v) -> v;
+                    _ -> 0;
+                };
+            "#),
+            Object::Integer(42)
+        );
+    }
+
+    #[test]
+    fn test_either_in_functions() {
+        // Function returning Left
+        assert_eq!(
+            run(r#"
+                fun fail(msg) { Left(msg) }
+                fail("oops");
+            "#),
+            Object::Left(Box::new(Object::String("oops".to_string())))
+        );
+
+        // Function returning Right
+        assert_eq!(
+            run(r#"
+                fun succeed(val) { Right(val) }
+                succeed(100);
+            "#),
+            Object::Right(Box::new(Object::Integer(100)))
+        );
+
+        // Safe divide function
+        assert_eq!(
+            run(r#"
+                fun safeDivide(a, b) {
+                    if b == 0 {
+                        Left("division by zero")
+                    } else {
+                        Right(a / b)
+                    }
+                }
+                safeDivide(10, 2);
+            "#),
+            Object::Right(Box::new(Object::Integer(5)))
+        );
+
+        assert_eq!(
+            run(r#"
+                fun safeDivide(a, b) {
+                    if b == 0 {
+                        Left("division by zero")
+                    } else {
+                        Right(a / b)
+                    }
+                }
+                safeDivide(10, 0);
+            "#),
+            Object::Left(Box::new(Object::String("division by zero".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_either_equality() {
+        // Left equality
+        assert_eq!(run("Left(1) == Left(1);"), Object::Boolean(true));
+        assert_eq!(run("Left(1) == Left(2);"), Object::Boolean(false));
+        assert_eq!(run("Left(1) != Left(2);"), Object::Boolean(true));
+
+        // Right equality
+        assert_eq!(run("Right(1) == Right(1);"), Object::Boolean(true));
+        assert_eq!(run("Right(1) == Right(2);"), Object::Boolean(false));
+        assert_eq!(run("Right(1) != Right(2);"), Object::Boolean(true));
+
+        // Left vs Right
+        assert_eq!(run("Left(1) == Right(1);"), Object::Boolean(false));
+        assert_eq!(run("Left(1) != Right(1);"), Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_either_with_option() {
+        // Left containing Some
+        assert_eq!(
+            run("Left(Some(42));"),
+            Object::Left(Box::new(Object::Some(Box::new(Object::Integer(42)))))
+        );
+
+        // Right containing None
+        assert_eq!(
+            run("Right(None);"),
+            Object::Right(Box::new(Object::None))
+        );
+
+        // Some containing Left
+        assert_eq!(
+            run("Some(Left(1));"),
+            Object::Some(Box::new(Object::Left(Box::new(Object::Integer(1)))))
+        );
+
+        // Some containing Right
+        assert_eq!(
+            run("Some(Right(1));"),
+            Object::Some(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        );
+    }
+
+    #[test]
+    fn test_either_in_arrays() {
+        // Array of Either values
+        assert_eq!(
+            run("[Left(1), Right(2), Left(3)];"),
+            Object::Array(vec![
+                Object::Left(Box::new(Object::Integer(1))),
+                Object::Right(Box::new(Object::Integer(2))),
+                Object::Left(Box::new(Object::Integer(3))),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_either_in_hash() {
+        // Hash with Either values
+        assert_eq!(
+            run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["ok"];"#),
+            Object::Some(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        );
+
+        assert_eq!(
+            run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
+            Object::Some(Box::new(Object::Left(Box::new(Object::String("fail".to_string())))))
         );
     }
 }

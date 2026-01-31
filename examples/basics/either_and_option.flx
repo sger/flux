@@ -1,0 +1,94 @@
+// Either and Option Together
+// Option: presence/absence of a value
+// Either: success/failure with error information
+
+// Lookup in array - returns Option (using recursion)
+fun findHelper(arr, target, idx) {
+    if len(arr) == 0 {
+        None
+    } else {
+        if first(arr) == target {
+            Some(idx)
+        } else {
+            findHelper(rest(arr), target, idx + 1)
+        }
+    }
+}
+
+fun findInArray(arr, target) {
+    findHelper(arr, target, 0)
+}
+
+let numbers = [10, 20, 30, 40, 50];
+print(findInArray(numbers, 30));
+print(findInArray(numbers, 99));
+
+// Validate age - returns Either
+fun validateAge(input) {
+    if input < 0 {
+        Left("age cannot be negative")
+    } else {
+        if input > 150 {
+            Left("age seems unrealistic")
+        } else {
+            Right(input)
+        }
+    }
+}
+
+print(validateAge(25));
+print(validateAge(-5));
+print(validateAge(200));
+
+// Convert Option to Either
+fun optionToEither(opt, errorMsg) {
+    match opt {
+        Some(x) -> Right(x);
+        None -> Left(errorMsg);
+        _ -> Left("unknown");
+    }
+}
+
+let found = findInArray(numbers, 30);
+let notFound = findInArray(numbers, 99);
+
+print(optionToEither(found, "not found"));
+print(optionToEither(notFound, "not found"));
+
+// Convert Either to Option (losing error info)
+fun eitherToOption(either) {
+    match either {
+        Right(x) -> Some(x);
+        Left(_) -> None;
+        _ -> None;
+    }
+}
+
+print(eitherToOption(Right(42)));
+print(eitherToOption(Left("some error")));
+
+// Get value or default
+fun getOrElse(either, defaultVal) {
+    match either {
+        Right(x) -> x;
+        _ -> defaultVal;
+    }
+}
+
+print(getOrElse(Right(100), 0));
+print(getOrElse(Left("error"), 0));
+
+// Map over Either
+fun mapEither(either, f) {
+    match either {
+        Right(x) -> Right(f(x));
+        Left(e) -> Left(e);
+        _ -> either;
+    }
+}
+
+let doubled = mapEither(Right(21), fun(x) { x * 2 });
+print(doubled);
+
+let failed = mapEither(Left("error"), fun(x) { x * 2 });
+print(failed);

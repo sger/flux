@@ -600,6 +600,15 @@ impl Compiler {
                 self.compile_expression(value)?;
                 self.emit(OpCode::OpSome, &[]);
             }
+            // Either type expressions
+            Expression::Left { value, .. } => {
+                self.compile_expression(value)?;
+                self.emit(OpCode::OpLeft, &[]);
+            }
+            Expression::Right { value, .. } => {
+                self.compile_expression(value)?;
+                self.emit(OpCode::OpRight, &[]);
+            }
             Expression::Match {
                 scrutinee, arms, ..
             } => {
@@ -935,6 +944,92 @@ impl Compiler {
                     }
                 }
             }
+            Pattern::Left(inner) => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsLeft, &[]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                match inner.as_ref() {
+                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    _ => {
+                        let inner_symbol = self.symbol_table.define_temp();
+                        self.load_symbol(scrutinee);
+                        self.emit(OpCode::OpUnwrapLeft, &[]);
+
+                        match inner_symbol.symbol_scope {
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                            }
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                            }
+                            _ => {
+                                return Err(Self::boxed(
+                                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                                        .with_code("ICE007")
+                                        .with_message(
+                                            "unexpected temp symbol scope in Left pattern",
+                                        )
+                                        .with_hint(format!(
+                                            "{}:{} ({})",
+                                            file!(),
+                                            line!(),
+                                            module_path!()
+                                        )),
+                                ));
+                            }
+                        }
+
+                        let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
+                        jumps.extend(inner_jumps);
+                        Ok(jumps)
+                    }
+                }
+            }
+            Pattern::Right(inner) => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsRight, &[]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                match inner.as_ref() {
+                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    _ => {
+                        let inner_symbol = self.symbol_table.define_temp();
+                        self.load_symbol(scrutinee);
+                        self.emit(OpCode::OpUnwrapRight, &[]);
+
+                        match inner_symbol.symbol_scope {
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                            }
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                            }
+                            _ => {
+                                return Err(Self::boxed(
+                                    Diagnostic::error("INTERNAL COMPILER ERROR")
+                                        .with_code("ICE007")
+                                        .with_message(
+                                            "unexpected temp symbol scope in Right pattern",
+                                        )
+                                        .with_hint(format!(
+                                            "{}:{} ({})",
+                                            file!(),
+                                            line!(),
+                                            module_path!()
+                                        )),
+                                ));
+                            }
+                        }
+
+                        let inner_jumps = self.compile_pattern_check(&inner_symbol, inner)?;
+                        jumps.extend(inner_jumps);
+                        Ok(jumps)
+                    }
+                }
+            }
             Pattern::Identifier(_name) => {
                 // Identifier always matches and binds the value
                 // For now, we'll treat it like wildcard
@@ -983,6 +1078,52 @@ impl Compiler {
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE006")
                                 .with_message("unexpected temp symbol scope in Some binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
+                    }
+                }
+                self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            // Either type pattern bindings
+            Pattern::Left(inner) => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpUnwrapLeft, &[]);
+
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE009")
+                                .with_message("unexpected temp symbol scope in Left binding")
+                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                        ));
+                    }
+                }
+                self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            Pattern::Right(inner) => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpUnwrapRight, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(
+                            Diagnostic::error("INTERNAL COMPILER ERROR")
+                                .with_code("ICE010")
+                                .with_message("unexpected temp symbol scope in Right binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
                     }
