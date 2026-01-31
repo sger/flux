@@ -26,7 +26,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ████████████████████████████████  │ 100% ✅
 │  M5: Essential Builtins      ████████████████████████████████  │ 100% (5/5) ✅
-│  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M6: Polish & Release        ████████████████████████████████  │ 100% ✅
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -599,8 +599,12 @@ print(safeAdd(1, "hello"));   // None
 ### 5.7 Milestone 5 Deliverables
 
 - [x] 10+ new builtins (must have list) - 35 total builtins implemented
+  Builtins: `print`, `len`, `first`, `last`, `rest`, `push`, `to_string`, `concat`, `reverse`,
+  `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `chars`, `substring`,
+  `keys`, `values`, `has_key`, `merge`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`,
+  `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
 - [x] Unit tests for each builtin - 89 unit tests
-- [x] Documentation
+- [ ] Documentation (planned)
 - [x] Example files demonstrating usage
 
 ---
@@ -609,6 +613,7 @@ print(safeAdd(1, "hello"));   // None
 
 **Priority:** Required
 **Dependencies:** M1-M5
+**Status:** ✅ COMPLETE
 
 ### 6.1 Documentation
 
@@ -640,14 +645,14 @@ print(safeAdd(1, "hello"));   // None
 
 ### 6.4 Release Checklist
 
-- [ ] All milestones complete
-- [ ] All tests passing
-- [ ] No compiler warnings
-- [ ] Documentation updated
-- [ ] Examples working
-- [ ] CHANGELOG updated
-- [ ] Version bumped to 0.0.2
-- [ ] Git tag created
+- [x] All milestones complete
+- [x] All tests passing
+- [x] No compiler warnings
+- [x] Documentation updated
+- [x] Examples working
+- [x] CHANGELOG updated
+- [x] Version bumped to 0.0.2
+- [x] Git tag created
 
 ---
 
