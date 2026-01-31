@@ -113,6 +113,71 @@ fn arg_int(
     }
 }
 
+fn arg_hash<'a>(
+    args: &'a [Object],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<&'a std::collections::HashMap<crate::runtime::hash_key::HashKey, Object>, String> {
+    match &args[index] {
+        Object::Hash(h) => Ok(h),
+        other => Err(type_error(name, label, "Hash", other.type_name(), signature)),
+    }
+}
+
+/// Convert a HashKey back to an Object
+fn hash_key_to_object(key: &crate::runtime::hash_key::HashKey) -> Object {
+    use crate::runtime::hash_key::HashKey;
+    match key {
+        HashKey::Integer(v) => Object::Integer(*v),
+        HashKey::Boolean(v) => Object::Boolean(*v),
+        HashKey::String(v) => Object::String(v.clone()),
+    }
+}
+
+/// keys(h) - Return an array of all keys in the hash
+fn builtin_keys(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "keys", "keys(h)")?;
+    let hash = arg_hash(&args, 0, "keys", "argument", "keys(h)")?;
+    let keys: Vec<Object> = hash.keys().map(hash_key_to_object).collect();
+    Ok(Object::Array(keys))
+}
+
+/// values(h) - Return an array of all values in the hash
+fn builtin_values(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "values", "values(h)")?;
+    let hash = arg_hash(&args, 0, "values", "argument", "values(h)")?;
+    let values: Vec<Object> = hash.values().cloned().collect();
+    Ok(Object::Array(values))
+}
+
+/// has_key(h, k) - Check if hash contains a key
+fn builtin_has_key(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 2, "has_key", "has_key(h, k)")?;
+    let hash = arg_hash(&args, 0, "has_key", "first argument", "has_key(h, k)")?;
+    let key = args[1].to_hash_key().ok_or_else(|| {
+        format!(
+            "has_key key must be hashable (String, Int, Bool), got {}{}",
+            args[1].type_name(),
+            format_hint("has_key(h, k)")
+        )
+    })?;
+    Ok(Object::Boolean(hash.contains_key(&key)))
+}
+
+/// merge(h1, h2) - Merge two hashes, with h2 values overwriting h1 on conflict
+fn builtin_merge(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 2, "merge", "merge(h1, h2)")?;
+    let h1 = arg_hash(&args, 0, "merge", "first argument", "merge(h1, h2)")?;
+    let h2 = arg_hash(&args, 1, "merge", "second argument", "merge(h1, h2)")?;
+    let mut result = h1.clone();
+    for (k, v) in h2.iter() {
+        result.insert(k.clone(), v.clone());
+    }
+    Ok(Object::Hash(result))
+}
+
 fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
     for arg in args {
         match &arg {
@@ -440,6 +505,22 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "substring",
         func: builtin_substring,
+    },
+    BuiltinFunction {
+        name: "keys",
+        func: builtin_keys,
+    },
+    BuiltinFunction {
+        name: "values",
+        func: builtin_values,
+    },
+    BuiltinFunction {
+        name: "has_key",
+        func: builtin_has_key,
+    },
+    BuiltinFunction {
+        name: "merge",
+        func: builtin_merge,
     },
 ];
 
@@ -872,5 +953,165 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(result, Object::String("hello".to_string()));
+    }
+
+    // =============================================================================
+    // Hash Builtins Tests (5.3)
+    // =============================================================================
+
+    fn make_test_hash() -> Object {
+        use crate::runtime::hash_key::HashKey;
+        let mut hash = std::collections::HashMap::new();
+        hash.insert(HashKey::String("name".to_string()), Object::String("Alice".to_string()));
+        hash.insert(HashKey::Integer(42), Object::Integer(100));
+        hash.insert(HashKey::Boolean(true), Object::String("yes".to_string()));
+        Object::Hash(hash)
+    }
+
+    #[test]
+    fn test_builtin_keys() {
+        let hash = make_test_hash();
+        let result = builtin_keys(vec![hash]).unwrap();
+        match result {
+            Object::Array(keys) => {
+                assert_eq!(keys.len(), 3);
+                // Check that all expected keys are present (order is not guaranteed)
+                let has_name = keys.contains(&Object::String("name".to_string()));
+                let has_42 = keys.contains(&Object::Integer(42));
+                let has_true = keys.contains(&Object::Boolean(true));
+                assert!(has_name, "missing 'name' key");
+                assert!(has_42, "missing 42 key");
+                assert!(has_true, "missing true key");
+            }
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_keys_empty() {
+        let hash = Object::Hash(std::collections::HashMap::new());
+        let result = builtin_keys(vec![hash]).unwrap();
+        assert_eq!(result, Object::Array(vec![]));
+    }
+
+    #[test]
+    fn test_builtin_values() {
+        let hash = make_test_hash();
+        let result = builtin_values(vec![hash]).unwrap();
+        match result {
+            Object::Array(values) => {
+                assert_eq!(values.len(), 3);
+                // Check that all expected values are present (order is not guaranteed)
+                let has_alice = values.contains(&Object::String("Alice".to_string()));
+                let has_100 = values.contains(&Object::Integer(100));
+                let has_yes = values.contains(&Object::String("yes".to_string()));
+                assert!(has_alice, "missing 'Alice' value");
+                assert!(has_100, "missing 100 value");
+                assert!(has_yes, "missing 'yes' value");
+            }
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_values_empty() {
+        let hash = Object::Hash(std::collections::HashMap::new());
+        let result = builtin_values(vec![hash]).unwrap();
+        assert_eq!(result, Object::Array(vec![]));
+    }
+
+    #[test]
+    fn test_builtin_has_key_found() {
+        let hash = make_test_hash();
+        let result = builtin_has_key(vec![hash, Object::String("name".to_string())]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_has_key_not_found() {
+        let hash = make_test_hash();
+        let result = builtin_has_key(vec![hash, Object::String("email".to_string())]).unwrap();
+        assert_eq!(result, Object::Boolean(false));
+    }
+
+    #[test]
+    fn test_builtin_has_key_integer_key() {
+        let hash = make_test_hash();
+        let result = builtin_has_key(vec![hash, Object::Integer(42)]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_has_key_boolean_key() {
+        let hash = make_test_hash();
+        let result = builtin_has_key(vec![hash, Object::Boolean(true)]).unwrap();
+        assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_builtin_has_key_unhashable() {
+        let hash = make_test_hash();
+        let result = builtin_has_key(vec![hash, Object::Array(vec![])]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("must be hashable"));
+    }
+
+    #[test]
+    fn test_builtin_merge() {
+        use crate::runtime::hash_key::HashKey;
+        let mut h1 = std::collections::HashMap::new();
+        h1.insert(HashKey::String("a".to_string()), Object::Integer(1));
+        h1.insert(HashKey::String("b".to_string()), Object::Integer(2));
+
+        let mut h2 = std::collections::HashMap::new();
+        h2.insert(HashKey::String("b".to_string()), Object::Integer(20)); // overwrites
+        h2.insert(HashKey::String("c".to_string()), Object::Integer(3));
+
+        let result = builtin_merge(vec![Object::Hash(h1), Object::Hash(h2)]).unwrap();
+        match result {
+            Object::Hash(merged) => {
+                assert_eq!(merged.len(), 3);
+                assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
+                assert_eq!(merged.get(&HashKey::String("b".to_string())), Some(&Object::Integer(20))); // overwritten
+                assert_eq!(merged.get(&HashKey::String("c".to_string())), Some(&Object::Integer(3)));
+            }
+            _ => panic!("expected Hash"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_merge_empty() {
+        use crate::runtime::hash_key::HashKey;
+        let mut h1 = std::collections::HashMap::new();
+        h1.insert(HashKey::String("a".to_string()), Object::Integer(1));
+
+        let h2 = std::collections::HashMap::new();
+
+        let result = builtin_merge(vec![Object::Hash(h1.clone()), Object::Hash(h2)]).unwrap();
+        match result {
+            Object::Hash(merged) => {
+                assert_eq!(merged.len(), 1);
+                assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
+            }
+            _ => panic!("expected Hash"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_merge_into_empty() {
+        use crate::runtime::hash_key::HashKey;
+        let h1 = std::collections::HashMap::new();
+
+        let mut h2 = std::collections::HashMap::new();
+        h2.insert(HashKey::String("a".to_string()), Object::Integer(1));
+
+        let result = builtin_merge(vec![Object::Hash(h1), Object::Hash(h2)]).unwrap();
+        match result {
+            Object::Hash(merged) => {
+                assert_eq!(merged.len(), 1);
+                assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
+            }
+            _ => panic!("expected Hash"),
+        }
     }
 }

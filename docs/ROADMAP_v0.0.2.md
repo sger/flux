@@ -25,7 +25,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  M5: Essential Builtins      ████████████░░░░░░░░░░░░░░░░░░░░  │ 40% (2/5)
+│  M5: Essential Builtins      ████████████████████░░░░░░░░░░░░  │ 60% (3/5)
 │  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -466,14 +466,32 @@ numbers
 | `chars(s)` | `String -> Array` | ✅ Done |
 | `substring(s, start, end)` | `String, Int, Int -> String` | ✅ Done |
 
-### 5.3 Hash Builtins
+### 5.3 Hash Builtins ✅ COMPLETE
 
-| Builtin | Signature | Priority |
-|---------|-----------|----------|
-| `keys(h)` | `Hash -> Array` | Critical |
-| `values(h)` | `Hash -> Array` | Critical |
-| `has_key(h, k)` | `Hash, Any -> Bool` | High |
-| `merge(h1, h2)` | `Hash, Hash -> Hash` | Medium |
+| Builtin | Signature | Status |
+|---------|-----------|--------|
+| `keys(h)` | `Hash -> Array` | ✅ Done |
+| `values(h)` | `Hash -> Array` | ✅ Done |
+| `has_key(h, k)` | `Hash, Any -> Bool` | ✅ Done |
+| `merge(h1, h2)` | `Hash, Hash -> Hash` | ✅ Done |
+
+```flux
+// keys - get all keys from a hash
+let person = {"name": "Alice", "age": 30, "city": "NYC" };
+print(keys(person));  // ["name", "age", "city"]
+
+// values - get all values from a hash
+print(values(person));  // ["Alice", 30, "NYC"]
+
+// has_key - check if a key exists
+print(has_key(person, "name"));   // true
+print(has_key(person, "email"));  // false
+
+// merge - combine two hashes (second hash overwrites conflicts)
+let defaults = {"theme": "dark", "lang": "en" };
+let settings = {"lang": "fr", "notifications": true };
+print(merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notifications": true }
+```
 
 ### 5.4 Math Builtins
 
