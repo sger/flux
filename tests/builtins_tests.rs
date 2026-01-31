@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+const PI: f64 = std::f64::consts::PI;
+
 use flux::runtime::builtins::get_builtin;
 use flux::runtime::hash_key::HashKey;
 use flux::runtime::object::Object;
@@ -11,7 +13,10 @@ fn call(name: &str, args: Vec<Object>) -> Result<Object, String> {
 
 fn make_test_hash() -> Object {
     let mut hash = HashMap::new();
-    hash.insert(HashKey::String("name".to_string()), Object::String("Alice".to_string()));
+    hash.insert(
+        HashKey::String("name".to_string()),
+        Object::String("Alice".to_string()),
+    );
     hash.insert(HashKey::Integer(42), Object::Integer(100));
     hash.insert(HashKey::Boolean(true), Object::String("yes".to_string()));
     Object::Hash(hash)
@@ -208,7 +213,7 @@ fn test_builtin_sort() {
 #[test]
 fn test_builtin_sort_floats() {
     let arr = Object::Array(vec![
-        Object::Float(3.14),
+        Object::Float(PI),
         Object::Float(1.0),
         Object::Float(2.71),
     ]);
@@ -218,7 +223,7 @@ fn test_builtin_sort_floats() {
         Object::Array(vec![
             Object::Float(1.0),
             Object::Float(2.71),
-            Object::Float(3.14)
+            Object::Float(PI)
         ])
     );
 }
@@ -283,14 +288,14 @@ fn test_builtin_sort_desc() {
 fn test_builtin_sort_desc_floats() {
     let arr = Object::Array(vec![
         Object::Float(1.0),
-        Object::Float(3.14),
+        Object::Float(PI),
         Object::Float(2.71),
     ]);
     let result = call("sort", vec![arr, Object::String("desc".to_string())]).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
-            Object::Float(3.14),
+            Object::Float(PI),
             Object::Float(2.71),
             Object::Float(1.0)
         ])
@@ -556,9 +561,18 @@ fn test_builtin_merge() {
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 3);
-            assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
-            assert_eq!(merged.get(&HashKey::String("b".to_string())), Some(&Object::Integer(20))); // overwritten
-            assert_eq!(merged.get(&HashKey::String("c".to_string())), Some(&Object::Integer(3)));
+            assert_eq!(
+                merged.get(&HashKey::String("a".to_string())),
+                Some(&Object::Integer(1))
+            );
+            assert_eq!(
+                merged.get(&HashKey::String("b".to_string())),
+                Some(&Object::Integer(20))
+            ); // overwritten
+            assert_eq!(
+                merged.get(&HashKey::String("c".to_string())),
+                Some(&Object::Integer(3))
+            );
         }
         _ => panic!("expected Hash"),
     }
@@ -575,7 +589,10 @@ fn test_builtin_merge_empty() {
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 1);
-            assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
+            assert_eq!(
+                merged.get(&HashKey::String("a".to_string())),
+                Some(&Object::Integer(1))
+            );
         }
         _ => panic!("expected Hash"),
     }
@@ -592,7 +609,10 @@ fn test_builtin_merge_into_empty() {
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 1);
-            assert_eq!(merged.get(&HashKey::String("a".to_string())), Some(&Object::Integer(1)));
+            assert_eq!(
+                merged.get(&HashKey::String("a".to_string())),
+                Some(&Object::Integer(1))
+            );
         }
         _ => panic!("expected Hash"),
     }
@@ -618,14 +638,14 @@ fn test_builtin_abs_integer_zero() {
 
 #[test]
 fn test_builtin_abs_float_positive() {
-    let result = call("abs", vec![Object::Float(3.14)]).unwrap();
-    assert_eq!(result, Object::Float(3.14));
+    let result = call("abs", vec![Object::Float(PI)]).unwrap();
+    assert_eq!(result, Object::Float(PI));
 }
 
 #[test]
 fn test_builtin_abs_float_negative() {
-    let result = call("abs", vec![Object::Float(-3.14)]).unwrap();
-    assert_eq!(result, Object::Float(3.14));
+    let result = call("abs", vec![Object::Float(-PI)]).unwrap();
+    assert_eq!(result, Object::Float(PI));
 }
 
 #[test]
@@ -696,13 +716,19 @@ fn test_builtin_max_negative() {
 
 #[test]
 fn test_builtin_min_type_error() {
-    let result = call("min", vec![Object::String("a".to_string()), Object::Integer(1)]);
+    let result = call(
+        "min",
+        vec![Object::String("a".to_string()), Object::Integer(1)],
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn test_builtin_max_type_error() {
-    let result = call("max", vec![Object::Integer(1), Object::String("a".to_string())]);
+    let result = call(
+        "max",
+        vec![Object::Integer(1), Object::String("a".to_string())],
+    );
     assert!(result.is_err());
 }
 
@@ -714,7 +740,7 @@ fn test_builtin_type_of_int() {
 
 #[test]
 fn test_builtin_type_of_float() {
-    let result = call("type_of", vec![Object::Float(3.14)]).unwrap();
+    let result = call("type_of", vec![Object::Float(PI)]).unwrap();
     assert_eq!(result, Object::String("Float".to_string()));
 }
 
@@ -762,13 +788,13 @@ fn test_builtin_is_int_true() {
 
 #[test]
 fn test_builtin_is_int_false() {
-    let result = call("is_int", vec![Object::Float(3.14)]).unwrap();
+    let result = call("is_int", vec![Object::Float(PI)]).unwrap();
     assert_eq!(result, Object::Boolean(false));
 }
 
 #[test]
 fn test_builtin_is_float_true() {
-    let result = call("is_float", vec![Object::Float(3.14)]).unwrap();
+    let result = call("is_float", vec![Object::Float(PI)]).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 

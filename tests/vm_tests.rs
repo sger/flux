@@ -530,6 +530,8 @@ fn test_either_in_hash() {
 
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
-        Object::Some(Box::new(Object::Left(Box::new(Object::String("fail".to_string())))))
+        Object::Some(Box::new(Object::Left(Box::new(Object::String(
+            "fail".to_string()
+        )))))
     );
 }

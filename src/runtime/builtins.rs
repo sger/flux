@@ -26,7 +26,12 @@ fn type_error(name: &str, label: &str, expected: &str, got: &str, signature: &st
     )
 }
 
-fn check_arity(args: &[Object], expected: usize, name: &str, signature: &str) -> Result<(), String> {
+fn check_arity(
+    args: &[Object],
+    expected: usize,
+    name: &str,
+    signature: &str,
+) -> Result<(), String> {
     if args.len() != expected {
         return Err(arity_error(
             name,
@@ -122,7 +127,13 @@ fn arg_hash<'a>(
 ) -> Result<&'a std::collections::HashMap<crate::runtime::hash_key::HashKey, Object>, String> {
     match &args[index] {
         Object::Hash(h) => Ok(h),
-        other => Err(type_error(name, label, "Hash", other.type_name(), signature)),
+        other => Err(type_error(
+            name,
+            label,
+            "Hash",
+            other.type_name(),
+            signature,
+        )),
     }
 }
 
@@ -188,7 +199,13 @@ fn arg_number(
     match &args[index] {
         Object::Integer(v) => Ok(*v as f64),
         Object::Float(v) => Ok(*v),
-        other => Err(type_error(name, label, "Number", other.type_name(), signature)),
+        other => Err(type_error(
+            name,
+            label,
+            "Number",
+            other.type_name(),
+            signature,
+        )),
     }
 }
 
@@ -198,7 +215,13 @@ fn builtin_abs(args: Vec<Object>) -> Result<Object, String> {
     match &args[0] {
         Object::Integer(v) => Ok(Object::Integer(v.abs())),
         Object::Float(v) => Ok(Object::Float(v.abs())),
-        other => Err(type_error("abs", "argument", "Number", other.type_name(), "abs(n)")),
+        other => Err(type_error(
+            "abs",
+            "argument",
+            "Number",
+            other.type_name(),
+            "abs(n)",
+        )),
     }
 }
 
@@ -372,7 +395,13 @@ fn builtin_reverse(args: Vec<Object>) -> Result<Object, String> {
 /// contains(arr, elem) - Check if array contains an element
 fn builtin_contains(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 2, "contains", "contains(arr, elem)")?;
-    let arr = arg_array(&args, 0, "contains", "first argument", "contains(arr, elem)")?;
+    let arr = arg_array(
+        &args,
+        0,
+        "contains",
+        "first argument",
+        "contains(arr, elem)",
+    )?;
     let elem = &args[1];
     let found = arr.iter().any(|item| item == elem);
     Ok(Object::Boolean(found))
@@ -381,12 +410,34 @@ fn builtin_contains(args: Vec<Object>) -> Result<Object, String> {
 /// slice(arr, start, end) - Return a slice of the array from start to end (exclusive)
 fn builtin_slice(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 3, "slice", "slice(arr, start, end)")?;
-    let arr = arg_array(&args, 0, "slice", "first argument", "slice(arr, start, end)")?;
-    let start = arg_int(&args, 1, "slice", "second argument", "slice(arr, start, end)")?;
-    let end = arg_int(&args, 2, "slice", "third argument", "slice(arr, start, end)")?;
+    let arr = arg_array(
+        &args,
+        0,
+        "slice",
+        "first argument",
+        "slice(arr, start, end)",
+    )?;
+    let start = arg_int(
+        &args,
+        1,
+        "slice",
+        "second argument",
+        "slice(arr, start, end)",
+    )?;
+    let end = arg_int(
+        &args,
+        2,
+        "slice",
+        "third argument",
+        "slice(arr, start, end)",
+    )?;
     let len = arr.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
-    let end = if end > len { len as usize } else { end as usize };
+    let end = if end > len {
+        len as usize
+    } else {
+        end as usize
+    };
     if start >= end || start >= arr.len() {
         Ok(Object::Array(vec![]))
     } else {
@@ -517,14 +568,35 @@ fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
 /// substring(s, start, end) - Extract a substring (start inclusive, end exclusive)
 fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 3, "substring", "substring(s, start, end)")?;
-    let s = arg_string(&args, 0, "substring", "first argument", "substring(s, start, end)")?;
-    let start =
-        arg_int(&args, 1, "substring", "second argument", "substring(s, start, end)")?;
-    let end = arg_int(&args, 2, "substring", "third argument", "substring(s, start, end)")?;
+    let s = arg_string(
+        &args,
+        0,
+        "substring",
+        "first argument",
+        "substring(s, start, end)",
+    )?;
+    let start = arg_int(
+        &args,
+        1,
+        "substring",
+        "second argument",
+        "substring(s, start, end)",
+    )?;
+    let end = arg_int(
+        &args,
+        2,
+        "substring",
+        "third argument",
+        "substring(s, start, end)",
+    )?;
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
-    let end = if end > len { len as usize } else { end as usize };
+    let end = if end > len {
+        len as usize
+    } else {
+        end as usize
+    };
     if start >= end || start >= chars.len() {
         Ok(Object::String(String::new()))
     } else {
