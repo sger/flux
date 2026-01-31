@@ -178,6 +178,56 @@ fn builtin_merge(args: Vec<Object>) -> Result<Object, String> {
     Ok(Object::Hash(result))
 }
 
+fn arg_number(
+    args: &[Object],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<f64, String> {
+    match &args[index] {
+        Object::Integer(v) => Ok(*v as f64),
+        Object::Float(v) => Ok(*v),
+        other => Err(type_error(name, label, "Number", other.type_name(), signature)),
+    }
+}
+
+/// abs(n) - Return the absolute value of a number
+fn builtin_abs(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 1, "abs", "abs(n)")?;
+    match &args[0] {
+        Object::Integer(v) => Ok(Object::Integer(v.abs())),
+        Object::Float(v) => Ok(Object::Float(v.abs())),
+        other => Err(type_error("abs", "argument", "Number", other.type_name(), "abs(n)")),
+    }
+}
+
+/// min(a, b) - Return the smaller of two numbers
+fn builtin_min(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 2, "min", "min(a, b)")?;
+    let a = arg_number(&args, 0, "min", "first argument", "min(a, b)")?;
+    let b = arg_number(&args, 1, "min", "second argument", "min(a, b)")?;
+    let result = a.min(b);
+    // Return integer if both inputs were integers and result is whole
+    match (&args[0], &args[1]) {
+        (Object::Integer(_), Object::Integer(_)) => Ok(Object::Integer(result as i64)),
+        _ => Ok(Object::Float(result)),
+    }
+}
+
+/// max(a, b) - Return the larger of two numbers
+fn builtin_max(args: Vec<Object>) -> Result<Object, String> {
+    check_arity(&args, 2, "max", "max(a, b)")?;
+    let a = arg_number(&args, 0, "max", "first argument", "max(a, b)")?;
+    let b = arg_number(&args, 1, "max", "second argument", "max(a, b)")?;
+    let result = a.max(b);
+    // Return integer if both inputs were integers and result is whole
+    match (&args[0], &args[1]) {
+        (Object::Integer(_), Object::Integer(_)) => Ok(Object::Integer(result as i64)),
+        _ => Ok(Object::Float(result)),
+    }
+}
+
 fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
     for arg in args {
         match &arg {
@@ -521,6 +571,18 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "merge",
         func: builtin_merge,
+    },
+    BuiltinFunction {
+        name: "abs",
+        func: builtin_abs,
+    },
+    BuiltinFunction {
+        name: "min",
+        func: builtin_min,
+    },
+    BuiltinFunction {
+        name: "max",
+        func: builtin_max,
     },
 ];
 
@@ -1113,5 +1175,117 @@ mod tests {
             }
             _ => panic!("expected Hash"),
         }
+    }
+
+    // =============================================================================
+    // Math Builtins Tests (5.4)
+    // =============================================================================
+
+    #[test]
+    fn test_builtin_abs_integer_positive() {
+        let result = builtin_abs(vec![Object::Integer(5)]).unwrap();
+        assert_eq!(result, Object::Integer(5));
+    }
+
+    #[test]
+    fn test_builtin_abs_integer_negative() {
+        let result = builtin_abs(vec![Object::Integer(-5)]).unwrap();
+        assert_eq!(result, Object::Integer(5));
+    }
+
+    #[test]
+    fn test_builtin_abs_integer_zero() {
+        let result = builtin_abs(vec![Object::Integer(0)]).unwrap();
+        assert_eq!(result, Object::Integer(0));
+    }
+
+    #[test]
+    fn test_builtin_abs_float_positive() {
+        let result = builtin_abs(vec![Object::Float(3.14)]).unwrap();
+        assert_eq!(result, Object::Float(3.14));
+    }
+
+    #[test]
+    fn test_builtin_abs_float_negative() {
+        let result = builtin_abs(vec![Object::Float(-3.14)]).unwrap();
+        assert_eq!(result, Object::Float(3.14));
+    }
+
+    #[test]
+    fn test_builtin_abs_type_error() {
+        let result = builtin_abs(vec![Object::String("hello".to_string())]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_builtin_min_integers() {
+        let result = builtin_min(vec![Object::Integer(3), Object::Integer(7)]).unwrap();
+        assert_eq!(result, Object::Integer(3));
+    }
+
+    #[test]
+    fn test_builtin_min_integers_reversed() {
+        let result = builtin_min(vec![Object::Integer(10), Object::Integer(2)]).unwrap();
+        assert_eq!(result, Object::Integer(2));
+    }
+
+    #[test]
+    fn test_builtin_min_floats() {
+        let result = builtin_min(vec![Object::Float(3.5), Object::Float(2.1)]).unwrap();
+        assert_eq!(result, Object::Float(2.1));
+    }
+
+    #[test]
+    fn test_builtin_min_mixed() {
+        let result = builtin_min(vec![Object::Integer(3), Object::Float(2.5)]).unwrap();
+        assert_eq!(result, Object::Float(2.5));
+    }
+
+    #[test]
+    fn test_builtin_min_negative() {
+        let result = builtin_min(vec![Object::Integer(-5), Object::Integer(-10)]).unwrap();
+        assert_eq!(result, Object::Integer(-10));
+    }
+
+    #[test]
+    fn test_builtin_max_integers() {
+        let result = builtin_max(vec![Object::Integer(3), Object::Integer(7)]).unwrap();
+        assert_eq!(result, Object::Integer(7));
+    }
+
+    #[test]
+    fn test_builtin_max_integers_reversed() {
+        let result = builtin_max(vec![Object::Integer(10), Object::Integer(2)]).unwrap();
+        assert_eq!(result, Object::Integer(10));
+    }
+
+    #[test]
+    fn test_builtin_max_floats() {
+        let result = builtin_max(vec![Object::Float(3.5), Object::Float(2.1)]).unwrap();
+        assert_eq!(result, Object::Float(3.5));
+    }
+
+    #[test]
+    fn test_builtin_max_mixed() {
+        let result = builtin_max(vec![Object::Integer(3), Object::Float(3.5)]).unwrap();
+        assert_eq!(result, Object::Float(3.5));
+    }
+
+    #[test]
+    fn test_builtin_max_negative() {
+        let result = builtin_max(vec![Object::Integer(-5), Object::Integer(-10)]).unwrap();
+        assert_eq!(result, Object::Integer(-5));
+    }
+
+    #[test]
+    fn test_builtin_min_type_error() {
+        let result = builtin_min(vec![Object::String("a".to_string()), Object::Integer(1)]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_builtin_max_type_error() {
+        let result = builtin_max(vec![Object::Integer(1), Object::String("a".to_string())]);
+        assert!(result.is_err());
     }
 }

@@ -25,7 +25,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
-│  M5: Essential Builtins      ████████████████████░░░░░░░░░░░░  │ 60% (3/5)
+│  M5: Essential Builtins      ██████████████████████████░░░░░░  │ 80% (4/5)
 │  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -493,13 +493,38 @@ let settings = {"lang": "fr", "notifications": true };
 print(merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notifications": true }
 ```
 
-### 5.4 Math Builtins
+### 5.4 Math Builtins ✅ COMPLETE
 
-| Builtin | Signature | Priority |
-|---------|-----------|----------|
-| `abs(n)` | `Number -> Number` | High |
-| `min(a, b)` | `Number, Number -> Number` | High |
-| `max(a, b)` | `Number, Number -> Number` | High |
+| Builtin | Signature | Status |
+|---------|-----------|--------|
+| `abs(n)` | `Number -> Number` | ✅ Done |
+| `min(a, b)` | `Number, Number -> Number` | ✅ Done |
+| `max(a, b)` | `Number, Number -> Number` | ✅ Done |
+
+```flux
+// abs - absolute value
+print(abs(-5));     // 5
+print(abs(5));      // 5
+print(abs(-3.14));  // 3.14
+
+// min - smaller of two numbers
+print(min(3, 7));       // 3
+print(min(10, 2));      // 2
+print(min(3.5, 2.1));   // 2.1
+
+// max - larger of two numbers
+print(max(3, 7));       // 7
+print(max(10, 2));      // 10
+print(max(3.5, 2.1));   // 3.5
+
+// Practical example: Clamp value to range
+fun clamp(value, minVal, maxVal) {
+    min(max(value, minVal), maxVal);
+}
+print(clamp(15, 0, 10));   // 10
+print(clamp(-5, 0, 10));   // 0
+print(clamp(5, 0, 10));    // 5
+```
 
 ### 5.5 Type Checking Builtins
 
