@@ -42,3 +42,5 @@ print(slice(reverse_arr, 0, 3));
 let sort_arr = [100, 20, 30, 40, 50, 60];
 
 print(sort(sort_arr));
+
+print(join(["1", "2", "3"], ","));

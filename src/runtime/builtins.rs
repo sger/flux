@@ -249,13 +249,18 @@ fn builtin_sort(args: Vec<Object>) -> Result<Object, String> {
             Object::String(s) => match s.as_str() {
                 "asc" => false,
                 "desc" => true,
-                _ => return Err(format!("sort order must be \"asc\" or \"desc\", got \"{}\"", s)),
+                _ => {
+                    return Err(format!(
+                        "sort order must be \"asc\" or \"desc\", got \"{}\"",
+                        s
+                    ));
+                }
             },
             other => {
                 return Err(format!(
                     "second argument to `sort` must be String, got {}",
                     other.type_name()
-                ))
+                ));
             }
         }
     } else {
@@ -291,16 +296,191 @@ fn builtin_sort(args: Vec<Object>) -> Result<Object, String> {
                     }
                     _ => Ordering::Equal,
                 };
-                if descending {
-                    cmp.reverse()
-                } else {
-                    cmp
-                }
+                if descending { cmp.reverse() } else { cmp }
             });
             Ok(Object::Array(result))
         }
         other => Err(format!(
             "first argument to `sort` must be Array, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// split(s, delim) - Split a string by delimiter into an array of strings
+fn builtin_split(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=2",
+            args.len()
+        ));
+    }
+
+    match (&args[0], &args[1]) {
+        (Object::String(s), Object::String(delim)) => {
+            let parts: Vec<Object> = if delim.is_empty() {
+                // Match test expectation: split into characters without empty ends.
+                s.chars().map(|ch| Object::String(ch.to_string())).collect()
+            } else {
+                s.split(delim.as_str())
+                    .map(|part| Object::String(part.to_string()))
+                    .collect()
+            };
+            Ok(Object::Array(parts))
+        }
+        (Object::String(_), other) => Err(format!(
+            "second argument to `split` must be String, got {}",
+            other.type_name()
+        )),
+        (other, _) => Err(format!(
+            "first argument to `split` must be String, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// join(arr, delim) - Join an array of strings with a delimiter
+fn builtin_join(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 2 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=2",
+            args.len()
+        ));
+    }
+
+    match (&args[0], &args[1]) {
+        (Object::Array(arr), Object::String(delim)) => {
+            let strings: Result<Vec<String>, String> = arr
+                .iter()
+                .map(|item| match item {
+                    Object::String(s) => Ok(s.clone()),
+                    other => Err(format!(
+                        "array elements must be String for `join`, got {}",
+                        other.type_name()
+                    )),
+                })
+                .collect();
+            Ok(Object::String(strings?.join(delim)))
+        }
+        (Object::Array(_), other) => Err(format!(
+            "second argument to `join` must be String, got {}",
+            other.type_name()
+        )),
+        (other, _) => Err(format!(
+            "first argument to `join` must be Array, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// trim(s) - Remove leading and trailing whitespace
+fn builtin_trim(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=1",
+            args.len()
+        ));
+    }
+
+    match &args[0] {
+        Object::String(s) => Ok(Object::String(s.trim().to_string())),
+        other => Err(format!(
+            "argument to `trim` must be String, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// upper(s) - Convert string to uppercase
+fn builtin_upper(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=1",
+            args.len()
+        ));
+    }
+
+    match &args[0] {
+        Object::String(s) => Ok(Object::String(s.to_uppercase())),
+        other => Err(format!(
+            "argument to `upper` must be String, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// lower(s) - Convert string to lowercase
+fn builtin_lower(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=1",
+            args.len()
+        ));
+    }
+    match &args[0] {
+        Object::String(s) => Ok(Object::String(s.to_lowercase())),
+        other => Err(format!(
+            "argument to `lower` must be String, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// chars(s) - Convert string to array of single-character strings
+fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 1 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=1",
+            args.len()
+        ));
+    }
+
+    match &args[0] {
+        Object::String(s) => {
+            let chars: Vec<Object> = s.chars().map(|c| Object::String(c.to_string())).collect();
+            Ok(Object::Array(chars))
+        }
+        other => Err(format!(
+            "argument to `chars` must be String, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// substring(s, start, end) - Extract a substring (start inclusive, end exclusive)
+fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
+    if args.len() != 3 {
+        return Err(format!(
+            "wrong number of arguments. got={}, want=3",
+            args.len()
+        ));
+    }
+    match (&args[0], &args[1], &args[2]) {
+        (Object::String(s), Object::Integer(start), Object::Integer(end)) => {
+            let chars: Vec<char> = s.chars().collect();
+            let len = chars.len() as i64;
+            let start = if *start < 0 { 0 } else { *start as usize };
+            let end = if *end > len {
+                len as usize
+            } else {
+                *end as usize
+            };
+            if start >= end || start >= chars.len() {
+                Ok(Object::String(String::new()))
+            } else {
+                Ok(Object::String(chars[start..end].iter().collect()))
+            }
+        }
+        (Object::String(_), Object::Integer(_), other) => Err(format!(
+            "third argument to `substring` must be Integer, got {}",
+            other.type_name()
+        )),
+        (Object::String(_), other, _) => Err(format!(
+            "second argument to `substring` must be Integer, got {}",
+            other.type_name()
+        )),
+        (other, _, _) => Err(format!(
+            "first argument to `substring` must be String, got {}",
             other.type_name()
         )),
     }
@@ -355,6 +535,34 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "sort",
         func: builtin_sort,
+    },
+    BuiltinFunction {
+        name: "split",
+        func: builtin_split,
+    },
+    BuiltinFunction {
+        name: "join",
+        func: builtin_join,
+    },
+    BuiltinFunction {
+        name: "trim",
+        func: builtin_trim,
+    },
+    BuiltinFunction {
+        name: "upper",
+        func: builtin_upper,
+    },
+    BuiltinFunction {
+        name: "lower",
+        func: builtin_lower,
+    },
+    BuiltinFunction {
+        name: "chars",
+        func: builtin_chars,
+    },
+    BuiltinFunction {
+        name: "substring",
+        func: builtin_substring,
     },
 ];
 
@@ -653,5 +861,139 @@ mod tests {
         let result = builtin_sort(vec![arr, Object::String("invalid".to_string())]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("must be \"asc\" or \"desc\""));
+    }
+
+    #[test]
+    fn test_builtin_split() {
+        let result = builtin_split(vec![
+            Object::String("a,b,c".to_string()),
+            Object::String(",".to_string()),
+        ])
+        .unwrap();
+        assert_eq!(
+            result,
+            Object::Array(vec![
+                Object::String("a".to_string()),
+                Object::String("b".to_string()),
+                Object::String("c".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_builtin_split_empty() {
+        let result = builtin_split(vec![
+            Object::String("hello".to_string()),
+            Object::String("".to_string()),
+        ])
+        .unwrap();
+        // Split by empty string gives each character
+        assert_eq!(
+            result,
+            Object::Array(vec![
+                Object::String("h".to_string()),
+                Object::String("e".to_string()),
+                Object::String("l".to_string()),
+                Object::String("l".to_string()),
+                Object::String("o".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_builtin_join() {
+        let arr = Object::Array(vec![
+            Object::String("a".to_string()),
+            Object::String("b".to_string()),
+            Object::String("c".to_string()),
+        ]);
+        let result = builtin_join(vec![arr, Object::String(",".to_string())]).unwrap();
+        assert_eq!(result, Object::String("a,b,c".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_join_empty_delim() {
+        let arr = Object::Array(vec![
+            Object::String("a".to_string()),
+            Object::String("b".to_string()),
+        ]);
+        let result = builtin_join(vec![arr, Object::String("".to_string())]).unwrap();
+        assert_eq!(result, Object::String("ab".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_trim() {
+        let result = builtin_trim(vec![Object::String("  hello world  ".to_string())]).unwrap();
+        assert_eq!(result, Object::String("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_trim_no_whitespace() {
+        let result = builtin_trim(vec![Object::String("hello".to_string())]).unwrap();
+        assert_eq!(result, Object::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_upper() {
+        let result = builtin_upper(vec![Object::String("hello".to_string())]).unwrap();
+        assert_eq!(result, Object::String("HELLO".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_lower() {
+        let result = builtin_lower(vec![Object::String("HELLO".to_string())]).unwrap();
+        assert_eq!(result, Object::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_chars() {
+        let result = builtin_chars(vec![Object::String("abc".to_string())]).unwrap();
+        assert_eq!(
+            result,
+            Object::Array(vec![
+                Object::String("a".to_string()),
+                Object::String("b".to_string()),
+                Object::String("c".to_string())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_builtin_chars_empty() {
+        let result = builtin_chars(vec![Object::String("".to_string())]).unwrap();
+        assert_eq!(result, Object::Array(vec![]));
+    }
+
+    #[test]
+    fn test_builtin_substring() {
+        let result = builtin_substring(vec![
+            Object::String("hello world".to_string()),
+            Object::Integer(0),
+            Object::Integer(5),
+        ])
+        .unwrap();
+        assert_eq!(result, Object::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_substring_middle() {
+        let result = builtin_substring(vec![
+            Object::String("hello world".to_string()),
+            Object::Integer(6),
+            Object::Integer(11),
+        ])
+        .unwrap();
+        assert_eq!(result, Object::String("world".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_substring_out_of_bounds() {
+        let result = builtin_substring(vec![
+            Object::String("hello".to_string()),
+            Object::Integer(0),
+            Object::Integer(100),
+        ])
+        .unwrap();
+        assert_eq!(result, Object::String("hello".to_string()));
     }
 }
