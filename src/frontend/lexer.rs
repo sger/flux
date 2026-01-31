@@ -110,6 +110,7 @@ impl Lexer {
             Some(']') => Token::new(TokenType::RBracket, "]", line, col),
             Some(':') => Token::new(TokenType::Colon, ":", line, col),
             Some('.') => Token::new(TokenType::Dot, ".", line, col),
+            Some('\\') => Token::new(TokenType::Backslash, "\\", line, col),
 
             // String literals
             Some('"') => {

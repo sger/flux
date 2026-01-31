@@ -90,6 +90,7 @@ define_tokens! {
         Colon     => ":",
         Dot       => ".",
         Arrow     => "->",
+        Backslash => "\\",
         InterpolationStart => "#{",
         StringEnd => "STRING_END",
     }
