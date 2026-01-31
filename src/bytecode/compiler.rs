@@ -57,6 +57,11 @@ impl Compiler {
         symbol_table.define_builtin(4, "rest");
         symbol_table.define_builtin(5, "push");
         symbol_table.define_builtin(6, "to_string");
+        symbol_table.define_builtin(7, "concat");
+        symbol_table.define_builtin(8, "reverse");
+        symbol_table.define_builtin(9, "contains");
+        symbol_table.define_builtin(10, "slice");
+        symbol_table.define_builtin(11, "sort");
 
         Self {
             constants: Vec::new(),
