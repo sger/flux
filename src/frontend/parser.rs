@@ -398,10 +398,7 @@ impl Parser {
         match right {
             // a |> f => f(a)
             Expression::Identifier { name, span } => Some(Expression::Call {
-                function: Box::new(Expression::Identifier {
-                    name,
-                    span,
-                }),
+                function: Box::new(Expression::Identifier { name, span }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),
             }),
