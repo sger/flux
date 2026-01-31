@@ -1,5 +1,118 @@
 use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
 
+fn format_hint(signature: &str) -> String {
+    format!("\n\nHint:\n  {}", signature)
+}
+
+fn arity_error(name: &str, expected: &str, got: usize, signature: &str) -> String {
+    format!(
+        "wrong number of arguments\n\n  function: {}/{}\n  expected: {}\n  got: {}{}",
+        name,
+        expected,
+        expected,
+        got,
+        format_hint(signature)
+    )
+}
+
+fn type_error(name: &str, label: &str, expected: &str, got: &str, signature: &str) -> String {
+    format!(
+        "{} expected {} to be {}, got {}{}",
+        name,
+        label,
+        expected,
+        got,
+        format_hint(signature)
+    )
+}
+
+fn check_arity(args: &[Object], expected: usize, name: &str, signature: &str) -> Result<(), String> {
+    if args.len() != expected {
+        return Err(arity_error(
+            name,
+            &expected.to_string(),
+            args.len(),
+            signature,
+        ));
+    }
+    Ok(())
+}
+
+fn check_arity_range(
+    args: &[Object],
+    min: usize,
+    max: usize,
+    name: &str,
+    signature: &str,
+) -> Result<(), String> {
+    if args.len() < min || args.len() > max {
+        return Err(arity_error(
+            name,
+            &format!("{}..{}", min, max),
+            args.len(),
+            signature,
+        ));
+    }
+    Ok(())
+}
+
+fn arg_string<'a>(
+    args: &'a [Object],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<&'a str, String> {
+    match &args[index] {
+        Object::String(s) => Ok(s.as_str()),
+        other => Err(type_error(
+            name,
+            label,
+            "String",
+            other.type_name(),
+            signature,
+        )),
+    }
+}
+
+fn arg_array<'a>(
+    args: &'a [Object],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<&'a Vec<Object>, String> {
+    match &args[index] {
+        Object::Array(arr) => Ok(arr),
+        other => Err(type_error(
+            name,
+            label,
+            "Array",
+            other.type_name(),
+            signature,
+        )),
+    }
+}
+
+fn arg_int(
+    args: &[Object],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<i64, String> {
+    match &args[index] {
+        Object::Integer(value) => Ok(*value),
+        other => Err(type_error(
+            name,
+            label,
+            "Integer",
+            other.type_name(),
+            signature,
+        )),
+    }
+}
+
 fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
     for arg in args {
         match &arg {
@@ -11,224 +124,104 @@ fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
 }
 
 fn builtin_len(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
+    check_arity(&args, 1, "len", "len(value)")?;
     match &args[0] {
         Object::String(s) => Ok(Object::Integer(s.len() as i64)),
         Object::Array(arr) => Ok(Object::Integer(arr.len() as i64)),
-        _ => Err(format!(
-            "argument to `len` not supported, got {}",
-            args[0].type_name()
+        other => Err(type_error(
+            "len",
+            "argument",
+            "String or Array",
+            other.type_name(),
+            "len(value)",
         )),
     }
 }
 
 fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-    match &args[0] {
-        Object::Array(arr) => {
-            if arr.is_empty() {
-                Ok(Object::None)
-            } else {
-                Ok(arr[0].clone())
-            }
-        }
-        _ => Err(format!(
-            "argument to `first` must be Array, got {}",
-            args[0].type_name()
-        )),
+    check_arity(&args, 1, "first", "first(arr)")?;
+    let arr = arg_array(&args, 0, "first", "argument", "first(arr)")?;
+    if arr.is_empty() {
+        Ok(Object::None)
+    } else {
+        Ok(arr[0].clone())
     }
 }
 
 fn builtin_last(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-    match &args[0] {
-        Object::Array(arr) => {
-            if arr.is_empty() {
-                Ok(Object::None)
-            } else {
-                Ok(arr[arr.len() - 1].clone())
-            }
-        }
-        _ => Err(format!(
-            "argument to `last` must be Array, got {}",
-            args[0].type_name()
-        )),
+    check_arity(&args, 1, "last", "last(arr)")?;
+    let arr = arg_array(&args, 0, "last", "argument", "last(arr)")?;
+    if arr.is_empty() {
+        Ok(Object::None)
+    } else {
+        Ok(arr[arr.len() - 1].clone())
     }
 }
 
 fn builtin_rest(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-    match &args[0] {
-        Object::Array(arr) => {
-            if arr.is_empty() {
-                Ok(Object::None)
-            } else {
-                Ok(Object::Array(arr[1..].to_vec()))
-            }
-        }
-        _ => Err(format!(
-            "argument to `rest` must be Array, got {}",
-            args[0].type_name()
-        )),
+    check_arity(&args, 1, "rest", "rest(arr)")?;
+    let arr = arg_array(&args, 0, "rest", "argument", "rest(arr)")?;
+    if arr.is_empty() {
+        Ok(Object::None)
+    } else {
+        Ok(Object::Array(arr[1..].to_vec()))
     }
 }
 
 fn builtin_push(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=2",
-            args.len()
-        ));
-    }
-    match &args[0] {
-        Object::Array(arr) => {
-            let mut new_arr = arr.clone();
-            new_arr.push(args[1].clone());
-            Ok(Object::Array(new_arr))
-        }
-        _ => Err(format!(
-            "argument to `push` must be Array, got {}",
-            args[0].type_name()
-        )),
-    }
+    check_arity(&args, 2, "push", "push(arr, elem)")?;
+    let arr = arg_array(&args, 0, "push", "first argument", "push(arr, elem)")?;
+    let mut new_arr = arr.clone();
+    new_arr.push(args[1].clone());
+    Ok(Object::Array(new_arr))
 }
 
 fn builtin_to_string(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
+    check_arity(&args, 1, "to_string", "to_string(value)")?;
     Ok(Object::String(args[0].to_string_value()))
 }
 
 /// concat(a, b) - Concatenate two arrays into a new array
 fn builtin_concat(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=2",
-            args.len()
-        ));
-    }
-
-    match (&args[0], &args[1]) {
-        (Object::Array(a), Object::Array(b)) => {
-            let mut result = a.clone();
-            result.extend(b.iter().cloned());
-            Ok(Object::Array(result))
-        }
-        (Object::Array(_), other) => Err(format!(
-            "second argument to `concat` must be Array, got {}",
-            other.type_name(),
-        )),
-        (other, _) => Err(format!(
-            "first argument to `concat` must be Array, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 2, "concat", "concat(a, b)")?;
+    let a = arg_array(&args, 0, "concat", "first argument", "concat(a, b)")?;
+    let b = arg_array(&args, 1, "concat", "second argument", "concat(a, b)")?;
+    let mut result = a.clone();
+    result.extend(b.iter().cloned());
+    Ok(Object::Array(result))
 }
 
 /// reverse(arr) - Return a new array with elements in reverse order
 fn builtin_reverse(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-
-    match &args[0] {
-        Object::Array(arr) => {
-            let mut result = arr.clone();
-            result.reverse();
-            Ok(Object::Array(result))
-        }
-        other => Err(format!(
-            "argument to `reverse` must be Array, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 1, "reverse", "reverse(arr)")?;
+    let arr = arg_array(&args, 0, "reverse", "argument", "reverse(arr)")?;
+    let mut result = arr.clone();
+    result.reverse();
+    Ok(Object::Array(result))
 }
 
 /// contains(arr, elem) - Check if array contains an element
 fn builtin_contains(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=2",
-            args.len()
-        ));
-    }
-
-    match &args[0] {
-        Object::Array(arr) => {
-            let elem = &args[1];
-            let found = arr.iter().any(|item| item == elem);
-            Ok(Object::Boolean(found))
-        }
-        other => Err(format!(
-            "first argument to `contains` must be Array, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 2, "contains", "contains(arr, elem)")?;
+    let arr = arg_array(&args, 0, "contains", "first argument", "contains(arr, elem)")?;
+    let elem = &args[1];
+    let found = arr.iter().any(|item| item == elem);
+    Ok(Object::Boolean(found))
 }
 
 /// slice(arr, start, end) - Return a slice of the array from start to end (exclusive)
 fn builtin_slice(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 3 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=3",
-            args.len()
-        ));
-    }
-
-    match (&args[0], &args[1], &args[2]) {
-        (Object::Array(arr), Object::Integer(start), Object::Integer(end)) => {
-            let len = arr.len() as i64;
-            let start = if *start < 0 { 0 } else { *start as usize };
-            let end = if *end > len {
-                len as usize
-            } else {
-                *end as usize
-            };
-            if start >= end || start >= arr.len() {
-                Ok(Object::Array(vec![]))
-            } else {
-                Ok(Object::Array(arr[start..end].to_vec()))
-            }
-        }
-        (Object::Array(_), Object::Integer(_), other) => Err(format!(
-            "third argument to `slice` must be Integer, got {}",
-            other.type_name()
-        )),
-        (Object::Array(_), other, _) => Err(format!(
-            "second argument to `slice` must be Integer, got {}",
-            other.type_name()
-        )),
-        (other, _, _) => Err(format!(
-            "first argument to `slice` must be Array, got {}",
-            other.type_name()
-        )),
+    check_arity(&args, 3, "slice", "slice(arr, start, end)")?;
+    let arr = arg_array(&args, 0, "slice", "first argument", "slice(arr, start, end)")?;
+    let start = arg_int(&args, 1, "slice", "second argument", "slice(arr, start, end)")?;
+    let end = arg_int(&args, 2, "slice", "third argument", "slice(arr, start, end)")?;
+    let len = arr.len() as i64;
+    let start = if start < 0 { 0 } else { start as usize };
+    let end = if end > len { len as usize } else { end as usize };
+    if start >= end || start >= arr.len() {
+        Ok(Object::Array(vec![]))
+    } else {
+        Ok(Object::Array(arr[start..end].to_vec()))
     }
 }
 
@@ -236,30 +229,18 @@ fn builtin_slice(args: Vec<Object>) -> Result<Object, String> {
 /// order: "asc" (default) or "desc"
 /// Only works with integers/floats
 fn builtin_sort(args: Vec<Object>) -> Result<Object, String> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1 or 2",
-            args.len()
-        ));
-    }
-
+    check_arity_range(&args, 1, 2, "sort", "sort(arr, order)")?;
+    let arr = arg_array(&args, 0, "sort", "first argument", "sort(arr, order)")?;
     // Determine sort order (default: ascending)
     let descending = if args.len() == 2 {
-        match &args[1] {
-            Object::String(s) => match s.as_str() {
-                "asc" => false,
-                "desc" => true,
-                _ => {
-                    return Err(format!(
-                        "sort order must be \"asc\" or \"desc\", got \"{}\"",
-                        s
-                    ));
-                }
-            },
+        match arg_string(&args, 1, "sort", "second argument", "sort(arr, order)")? {
+            "asc" => false,
+            "desc" => true,
             other => {
                 return Err(format!(
-                    "second argument to `sort` must be String, got {}",
-                    other.type_name()
+                    "sort order must be \"asc\" or \"desc\", got \"{}\"{}",
+                    other,
+                    format_hint("sort(arr, order)")
                 ));
             }
         }
@@ -267,222 +248,118 @@ fn builtin_sort(args: Vec<Object>) -> Result<Object, String> {
         false
     };
 
-    match &args[0] {
-        Object::Array(arr) => {
-            // Check if all elements are comparable (integers or floats)
-            let all_numeric = arr
-                .iter()
-                .all(|item| matches!(item, Object::Integer(_) | Object::Float(_)));
+    // Check if all elements are comparable (integers or floats)
+    let all_numeric = arr
+        .iter()
+        .all(|item| matches!(item, Object::Integer(_) | Object::Float(_)));
 
-            if !all_numeric && !arr.is_empty() {
-                return Err("sort only supports arrays of integers or floats".to_string());
-            }
-
-            let mut result = arr.clone();
-
-            result.sort_by(|a, b| {
-                use std::cmp::Ordering;
-                // Smart comparison: avoid f64 conversion when both are same type
-                let cmp = match (a, b) {
-                    (Object::Integer(i1), Object::Integer(i2)) => i1.cmp(i2),
-                    (Object::Float(f1), Object::Float(f2)) => {
-                        f1.partial_cmp(f2).unwrap_or(Ordering::Equal)
-                    }
-                    (Object::Integer(i), Object::Float(f)) => {
-                        (*i as f64).partial_cmp(f).unwrap_or(Ordering::Equal)
-                    }
-                    (Object::Float(f), Object::Integer(i)) => {
-                        f.partial_cmp(&(*i as f64)).unwrap_or(Ordering::Equal)
-                    }
-                    _ => Ordering::Equal,
-                };
-                if descending { cmp.reverse() } else { cmp }
-            });
-            Ok(Object::Array(result))
-        }
-        other => Err(format!(
-            "first argument to `sort` must be Array, got {}",
-            other.type_name()
-        )),
+    if !all_numeric && !arr.is_empty() {
+        return Err(format!(
+            "sort only supports arrays of Integers or Floats{}",
+            format_hint("sort(arr, order)")
+        ));
     }
+
+    let mut result = arr.clone();
+
+    result.sort_by(|a, b| {
+        use std::cmp::Ordering;
+        // Smart comparison: avoid f64 conversion when both are same type
+        let cmp = match (a, b) {
+            (Object::Integer(i1), Object::Integer(i2)) => i1.cmp(i2),
+            (Object::Float(f1), Object::Float(f2)) => f1.partial_cmp(f2).unwrap_or(Ordering::Equal),
+            (Object::Integer(i), Object::Float(f)) => {
+                (*i as f64).partial_cmp(f).unwrap_or(Ordering::Equal)
+            }
+            (Object::Float(f), Object::Integer(i)) => {
+                f.partial_cmp(&(*i as f64)).unwrap_or(Ordering::Equal)
+            }
+            _ => Ordering::Equal,
+        };
+        if descending { cmp.reverse() } else { cmp }
+    });
+    Ok(Object::Array(result))
 }
 
 /// split(s, delim) - Split a string by delimiter into an array of strings
 fn builtin_split(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=2",
-            args.len()
-        ));
-    }
-
-    match (&args[0], &args[1]) {
-        (Object::String(s), Object::String(delim)) => {
-            let parts: Vec<Object> = if delim.is_empty() {
-                // Match test expectation: split into characters without empty ends.
-                s.chars().map(|ch| Object::String(ch.to_string())).collect()
-            } else {
-                s.split(delim.as_str())
-                    .map(|part| Object::String(part.to_string()))
-                    .collect()
-            };
-            Ok(Object::Array(parts))
-        }
-        (Object::String(_), other) => Err(format!(
-            "second argument to `split` must be String, got {}",
-            other.type_name()
-        )),
-        (other, _) => Err(format!(
-            "first argument to `split` must be String, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 2, "split", "split(s, delim)")?;
+    let s = arg_string(&args, 0, "split", "first argument", "split(s, delim)")?;
+    let delim = arg_string(&args, 1, "split", "second argument", "split(s, delim)")?;
+    let parts: Vec<Object> = if delim.is_empty() {
+        // Match test expectation: split into characters without empty ends.
+        s.chars().map(|ch| Object::String(ch.to_string())).collect()
+    } else {
+        s.split(delim)
+            .map(|part| Object::String(part.to_string()))
+            .collect()
+    };
+    Ok(Object::Array(parts))
 }
 
 /// join(arr, delim) - Join an array of strings with a delimiter
 fn builtin_join(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 2 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=2",
-            args.len()
-        ));
-    }
-
-    match (&args[0], &args[1]) {
-        (Object::Array(arr), Object::String(delim)) => {
-            let strings: Result<Vec<String>, String> = arr
-                .iter()
-                .map(|item| match item {
-                    Object::String(s) => Ok(s.clone()),
-                    other => Err(format!(
-                        "array elements must be String for `join`, got {}",
-                        other.type_name()
-                    )),
-                })
-                .collect();
-            Ok(Object::String(strings?.join(delim)))
-        }
-        (Object::Array(_), other) => Err(format!(
-            "second argument to `join` must be String, got {}",
-            other.type_name()
-        )),
-        (other, _) => Err(format!(
-            "first argument to `join` must be Array, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 2, "join", "join(arr, delim)")?;
+    let arr = arg_array(&args, 0, "join", "first argument", "join(arr, delim)")?;
+    let delim = arg_string(&args, 1, "join", "second argument", "join(arr, delim)")?;
+    let strings: Result<Vec<String>, String> = arr
+        .iter()
+        .map(|item| match item {
+            Object::String(s) => Ok(s.clone()),
+            other => Err(format!(
+                "join expected array elements to be String, got {}{}",
+                other.type_name(),
+                format_hint("join(arr, delim)")
+            )),
+        })
+        .collect();
+    Ok(Object::String(strings?.join(delim)))
 }
 
 /// trim(s) - Remove leading and trailing whitespace
 fn builtin_trim(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-
-    match &args[0] {
-        Object::String(s) => Ok(Object::String(s.trim().to_string())),
-        other => Err(format!(
-            "argument to `trim` must be String, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 1, "trim", "trim(s)")?;
+    let s = arg_string(&args, 0, "trim", "argument", "trim(s)")?;
+    Ok(Object::String(s.trim().to_string()))
 }
 
 /// upper(s) - Convert string to uppercase
 fn builtin_upper(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-
-    match &args[0] {
-        Object::String(s) => Ok(Object::String(s.to_uppercase())),
-        other => Err(format!(
-            "argument to `upper` must be String, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 1, "upper", "upper(s)")?;
+    let s = arg_string(&args, 0, "upper", "argument", "upper(s)")?;
+    Ok(Object::String(s.to_uppercase()))
 }
 
 /// lower(s) - Convert string to lowercase
 fn builtin_lower(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-    match &args[0] {
-        Object::String(s) => Ok(Object::String(s.to_lowercase())),
-        other => Err(format!(
-            "argument to `lower` must be String, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 1, "lower", "lower(s)")?;
+    let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;
+    Ok(Object::String(s.to_lowercase()))
 }
 
 /// chars(s) - Convert string to array of single-character strings
 fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=1",
-            args.len()
-        ));
-    }
-
-    match &args[0] {
-        Object::String(s) => {
-            let chars: Vec<Object> = s.chars().map(|c| Object::String(c.to_string())).collect();
-            Ok(Object::Array(chars))
-        }
-        other => Err(format!(
-            "argument to `chars` must be String, got {}",
-            other.type_name()
-        )),
-    }
+    check_arity(&args, 1, "chars", "chars(s)")?;
+    let s = arg_string(&args, 0, "chars", "argument", "chars(s)")?;
+    let chars: Vec<Object> = s.chars().map(|c| Object::String(c.to_string())).collect();
+    Ok(Object::Array(chars))
 }
 
 /// substring(s, start, end) - Extract a substring (start inclusive, end exclusive)
 fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
-    if args.len() != 3 {
-        return Err(format!(
-            "wrong number of arguments. got={}, want=3",
-            args.len()
-        ));
-    }
-    match (&args[0], &args[1], &args[2]) {
-        (Object::String(s), Object::Integer(start), Object::Integer(end)) => {
-            let chars: Vec<char> = s.chars().collect();
-            let len = chars.len() as i64;
-            let start = if *start < 0 { 0 } else { *start as usize };
-            let end = if *end > len {
-                len as usize
-            } else {
-                *end as usize
-            };
-            if start >= end || start >= chars.len() {
-                Ok(Object::String(String::new()))
-            } else {
-                Ok(Object::String(chars[start..end].iter().collect()))
-            }
-        }
-        (Object::String(_), Object::Integer(_), other) => Err(format!(
-            "third argument to `substring` must be Integer, got {}",
-            other.type_name()
-        )),
-        (Object::String(_), other, _) => Err(format!(
-            "second argument to `substring` must be Integer, got {}",
-            other.type_name()
-        )),
-        (other, _, _) => Err(format!(
-            "first argument to `substring` must be String, got {}",
-            other.type_name()
-        )),
+    check_arity(&args, 3, "substring", "substring(s, start, end)")?;
+    let s = arg_string(&args, 0, "substring", "first argument", "substring(s, start, end)")?;
+    let start =
+        arg_int(&args, 1, "substring", "second argument", "substring(s, start, end)")?;
+    let end = arg_int(&args, 2, "substring", "third argument", "substring(s, start, end)")?;
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len() as i64;
+    let start = if start < 0 { 0 } else { start as usize };
+    let end = if end > len { len as usize } else { end as usize };
+    if start >= end || start >= chars.len() {
+        Ok(Object::String(String::new()))
+    } else {
+        Ok(Object::String(chars[start..end].iter().collect()))
     }
 }
 
