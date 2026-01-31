@@ -400,7 +400,7 @@ impl Parser {
             Expression::Identifier { name, span } => Some(Expression::Call {
                 function: Box::new(Expression::Identifier {
                     name,
-                    span: span.clone(),
+                    span,
                 }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),
@@ -414,7 +414,7 @@ impl Parser {
                 function: Box::new(Expression::MemberAccess {
                     object,
                     member,
-                    span: span.clone(),
+                    span,
                 }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),

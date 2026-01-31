@@ -296,49 +296,46 @@ impl VM {
             out.push_str(details.trim());
         }
 
-        if let Some((file, span)) = self.current_location() {
-            if let Ok(source) = std::fs::read_to_string(&file) {
-                if let Some(line_text) = get_source_line(&source, span.start.line) {
-                    let display_file = render_display_path(&file);
-                    out.push_str("\n\n  --> ");
-                    out.push_str(&format!(
-                        "{}:{}:{}",
-                        display_file, span.start.line, span.start.column
-                    ));
-                    out.push_str("\n   |");
-                    let line_no = span.start.line;
-                    let line_width = line_no.to_string().len();
-                    out.push_str("\n");
-                    out.push_str(&format!(
-                        "{:>width$} | {}",
-                        line_no,
-                        line_text,
-                        width = line_width
-                    ));
-                    out.push_str("\n");
-                    let line_len = line_text.len();
-                    let caret_start = span.start.column.min(line_len);
-                    let caret_end = if span.start.line == span.end.line {
-                        span.end.column.min(line_len).max(caret_start + 1)
-                    } else {
-                        line_len.max(caret_start + 1)
-                    };
-                    out.push_str(&format!(
-                        "{:>width$} | {}",
-                        "",
-                        " ".repeat(caret_start),
-                        width = line_width
-                    ));
-                    if use_color {
-                        out.push_str("\u{1b}[31m");
-                    }
-                    out.push_str(&"^".repeat(
-                        caret_end.saturating_sub(caret_start).max(1),
-                    ));
-                    if use_color {
-                        out.push_str("\u{1b}[0m");
-                    }
-                }
+        if let Some((file, span)) = self.current_location()
+            && let Ok(source) = std::fs::read_to_string(&file)
+            && let Some(line_text) = get_source_line(&source, span.start.line)
+        {
+            let display_file = render_display_path(&file);
+            out.push_str("\n\n  --> ");
+            out.push_str(&format!(
+                "{}:{}:{}",
+                display_file, span.start.line, span.start.column
+            ));
+            out.push_str("\n   |");
+            let line_no = span.start.line;
+            let line_width = line_no.to_string().len();
+            out.push('\n');
+            out.push_str(&format!(
+                "{:>width$} | {}",
+                line_no,
+                line_text,
+                width = line_width
+            ));
+            out.push('\n');
+            let line_len = line_text.len();
+            let caret_start = span.start.column.min(line_len);
+            let caret_end = if span.start.line == span.end.line {
+                span.end.column.min(line_len).max(caret_start + 1)
+            } else {
+                line_len.max(caret_start + 1)
+            };
+            out.push_str(&format!(
+                "{:>width$} | {}",
+                "",
+                " ".repeat(caret_start),
+                width = line_width
+            ));
+            if use_color {
+                out.push_str("\u{1b}[31m");
+            }
+            out.push_str(&"^".repeat(caret_end.saturating_sub(caret_start).max(1)));
+            if use_color {
+                out.push_str("\u{1b}[0m");
             }
         }
 
