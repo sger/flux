@@ -69,6 +69,10 @@ impl Compiler {
         symbol_table.define_builtin(16, "lower");
         symbol_table.define_builtin(17, "chars");
         symbol_table.define_builtin(18, "substring");
+        symbol_table.define_builtin(19, "keys");
+        symbol_table.define_builtin(20, "values");
+        symbol_table.define_builtin(21, "has_key");
+        symbol_table.define_builtin(22, "merge");
 
         Self {
             constants: Vec::new(),
