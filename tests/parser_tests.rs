@@ -144,4 +144,45 @@ mod tests {
         assert_eq!(program.statements.len(), 1);
         assert_eq!(program.to_string(), "{}");
     }
+
+    // Lambda shorthand tests
+    #[test]
+    fn test_lambda_single_param() {
+        let program = parse(r"\x -> x * 2;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_multi_param() {
+        let program = parse(r"\(x, y) -> x + y;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_no_param() {
+        let program = parse(r"\() -> 42;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_block_body() {
+        let program = parse(r"\x -> { let y = x * 2; y + 1 };");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_in_let() {
+        let program = parse(r"let double = \x -> x * 2;");
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Let { name, .. } => assert_eq!(name, "double"),
+            _ => panic!("expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_lambda_as_argument() {
+        let program = parse(r"map(arr, \x -> x * 2);");
+        assert_eq!(program.statements.len(), 1);
+    }
 }

@@ -214,4 +214,46 @@ fun fib(n) {
             assert_eq!(lexer.next_token().token_type, expected_type);
         }
     }
+
+    #[test]
+    fn lambda_tokens() {
+        let input = r"\x -> x * 2";
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            TokenType::Backslash,
+            TokenType::Ident,
+            TokenType::Arrow,
+            TokenType::Ident,
+            TokenType::Asterisk,
+            TokenType::Int,
+        ];
+
+        for expected_type in expected {
+            assert_eq!(lexer.next_token().token_type, expected_type);
+        }
+    }
+
+    #[test]
+    fn lambda_with_parens_tokens() {
+        let input = r"\(x, y) -> x + y";
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            TokenType::Backslash,
+            TokenType::LParen,
+            TokenType::Ident,
+            TokenType::Comma,
+            TokenType::Ident,
+            TokenType::RParen,
+            TokenType::Arrow,
+            TokenType::Ident,
+            TokenType::Plus,
+            TokenType::Ident,
+        ];
+
+        for expected_type in expected {
+            assert_eq!(lexer.next_token().token_type, expected_type);
+        }
+    }
 }

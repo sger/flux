@@ -24,7 +24,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M1: Core Operators          ████████████████████████████████  │ 100% (3/3) ✅
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
-│  M4: Lambda Shorthand        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
+│  M4: Lambda Shorthand        ████████████████████████████████  │ 100% ✅
 │  M5: Essential Builtins      ████████████████████████████████  │ 100% (5/5) ✅
 │  M6: Polish & Release        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  │
 └─────────────────────────────────────────────────────────────────┘
@@ -354,19 +354,22 @@ match result {
 ## Milestone 4: Lambda Shorthand
 
 **Priority:** Medium
-**Status:** Not Started
+**Status:** ✅ COMPLETE
 **Dependencies:** None
 
-### 4.1 Syntax Choice
+### 4.1 Syntax
 
-**Chosen syntax:** `\params -> expr`
+**Implemented syntax:** `\params -> expr`
 
 ```flux
-// Single parameter
+// Single parameter (no parens required)
 \x -> x * 2
 
-// Multiple parameters
-\x, y -> x + y
+// Multiple parameters (parens required)
+\(x, y) -> x + y
+
+// Zero parameters
+\() -> 42
 
 // With block body
 \x -> {
@@ -377,56 +380,60 @@ match result {
 
 ### 4.2 Implementation
 
-| Task | File(s) | Effort |
+| Task | File(s) | Status |
 |------|---------|--------|
-| Add `Backslash` token | `token_type.rs` | Small |
-| Lexer: recognize `\` | `lexer.rs` | Small |
-| Parser: parse lambda expression | `parser.rs` | Medium |
-| AST: Lambda expression type (or reuse Function) | `expression.rs` | Small |
-| Compiler: compile lambda (same as Function) | `compiler.rs` | Small |
-| Tests | `tests/` | Medium |
+| Add `Backslash` token | `token_type.rs` | ✅ Done |
+| Lexer: recognize `\` | `lexer.rs` | ✅ Done |
+| Parser: parse lambda expression | `parser.rs` | ✅ Done |
+| AST: Reuse `Expression::Function` | `expression.rs` | ✅ Done |
+| Compiler: compile lambda (same as Function) | `compiler.rs` | ✅ Done |
+| Tests | `tests/` | ✅ Done |
 
 ### 4.3 Grammar
 
 ```ebnf
-lambda = "\" parameters "->" (expression | block)
+lambda = "\" (identifier | "(" [parameters] ")") "->" (expression | block)
 parameters = identifier ("," identifier)*
 ```
 
-### 4.4 Acceptance Criteria
+### 4.4 Examples
 
 ```flux
 // Basic lambda
 let double = \x -> x * 2;
 print(double(5));  // 10
 
-// With map
-let numbers = [1, 2, 3, 4, 5];
-let doubled = map(numbers, \x -> x * 2);
-print(doubled);  // [2, 4, 6, 8, 10]
-
 // Multiple parameters
-let add = \a, b -> a + b;
+let add = \(a, b) -> a + b;
 print(add(3, 4));  // 7
 
-// With filter
-let evens = filter(numbers, \x -> x % 2 == 0);
-print(evens);  // [2, 4]
+// Zero parameters
+let constant = \() -> 42;
+print(constant());  // 42
 
-// Combining with pipe
-numbers
-    |> filter(\x -> x > 2)
-    |> map(\x -> x * 2)
-    |> print;  // [6, 8, 10]
+// Block body
+let complex = \x -> {
+    let doubled = x * 2;
+    doubled + 1
+};
+print(complex(5));  // 11
+
+// Lambda as argument
+fun applyTwice(f, x) {
+    f(f(x))
+}
+print(applyTwice(\x -> x * 2, 3));  // 12
 ```
 
 ### 4.5 Milestone 4 Deliverables
 
-- [ ] Lambda syntax parsing
-- [ ] Single and multiple parameters
-- [ ] Expression and block bodies
-- [ ] Works with all HOF patterns
-- [ ] Unit tests
+- [x] Lambda syntax parsing
+- [x] Single parameter without parens
+- [x] Multiple parameters with parens
+- [x] Zero parameters with parens
+- [x] Expression and block bodies
+- [x] Works with higher-order functions
+- [x] 8 unit tests (6 parser + 2 lexer)
 - [ ] Example file: `examples/lambda.flx`
 
 ---

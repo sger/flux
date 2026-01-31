@@ -327,6 +327,7 @@ impl Parser {
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Fun => self.parse_function_literal(),
+            TokenType::Backslash => self.parse_lambda(),
             _ => {
                 self.no_prefix_parse_error();
                 None
@@ -936,6 +937,74 @@ impl Parser {
         }
 
         let body = self.parse_block();
+        Some(Expression::Function {
+            parameters,
+            body,
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
+    /// Parse a lambda expression: \x -> expr, \(x, y) -> expr, \() -> expr
+    fn parse_lambda(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+
+        // Move past the backslash
+        self.next_token();
+
+        // Parse parameters
+        let parameters = if self.is_current_token(TokenType::LParen) {
+            // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
+            let params = self.parse_function_parameters()?;
+            self.next_token(); // move past )
+            params
+        } else if self.is_current_token(TokenType::Ident) {
+            // Single unparenthesized parameter: \x ->
+            let param = self.current_token.literal.clone();
+            self.next_token();
+            vec![param]
+        } else {
+            self.errors.push(
+                Diagnostic::error("INVALID LAMBDA")
+                    .with_code("E106")
+                    .with_position(self.current_token.position)
+                    .with_message("Expected parameter or `(` after `\\`.")
+                    .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
+            );
+            return None;
+        };
+
+        // Expect ->
+        if !self.is_current_token(TokenType::Arrow) {
+            self.errors.push(
+                Diagnostic::error("EXPECTED ARROW")
+                    .with_code("E107")
+                    .with_position(self.current_token.position)
+                    .with_message(format!(
+                        "Expected `->` after lambda parameters, found `{}`.",
+                        self.current_token.token_type
+                    ))
+                    .with_hint("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+            );
+            return None;
+        }
+        self.next_token(); // consume ->
+
+        // Parse body
+        let body = if self.is_current_token(TokenType::LBrace) {
+            // Block body: \x -> { statements }
+            self.parse_block()
+        } else {
+            // Expression body: \x -> expr
+            let expr_start = self.current_token.position;
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            Block {
+                statements: vec![Statement::Expression {
+                    expression: expr,
+                    span: Span::new(expr_start, self.current_token.position),
+                }],
+            }
+        };
+
         Some(Expression::Function {
             parameters,
             body,
