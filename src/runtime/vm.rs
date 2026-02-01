@@ -175,7 +175,7 @@ impl VM {
                 }
                 OpCode::OpTrue => self.push(Object::Boolean(true))?,
                 OpCode::OpFalse => self.push(Object::Boolean(false))?,
-                OpCode::OpNull => self.push(Object::None)?,
+                // Note: OpNull was removed, use OpNone instead
                 OpCode::OpIsSome => {
                     let value = self.pop()?;
                     self.push(Object::Boolean(matches!(value, Object::Some(_))))?;

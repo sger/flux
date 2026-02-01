@@ -7,6 +7,7 @@ use crate::{
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
+        const_eval::{eval_const_expr, find_constant_refs, topological_sort_constants},
         debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
@@ -41,6 +42,8 @@ pub struct Compiler {
     import_aliases: HashMap<String, String>,
     current_module_prefix: Option<String>,
     current_span: Option<Span>,
+    // Module Constants - stores compile-time evaluated module constants
+    module_constants: HashMap<String, Object>,
 }
 
 impl Compiler {
@@ -100,6 +103,8 @@ impl Compiler {
             import_aliases: HashMap::new(),
             current_module_prefix: None,
             current_span: None,
+            // Module Constants
+            module_constants: HashMap::new(),
         }
     }
 
@@ -381,6 +386,19 @@ impl Compiler {
         };
     }
 
+    // Module Constants helper to emit any Object as a constant
+    fn emit_constant_object(&mut self, obj: Object) {
+        match obj {
+            Object::Boolean(true) => self.emit(OpCode::OpTrue, &[]),
+            Object::Boolean(false) => self.emit(OpCode::OpFalse, &[]),
+            Object::None => self.emit(OpCode::OpNone, &[]),
+            _ => {
+                let idx = self.add_constant(obj);
+                self.emit(OpCode::OpConstant, &[idx])
+            }
+        };
+    }
+
     fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(expression.span());
@@ -414,6 +432,9 @@ impl Compiler {
                     let qualified = format!("{}.{}", prefix, name);
                     if let Some(symbol) = self.symbol_table.resolve(&qualified) {
                         self.load_symbol(&symbol);
+                    } else if let Some(constant_value) = self.module_constants.get(&qualified) {
+                        // Module constant - inline the value
+                        self.emit_constant_object(constant_value.clone());
                     } else {
                         return Err(Self::boxed(
                             Diagnostic::error(format!("undefined variable `{}`", name))
@@ -577,6 +598,14 @@ impl Compiler {
                     self.check_private_member(member, expr_span, Some(module_name.as_str()))?;
 
                     let qualified = format!("{}.{}", module_name, member);
+
+                    // Module Constants check if this is a compile-time constant
+                    // If so, inline the constant value directly instead of loading from symbol
+                    if let Some(constant_value) = self.module_constants.get(&qualified) {
+                        self.emit_constant_object(constant_value.clone());
+                        return Ok(());
+                    }
+
                     if let Some(symbol) = self.symbol_table.resolve(&qualified) {
                         self.load_symbol(&symbol);
                         return Ok(());
@@ -1270,6 +1299,10 @@ impl Compiler {
                         ));
                     }
                 }
+                // Module Constants Allow let statements in modules
+                Statement::Let { .. } => {
+                    // Let statements are allowed for module constants
+                }
                 _ => {
                     return Err(Self::boxed(
                         Diagnostic::error("INVALID MODULE CONTENT")
@@ -1284,6 +1317,63 @@ impl Compiler {
         self.imported_modules.insert(binding_name.to_string());
         let previous_module = self.current_module_prefix.clone();
         self.current_module_prefix = Some(binding_name.to_string());
+
+        // Module Constants
+        // PASS 0: Evaluate all let bindings
+        // This evaluates constants at compile time with automatic dependency resolution
+
+        // Step 1: Collect all constant definitions
+        let mut constant_exprs: HashMap<String, (&Expression, Position)> = HashMap::new();
+        let mut constant_names: HashSet<String> = HashSet::new();
+
+        for statement in &body.statements {
+            if let Statement::Let {
+                name: let_name,
+                value,
+                span,
+                ..
+            } = statement
+            {
+                constant_names.insert(let_name.clone());
+                constant_exprs.insert(let_name.clone(), (value, span.start));
+            }
+        }
+
+        // Step 2: Build dependency graph
+        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (const_name, (expr, _)) in &constant_exprs {
+            let refs = find_constant_refs(expr, &constant_names);
+            dependencies.insert(const_name.clone(), refs);
+        }
+
+        // Step 3: Topological sort (detect cycles)
+        let eval_order = match topological_sort_constants(&dependencies) {
+            Ok(order) => order,
+            Err(cycle) => {
+                self.current_module_prefix = previous_module;
+                return Err(Self::boxed(
+                    self.make_circular_dependency_error(&cycle, position),
+                ));
+            }
+        };
+
+        // Step 4: Evaluate constants in dependency order
+        let mut local_constants: HashMap<String, Object> = HashMap::new();
+        for const_name in &eval_order {
+            let (expr, pos) = constant_exprs.get(const_name).unwrap();
+            match eval_const_expr(expr, &local_constants) {
+                Ok(const_value) => {
+                    local_constants.insert(const_name.clone(), const_value.clone());
+                    let qualified_name = format!("{}.{}", binding_name, const_name);
+                    self.module_constants.insert(qualified_name, const_value);
+                }
+                Err(err) => {
+                    self.current_module_prefix = previous_module;
+                    return Err(Self::boxed(self.const_eval_error_to_diagnostic(err, *pos)));
+                }
+            }
+        }
 
         // PASS 1: Predeclare all module function names with qualified names
         // This enables forward references within the module
@@ -1561,6 +1651,37 @@ impl Compiler {
             }
         }
         None
+    }
+
+    // Helper to convert const_eval errors to compiler diagnostics:
+    fn const_eval_error_to_diagnostic(
+        &self,
+        err: super::const_eval::ConstEvalError,
+        position: Position,
+    ) -> Diagnostic {
+        let diag = Diagnostic::error("CONSTANT EVALUATION ERROR")
+            .with_code(err.code)
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(err.message);
+        if let Some(hint) = err.hint {
+            diag.with_hint(hint)
+        } else {
+            diag
+        }
+    }
+
+    fn make_circular_dependency_error(&self, cycle: &[String], position: Position) -> Diagnostic {
+        let cycle_str = cycle.join(" -> ");
+        Diagnostic::error("CIRCULAR DEPENDENCY")
+            .with_code("E045")
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(format!(
+                "Circular dependency in module constants: {}",
+                cycle_str
+            ))
+            .with_hint("Break the cycle by using a literal value.")
     }
 }
 
