@@ -6,7 +6,11 @@
 // hello
 // true
 
-let x = 5;
+// Note: This example uses semicolons (traditional style)
+// Semicolons are optional at top level - both styles work!
+// See examples/basics/semicolons.flx for complete rules
+
+let x = 5;  // Semicolon optional
 print(x);
 
 let y = 10;
