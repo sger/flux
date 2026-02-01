@@ -122,6 +122,10 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         (Object::Float(a), "+", Object::Float(b)) => Ok(Object::Float(a + b)),
         (Object::Float(a), "-", Object::Float(b)) => Ok(Object::Float(a - b)),
         (Object::Float(a), "*", Object::Float(b)) => Ok(Object::Float(a * b)),
+        (Object::Float(_), "/", Object::Float(b)) if *b == 0.0 => Err(ConstEvalError::new(
+            "E046",
+            "Division by zero in module constant.",
+        )),
         (Object::Float(a), "/", Object::Float(b)) => Ok(Object::Float(a / b)),
 
         // Mixed numeric - promote to float
@@ -239,5 +243,24 @@ mod tests {
         };
         let result = eval(&expr).unwrap();
         assert_eq!(result, Object::Boolean(true));
+    }
+
+    #[test]
+    fn test_const_float_divide_by_zero() {
+        let expr = Expression::Infix {
+            left: Box::new(Expression::Float {
+                value: 1.0,
+                span: Default::default(),
+            }),
+            operator: "/".to_string(),
+            right: Box::new(Expression::Float {
+                value: 0.0,
+                span: Default::default(),
+            }),
+            span: Default::default(),
+        };
+        let err = eval(&expr).unwrap_err();
+        assert_eq!(err.code, "E046");
+        assert!(err.message.contains("Division by zero"));
     }
 }
