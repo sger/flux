@@ -63,7 +63,9 @@ pub fn topological_sort_constants(
     let mut visited = HashSet::new();
     let mut in_progress = HashSet::new();
 
-    for name in dependencies.keys() {
+    let mut names: Vec<&String> = dependencies.keys().collect();
+    names.sort();
+    for name in names {
         visit_constant(
             name,
             dependencies,
