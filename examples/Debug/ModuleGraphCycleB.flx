@@ -1,0 +1,7 @@
+import Debug.ModuleGraphCycleA
+
+module Debug.ModuleGraphCycleB {
+  fun value() {
+    2;
+  }
+}

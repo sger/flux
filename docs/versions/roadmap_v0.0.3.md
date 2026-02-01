@@ -94,6 +94,46 @@ Using the **Enum-Based Catalog** approach from proposal 002 (Alternative section
 
 5. **Generate ERROR_CATALOG_v0.0.3.md** - Document all error codes with examples
 
+6. **Standardize error format** - Ensure consistent formatting across all error types
+
+**Standardized Error Format:**
+
+All errors use the same structure with only the **header** varying by type:
+
+```
+Compiler errors:
+  error[E007]: UNDEFINED VARIABLE
+    --> examples/file.flx:10:15
+     |
+  10 |     let x = uppr("hello");
+     |             ^^^^
+     |
+     = error: I can't find a value named `uppr`.
+     = hint: Define it first: let uppr = ...;
+
+Runtime errors:
+  runtime error: WRONG NUMBER OF ARGUMENTS
+    --> examples/file.flx:25:7
+     |
+  25 | print(substring("HELLO", 0));
+     |        ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = error: function substring/3 expects 3 arguments, got 2
+     = hint: substring(s, start, end)
+
+  Stack trace:
+    at <main> (examples/file.flx:25:7)
+```
+
+**Common elements:**
+1. Header (differs by error type)
+2. Source location: `--> file:line:col`
+3. Code snippet with line numbers
+4. Caret showing exact position (requires M2)
+5. Error message: `= error: ...`
+6. Hint: `= hint: ...`
+7. Stack trace (runtime only)
+
 **Benefits:**
 - ✅ Builds on existing foundation (less work)
 - ✅ Single source of truth for all error information
@@ -117,17 +157,33 @@ Using the **Enum-Based Catalog** approach from proposal 002 (Alternative section
 
 **Goal:** Add source position tracking to all AST nodes for precise diagnostics.
 
+**Enables:** Precise `line:col` locations and caret positioning for the standardized error format (see M1)
+
 **Implementation:**
 1. Add `Span` field to all Expression and Statement variants
 2. Update parser to track and attach spans
 3. Enhance diagnostic messages with precise spans
 4. Store span info in debug symbols
+5. **Update diagnostic formatter** - Use spans for caret positioning
 
 **Benefits:**
+- **Enables standardized error format** - Precise `line:col` and caret positioning
 - Better error messages with exact locations
 - Foundation for IDE/LSP support
 - Multi-line span highlighting
 - Improved debugging
+
+**Example Output:**
+```
+error[E007]: UNDEFINED VARIABLE
+  --> examples/file.flx:10:15
+   |
+10 |     let x = uppr("hello");
+   |             ^^^^
+   |
+   = error: I can't find a value named `uppr`.
+   = hint: Did you mean `upper`?
+```
 
 **Critical Files:**
 - `src/frontend/expression.rs` (add spans)
