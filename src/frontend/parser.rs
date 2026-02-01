@@ -486,8 +486,10 @@ impl Parser {
     fn parse_identifier(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         let mut name = self.current_token.literal.clone();
-        if is_uppercase_ident(&self.current_token) {
-            while self.is_peek_token(TokenType::Dot) && is_uppercase_ident(&self.peek2_token) {
+        // Only collect dotted segments for module paths (PascalCase names)
+        // Don't collect ALL_CAPS constants like PI, TAU, MAX
+        if is_pascal_case_ident(&self.current_token) {
+            while self.is_peek_token(TokenType::Dot) && is_pascal_case_ident(&self.peek2_token) {
                 self.next_token(); // consume '.'
                 if !self.expect_peek(TokenType::Ident) {
                     return None;
@@ -1119,4 +1121,24 @@ fn is_uppercase_ident(token: &Token) -> bool {
         .chars()
         .next()
         .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
+/// Check if token is PascalCase (starts uppercase, contains lowercase)
+/// This distinguishes module names like "Math", "Constants" from
+/// ALL_CAPS constants like "PI", "TAU", "MAX"
+fn is_pascal_case_ident(token: &Token) -> bool {
+    if token.token_type != TokenType::Ident {
+        return false;
+    }
+    let literal = &token.literal;
+    let mut chars = literal.chars();
+    // First char must be uppercase
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    // Must contain at least one lowercase letter (to distinguish from ALL_CAPS)
+    literal.chars().any(|ch| ch.is_ascii_lowercase())
 }
