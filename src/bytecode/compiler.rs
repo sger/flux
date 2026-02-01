@@ -7,9 +7,9 @@ use crate::{
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
-        const_eval::{eval_const_expr, find_constant_refs, topological_sort_constants},
         debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
+        module_constants::{eval_const_expr, find_constant_refs, topological_sort_constants},
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
         symbol_scope::SymbolScope,
@@ -1318,9 +1318,16 @@ impl Compiler {
         let previous_module = self.current_module_prefix.clone();
         self.current_module_prefix = Some(binding_name.to_string());
 
-        // Module Constants
-        // PASS 0: Evaluate all let bindings
-        // This evaluates constants at compile time with automatic dependency resolution
+        // ====================================================================
+        // START: MODULE CONSTANTS (bytecode/module_constants/)
+        // ====================================================================
+        // PASS 0: MODULE CONSTANTS
+        // Compile-time constant evaluation with automatic dependency resolution.
+        // Implementation uses utilities from bytecode/module_constants/:
+        // - find_constant_refs: Find dependencies in expressions
+        // - topological_sort_constants: Order constants (dependencies first)
+        // - eval_const_expr: Evaluate constant expressions at compile time
+        // ====================================================================
 
         // Step 1: Collect all constant definitions
         let mut constant_exprs: HashMap<String, (&Expression, Position)> = HashMap::new();
@@ -1374,6 +1381,10 @@ impl Compiler {
                 }
             }
         }
+
+        // ====================================================================
+        // END: MODULE CONSTANTS
+        // ====================================================================
 
         // PASS 1: Predeclare all module function names with qualified names
         // This enables forward references within the module
@@ -1656,7 +1667,7 @@ impl Compiler {
     // Helper to convert const_eval errors to compiler diagnostics:
     fn const_eval_error_to_diagnostic(
         &self,
-        err: super::const_eval::ConstEvalError,
+        err: super::module_constants::ConstEvalError,
         position: Position,
     ) -> Diagnostic {
         let diag = Diagnostic::error("CONSTANT EVALUATION ERROR")
