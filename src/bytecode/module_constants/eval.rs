@@ -30,7 +30,7 @@ pub fn eval_const_expr(
         }
 
         Expression::Array { elements, .. } => {
-            let mut values = Vec::new();
+            let mut values = Vec::with_capacity(elements.len());
             for element in elements {
                 values.push(eval_const_expr(element, defined)?);
             }
@@ -38,7 +38,7 @@ pub fn eval_const_expr(
         }
 
         Expression::Hash { pairs, .. } => {
-            let mut map = HashMap::new();
+            let mut map = HashMap::with_capacity(pairs.len());
             for (key, value) in pairs {
                 let k = eval_const_expr(key, defined)?;
                 let v = eval_const_expr(value, defined)?;
