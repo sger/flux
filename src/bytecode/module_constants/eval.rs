@@ -158,6 +158,10 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         // String comparisons
         (Object::String(a), "==", Object::String(b)) => Ok(Object::Boolean(a == b)),
         (Object::String(a), "!=", Object::String(b)) => Ok(Object::Boolean(a != b)),
+        (Object::String(a), "<", Object::String(b)) => Ok(Object::Boolean(a < b)),
+        (Object::String(a), ">", Object::String(b)) => Ok(Object::Boolean(a > b)),
+        (Object::String(a), "<=", Object::String(b)) => Ok(Object::Boolean(a <= b)),
+        (Object::String(a), ">=", Object::String(b)) => Ok(Object::Boolean(a >= b)),
 
         // Boolean comparisons
         (Object::Boolean(a), "==", Object::Boolean(b)) => Ok(Object::Boolean(a == b)),
@@ -217,5 +221,23 @@ mod tests {
         let err = eval(&expr).unwrap_err();
         assert_eq!(err.code, "E046");
         assert!(err.message.contains("Modulo by zero"));
+    }
+
+    #[test]
+    fn test_const_string_ordering() {
+        let expr = Expression::Infix {
+            left: Box::new(Expression::String {
+                value: "b".to_string(),
+                span: Default::default(),
+            }),
+            operator: ">".to_string(),
+            right: Box::new(Expression::String {
+                value: "a".to_string(),
+                span: Default::default(),
+            }),
+            span: Default::default(),
+        };
+        let result = eval(&expr).unwrap();
+        assert_eq!(result, Object::Boolean(true));
     }
 }

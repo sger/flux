@@ -1,0 +1,4 @@
+// Entry point for verifying const string ordering in module constants.
+import ModuleGraph.ConstStringOrdering
+
+print(ModuleGraph.ConstStringOrdering.value());
