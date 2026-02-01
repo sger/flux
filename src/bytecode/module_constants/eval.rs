@@ -107,7 +107,15 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         (Object::Integer(a), "+", Object::Integer(b)) => Ok(Object::Integer(a + b)),
         (Object::Integer(a), "-", Object::Integer(b)) => Ok(Object::Integer(a - b)),
         (Object::Integer(a), "*", Object::Integer(b)) => Ok(Object::Integer(a * b)),
+        (Object::Integer(_), "/", Object::Integer(0)) => Err(ConstEvalError::new(
+            "E046",
+            "Division by zero in module constant.",
+        )),
         (Object::Integer(a), "/", Object::Integer(b)) => Ok(Object::Integer(a / b)),
+        (Object::Integer(_), "%", Object::Integer(0)) => Err(ConstEvalError::new(
+            "E046",
+            "Modulo by zero in module constant.",
+        )),
         (Object::Integer(a), "%", Object::Integer(b)) => Ok(Object::Integer(a % b)),
 
         // Float arithmetic
@@ -162,5 +170,52 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
                 op, left, right
             ),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn eval(expr: &Expression) -> Result<Object, ConstEvalError> {
+        eval_const_expr(expr, &HashMap::new())
+    }
+
+    #[test]
+    fn test_const_divide_by_zero() {
+        let expr = Expression::Infix {
+            left: Box::new(Expression::Integer {
+                value: 1,
+                span: Default::default(),
+            }),
+            operator: "/".to_string(),
+            right: Box::new(Expression::Integer {
+                value: 0,
+                span: Default::default(),
+            }),
+            span: Default::default(),
+        };
+        let err = eval(&expr).unwrap_err();
+        assert_eq!(err.code, "E046");
+        assert!(err.message.contains("Division by zero"));
+    }
+
+    #[test]
+    fn test_const_mod_by_zero() {
+        let expr = Expression::Infix {
+            left: Box::new(Expression::Integer {
+                value: 1,
+                span: Default::default(),
+            }),
+            operator: "%".to_string(),
+            right: Box::new(Expression::Integer {
+                value: 0,
+                span: Default::default(),
+            }),
+            span: Default::default(),
+        };
+        let err = eval(&expr).unwrap_err();
+        assert_eq!(err.code, "E046");
+        assert!(err.message.contains("Modulo by zero"));
     }
 }

@@ -1,0 +1,4 @@
+// Entry point for reproducing const-eval divide-by-zero crash.
+import ModuleGraph.ConstDivideByZero
+
+print(ModuleGraph.ConstDivideByZero.value());
