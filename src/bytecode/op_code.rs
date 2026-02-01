@@ -46,7 +46,7 @@ pub enum OpCode {
     OpIsLeft = 40,
     OpIsRight = 41,
     OpUnwrapLeft = 42,
-    OpUnwrapRight = 43
+    OpUnwrapRight = 43,
 }
 
 impl From<u8> for OpCode {

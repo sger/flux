@@ -59,21 +59,23 @@ pub fn eval_const_expr(
             Ok(Object::Hash(map))
         }
 
-        Expression::Identifier { name, .. } => {
-            defined.get(name).cloned().ok_or_else(|| {
-                ConstEvalError::new(
-                    "E041",
-                    format!("'{}' is not a module constant.", name)
-                )
-            })
-        }
+        Expression::Identifier { name, .. } => defined.get(name).cloned().ok_or_else(|| {
+            ConstEvalError::new("E041", format!("'{}' is not a module constant.", name))
+        }),
 
-        Expression::Prefix { operator, right, .. } => {
+        Expression::Prefix {
+            operator, right, ..
+        } => {
             let r = eval_const_expr(right, defined)?;
             eval_const_unary_op(operator, &r)
         }
 
-        Expression::Infix { left, operator, right, .. } => {
+        Expression::Infix {
+            left,
+            operator,
+            right,
+            ..
+        } => {
             let l = eval_const_expr(left, defined)?;
             let r = eval_const_expr(right, defined)?;
             eval_const_binary_op(&l, operator, &r)
@@ -87,10 +89,7 @@ pub fn eval_const_expr(
     }
 }
 
-fn eval_const_unary_op(
-    op: &str,
-    right: &Object
-) -> Result<Object, ConstEvalError> {
+fn eval_const_unary_op(op: &str, right: &Object) -> Result<Object, ConstEvalError> {
     match (op, right) {
         ("-", Object::Integer(i)) => Ok(Object::Integer(-i)),
         ("-", Object::Float(f)) => Ok(Object::Float(-f)),
@@ -102,11 +101,7 @@ fn eval_const_unary_op(
     }
 }
 
-fn eval_const_binary_op(
-    left: &Object,
-    op: &str,
-    right: &Object
-) -> Result<Object, ConstEvalError> {
+fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Object, ConstEvalError> {
     match (left, op, right) {
         // Integer arithmetic
         (Object::Integer(a), "+", Object::Integer(b)) => Ok(Object::Integer(a + b)),
@@ -130,9 +125,7 @@ fn eval_const_binary_op(
         }
 
         // String concatenation
-        (Object::String(a), "+", Object::String(b)) => {
-            Ok(Object::String(format!("{}{}", a, b)))
-        }
+        (Object::String(a), "+", Object::String(b)) => Ok(Object::String(format!("{}{}", a, b))),
 
         // Boolean operations
         (Object::Boolean(a), "&&", Object::Boolean(b)) => Ok(Object::Boolean(*a && *b)),
