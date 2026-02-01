@@ -64,15 +64,13 @@ pub fn topological_sort_constants(
     let mut in_progress = HashSet::new();
 
     for name in dependencies.keys() {
-        if let Err(cycle) = visit_constant(
+        visit_constant(
             name,
             dependencies,
             &mut visited,
             &mut in_progress,
             &mut result,
-        ) {
-            return Err(cycle);
-        }
+        )?;
     }
 
     Ok(result)

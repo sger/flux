@@ -3,10 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::frontend::{
-    block::Block,
-    expression::Expression,
-    position::Position,
-    statement::Statement,
+    block::Block, expression::Expression, position::Position, statement::Statement,
 };
 
 use super::dependency::{find_constant_refs, topological_sort_constants};
@@ -26,15 +23,16 @@ pub struct ModuleConstantAnalysis<'a> {
 ///
 /// Returns constants in evaluation order, or an error with the cycle path
 /// if circular dependencies are detected.
-pub fn analyze_module_constants(
-    body: &Block
-) -> Result<ModuleConstantAnalysis<'_>, Vec<String>> {
+pub fn analyze_module_constants(body: &Block) -> Result<ModuleConstantAnalysis<'_>, Vec<String>> {
     // Step 1: Collect constant definitions
     let mut expressions: HashMap<String, (&Expression, Position)> = HashMap::new();
     let mut names: HashSet<String> = HashSet::new();
 
     for statement in &body.statements {
-        if let Statement::Let { name, value, span, .. } = statement {
+        if let Statement::Let {
+            name, value, span, ..
+        } = statement
+        {
             names.insert(name.clone());
             expressions.insert(name.clone(), (value, span.start));
         }
