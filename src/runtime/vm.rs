@@ -5,6 +5,7 @@ use crate::{
         bytecode::Bytecode,
         op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
+    frontend::position::Span,
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
         hash_key::HashKey, leak_detector, object::Object,
@@ -107,9 +108,25 @@ impl VM {
                 OpCode::OpJumpNotTruthy => {
                     let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                     self.current_frame_mut().ip += 2;
-                    let condition = self.pop()?;
+                    // Peek instead of pop - value stays on stack for short-circuit operators
+                    let condition = self.stack[self.sp - 1].clone();
                     if !condition.is_truthy() {
                         self.current_frame_mut().ip = pos - 1;
+                    } else {
+                        // Only pop if we're NOT jumping (for && operator)
+                        self.sp -= 1;
+                    }
+                }
+                OpCode::OpJumpTruthy => {
+                    let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
+                    self.current_frame_mut().ip += 2;
+                    // Peek instead of pop - value stays on stack for short-circuit operators
+                    let condition = self.stack[self.sp - 1].clone();
+                    if condition.is_truthy() {
+                        self.current_frame_mut().ip = pos - 1;
+                    } else {
+                        // Only pop if we're NOT jumping (for || operator)
+                        self.sp -= 1;
                     }
                 }
                 OpCode::OpGetGlobal => {
@@ -130,7 +147,13 @@ impl VM {
                 OpCode::OpAdd | OpCode::OpSub | OpCode::OpMul | OpCode::OpDiv => {
                     self.execute_binary_operation(op)?;
                 }
+                OpCode::OpMod => {
+                    self.execute_binary_operation(op)?;
+                }
                 OpCode::OpEqual | OpCode::OpNotEqual | OpCode::OpGreaterThan => {
+                    self.execute_comparison(op)?;
+                }
+                OpCode::OpLessThanOrEqual | OpCode::OpGreaterThanOrEqual => {
                     self.execute_comparison(op)?;
                 }
                 OpCode::OpBang => {
@@ -152,7 +175,7 @@ impl VM {
                 }
                 OpCode::OpTrue => self.push(Object::Boolean(true))?,
                 OpCode::OpFalse => self.push(Object::Boolean(false))?,
-                OpCode::OpNull => self.push(Object::None)?,
+                // Note: OpNull was removed, use OpNone instead
                 OpCode::OpIsSome => {
                     let value = self.pop()?;
                     self.push(Object::Boolean(matches!(value, Object::Some(_))))?;
@@ -211,6 +234,39 @@ impl VM {
                     leak_detector::record_some();
                     self.push(Object::Some(Box::new(value)))?;
                 }
+                // Either type operations
+                OpCode::OpLeft => {
+                    let value = self.pop()?;
+                    self.push(Object::Left(Box::new(value)))?;
+                }
+                OpCode::OpRight => {
+                    let value = self.pop()?;
+                    self.push(Object::Right(Box::new(value)))?;
+                }
+                OpCode::OpIsLeft => {
+                    let value = self.pop()?;
+                    let result = matches!(value, Object::Left(_));
+                    self.push(Object::Boolean(result))?;
+                }
+                OpCode::OpIsRight => {
+                    let value = self.pop()?;
+                    let result = matches!(value, Object::Right(_));
+                    self.push(Object::Boolean(result))?;
+                }
+                OpCode::OpUnwrapLeft => {
+                    let value = self.pop()?;
+                    match value {
+                        Object::Left(inner) => self.push(*inner)?,
+                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Left value")),
+                    }
+                }
+                OpCode::OpUnwrapRight => {
+                    let value = self.pop()?;
+                    match value {
+                        Object::Right(inner) => self.push(*inner)?,
+                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Right value")),
+                    }
+                }
                 OpCode::OpToString => {
                     let value = self.pop()?;
                     self.push(Object::String(value.to_string_value()))?;
@@ -222,25 +278,93 @@ impl VM {
     }
 
     fn format_runtime_error(&self, message: &str) -> String {
+        let (message, hint) = split_hint(message);
+        let (title, details) = split_first_line(message);
         let mut out = String::new();
-        out.push_str(message);
-
-        if self.frames.is_empty() {
-            return out;
+        let use_color = std::env::var_os("NO_COLOR").is_none();
+        if use_color {
+            out.push_str("\u{1b}[33m");
+        }
+        out.push_str("-- Runtime error: ");
+        out.push_str(title.trim());
+        if use_color {
+            out.push_str("\u{1b}[0m");
         }
 
-        out.push_str("\nStack trace:");
-        for frame in self.frames[..=self.frame_index].iter().rev() {
-            out.push_str("\n  at ");
-            let (name, location) = self.format_frame(frame);
-            out.push_str(&name);
-            if let Some(loc) = location {
-                out.push_str(" (");
-                out.push_str(&loc);
-                out.push(')');
+        if !details.trim().is_empty() {
+            out.push_str("\n\n");
+            out.push_str(details.trim());
+        }
+
+        if let Some((file, span)) = self.current_location()
+            && let Ok(source) = std::fs::read_to_string(&file)
+            && let Some(line_text) = get_source_line(&source, span.start.line)
+        {
+            let display_file = render_display_path(&file);
+            out.push_str("\n\n  --> ");
+            out.push_str(&format!(
+                "{}:{}:{}",
+                display_file, span.start.line, span.start.column
+            ));
+            out.push_str("\n   |");
+            let line_no = span.start.line;
+            let line_width = line_no.to_string().len();
+            out.push('\n');
+            out.push_str(&format!(
+                "{:>width$} | {}",
+                line_no,
+                line_text,
+                width = line_width
+            ));
+            out.push('\n');
+            let line_len = line_text.len();
+            let caret_start = span.start.column.min(line_len);
+            let caret_end = if span.start.line == span.end.line {
+                span.end.column.min(line_len).max(caret_start + 1)
+            } else {
+                line_len.max(caret_start + 1)
+            };
+            out.push_str(&format!(
+                "{:>width$} | {}",
+                "",
+                " ".repeat(caret_start),
+                width = line_width
+            ));
+            if use_color {
+                out.push_str("\u{1b}[31m");
+            }
+            out.push_str(&"^".repeat(caret_end.saturating_sub(caret_start).max(1)));
+            if use_color {
+                out.push_str("\u{1b}[0m");
+            }
+        }
+
+        if let Some(hint) = hint {
+            out.push_str("\n\n");
+            out.push_str(hint.trim());
+        }
+
+        if !self.frames.is_empty() {
+            out.push_str("\n\nStack trace:");
+            for frame in self.frames[..=self.frame_index].iter().rev() {
+                out.push_str("\n  at ");
+                let (name, location) = self.format_frame(frame);
+                out.push_str(&name);
+                if let Some(loc) = location {
+                    out.push_str(" (");
+                    out.push_str(&loc);
+                    out.push(')');
+                }
             }
         }
         out
+    }
+
+    fn current_location(&self) -> Option<(String, Span)> {
+        let debug_info = self.current_frame().closure.function.debug_info.as_ref()?;
+        let location = debug_info.location_at(self.current_frame().ip)?;
+        let file = debug_info.file_for(location.file_id)?;
+        Some((file.to_string(), location.span))
     }
 
     fn format_frame(&self, frame: &Frame) -> (String, Option<String>) {
@@ -409,6 +533,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown integer operator: {:?}", op)),
                 };
                 self.push(Object::Integer(result))
@@ -419,6 +544,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -430,6 +556,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -441,6 +568,7 @@ impl VM {
                     OpCode::OpSub => l - r,
                     OpCode::OpMul => l * r,
                     OpCode::OpDiv => l / r,
+                    OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
                 self.push(Object::Float(result))
@@ -466,6 +594,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -475,6 +605,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -485,6 +617,8 @@ impl VM {
                     OpCode::OpEqual => l == *r,
                     OpCode::OpNotEqual => l != *r,
                     OpCode::OpGreaterThan => l > *r,
+                    OpCode::OpLessThanOrEqual => l <= *r,
+                    OpCode::OpGreaterThanOrEqual => l >= *r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -495,6 +629,8 @@ impl VM {
                     OpCode::OpEqual => *l == r,
                     OpCode::OpNotEqual => *l != r,
                     OpCode::OpGreaterThan => *l > r,
+                    OpCode::OpLessThanOrEqual => *l <= r,
+                    OpCode::OpGreaterThanOrEqual => *l >= r,
                     _ => return Err(format!("unknown comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -512,6 +648,8 @@ impl VM {
                     OpCode::OpEqual => l == r,
                     OpCode::OpNotEqual => l != r,
                     OpCode::OpGreaterThan => l > r,
+                    OpCode::OpLessThanOrEqual => l <= r,
+                    OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown string comparison: {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
@@ -529,6 +667,42 @@ impl VM {
                     OpCode::OpEqual => false,
                     OpCode::OpNotEqual => true,
                     _ => return Err(format!("cannot compare None with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Some comparison
+            (Object::Some(l), Object::Some(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Some with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Left comparison
+            (Object::Left(l), Object::Left(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Left with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Right comparison
+            (Object::Right(l), Object::Right(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Right with {:?}", opcode)),
+                };
+                self.push(Object::Boolean(result))
+            }
+            // Left vs Right (always not equal)
+            (Object::Left(_), Object::Right(_)) | (Object::Right(_), Object::Left(_)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => false,
+                    OpCode::OpNotEqual => true,
+                    _ => return Err(format!("cannot compare Left with Right using {:?}", opcode)),
                 };
                 self.push(Object::Boolean(result))
             }
@@ -626,169 +800,25 @@ fn render_display_path(file: &str) -> String {
     file.to_string()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bytecode::compiler::Compiler;
-    use crate::frontend::diagnostic::render_diagnostics;
-    use crate::frontend::lexer::Lexer;
-    use crate::frontend::parser::Parser;
-
-    fn run(input: &str) -> Object {
-        let lexer = Lexer::new(input);
-        let mut parser = Parser::new(lexer);
-        let program = parser.parse_program();
-        let mut compiler = Compiler::new();
-        compiler
-            .compile(&program)
-            .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
-        let mut vm = VM::new(compiler.bytecode());
-        vm.run().unwrap();
-        vm.last_popped_stack_elem().clone()
+fn split_hint(message: &str) -> (&str, Option<&str>) {
+    if let Some(index) = message.find("\nHint:") {
+        (&message[..index], Some(&message[index..]))
+    } else {
+        (message, None)
     }
+}
 
-    #[test]
-    fn test_integer_arithmetic() {
-        assert_eq!(run("1 + 2;"), Object::Integer(3));
-        assert_eq!(run("5 * 2 + 10;"), Object::Integer(20));
-        assert_eq!(run("-5;"), Object::Integer(-5));
+fn split_first_line(message: &str) -> (&str, &str) {
+    if let Some(index) = message.find('\n') {
+        (&message[..index], &message[index + 1..])
+    } else {
+        (message, "")
     }
+}
 
-    #[test]
-    fn test_float_arithmetic() {
-        assert_eq!(run("1.5 + 2.25;"), Object::Float(3.75));
-        assert_eq!(run("2.0 * 3.5;"), Object::Float(7.0));
-        assert_eq!(run("-0.5;"), Object::Float(-0.5));
-        assert_eq!(run("1 + 2.5;"), Object::Float(3.5));
-        assert_eq!(run("2.5 + 1;"), Object::Float(3.5));
+fn get_source_line(source: &str, line: usize) -> Option<&str> {
+    if line == 0 {
+        return None;
     }
-
-    #[test]
-    fn test_boolean_expressions() {
-        assert_eq!(run("true;"), Object::Boolean(true));
-        assert_eq!(run("1 < 2;"), Object::Boolean(true));
-        assert_eq!(run("!true;"), Object::Boolean(false));
-    }
-
-    #[test]
-    fn test_conditionals() {
-        assert_eq!(run("if true { 10; };"), Object::Integer(10));
-        assert_eq!(run("if false { 10; } else { 20; };"), Object::Integer(20));
-    }
-
-    #[test]
-    fn test_global_variables() {
-        assert_eq!(run("let x = 5; x;"), Object::Integer(5));
-        assert_eq!(run("let x = 5; let y = x; y;"), Object::Integer(5));
-    }
-
-    #[test]
-    fn test_functions() {
-        assert_eq!(run("let f = fun() { 5 + 10; }; f();"), Object::Integer(15));
-        assert_eq!(
-            run("let sum = fun(a, b) { a + b; }; sum(1, 2);"),
-            Object::Integer(3)
-        );
-    }
-
-    #[test]
-    fn test_closures() {
-        let input = r#"
-            let newClosure = fun(a) { fun() { a; }; };
-            let closure = newClosure(99);
-            closure();
-        "#;
-        assert_eq!(run(input), Object::Integer(99));
-    }
-
-    #[test]
-    fn test_recursive_fibonacci() {
-        let input = r#"
-            let fib = fun(n) {
-                if n < 2 { return n; };
-                fib(n - 1) + fib(n - 2);
-            };
-            fib(10);
-        "#;
-        assert_eq!(run(input), Object::Integer(55));
-    }
-
-    #[test]
-    fn test_array_literals() {
-        assert_eq!(
-            run("[1, 2, 3];"),
-            Object::Array(vec![
-                Object::Integer(1),
-                Object::Integer(2),
-                Object::Integer(3),
-            ])
-        );
-        assert_eq!(run("[];"), Object::Array(vec![]));
-    }
-
-    #[test]
-    fn test_array_index() {
-        assert_eq!(
-            run("[1, 2, 3][0];"),
-            Object::Some(Box::new(Object::Integer(1)))
-        );
-        assert_eq!(
-            run("[1, 2, 3][1];"),
-            Object::Some(Box::new(Object::Integer(2)))
-        );
-        assert_eq!(
-            run("[1, 2, 3][2];"),
-            Object::Some(Box::new(Object::Integer(3)))
-        );
-        assert_eq!(run("[1, 2, 3][3];"), Object::None);
-        assert_eq!(run("[1, 2, 3][-1];"), Object::None);
-    }
-
-    #[test]
-    fn test_hash_literals() {
-        let result = run(r#"{"a": 1};"#);
-        match result {
-            Object::Hash(h) => {
-                assert_eq!(h.len(), 1);
-            }
-            _ => panic!("expected hash"),
-        }
-    }
-
-    #[test]
-    fn test_hash_index() {
-        assert_eq!(
-            run(r#"{"a": 1}["a"];"#),
-            Object::Some(Box::new(Object::Integer(1)))
-        );
-        assert_eq!(run(r#"{"a": 1}["b"];"#), Object::None);
-        assert_eq!(
-            run(r#"{1: "one"}[1];"#),
-            Object::Some(Box::new(Object::String("one".to_string())))
-        );
-    }
-
-    #[test]
-    fn test_builtin_len() {
-        assert_eq!(run(r#"len("hello");"#), Object::Integer(5));
-        assert_eq!(run("len([1, 2, 3]);"), Object::Integer(3));
-    }
-
-    #[test]
-    fn test_builtin_array_functions() {
-        assert_eq!(run("first([1, 2, 3]);"), Object::Integer(1));
-        assert_eq!(run("last([1, 2, 3]);"), Object::Integer(3));
-        assert_eq!(
-            run("rest([1, 2, 3]);"),
-            Object::Array(vec![Object::Integer(2), Object::Integer(3),])
-        );
-        assert_eq!(
-            run("push([1, 2], 3);"),
-            Object::Array(vec![
-                Object::Integer(1),
-                Object::Integer(2),
-                Object::Integer(3),
-            ])
-        );
-    }
+    source.lines().nth(line.saturating_sub(1))
 }

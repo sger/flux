@@ -144,4 +144,111 @@ mod tests {
         assert_eq!(program.statements.len(), 1);
         assert_eq!(program.to_string(), "{}");
     }
+
+    // Lambda shorthand tests
+    #[test]
+    fn test_lambda_single_param() {
+        let program = parse(r"\x -> x * 2;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_multi_param() {
+        let program = parse(r"\(x, y) -> x + y;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_no_param() {
+        let program = parse(r"\() -> 42;");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_block_body() {
+        let program = parse(r"\x -> { let y = x * 2; y + 1 };");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_in_let() {
+        let program = parse(r"let double = \x -> x * 2;");
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Let { name, .. } => assert_eq!(name, "double"),
+            _ => panic!("expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_lambda_as_argument() {
+        let program = parse(r"map(arr, \x -> x * 2);");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    // ========================================================================
+    // Regression tests for optional semicolons
+    // ========================================================================
+    // Rule: Semicolons are OPTIONAL for top-level statements on separate lines
+    // Rule: Semicolons are REQUIRED for multiple statements on the same line
+    // Rule: Semicolons are REQUIRED inside blocks (except last statement)
+    // See: examples/basics/semicolons.flx for comprehensive examples
+    // ========================================================================
+
+    #[test]
+    fn test_optional_semicolons_let_statements() {
+        let program = parse("let x = 5\nlet y = 10");
+        assert_eq!(program.statements.len(), 2);
+
+        match &program.statements[0] {
+            Statement::Let { name, .. } => assert_eq!(name, "x"),
+            _ => panic!("expected Let statement"),
+        }
+        match &program.statements[1] {
+            Statement::Let { name, .. } => assert_eq!(name, "y"),
+            _ => panic!("expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_optional_semicolons_expressions() {
+        let program = parse("1 + 2\n3 + 4");
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_optional_semicolons_function_calls() {
+        let program = parse("print(\"Hello\")\nprint(\"World\")");
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_mixed_semicolons() {
+        // Mix of statements with and without semicolons
+        let program = parse("let x = 5;\nlet y = 10\nprint(x)\nprint(y);");
+        assert_eq!(program.statements.len(), 4);
+    }
+
+    #[test]
+    fn test_optional_semicolons_return() {
+        let program = parse("return 5\nreturn 10");
+        assert_eq!(program.statements.len(), 2);
+
+        match &program.statements[0] {
+            Statement::Return { .. } => {}
+            _ => panic!("expected Return statement"),
+        }
+    }
+
+    #[test]
+    fn test_optional_semicolons_if_statements() {
+        let program = parse("if (x > 0) { print(\"positive\") }\nprint(\"done\")");
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_optional_semicolons_multiple_expressions() {
+        let program = parse("1 + 2\n3 * 4\n5 - 6\n7 / 8");
+        assert_eq!(program.statements.len(), 4);
+    }
 }

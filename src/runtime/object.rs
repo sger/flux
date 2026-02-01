@@ -13,6 +13,9 @@ pub enum Object {
     String(String),
     None,
     Some(Box<Object>),
+    // Either type variants
+    Left(Box<Object>),
+    Right(Box<Object>),
     ReturnValue(Box<Object>),
     Function(Rc<CompiledFunction>),
     Closure(Rc<Closure>),
@@ -30,6 +33,8 @@ impl fmt::Display for Object {
             Object::String(v) => write!(f, "\"{}\"", v),
             Object::None => write!(f, "None"),
             Object::Some(v) => write!(f, "Some({})", v),
+            Object::Left(v) => write!(f, "Left({})", v),
+            Object::Right(v) => write!(f, "Right({})", v),
             Object::ReturnValue(v) => write!(f, "{}", v),
             Object::Function(_) => write!(f, "<function>"),
             Object::Closure(_) => write!(f, "<closure>"),
@@ -56,6 +61,8 @@ impl Object {
             Object::String(_) => "String",
             Object::None => "None",
             Object::Some(_) => "Some",
+            Object::Left(_) => "Left",
+            Object::Right(_) => "Right",
             Object::ReturnValue(_) => "ReturnValue",
             Object::Function(_) => "Function",
             Object::Closure(_) => "Closure",
@@ -92,6 +99,8 @@ impl Object {
             Object::Function(_) => "<function>".to_string(),
             Object::Closure(_) => "<closure>".to_string(),
             Object::Builtin(_) => "<builtin>".to_string(),
+            Object::Left(_) => "Left({})".to_string(),
+            Object::Right(_) => "Right({})".to_string(),
             Object::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string_value()).collect();
                 format!("[{}]", items.join(", "))

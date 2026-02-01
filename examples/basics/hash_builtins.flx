@@ -1,0 +1,45 @@
+// Test: Hash builtin functions
+// Expected output:
+// ["name", "age", "city"]
+// ["Alice", 30, "NYC"]
+// true
+// false
+// {"theme": "dark", "lang": "fr", "notifications": true}
+// Config with defaults example
+// {"timeout": 60, "retries": 3, "debug": true}
+
+// =============================================================================
+// Hash Builtins (Milestone 5.3)
+// =============================================================================
+
+// Sample hash for testing
+let person = {"name": "Alice", "age": 30, "city": "NYC"};
+
+// keys - get all keys from a hash
+print(keys(person));  // ["name", "age", "city"]
+
+// values - get all values from a hash
+print(values(person));  // ["Alice", 30, "NYC"]
+
+// has_key - check if a key exists
+print(has_key(person, "name"));   // true
+print(has_key(person, "email"));  // false
+
+// merge - combine two hashes (second hash overwrites conflicts)
+let defaults = {"theme": "dark", "lang": "en"};
+let settings = {"lang": "fr", "notifications": true};
+print(merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notifications": true}
+
+// =============================================================================
+// Practical Examples
+// =============================================================================
+
+// Example 1: Config with defaults
+fun getConfig(userConfig) {
+    let defaults = {"timeout": 30, "retries": 3, "debug": false};
+    merge(defaults, userConfig);
+}
+
+print("Config with defaults example");
+let config = getConfig({"timeout": 60, "debug": true});
+print(config);  // {"timeout": 60, "retries": 3, "debug": true}

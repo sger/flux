@@ -1,0 +1,30 @@
+module Modules.StringUtils {
+    fun wrap(s, prefix, suffix) {
+        prefix + s + suffix;
+    }
+
+    fun parenthesize(s) {
+        "(" + s + ")";
+    }
+
+    fun bracket(s) {
+        "[" + s + "]";
+    }
+
+    fun quote(s) {
+        "\"" + s + "\"";
+    }
+
+    fun exclaim(s) {
+        s + "!";
+    }
+
+    fun greet(name) {
+        "Hello, " + name;
+    }
+
+    fun uppercase_first(s) {
+        // Simple simulation - just adds a marker
+        "[UPPER]" + s;
+    }
+}

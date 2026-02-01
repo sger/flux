@@ -1,0 +1,30 @@
+// Test: Modulo operator (%)
+// Expected output:
+// 1
+// 1
+// 0
+// 1.5
+// 3
+// 2
+// 0
+// 1
+// 0
+
+// Basic integer modulo
+print(10 % 3);    // 1
+
+// Odd/even check
+print(7 % 2);     // 1 (odd)
+print(8 % 2);     // 0 (even)
+
+// Float modulo
+print(10.5 % 3);  // 1.5
+
+// More examples
+print(15 % 4);    // 3
+print(100 % 7);   // 2
+print(5 % 5);     // 0
+
+// Edge cases
+print(1 % 10);    // 1 (smaller % larger)
+print(0 % 5);     // 0 (zero % n)

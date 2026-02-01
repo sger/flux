@@ -208,13 +208,42 @@ let x = 5;  // Inline comment
 
 ### Semicolons
 
-Required to terminate statements.
+Semicolons are **optional** for top-level statements on separate lines, but **required** inside function bodies (except the last expression).
 
+**Quick Rules:**
+- ✓ **OPTIONAL**: Top-level statements on separate lines
+- ✗ **REQUIRED**: Multiple statements on same line
+- ✗ **REQUIRED**: Inside function bodies (except last expression)
+
+**Top-level (semicolons optional):**
+```flux
+let x = 42
+let y = 10
+print(x + y)
 ```
-let a = 1;
-let b = 2;
-let c = a + b;
+
+**Top-level (semicolons also work):**
+```flux
+let x = 42;
+let y = 10;
+print(x + y);
 ```
+
+**Inside functions (semicolons required except last):**
+```flux
+fun calculate(n) {
+    let doubled = n * 2;     // REQUIRED
+    let squared = n * n;     // REQUIRED
+    doubled + squared        // OPTIONAL (last expression)
+}
+```
+
+**Recommendation:** Skip semicolons at top level, use them inside functions.
+
+**See also:**
+- Complete reference: [docs/language/semicolon_rules.md](semicolon_rules.md)
+- Examples: [examples/basics/semicolons.flx](../../examples/basics/semicolons.flx)
+- Tests: `tests/parser_tests.rs` (search for `optional_semicolons`)
 
 ---
 

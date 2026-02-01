@@ -201,7 +201,7 @@ fn run_file(
                     let mut vm = VM::new(bytecode);
                     vm.set_trace(trace);
                     if let Err(err) = vm.run() {
-                        eprintln!("Runtime error: {}", err);
+                        eprintln!("{}", err);
                     }
                     if leak_detector {
                         print_leak_stats();
@@ -282,7 +282,7 @@ fn run_file(
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
             if let Err(err) = vm.run() {
-                eprintln!("Runtime error: {}", err);
+                eprintln!("{}", err);
             }
             if leak_detector {
                 print_leak_stats();

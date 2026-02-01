@@ -61,12 +61,22 @@ define_tokens! {
         Minus    => "-",
         Asterisk => "*",
         Slash    => "/",
+        Percent => "%",
         Bang     => "!",
         Lt       => "<",
         Gt       => ">",
+        Lte      => "<=",
+        Gte      => ">=",
         Eq       => "==",
         NotEq    => "!=",
         Assign   => "=",
+
+        // Logical operators
+        And => "&&",
+        Or => "||",
+
+        // Pipe operator
+        Pipe => "|>",
 
         // Delimiters
         LParen    => "(",
@@ -80,6 +90,7 @@ define_tokens! {
         Colon     => ":",
         Dot       => ".",
         Arrow     => "->",
+        Backslash => "\\",
         InterpolationStart => "#{",
         StringEnd => "STRING_END",
     }
@@ -98,7 +109,7 @@ define_tokens! {
         Some   => "Some",
         None   => "None",
         Match  => "match",
-
-        // ↓ Add new keywords here ↓
+        Left   => "Left",
+        Right  => "Right",
     }
 }

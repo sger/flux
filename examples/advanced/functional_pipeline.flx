@@ -1,0 +1,141 @@
+// Test: Combining Modules, Pipelines, and Lambdas
+// This example demonstrates idiomatic functional programming in Flux
+// Expected output:
+// Pipeline with builtins:
+// hello world
+// HELLO WORLD
+// Higher-order functions with lambdas:
+// Doubled: [2, 4, 6, 8, 10, 12]
+// Filtered: [4, 5, 6]
+// Sum: 21
+// Product: 720
+// Function composition:
+// Result: 60
+// Data pipeline:
+// ALICE
+// BOB
+// Complex pipeline:
+// [HELLO, WORLD, FLUX]
+
+// =============================================================================
+// Higher-Order Function Utilities
+// =============================================================================
+
+// Map: apply function to each element
+fun map(arr, f) {
+    if len(arr) == 0 {
+        []
+    } else {
+        concat([f(first(arr))], map(rest(arr), f))
+    }
+}
+
+// Filter: keep elements that satisfy predicate
+fun filter(arr, pred) {
+    if len(arr) == 0 {
+        []
+    } else {
+        let head = first(arr);
+        let tail = filter(rest(arr), pred);
+        if pred(head) {
+            concat([head], tail)
+        } else {
+            tail
+        }
+    }
+}
+
+// Reduce/fold: combine elements with accumulator
+fun reduce(arr, initial, f) {
+    if len(arr) == 0 {
+        initial
+    } else {
+        reduce(rest(arr), f(initial, first(arr)), f)
+    }
+}
+
+// =============================================================================
+// Example 1: Pipeline with Builtin Functions
+// =============================================================================
+
+print("Pipeline with builtins:");
+
+// Chain string operations with pipe
+let greeting = "  HELLO WORLD  " |> trim |> lower;
+print(greeting);  // "hello world"
+
+let shouting = "hello world" |> upper;
+print(shouting);  // "HELLO WORLD"
+
+// =============================================================================
+// Example 2: Higher-Order Functions with Lambdas
+// =============================================================================
+
+print("Higher-order functions with lambdas:");
+
+let numbers = [1, 2, 3, 4, 5, 6];
+
+// Double all numbers using lambda
+let doubled = map(numbers, \x -> x * 2);
+print("Doubled: " + to_string(doubled));  // [2, 4, 6, 8, 10, 12]
+
+// Filter numbers greater than 3
+let bigNums = filter(numbers, \x -> x > 3);
+print("Filtered: " + to_string(bigNums));  // [4, 5, 6]
+
+// Sum all numbers using reduce with lambda
+let sum = reduce(numbers, 0, \(acc, x) -> acc + x);
+print("Sum: " + to_string(sum));  // 21
+
+// Product of all numbers
+let product = reduce(numbers, 1, \(acc, x) -> acc * x);
+print("Product: " + to_string(product));  // 720
+
+// =============================================================================
+// Example 3: Function Composition with Lambdas
+// =============================================================================
+
+print("Function composition:");
+
+// Define reusable transformations as lambdas
+let double = \x -> x * 2;
+let addTen = \x -> x + 10;
+let square = \x -> x * x;
+
+// Compose two functions: compose(f, g)(x) = f(g(x))
+fun compose(f, g) {
+    \x -> f(g(x))
+}
+
+// Build a pipeline: addTen(double(square(x)))
+// For x=5: square(5)=25, double(25)=50, addTen(50)=60
+let transform = compose(addTen, compose(double, square));
+print("Result: " + to_string(transform(5)));  // 60
+
+// =============================================================================
+// Example 4: Data Processing Pipeline
+// =============================================================================
+
+print("Data pipeline:");
+
+// Process a list of names
+let names = ["alice", "bob"];
+
+// Transform with pipe + builtins
+let name1 = first(names) |> upper;
+print(name1);  // ALICE
+
+let name2 = first(rest(names)) |> upper;
+print(name2);  // BOB
+
+// =============================================================================
+// Example 5: Complex Pipeline with Map + Lambda
+// =============================================================================
+
+print("Complex pipeline:");
+
+let words = ["hello", "world", "flux"];
+
+// Transform all words to uppercase using map + lambda
+let uppercased = map(words, \w -> w |> upper);
+print(to_string(uppercased));  // [HELLO, WORLD, FLUX]
