@@ -4,12 +4,25 @@
 // flux is awesome
 // abc
 
-let greeting = "hello";
-let target = " world";
-print(greeting + target);
+// Note: Semicolons are optional for top-level statements on separate lines
+// See examples/basics/semicolons.flx for complete semicolon rules
+
+let greeting = "hello"  // No semicolon needed
+let target = " world"   // No semicolon needed
+print(greeting + target)  // No semicolon needed
 
 let lang = "flux";
 let desc = " is awesome";
 print(lang + desc);
 
 print("a" + "b" + "c");
+
+print(split("hello world", " "));
+print(split("hello%world", "%"));
+print(split("hello", "!"));
+
+print(upper("hello world"));
+print(lower("HELLO world"));
+
+print(chars("HELLO world"));
+print(substring("HELLO world", 0, 2));

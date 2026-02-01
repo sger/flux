@@ -54,11 +54,32 @@ impl Lexer {
                 self.read_char();
                 Token::new(TokenType::NotEq, "!=", line, col)
             }
+            Some('<') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::Lte, "<=", line, col)
+            }
+            Some('>') if self.peek_char() == Some('=') => {
+                self.read_char();
+                Token::new(TokenType::Gte, ">=", line, col)
+            }
             Some('-') if self.peek_char() == Some('>') => {
                 self.read_char();
                 Token::new(TokenType::Arrow, "->", line, col)
             }
-
+            // Logical operators
+            Some('&') if self.peek_char() == Some('&') => {
+                self.read_char();
+                Token::new(TokenType::And, "&&", line, col)
+            }
+            Some('|') if self.peek_char() == Some('|') => {
+                self.read_char();
+                Token::new(TokenType::Or, "||", line, col)
+            }
+            // Pipe operator
+            Some('|') if self.peek_char() == Some('>') => {
+                self.read_char();
+                Token::new(TokenType::Pipe, "|>", line, col)
+            }
             // Single-character operators and delimiters
             Some('=') => Token::new(TokenType::Assign, "=", line, col),
             Some('!') => Token::new(TokenType::Bang, "!", line, col),
@@ -66,6 +87,7 @@ impl Lexer {
             Some('-') => Token::new(TokenType::Minus, "-", line, col),
             Some('*') => Token::new(TokenType::Asterisk, "*", line, col),
             Some('/') => Token::new(TokenType::Slash, "/", line, col),
+            Some('%') => Token::new(TokenType::Percent, "%", line, col),
             Some('<') => Token::new(TokenType::Lt, "<", line, col),
             Some('>') => Token::new(TokenType::Gt, ">", line, col),
             Some('(') => Token::new(TokenType::LParen, "(", line, col),
@@ -88,6 +110,7 @@ impl Lexer {
             Some(']') => Token::new(TokenType::RBracket, "]", line, col),
             Some(':') => Token::new(TokenType::Colon, ":", line, col),
             Some('.') => Token::new(TokenType::Dot, ".", line, col),
+            Some('\\') => Token::new(TokenType::Backslash, "\\", line, col),
 
             // String literals
             Some('"') => {

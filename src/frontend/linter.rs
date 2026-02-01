@@ -202,6 +202,12 @@ impl Linter {
             Expression::Some { value, .. } => {
                 self.lint_expression(value);
             }
+            Expression::Left { value, .. } => {
+                self.lint_expression(value);
+            }
+            Expression::Right { value, .. } => {
+                self.lint_expression(value);
+            }
             Expression::Match {
                 scrutinee, arms, ..
             } => {

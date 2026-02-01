@@ -1,0 +1,126 @@
+// Semicolon Rules in Flux
+// =========================
+// Rule 1: Semicolons OPTIONAL for top-level statements on separate lines
+// Rule 2: Semicolons REQUIRED for multiple statements on same line
+// Rule 3: Semicolons REQUIRED inside function bodies (except last expression)
+// Rule 4: Consecutive let blocks without semicolons need a non-let statement between them
+
+print("=== Semicolon Demonstration ===")
+print("")
+
+// ============================================================================
+// OPTIONAL: Top-level statements on separate lines
+// ============================================================================
+
+print("1. Top-level statements (no semicolons needed):")
+
+let x = 42
+let y = 10
+print("   x + y = " + to_string(x + y))
+
+// Note: After a block of lets, add a print/expression before next let block
+print("")
+
+// ============================================================================
+// REQUIRED: Multiple statements on same line
+// ============================================================================
+
+print("2. Same line (semicolons REQUIRED):")
+let a = 1; let b = 2; let c = 3
+print("   a=" + to_string(a) + " b=" + to_string(b) + " c=" + to_string(c))
+print("")
+
+// ============================================================================
+// FUNCTIONS: Comprehensive examples
+// ============================================================================
+
+print("3. Functions:")
+print("")
+
+// ---- Single expression (no semicolon) ----
+fun add(x, y) {
+    x + y  // OPTIONAL semicolon (last expression)
+}
+print("   add(5, 3) = " + to_string(add(5, 3)))
+
+// ---- Multiple statements (semicolons required except last) ----
+fun calculate(n) {
+    let doubled = n * 2;     // REQUIRED semicolon
+    let squared = n * n;     // REQUIRED semicolon
+    doubled + squared        // OPTIONAL semicolon (last)
+}
+print("   calculate(5) = " + to_string(calculate(5)))
+
+// ---- With return statements ----
+fun get_max(a, b) {
+    if (a > b) {
+        return a;            // REQUIRED semicolon (not last in function)
+    }
+    return b                 // OPTIONAL semicolon (last in function)
+}
+print("   get_max(10, 20) = " + to_string(get_max(10, 20)))
+
+// ---- Early return ----
+fun check_positive(n) {
+    if (n <= 0) {
+        return "not positive";  // REQUIRED semicolon
+    }
+    "positive"                  // OPTIONAL semicolon (last)
+}
+print("   check_positive(5) = " + check_positive(5))
+print("   check_positive(-5) = " + check_positive(-5))
+
+// ---- Nested functions ----
+fun outer(x) {
+    fun inner(y) {
+        x + y               // OPTIONAL semicolon (last)
+    }
+    inner(10)               // OPTIONAL semicolon (last)
+}
+print("   outer(5) = " + to_string(outer(5)))
+print("")
+
+// ============================================================================
+// STYLE COMPARISON
+// ============================================================================
+
+print("4. Style comparison:")
+print("")
+
+// Style A: No semicolons (clean, recommended for top-level)
+let lang = "Flux";          // Adding semicolon to prevent parser issue
+let version = "0.0.3";      // with consecutive let blocks
+print("   Style A: " + lang + " v" + version)
+
+// A statement between let blocks allows no semicolons in next block
+print("")
+
+// Style B: No semicolons in this block (works after print statement)
+let name = "Language"
+let year = 2026
+print("   Style B: " + name + " " + to_string(year))
+print("")
+
+// ============================================================================
+// SUMMARY
+// ============================================================================
+
+print("=== Summary ===")
+print("")
+print("Semicolons OPTIONAL:")
+print("  ✓ Top-level statements on separate lines")
+print("  ✓ Last expression in function/block")
+print("  ✓ Function definitions at top level")
+print("")
+print("Semicolons REQUIRED:")
+print("  ✗ Multiple statements on same line")
+print("  ✗ Inside function bodies (except last expression)")
+print("  ✗ Return statements (except when last)")
+print("")
+print("Parser Note:")
+print("  Consecutive let blocks need semicolons OR")
+print("  a non-let statement between them")
+print("")
+print("Recommendation:")
+print("  Skip semicolons at top level")
+print("  Use semicolons inside functions")

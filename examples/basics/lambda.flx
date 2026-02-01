@@ -1,0 +1,61 @@
+// Test: Lambda shorthand syntax
+// Expected output:
+// 10
+// 7
+// 42
+// 11
+// 12
+// Higher-order functions:
+// 3
+// 6
+// 9
+
+// =============================================================================
+// Lambda Shorthand (Milestone 4)
+// =============================================================================
+
+// Single parameter (no parens required)
+let double = \x -> x * 2;
+print(double(5));  // 10
+
+// Multiple parameters (parens required)
+let add = \(x, y) -> x + y;
+print(add(3, 4));  // 7
+
+// Zero parameters (parens required)
+let constant = \() -> 42;
+print(constant());  // 42
+
+// Block body for complex logic
+let complex = \x -> {
+    let doubled = x * 2;
+    doubled + 1
+};
+print(complex(5));  // 11
+
+// Lambda as argument to higher-order function
+fun applyTwice(f, x) {
+    f(f(x))
+}
+print(applyTwice(\x -> x * 2, 3));  // 12
+
+// =============================================================================
+// Practical Examples
+// =============================================================================
+
+print("Higher-order functions:");
+
+// Custom map-like function
+fun myMap(arr, f) {
+    if len(arr) == 0 {
+        []
+    } else {
+        concat([f(first(arr))], myMap(rest(arr), f))
+    }
+}
+
+let nums = [1, 2, 3];
+let tripled = myMap(nums, \x -> x * 3);
+print(first(tripled));                    // 3
+print(first(rest(tripled)));              // 6
+print(first(rest(rest(tripled))));        // 9

@@ -29,7 +29,8 @@ list_examples() {
   else
     find examples -type f -name '*.flx' | sort
   fi \
-    | sed 's#^examples/##'
+    | sed 's#^examples/##' \
+    | grep -v '^Debug/runtime_trace_error\.flx$'
 }
 
 if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
@@ -44,7 +45,10 @@ run_all() {
   while IFS= read -r example; do
     [[ -z "$example" ]] && continue
     echo "==> examples/$example"
-    scripts/run_examples.sh "$example" "$@"
+    if ! scripts/run_examples.sh "$example" "$@"; then
+      echo "Stopping: example failed" >&2
+      exit 1
+    fi
   done < <(list_examples)
 }
 
@@ -63,14 +67,20 @@ if [[ -d "examples/$example" ]]; then
       | sed 's#^examples/##' \
       | while IFS= read -r file; do
           echo "==> examples/$file"
-          scripts/run_examples.sh "$file" "$@"
+          if ! scripts/run_examples.sh "$file" "$@"; then
+            echo "Stopping: example failed" >&2
+            exit 1
+          fi
         done
   else
     find "examples/$example" -type f -name '*.flx' | sort \
       | sed 's#^examples/##' \
       | while IFS= read -r file; do
           echo "==> examples/$file"
-          scripts/run_examples.sh "$file" "$@"
+          if ! scripts/run_examples.sh "$file" "$@"; then
+            echo "Stopping: example failed" >&2
+            exit 1
+          fi
         done
   fi
   exit 0
@@ -101,4 +111,27 @@ if [[ $# -gt 0 ]]; then
   cmd+=("$@")
 fi
 
-"${cmd[@]}"
+# Run and capture output to check for errors
+output=$("${cmd[@]}" 2>&1) && status=0 || status=$?
+stack_trace_detected=0
+
+echo "$output"
+
+# Check for stack overflow in output
+if echo "$output" | grep -qi "stack overflow"; then
+  echo "Error: Stack overflow detected, stopping execution" >&2
+  exit 1
+fi
+
+# Detect stack trace and log at the end.
+if echo "$output" | grep -q "Stack trace:"; then
+  stack_trace_detected=1
+fi
+
+if [[ $stack_trace_detected -eq 1 ]]; then
+  echo "Error: Stack trace detected, stopping execution" >&2
+  exit 1
+fi
+
+# Exit with the original status
+exit $status

@@ -1,0 +1,51 @@
+// Module: FunctionalUtils
+// Provides higher-order function utilities for functional programming
+
+module Modules.FunctionalUtils {
+    // Map: apply function to each element
+    fun map(arr, f) {
+        if len(arr) == 0 {
+            []
+        } else {
+            concat([f(first(arr))], map(rest(arr), f))
+        }
+    }
+
+    // Filter: keep elements that satisfy predicate
+    fun filter(arr, pred) {
+        if len(arr) == 0 {
+            []
+        } else {
+            let head = first(arr);
+            let tail = filter(rest(arr), pred);
+            if pred(head) {
+                concat([head], tail)
+            } else {
+                tail
+            }
+        }
+    }
+
+    // Reduce/fold: combine elements with accumulator
+    fun reduce(arr, initial, f) {
+        if len(arr) == 0 {
+            initial
+        } else {
+            reduce(rest(arr), f(initial, first(arr)), f)
+        }
+    }
+
+    // Compose two functions: compose(f, g)(x) = f(g(x))
+    fun compose(f, g) {
+        \x -> f(g(x))
+    }
+
+    // Apply a function n times
+    fun applyN(f, n, x) {
+        if n <= 0 {
+            x
+        } else {
+            applyN(f, n - 1, f(x))
+        }
+    }
+}

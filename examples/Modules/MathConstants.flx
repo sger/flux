@@ -1,0 +1,40 @@
+// Module: MathConstants
+// Provides mathematical constants evaluated at compile time
+
+module Modules.MathConstants {
+    // Basic constants
+    let PI = 3.14159;
+    let E = 2.71828;
+    let PHI = 1.61803;
+
+    // Computed constants (dependencies resolved automatically)
+    let TAU = PI * 2;
+    let PI_SQUARED = PI * PI;
+    let HALF_PI = PI / 2;
+
+    // Integer constants
+    let ZERO = 0;
+    let ONE = 1;
+
+    // Private constants (not accessible outside this module)
+    let _precision = 5;
+    let _internal_factor = PI / 180;
+
+    // Functions using constants
+    fun circle_area(radius) {
+        PI * radius * radius
+    }
+
+    fun circumference(radius) {
+        TAU * radius
+    }
+
+    fun sphere_volume(radius) {
+        (4 / 3) * PI * radius * radius * radius
+    }
+
+    // Function using private constant internally
+    fun degrees_to_radians(degrees) {
+        degrees * _internal_factor
+    }
+}

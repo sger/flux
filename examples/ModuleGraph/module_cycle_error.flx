@@ -1,3 +1,0 @@
-import ModuleGraph.ModuleGraphCycleA
-
-ModuleGraph.ModuleGraphCycleA.value();

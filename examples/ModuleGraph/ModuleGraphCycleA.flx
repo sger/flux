@@ -1,7 +1,0 @@
-import ModuleGraph.ModuleGraphCycleB
-
-module ModuleGraph.ModuleGraphCycleA {
-  fun value() {
-    1;
-  }
-}

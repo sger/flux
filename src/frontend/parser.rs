@@ -318,6 +318,8 @@ impl Parser {
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),
             TokenType::Some => self.parse_some(),
+            TokenType::Left => self.parse_left(),
+            TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
             TokenType::Bang | TokenType::Minus => self.parse_prefix_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
@@ -325,6 +327,7 @@ impl Parser {
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Fun => self.parse_function_literal(),
+            TokenType::Backslash => self.parse_lambda(),
             _ => {
                 self.no_prefix_parse_error();
                 None
@@ -350,10 +353,16 @@ impl Parser {
             | TokenType::Minus
             | TokenType::Asterisk
             | TokenType::Slash
+            | TokenType::Percent
             | TokenType::Lt
             | TokenType::Gt
+            | TokenType::Lte
+            | TokenType::Gte
             | TokenType::Eq
-            | TokenType::NotEq => self.parse_infix_expression(left),
+            | TokenType::NotEq
+            | TokenType::And
+            | TokenType::Or => self.parse_infix_expression(left),
+            TokenType::Pipe => self.parse_pipe_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),
@@ -374,6 +383,63 @@ impl Parser {
             right: Box::new(right),
             span: Span::new(start, end),
         })
+    }
+
+    // Pipe operator: a |> f(b, c) transforms to f(a, b, c)
+    fn parse_pipe_expression(&mut self, left: Expression) -> Option<Expression> {
+        let start = left.span().start;
+        let precedence = self.current_precedence();
+        self.next_token(); // consume |>
+
+        // Parse the right side - could be identifier or call
+        let right = self.parse_expression(precedence)?;
+
+        // Transform based on what we got
+        match right {
+            // a |> f => f(a)
+            Expression::Identifier { name, span } => Some(Expression::Call {
+                function: Box::new(Expression::Identifier { name, span }),
+                arguments: vec![left],
+                span: Span::new(start, span.end),
+            }),
+            // a |> Module.func => Module.func(a)
+            Expression::MemberAccess {
+                object,
+                member,
+                span,
+            } => Some(Expression::Call {
+                function: Box::new(Expression::MemberAccess {
+                    object,
+                    member,
+                    span,
+                }),
+                arguments: vec![left],
+                span: Span::new(start, span.end),
+            }),
+            // a |> f(b, c) => f(a, b, c)
+            Expression::Call {
+                function,
+                mut arguments,
+                span,
+            } => {
+                arguments.insert(0, left);
+                Some(Expression::Call {
+                    function,
+                    arguments,
+                    span: Span::new(start, span.end),
+                })
+            }
+            _ => {
+                self.errors.push(
+                    Diagnostic::error("INVALID PIPE TARGET")
+                        .with_code("E103")
+                        .with_position(self.current_token.position)
+                        .with_message("Pipe operator expects a function or function call.")
+                        .with_hint("Use `value |> func` or `value |> func(arg)`"),
+                );
+                None
+            }
+        }
     }
 
     fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
@@ -420,8 +486,10 @@ impl Parser {
     fn parse_identifier(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         let mut name = self.current_token.literal.clone();
-        if is_uppercase_ident(&self.current_token) {
-            while self.is_peek_token(TokenType::Dot) && is_uppercase_ident(&self.peek2_token) {
+        // Only collect dotted segments for module paths (PascalCase names)
+        // Don't collect ALL_CAPS constants like PI, TAU, MAX
+        if is_pascal_case_ident(&self.current_token) {
+            while self.is_peek_token(TokenType::Dot) && is_pascal_case_ident(&self.peek2_token) {
                 self.next_token(); // consume '.'
                 if !self.expect_peek(TokenType::Ident) {
                     return None;
@@ -616,6 +684,46 @@ impl Parser {
         })
     }
 
+    fn parse_left(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+
+        Some(Expression::Left {
+            value: Box::new(value),
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
+    fn parse_right(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+
+        self.next_token();
+
+        let value = self.parse_expression(Precedence::Lowest)?;
+
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+
+        Some(Expression::Right {
+            value: Box::new(value),
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
     fn parse_match_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         self.next_token();
@@ -675,6 +783,28 @@ impl Parser {
                     return None;
                 }
                 Some(Pattern::Some(Box::new(inner_pattern)))
+            }
+            TokenType::Left => {
+                if !self.expect_peek(TokenType::LParen) {
+                    return None;
+                }
+                self.next_token();
+                let inner_pattern = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+                Some(Pattern::Left(Box::new(inner_pattern)))
+            }
+            TokenType::Right => {
+                if !self.expect_peek(TokenType::LParen) {
+                    return None;
+                }
+                self.next_token();
+                let inner_pattern = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+                Some(Pattern::Right(Box::new(inner_pattern)))
             }
             TokenType::Int
             | TokenType::Float
@@ -813,6 +943,74 @@ impl Parser {
         })
     }
 
+    /// Parse a lambda expression: \x -> expr, \(x, y) -> expr, \() -> expr
+    fn parse_lambda(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+
+        // Move past the backslash
+        self.next_token();
+
+        // Parse parameters
+        let parameters = if self.is_current_token(TokenType::LParen) {
+            // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
+            let params = self.parse_function_parameters()?;
+            self.next_token(); // move past )
+            params
+        } else if self.is_current_token(TokenType::Ident) {
+            // Single unparenthesized parameter: \x ->
+            let param = self.current_token.literal.clone();
+            self.next_token();
+            vec![param]
+        } else {
+            self.errors.push(
+                Diagnostic::error("INVALID LAMBDA")
+                    .with_code("E106")
+                    .with_position(self.current_token.position)
+                    .with_message("Expected parameter or `(` after `\\`.")
+                    .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
+            );
+            return None;
+        };
+
+        // Expect ->
+        if !self.is_current_token(TokenType::Arrow) {
+            self.errors.push(
+                Diagnostic::error("EXPECTED ARROW")
+                    .with_code("E107")
+                    .with_position(self.current_token.position)
+                    .with_message(format!(
+                        "Expected `->` after lambda parameters, found `{}`.",
+                        self.current_token.token_type
+                    ))
+                    .with_hint("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+            );
+            return None;
+        }
+        self.next_token(); // consume ->
+
+        // Parse body
+        let body = if self.is_current_token(TokenType::LBrace) {
+            // Block body: \x -> { statements }
+            self.parse_block()
+        } else {
+            // Expression body: \x -> expr
+            let expr_start = self.current_token.position;
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            Block {
+                statements: vec![Statement::Expression {
+                    expression: expr,
+                    span: Span::new(expr_start, self.current_token.position),
+                }],
+            }
+        };
+
+        Some(Expression::Function {
+            parameters,
+            body,
+            span: Span::new(start, self.current_token.position),
+        })
+    }
+
     fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
         let mut identifiers = Vec::new();
 
@@ -923,4 +1121,24 @@ fn is_uppercase_ident(token: &Token) -> bool {
         .chars()
         .next()
         .is_some_and(|ch| ch.is_ascii_uppercase())
+}
+
+/// Check if token is PascalCase (starts uppercase, contains lowercase)
+/// This distinguishes module names like "Math", "Constants" from
+/// ALL_CAPS constants like "PI", "TAU", "MAX"
+fn is_pascal_case_ident(token: &Token) -> bool {
+    if token.token_type != TokenType::Ident {
+        return false;
+    }
+    let literal = &token.literal;
+    let mut chars = literal.chars();
+    // First char must be uppercase
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    // Must contain at least one lowercase letter (to distinguish from ALL_CAPS)
+    literal.chars().any(|ch| ch.is_ascii_lowercase())
 }
