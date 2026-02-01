@@ -9,7 +9,7 @@ use crate::{
         compilation_scope::CompilationScope,
         debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
-        module_constants::{analyze_module_constants, eval_const_expr},
+        module_constants::{compile_module_constants, ConstCompileError},
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
         symbol_scope::SymbolScope,
@@ -1329,33 +1329,26 @@ impl Compiler {
         // - eval_const_expr: Evaluate constant expressions at compile time
         // ====================================================================
 
-        // Step 1: Analyze constants and resolve dependencies
-        let analysis = match analyze_module_constants(body) {
+        // Compile module constants (analysis + evaluation)
+        let constants = match compile_module_constants(body, &binding_name) {
             Ok(result) => result,
-            Err(cycle) => {
+            Err(err) => {
                 self.current_module_prefix = previous_module;
-                return Err(Self::boxed(
-                    self.make_circular_dependency_error(&cycle, position),
-                ));
+                return Err(Self::boxed(match err {
+                    ConstCompileError::CircularDependency(cycle) => {
+                        self.make_circular_dependency_error(&cycle, position)
+                    }
+                    ConstCompileError::EvalError {
+                        position: pos,
+                        error,
+                        ..
+                    } => self.const_eval_error_to_diagnostic(error, pos),
+                }));
             }
         };
 
-        // Step 2: Evaluate constants in dependency order
-        let mut local_constants: HashMap<String, Object> = HashMap::new();
-        for const_name in &analysis.eval_order {
-            let (expr, pos) = analysis.expressions.get(const_name).unwrap();
-            match eval_const_expr(expr, &local_constants) {
-                Ok(const_value) => {
-                    local_constants.insert(const_name.clone(), const_value.clone());
-                    let qualified_name = format!("{}.{}", binding_name, const_name);
-                    self.module_constants.insert(qualified_name, const_value);
-                }
-                Err(err) => {
-                    self.current_module_prefix = previous_module;
-                    return Err(Self::boxed(self.const_eval_error_to_diagnostic(err, *pos)));
-                }
-            }
-        }
+        // Store evaluated constants in compiler's module_constants map
+        self.module_constants.extend(constants);
 
         // ====================================================================
         // END: MODULE CONSTANTS
