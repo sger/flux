@@ -30,7 +30,11 @@ list_examples() {
     find examples -type f -name '*.flx' | sort
   fi \
     | sed 's#^examples/##' \
-    | grep -v '^Debug/runtime_trace_error\.flx$'
+    | grep -v '^Debug/' \
+    | grep -v '^errors/' \
+    | grep -v '_error\.flx$' \
+    | grep -v '_invalid\.flx$' \
+    | grep -v '/[A-Z].*\.flx$'
 }
 
 if [[ $# -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
