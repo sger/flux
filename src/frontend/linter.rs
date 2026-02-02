@@ -160,7 +160,9 @@ impl Linter {
                 }
             }
             Expression::Function {
-                parameters, body, span
+                parameters,
+                body,
+                span,
             } => {
                 self.enter_scope();
                 for param in parameters {

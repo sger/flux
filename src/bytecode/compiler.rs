@@ -1330,7 +1330,7 @@ impl Compiler {
         // ====================================================================
 
         // Compile module constants (analysis + evaluation)
-        let constants = match compile_module_constants(body, &binding_name) {
+        let constants = match compile_module_constants(body, binding_name) {
             Ok(result) => result,
             Err(err) => {
                 self.current_module_prefix = previous_module;
