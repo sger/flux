@@ -239,7 +239,7 @@ impl Lexer {
         let col = self.column;
         self.read_char(); // skip opening quote
 
-        let (content, _ended, has_interpolation) = self.read_string_content();
+        let (content, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // String has interpolation - mark that we're in a string
@@ -248,8 +248,11 @@ impl Lexer {
             self.interpolation_depth = 1;
             // Return InterpolationStart instead of String to signal interpolation
             Token::new(TokenType::InterpolationStart, content, line, col)
+        } else if !ended {
+            // Hit EOF without closing quote
+            Token::new(TokenType::UnterminatedString, content, line, col)
         } else {
-            // Simple string with no interpolation (or unterminated)
+            // Simple string with no interpolation
             Token::new(TokenType::String, content, line, col)
         }
     }
@@ -259,13 +262,17 @@ impl Lexer {
         let line = self.line;
         let col = self.column;
 
-        let (content, _ended, has_interpolation) = self.read_string_content();
+        let (content, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed #{
             self.interpolation_depth = 1;
             // Return InterpolationStart to signal another interpolation
             Token::new(TokenType::InterpolationStart, content, line, col)
+        } else if !ended {
+            // Hit EOF without closing quote
+            self.in_string = false;
+            Token::new(TokenType::UnterminatedString, content, line, col)
         } else {
             // End of interpolated string
             self.in_string = false;
@@ -280,6 +287,10 @@ impl Lexer {
 
         while let Some(c) = self.current_char {
             match c {
+                '\n' | '\r' => {
+                    // Strings cannot span lines
+                    return (result, false, false);
+                }
                 '"' => {
                     // End of string
                     self.read_char(); // consume closing quote

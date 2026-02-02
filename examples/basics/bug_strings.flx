@@ -1,0 +1,5 @@
+let greeting = "hello"; let message = "message"
+
+print(greeting)
+print("This is a #{message}")
+print("HELLO WORLD")

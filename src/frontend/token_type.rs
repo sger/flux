@@ -16,6 +16,7 @@ macro_rules! define_tokens {
             Int,
             Float,
             String,
+            UnterminatedString,
 
             // Symbols (operators & delimiters)
             $($sym_name,)*
@@ -33,6 +34,7 @@ macro_rules! define_tokens {
                     TokenType::Int => "INT",
                     TokenType::Float => "FLOAT",
                     TokenType::String => "STRING",
+                    TokenType::UnterminatedString => "UNTERMINATED_STRING",
                     $(TokenType::$sym_name => $sym_str,)*
                     $(TokenType::$kw_name => $kw_str,)*
                 };

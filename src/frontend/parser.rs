@@ -17,6 +17,7 @@ pub struct Parser {
     peek_token: Token,
     peek2_token: Token,
     pub errors: Vec<Diagnostic>,
+    suppress_unterminated_string_error: bool,
 }
 
 impl Parser {
@@ -27,6 +28,7 @@ impl Parser {
             peek_token: Token::new(TokenType::Eof, "", 0, 0),
             peek2_token: Token::new(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
+            suppress_unterminated_string_error: false,
         };
         parser.next_token();
         parser.next_token();
@@ -315,6 +317,15 @@ impl Parser {
             TokenType::Int => self.parse_integer(),
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
+            TokenType::UnterminatedString => {
+                if self.suppress_unterminated_string_error {
+                    self.suppress_unterminated_string_error = false;
+                    None
+                } else {
+                    self.unterminated_string_error();
+                    None
+                }
+            }
             TokenType::InterpolationStart => self.parse_interpolation_start(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),
@@ -346,6 +357,24 @@ impl Parser {
                     self.current_token.token_type
                 )),
         );
+    }
+
+    fn unterminated_string_error(&mut self) {
+        let pos = if self.current_token.position.column > 0 {
+            crate::frontend::position::Position::new(
+                self.current_token.position.line,
+                self.current_token.position.column - 1,
+            )
+        } else {
+            self.current_token.position
+        };
+        self.errors.push(
+            Diagnostic::error("EXPECTED EXPRESSION")
+                .with_code("E102")
+                .with_span(Span::new(pos, pos))
+                .with_message("Lexer error: unterminated string literal."),
+        );
+        self.synchronize_after_error();
     }
 
     fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
@@ -642,6 +671,8 @@ impl Parser {
                         .with_position(self.peek_token.position)
                         .with_message("Expected string continuation or end after interpolation."),
                 );
+                self.suppress_unterminated_string_error = true;
+                self.synchronize_after_error();
                 return None;
             }
         }
@@ -1065,9 +1096,18 @@ impl Parser {
             list.push(self.parse_expression(Precedence::Lowest)?);
         }
 
-        if !self.expect_peek(end) {
+        if !self.is_peek_token(end) {
+            let line = self.current_token.position.line;
+            let eof_pos = crate::frontend::position::Position::new(line, usize::MAX - 1);
+            self.errors.push(
+                Diagnostic::error("UNEXPECTED TOKEN")
+                    .with_code("E105")
+                    .with_span(Span::new(eof_pos, eof_pos))
+                    .with_message(format!("Missing {} before end of line.", end)),
+            );
             return None;
         }
+        self.next_token();
 
         Some(list)
     }
