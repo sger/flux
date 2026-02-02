@@ -244,6 +244,52 @@ error[E007]: UNDEFINED VARIABLE
 
 ---
 
+### M2.5: Linter Enhancements (v0.0.3)
+**Priority:** MEDIUM | **Effort:** Small (1-2 days) | **Risk:** Low
+
+**Goal:** Add dead code detection and basic complexity checks to the linter.
+
+**v0.0.2 Fixes (Completed):**
+- ✅ Fixed match pattern bindings bug (W001 now tracks pattern variables)
+- ✅ Added unused function warnings (W007)
+- ✅ Fixed anonymous function parameter positions
+
+**v0.0.3 Additions:**
+1. **Dead Code Detection** - W008: Code after return/break
+   ```flux
+   fun test() {
+       return 42;
+       print("unreachable");  // ← W008: Dead code after return
+   }
+   ```
+
+2. **Function Complexity** - W009: Function too long (>50 lines)
+   ```flux
+   fun massive_function() {  // ← W009: Function too long (75 lines)
+       // 75 lines of code...
+   }
+   ```
+
+3. **Parameter Count** - W010: Too many parameters (>5)
+   ```flux
+   fun complex(a, b, c, d, e, f) {  // ← W010: Too many parameters (6)
+       // ...
+   }
+   ```
+
+**Implementation:**
+- Add dead code tracking in `lint_statement()` after return
+- Add line counting for functions
+- Add parameter count check
+
+**Deliverable:** Enhanced linter with 3 new warning types (W008-W010)
+
+**Files Modified:**
+- `src/frontend/linter.rs` - Add new checks
+- `tests/linter_tests.rs` - Add tests for new warnings
+
+---
+
 ### M3: Pattern Matching Guards
 **Priority:** HIGH | **Effort:** Medium (3-5 days) | **Risk:** Low
 
