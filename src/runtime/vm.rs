@@ -5,7 +5,14 @@ use crate::{
         bytecode::Bytecode,
         op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
-    frontend::position::Span,
+    frontend::{
+        diagnostic::Diagnostic,
+        error_codes_registry::{
+            format_message, ErrorCode, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
+            NOT_A_FUNCTION,
+        },
+        position::Span,
+    },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
         hash_key::HashKey, leak_detector, object::Object,
@@ -49,7 +56,14 @@ impl VM {
     pub fn run(&mut self) -> Result<(), String> {
         match self.run_inner() {
             Ok(()) => Ok(()),
-            Err(err) => Err(self.format_runtime_error(&err)),
+            Err(err) => {
+                // Skip formatting if already formatted with enhanced registry
+                if err.starts_with("-- RUNTIME ERROR:") {
+                    Err(err)
+                } else {
+                    Err(self.format_runtime_error(&err))
+                }
+            }
         }
     }
 
@@ -360,6 +374,52 @@ impl VM {
         out
     }
 
+    /// Format a runtime error using the enhanced error registry
+    fn runtime_error_enhanced(
+        &self,
+        error_code: &'static ErrorCode,
+        values: &[&str],
+    ) -> String {
+        let message = format_message(error_code.message, values);
+        let hint = error_code.hint.map(|h| format_message(h, &[]));
+
+        let mut diag = Diagnostic::error(error_code.title)
+            .with_code(error_code.code)
+            .with_message(message);
+
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+
+        if let Some((file, span)) = self.current_location() {
+            diag = diag.with_file(file).with_span(span);
+        }
+
+        // Read source for the diagnostic render
+        let source = self
+            .current_location()
+            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
+
+        let mut rendered = diag.render(source.as_deref(), None);
+
+        // Add stack trace if available
+        if !self.frames.is_empty() {
+            rendered.push_str("\n\nStack trace:");
+            for frame in self.frames[..=self.frame_index].iter().rev() {
+                rendered.push_str("\n  at ");
+                let (name, location) = self.format_frame(frame);
+                rendered.push_str(&name);
+                if let Some(loc) = location {
+                    rendered.push_str(" (");
+                    rendered.push_str(&loc);
+                    rendered.push(')');
+                }
+            }
+        }
+
+        rendered
+    }
+
     fn current_location(&self) -> Option<(String, Span)> {
         let debug_info = self.current_frame().closure.function.debug_info.as_ref()?;
         let location = debug_info.location_at(self.current_frame().ip)?;
@@ -518,7 +578,7 @@ impl VM {
                 self.current_frame_mut().ip += 1;
                 Ok(())
             }
-            _ => Err(format!("calling non-function: {}", callee.type_name())),
+            _ => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[callee.type_name()])),
         }
     }
 
@@ -528,6 +588,9 @@ impl VM {
 
         match (&left, &right) {
             (Object::Integer(l), Object::Integer(r)) => {
+                if *r == 0 && (op == OpCode::OpDiv || op == OpCode::OpMod) {
+                    return Err(self.runtime_error_enhanced(&DIVISION_BY_ZERO_RUNTIME, &[]));
+                }
                 let result = match op {
                     OpCode::OpAdd => l + r,
                     OpCode::OpSub => l - r,
@@ -576,11 +639,20 @@ impl VM {
             (Object::String(l), Object::String(r)) if op == OpCode::OpAdd => {
                 self.push(Object::String(format!("{}{}", l, r)))
             }
-            _ => Err(format!(
-                "unsupported types: {} and {}",
-                left.type_name(),
-                right.type_name()
-            )),
+            _ => {
+                let op_name = match op {
+                    OpCode::OpAdd => "add",
+                    OpCode::OpSub => "subtract",
+                    OpCode::OpMul => "multiply",
+                    OpCode::OpDiv => "divide",
+                    OpCode::OpMod => "modulo",
+                    _ => "operate on",
+                };
+                Err(self.runtime_error_enhanced(
+                    &INVALID_OPERATION,
+                    &[op_name, left.type_name(), right.type_name()],
+                ))
+            }
         }
     }
 

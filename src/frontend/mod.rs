@@ -2,7 +2,7 @@
 
 pub mod block;
 pub mod diagnostic;
-pub mod error_codes;
+pub mod error_codes_registry;
 pub mod expression;
 pub mod formatter;
 pub mod lexer;

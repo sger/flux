@@ -104,10 +104,33 @@ impl Diagnostic {
             .unwrap_or_else(|| "<unknown>".to_string());
         let code = self.code.as_deref().unwrap_or("E000");
 
+        // Determine error type prefix from error code
+        let error_type_prefix = if let Some(code_str) = self.code.as_deref() {
+            if code_str.starts_with("E1") || code_str.starts_with("E2") && code_str.len() == 5 {
+                // E1000+ = Runtime errors
+                "RUNTIME ERROR"
+            } else if code_str.starts_with('E') {
+                // E001-E999 = Compiler errors
+                "COMPILER ERROR"
+            } else {
+                // Unknown format, no prefix
+                ""
+            }
+        } else {
+            ""
+        };
+
         if use_color {
             out.push_str(yellow);
         }
-        out.push_str(&format!("-- {} -- {} -- [{}]\n", self.title, file, code));
+        if error_type_prefix.is_empty() {
+            out.push_str(&format!("-- {} -- {} -- [{}]\n", self.title, file, code));
+        } else {
+            out.push_str(&format!(
+                "-- {}: {} -- {} -- [{}]\n",
+                error_type_prefix, self.title, file, code
+            ));
+        }
         if use_color {
             out.push_str(reset);
         }

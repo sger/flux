@@ -18,6 +18,15 @@ use crate::{
     frontend::{
         block::Block,
         diagnostic::Diagnostic,
+        error_codes_registry::{
+            CATCHALL_NOT_LAST, CIRCULAR_DEPENDENCY, DUPLICATE_NAME,
+            DUPLICATE_PARAMETER, EMPTY_MATCH, IMMUTABLE_BINDING,
+            IMPORT_NAME_COLLISION, IMPORT_SCOPE, INVALID_MODULE_CONTENT,
+            INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_NOT_IMPORTED,
+            MODULE_SCOPE, NON_EXHAUSTIVE_MATCH, OUTER_ASSIGNMENT,
+            PRIVATE_MEMBER, UNDEFINED_VARIABLE, UNKNOWN_INFIX_OPERATOR,
+            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR, format_message,
+        },
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         position::{Position, Span},
@@ -296,13 +305,18 @@ impl Compiler {
                 Statement::Module { name, body, span } => {
                     let position = span.start;
                     if self.scope_index > 0 {
-                        return Err(Self::boxed(
-                            Diagnostic::error("MODULE SCOPE")
-                                .with_code("E039")
-                                .with_file(self.file_path.clone())
-                                .with_position(position)
-                                .with_message("Modules may only be declared at the top level."),
-                        ));
+                        let err_spec = &MODULE_SCOPE;
+                        let message = format_message(err_spec.message, &[]);
+                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_file(self.file_path.clone())
+                            .with_position(position)
+                            .with_message(message);
+                        if let Some(hint_text) = hint {
+                            diag = diag.with_hint(hint_text);
+                        }
+                        return Err(Self::boxed(diag));
                     }
                     let binding_name = module_binding_name(name);
                     if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
@@ -425,7 +439,7 @@ impl Compiler {
                     self.emit(OpCode::OpFalse, &[]);
                 }
             }
-            Expression::Identifier { name, .. } => {
+            Expression::Identifier { name, span } => {
                 if let Some(symbol) = self.symbol_table.resolve(name) {
                     self.load_symbol(&symbol);
                 } else if let Some(prefix) = &self.current_module_prefix {
@@ -436,16 +450,38 @@ impl Compiler {
                         // Module constant - inline the value
                         self.emit_constant_object(constant_value.clone());
                     } else {
-                        return Err(Self::boxed(
-                            Diagnostic::error(format!("undefined variable `{}`", name))
-                                .with_hint(format!("Define it first: let {} = ...;", name)),
-                        ));
+                        let err_spec = &UNDEFINED_VARIABLE;
+                        let message = format_message(err_spec.message, &[name]);
+                        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
+
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_file(self.file_path.clone())
+                            .with_span(*span)
+                            .with_message(message);
+
+                        if let Some(hint_text) = hint {
+                            diag = diag.with_hint(hint_text);
+                        }
+
+                        return Err(Self::boxed(diag));
                     }
                 } else {
-                    return Err(Self::boxed(
-                        Diagnostic::error(format!("undefined variable `{}`", name))
-                            .with_hint(format!("Define it first: let {} = ...;", name)),
-                    ));
+                    let err_spec = &UNDEFINED_VARIABLE;
+                    let message = format_message(err_spec.message, &[name]);
+                    let hint = err_spec.hint.map(|h| format_message(h, &[name]));
+
+                    let mut diag = Diagnostic::error(err_spec.title)
+                        .with_code(err_spec.code)
+                        .with_file(self.file_path.clone())
+                        .with_span(*span)
+                        .with_message(message);
+
+                    if let Some(hint_text) = hint {
+                        diag = diag.with_hint(hint_text);
+                    }
+
+                    return Err(Self::boxed(diag));
                 }
             }
             Expression::Prefix {
@@ -456,11 +492,18 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        return Err(Self::boxed(
-                            Diagnostic::error("UNKNOWN PREFIX OPERATOR")
-                                .with_code("E010")
-                                .with_message(format!("Unknown prefix operator `{}`.", operator)),
-                        ));
+                        let err_spec = &UNKNOWN_PREFIX_OPERATOR;
+                        let message = format_message(err_spec.message, &[operator]);
+
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_message(message);
+
+                        if let Some(hint) = err_spec.hint {
+                            diag = diag.with_hint(hint);
+                        }
+
+                        return Err(Self::boxed(diag));
                     }
                 };
             }
@@ -516,14 +559,16 @@ impl Compiler {
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     ">=" => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     _ => {
-                        return Err(Self::boxed(
-                            Diagnostic::error("UNKNOWN INFIX OPERATOR")
-                                .with_code("E011")
-                                .with_message(format!("Unknown infix operator `{}`.", operator))
-                                .with_hint(
-                                    "Use a supported operator like +, -, *, /, ==, !=, or >.",
-                                ),
-                        ));
+                        let err_spec = &UNKNOWN_INFIX_OPERATOR;
+                        let message = format_message(err_spec.message, &[operator]);
+                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_message(message);
+                        if let Some(hint_text) = hint {
+                            diag = diag.with_hint(hint_text);
+                        }
+                        return Err(Self::boxed(diag));
                     }
                 };
             }
@@ -611,15 +656,18 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    return Err(Self::boxed(
-                        Diagnostic::error("UNKNOWN MODULE MEMBER")
-                            .with_span(expr_span)
-                            .with_message(format!(
-                                "Module `{}` has no member `{}`.",
-                                module_name, member
-                            ))
-                            .with_file(self.file_path.clone()),
-                    ));
+                    let err_spec = &UNKNOWN_MODULE_MEMBER;
+                    let message = format_message(err_spec.message, &[&module_name, member]);
+                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                    let mut diag = Diagnostic::error(err_spec.title)
+                        .with_code(err_spec.code)
+                        .with_span(expr_span)
+                        .with_message(message)
+                        .with_file(self.file_path.clone());
+                    if let Some(hint_text) = hint {
+                        diag = diag.with_hint(hint_text);
+                    }
+                    return Err(Self::boxed(diag));
                 }
 
                 if let Expression::Identifier { name, .. } = object.as_ref()
@@ -628,12 +676,17 @@ impl Compiler {
                 {
                     let has_symbol = self.symbol_table.resolve(name).is_some();
                     if !has_symbol {
-                        return Err(Self::boxed(
-                            Diagnostic::error("MODULE NOT IMPORTED")
-                                .with_message(format!("Module `{}` is not imported.", name))
-                                .with_hint(format!("Add `import {}` at the top level.", name))
-                                .with_file(self.file_path.clone()),
-                        ));
+                        let err_spec = &MODULE_NOT_IMPORTED;
+                        let message = format_message(err_spec.message, &[name]);
+                        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_message(message)
+                            .with_file(self.file_path.clone());
+                        if let Some(hint_text) = hint {
+                            diag = diag.with_hint(hint_text);
+                        }
+                        return Err(Self::boxed(diag));
                     }
                 }
 
@@ -708,15 +761,16 @@ impl Compiler {
         body: &Block,
     ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
-            return Err(Self::boxed(
-                Diagnostic::error("DUPLICATE PARAMETER")
-                    .with_code("E012")
-                    .with_message(format!(
-                        "Duplicate parameter `{}` in function literal.",
-                        name
-                    ))
-                    .with_hint("Parameter names must be unique."),
-            ));
+            let err_spec = &DUPLICATE_PARAMETER;
+            let message = format_message(err_spec.message, &[name]);
+            let hint = err_spec.hint.map(|h| format_message(h, &[]));
+            let mut diag = Diagnostic::error(err_spec.title)
+                .with_code(err_spec.code)
+                .with_message(message);
+            if let Some(hint_text) = hint {
+                diag = diag.with_hint(hint_text);
+            }
+            return Err(Self::boxed(diag));
         }
 
         self.enter_scope();
@@ -836,21 +890,30 @@ impl Compiler {
         arms: &[MatchArm],
     ) -> CompileResult<()> {
         if arms.is_empty() {
-            return Err(Self::boxed(
-                Diagnostic::error("EMPTY MATCH")
-                    .with_code("E030")
-                    .with_message("Match expression must have at least one arm."),
-            ));
+            let err_spec = &EMPTY_MATCH;
+            let message = format_message(err_spec.message, &[]);
+            let hint = err_spec.hint.map(|h| format_message(h, &[]));
+            let mut diag = Diagnostic::error(err_spec.title)
+                .with_code(err_spec.code)
+                .with_message(message);
+            if let Some(hint_text) = hint {
+                diag = diag.with_hint(hint_text);
+            }
+            return Err(Self::boxed(diag));
         }
         if arms.len() > 1 {
             for arm in &arms[..arms.len() - 1] {
                 if matches!(arm.pattern, Pattern::Identifier(_) | Pattern::Wildcard) {
-                    return Err(Self::boxed(
-                        Diagnostic::error("INVALID PATTERN")
-                            .with_code("E034")
-                            .with_message("Catch-all patterns must be the final match arm.")
-                            .with_hint("Move `_` or the binding pattern to the last arm."),
-                    ));
+                    let err_spec = &CATCHALL_NOT_LAST;
+                    let message = format_message(err_spec.message, &[]);
+                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                    let mut diag = Diagnostic::error(err_spec.title)
+                        .with_code(err_spec.code)
+                        .with_message(message);
+                    if let Some(hint_text) = hint {
+                        diag = diag.with_hint(hint_text);
+                    }
+                    return Err(Self::boxed(diag));
                 }
             }
         }
@@ -858,12 +921,16 @@ impl Compiler {
         if let Some(last) = arms.last()
             && !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_))
         {
-            return Err(Self::boxed(
-                Diagnostic::error("NON-EXHAUSTIVE MATCH")
-                    .with_code("E033")
-                    .with_message("Match expressions must end with a `_` or identifier arm.")
-                    .with_hint("Add a catch-all arm: `_ -> ...` or `x -> ...`"),
-            ));
+            let err_spec = &NON_EXHAUSTIVE_MATCH;
+            let message = format_message(err_spec.message, &[]);
+            let hint = err_spec.hint.map(|h| format_message(h, &[]));
+            let mut diag = Diagnostic::error(err_spec.title)
+                .with_code(err_spec.code)
+                .with_message(message);
+            if let Some(hint_text) = hint {
+                diag = diag.with_hint(hint_text);
+            }
+            return Err(Self::boxed(diag));
         }
 
         // Compile scrutinee once and store it in a temp local
@@ -1201,17 +1268,18 @@ impl Compiler {
         position: Position,
     ) -> CompileResult<()> {
         if let Some(param) = Self::find_duplicate_name(parameters) {
-            return Err(Self::boxed(
-                Diagnostic::error("DUPLICATE PARAMETER")
-                    .with_code("E012")
-                    .with_file(self.file_path.clone())
-                    .with_position(position)
-                    .with_message(format!(
-                        "Duplicate parameter `{}` in function `{}`.",
-                        param, name
-                    ))
-                    .with_hint("Use distinct parameter names."),
-            ));
+            let err_spec = &DUPLICATE_PARAMETER;
+            let message = format_message(err_spec.message, &[param]);
+            let hint = err_spec.hint.map(|h| format_message(h, &[]));
+            let mut diag = Diagnostic::error(err_spec.title)
+                .with_code(err_spec.code)
+                .with_file(self.file_path.clone())
+                .with_position(position)
+                .with_message(message);
+            if let Some(hint_text) = hint {
+                diag = diag.with_hint(hint_text);
+            }
+            return Err(Self::boxed(diag));
         }
 
         // Resolve the symbol - it may have been predeclared in pass 1
@@ -1287,16 +1355,17 @@ impl Compiler {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
                     if fn_name == binding_name {
-                        return Err(Self::boxed(
-                            Diagnostic::error("MODULE NAME CLASH")
-                                .with_code("E018")
-                                .with_position(statement.position())
-                                .with_message(format!(
-                                    "Module `{}` cannot define a function with the same name.",
-                                    binding_name
-                                ))
-                                .with_hint("Use a different function name."),
-                        ));
+                        let err_spec = &MODULE_NAME_CLASH;
+                        let message = format_message(err_spec.message, &[binding_name]);
+                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                        let mut diag = Diagnostic::error(err_spec.title)
+                            .with_code(err_spec.code)
+                            .with_position(statement.position())
+                            .with_message(message);
+                        if let Some(hint_text) = hint {
+                            diag = diag.with_hint(hint_text);
+                        }
+                        return Err(Self::boxed(diag));
                     }
                 }
                 // Module Constants Allow let statements in modules
@@ -1304,12 +1373,17 @@ impl Compiler {
                     // Let statements are allowed for module constants
                 }
                 _ => {
-                    return Err(Self::boxed(
-                        Diagnostic::error("INVALID MODULE CONTENT")
-                            .with_code("E019")
-                            .with_position(statement.position())
-                            .with_message("Modules can only contain function declarations."),
-                    ));
+                    let err_spec = &INVALID_MODULE_CONTENT;
+                    let message = format_message(err_spec.message, &[]);
+                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
+                    let mut diag = Diagnostic::error(err_spec.title)
+                        .with_code(err_spec.code)
+                        .with_position(statement.position())
+                        .with_message(message);
+                    if let Some(hint_text) = hint {
+                        diag = diag.with_hint(hint_text);
+                    }
+                    return Err(Self::boxed(diag));
                 }
             }
         }
@@ -1428,14 +1502,18 @@ impl Compiler {
             return Ok(());
         }
 
-        Err(Self::boxed(
-            Diagnostic::error("PRIVATE MEMBER")
-                .with_code("E021")
-                .with_file(self.file_path.clone())
-                .with_span(expr_span)
-                .with_message(format!("Cannot access private member `{}`.", member))
-                .with_hint("Private members can only be accessed within the same module."),
-        ))
+        let err_spec = &PRIVATE_MEMBER;
+        let message = format_message(err_spec.message, &[member]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
+            .with_file(self.file_path.clone())
+            .with_span(expr_span)
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        Err(Self::boxed(diag))
     }
     fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
@@ -1529,88 +1607,108 @@ impl Compiler {
     }
 
     fn make_immutability_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("IMMUTABLE BINDING")
-        .with_code("E003")
-        .with_file(self.file_path.clone())
-        .with_position(position)
-        .with_message(format!(
-            "Cannot assign twice to immutable variable `{}`.",
-            name
-        ))
-        .with_hint(
-            "Variables in Flux are immutable by default; once you bind a value, you cannot change it.",
-        )
-        .with_hint(format!(
-            "Use a different name instead: let {} = ...; let {}2 = ...;",
-            name, name
-        ))
+        let err_spec = &IMMUTABLE_BINDING;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_undefined_variable_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("UNDEFINED VARIABLE")
-            .with_code("E007")
+        let err_spec = &UNDEFINED_VARIABLE;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("I can't find a value named `{}`.", name))
-            .with_hint(format!("Define it first: let {} = ...;", name))
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_redeclaration_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("DUPLICATE NAME")
-            .with_code("E001")
+        let err_spec = &DUPLICATE_NAME;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("`{}` was already declared in this scope.", name))
-            .with_hint(format!(
-                "Use a different name: let {} = ...; let {}2 = ...;",
-                name, name
-            ))
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("OUTER ASSIGNMENT")
-            .with_code("E004")
+        let err_spec = &OUTER_ASSIGNMENT;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!(
-                "Cannot assign to outer variable `{}` from this scope.",
-                name
-            ))
-            .with_hint(format!(
-                "Use a new binding (shadowing) instead: let {} = ...;",
-                name
-            ))
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("INVALID MODULE NAME")
-            .with_code("E016")
+        let err_spec = &INVALID_MODULE_NAME;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("Invalid module name `{}`.", name))
-            .with_hint("Module names must start with an uppercase letter.")
-            .with_hint("Use an uppercase identifier, e.g. `module Math { ... }`")
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("IMPORT NAME COLLISION")
-            .with_code("E043")
+        let err_spec = &IMPORT_NAME_COLLISION;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!(
-                "Cannot import `{}`; name already defined in this scope.",
-                name
-            ))
-            .with_hint("Use a different name or remove the existing binding.")
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
-        Diagnostic::error("IMPORT SCOPE")
-            .with_code("E031")
+        let err_spec = &IMPORT_SCOPE;
+        let message = format_message(err_spec.message, &[name]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!("Cannot import `{}` inside a function.", name))
-            .with_hint("Move the import to the top level.")
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     fn find_duplicate_name(names: &[String]) -> Option<&str> {
@@ -1643,15 +1741,18 @@ impl Compiler {
 
     fn make_circular_dependency_error(&self, cycle: &[String], position: Position) -> Diagnostic {
         let cycle_str = cycle.join(" -> ");
-        Diagnostic::error("CIRCULAR DEPENDENCY")
-            .with_code("E045")
+        let err_spec = &CIRCULAR_DEPENDENCY;
+        let message = format_message(err_spec.message, &[&cycle_str]);
+        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
             .with_file(self.file_path.clone())
             .with_position(position)
-            .with_message(format!(
-                "Circular dependency in module constants: {}",
-                cycle_str
-            ))
-            .with_hint("Break the cycle by using a literal value.")
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
     }
 
     /// Converts a `ConstCompileError` to a `Diagnostic`.
