@@ -20,12 +20,16 @@ use crate::{
         diagnostic::Diagnostic,
         error_codes_registry::{
             CATCHALL_NOT_LAST, CIRCULAR_DEPENDENCY, DUPLICATE_NAME,
-            DUPLICATE_PARAMETER, EMPTY_MATCH, ErrorCode, ErrorType, IMMUTABLE_BINDING,
-            IMPORT_NAME_COLLISION, IMPORT_SCOPE, INVALID_MODULE_CONTENT,
-            INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_NOT_IMPORTED,
-            MODULE_SCOPE, NON_EXHAUSTIVE_MATCH, OUTER_ASSIGNMENT,
+            DUPLICATE_PARAMETER, EMPTY_MATCH, ErrorCode, ErrorType,
+            ICE_SYMBOL_SCOPE_ASSIGN, ICE_SYMBOL_SCOPE_LET, ICE_SYMBOL_SCOPE_PATTERN,
+            ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN,
+            ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+            ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
+            ICE_TEMP_SYMBOL_SOME_PATTERN, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
+            IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH,
+            MODULE_NOT_IMPORTED, MODULE_SCOPE, NON_EXHAUSTIVE_MATCH, OUTER_ASSIGNMENT,
             PRIVATE_MEMBER, UNDEFINED_VARIABLE, UNKNOWN_INFIX_OPERATOR,
-            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR, format_message,
+            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR, format_message, get_enhanced,
         },
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
@@ -214,16 +218,7 @@ impl Compiler {
                         SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
                         _ => {
                             return Err(Self::boxed(
-                                Diagnostic::error("INTERNAL COMPILER ERROR")
-                                    .with_code("ICE001")
-                                    .with_error_type(ErrorType::Compiler)
-                                    .with_message("unexpected symbol scope for let binding")
-                                    .with_hint(format!(
-                                        "{}:{} ({})",
-                                        file!(),
-                                        line!(),
-                                        module_path!()
-                                    )),
+                                self.make_error(&ICE_SYMBOL_SCOPE_LET, &[], Position::default())
                             ));
                         }
                     };
@@ -258,16 +253,7 @@ impl Compiler {
                         SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
                         _ => {
                             return Err(Self::boxed(
-                                Diagnostic::error("INTERNAL COMPILER ERROR")
-                                    .with_code("ICE002")
-                                    .with_error_type(ErrorType::Compiler)
-                                    .with_message("unexpected symbol scope for assignment")
-                                    .with_hint(format!(
-                                        "{}:{} ({})",
-                                        file!(),
-                                        line!(),
-                                        module_path!()
-                                    )),
+                                self.make_error(&ICE_SYMBOL_SCOPE_ASSIGN, &[], Position::default())
                             ));
                         }
                     };
@@ -621,12 +607,7 @@ impl Compiler {
                     let has_symbol = self.symbol_table.resolve(name).is_some();
                     if !has_symbol {
                         return Err(Self::boxed(
-                            Diagnostic::error(MODULE_NOT_IMPORTED.title)
-                                .with_code(MODULE_NOT_IMPORTED.code)
-                                .with_error_type(MODULE_NOT_IMPORTED.error_type)
-                                .with_message(format_message(MODULE_NOT_IMPORTED.message, &[name]))
-                                .with_hint(format_message(MODULE_NOT_IMPORTED.hint.unwrap(), &[name]))
-                                .with_file(self.file_path.clone())
+                            self.make_error_span(&MODULE_NOT_IMPORTED, &[name], expr_span)
                         ));
                     }
                 }
@@ -859,11 +840,7 @@ impl Compiler {
             }
             _ => {
                 return Err(Self::boxed(
-                    Diagnostic::error("INTERNAL COMPILER ERROR")
-                        .with_code("ICE003")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_message("unexpected temp symbol scope in match scrutinee")
-                        .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                    self.make_error(&ICE_TEMP_SYMBOL_MATCH, &[], Position::default())
                 ));
             }
         };
@@ -963,18 +940,7 @@ impl Compiler {
                             }
                             _ => {
                                 return Err(Self::boxed(
-                                    Diagnostic::error("INTERNAL COMPILER ERROR")
-                                        .with_code("ICE004")
-                                        .with_error_type(ErrorType::Compiler)
-                                        .with_message(
-                                            "unexpected temp symbol scope in Some pattern",
-                                        )
-                                        .with_hint(format!(
-                                            "{}:{} ({})",
-                                            file!(),
-                                            line!(),
-                                            module_path!()
-                                        )),
+                                    self.make_error(&ICE_TEMP_SYMBOL_SOME_PATTERN, &[], Position::default())
                                 ));
                             }
                         }
@@ -1006,18 +972,7 @@ impl Compiler {
                             }
                             _ => {
                                 return Err(Self::boxed(
-                                    Diagnostic::error("INTERNAL COMPILER ERROR")
-                                        .with_code("ICE007")
-                                        .with_error_type(ErrorType::Compiler)
-                                        .with_message(
-                                            "unexpected temp symbol scope in Left pattern",
-                                        )
-                                        .with_hint(format!(
-                                            "{}:{} ({})",
-                                            file!(),
-                                            line!(),
-                                            module_path!()
-                                        )),
+                                    self.make_error(&ICE_TEMP_SYMBOL_LEFT_PATTERN, &[], Position::default())
                                 ));
                             }
                         }
@@ -1050,18 +1005,7 @@ impl Compiler {
                             }
                             _ => {
                                 return Err(Self::boxed(
-                                    Diagnostic::error("INTERNAL COMPILER ERROR")
-                                        .with_code("ICE007")
-                                        .with_error_type(ErrorType::Compiler)
-                                        .with_message(
-                                            "unexpected temp symbol scope in Right pattern",
-                                        )
-                                        .with_hint(format!(
-                                            "{}:{} ({})",
-                                            file!(),
-                                            line!(),
-                                            module_path!()
-                                        )),
+                                    self.make_error(&ICE_TEMP_SYMBOL_RIGHT_PATTERN, &[], Position::default())
                                 ));
                             }
                         }
@@ -1096,11 +1040,7 @@ impl Compiler {
                     }
                     _ => {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE005")
-                                .with_error_type(ErrorType::Compiler)
-                                .with_message("unexpected symbol scope for pattern binding")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_error(&ICE_SYMBOL_SCOPE_PATTERN, &[], Position::default())
                         ));
                     }
                 };
@@ -1118,11 +1058,7 @@ impl Compiler {
                     }
                     _ => {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE006")
-                                .with_error_type(ErrorType::Compiler)
-                                .with_message("unexpected temp symbol scope in Some binding")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_error(&ICE_TEMP_SYMBOL_SOME_BINDING, &[], Position::default())
                         ));
                     }
                 }
@@ -1143,11 +1079,7 @@ impl Compiler {
                     }
                     _ => {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE009")
-                                .with_error_type(ErrorType::Compiler)
-                                .with_message("unexpected temp symbol scope in Left binding")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_error(&ICE_TEMP_SYMBOL_LEFT_BINDING, &[], Position::default())
                         ));
                     }
                 }
@@ -1166,11 +1098,7 @@ impl Compiler {
                     }
                     _ => {
                         return Err(Self::boxed(
-                            Diagnostic::error("INTERNAL COMPILER ERROR")
-                                .with_code("ICE010")
-                                .with_error_type(ErrorType::Compiler)
-                                .with_message("unexpected temp symbol scope in Right binding")
-                                .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
+                            self.make_error(&ICE_TEMP_SYMBOL_RIGHT_BINDING, &[], Position::default())
                         ));
                     }
                 }
@@ -1533,6 +1461,31 @@ impl Compiler {
         diag
     }
 
+    /// Dynamic error builder - looks up error code in registry and uses provided message/hint
+    fn make_error_dynamic(
+        &self,
+        code: &str,
+        message: String,
+        hint: Option<String>,
+        position: Position,
+    ) -> Diagnostic {
+        // Try to look up the error code in the registry to get proper title and type
+        let (title, error_type) = get_enhanced(code)
+            .map(|ec| (ec.title, ec.error_type))
+            .unwrap_or(("CONSTANT EVALUATION ERROR", ErrorType::Compiler));
+
+        let mut diag = Diagnostic::error(title)
+            .with_code(code)
+            .with_error_type(error_type)
+            .with_file(self.file_path.clone())
+            .with_position(position)
+            .with_message(message);
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+        diag
+    }
+
     fn find_duplicate_name(names: &[String]) -> Option<&str> {
         let mut seen = HashSet::new();
         for name in names {
@@ -1543,42 +1496,6 @@ impl Compiler {
         None
     }
 
-    // Helper to convert const_eval errors to compiler diagnostics:
-    fn const_eval_error_to_diagnostic(
-        &self,
-        err: super::module_constants::ConstEvalError,
-        position: Position,
-    ) -> Diagnostic {
-        let diag = Diagnostic::error("CONSTANT EVALUATION ERROR")
-            .with_code(err.code)
-            .with_error_type(ErrorType::Compiler)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(err.message);
-        if let Some(hint) = err.hint {
-            diag.with_hint(hint)
-        } else {
-            diag
-        }
-    }
-
-    fn make_circular_dependency_error(&self, cycle: &[String], position: Position) -> Diagnostic {
-        let cycle_str = cycle.join(" -> ");
-        let err_spec = &CIRCULAR_DEPENDENCY;
-        let message = format_message(err_spec.message, &[&cycle_str]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
     /// Converts a `ConstCompileError` to a `Diagnostic`.
     fn convert_const_compile_error(
         &self,
@@ -1587,13 +1504,14 @@ impl Compiler {
     ) -> Diagnostic {
         match err {
             super::module_constants::ConstCompileError::CircularDependency(cycle) => {
-                self.make_circular_dependency_error(&cycle, position)
+                let cycle_str = cycle.join(" -> ");
+                self.make_error(&CIRCULAR_DEPENDENCY, &[&cycle_str], position)
             }
             super::module_constants::ConstCompileError::EvalError {
                 position: pos,
                 error,
                 ..
-            } => self.const_eval_error_to_diagnostic(error, pos),
+            } => self.make_error_dynamic(error.code, error.message, error.hint, pos),
         }
     }
 }
