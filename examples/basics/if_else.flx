@@ -35,5 +35,5 @@ if a == b {
 };
 
 // If as expression
-let max = if 10 > 5 { 10; } else { 5; };
-print(max);
+let result = if 10 > 5 { 10; } else { 5; };
+print(result);

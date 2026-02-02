@@ -63,6 +63,10 @@ fn brace_delta(line: &str) -> usize {
             continue;
         }
         if in_string {
+            // Handle escape sequences: skip the next character after backslash
+            if ch == '\\' {
+                chars.next(); // Skip the escaped character
+            }
             continue;
         }
         match ch {

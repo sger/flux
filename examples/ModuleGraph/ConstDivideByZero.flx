@@ -1,0 +1,6 @@
+// Run with: scripts/run_examples.sh ModuleGraph/const_divide_by_zero_main.flx
+// Expected: compiler error for division by zero during const eval.
+module ModuleGraph.ConstDivideByZero {
+    let crash = 1 / 0;
+    fun value() { crash; }
+}

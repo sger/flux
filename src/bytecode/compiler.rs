@@ -9,7 +9,7 @@ use crate::{
         compilation_scope::CompilationScope,
         debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
-        module_constants::{eval_const_expr, find_constant_refs, topological_sort_constants},
+        module_constants::compile_module_constants,
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
         symbol_scope::SymbolScope,
@@ -1329,58 +1329,17 @@ impl Compiler {
         // - eval_const_expr: Evaluate constant expressions at compile time
         // ====================================================================
 
-        // Step 1: Collect all constant definitions
-        let mut constant_exprs: HashMap<String, (&Expression, Position)> = HashMap::new();
-        let mut constant_names: HashSet<String> = HashSet::new();
-
-        for statement in &body.statements {
-            if let Statement::Let {
-                name: let_name,
-                value,
-                span,
-                ..
-            } = statement
-            {
-                constant_names.insert(let_name.clone());
-                constant_exprs.insert(let_name.clone(), (value, span.start));
-            }
-        }
-
-        // Step 2: Build dependency graph
-        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
-
-        for (const_name, (expr, _)) in &constant_exprs {
-            let refs = find_constant_refs(expr, &constant_names);
-            dependencies.insert(const_name.clone(), refs);
-        }
-
-        // Step 3: Topological sort (detect cycles)
-        let eval_order = match topological_sort_constants(&dependencies) {
-            Ok(order) => order,
-            Err(cycle) => {
+        // Compile module constants (analysis + evaluation)
+        let constants = match compile_module_constants(body, binding_name) {
+            Ok(result) => result,
+            Err(err) => {
                 self.current_module_prefix = previous_module;
-                return Err(Self::boxed(
-                    self.make_circular_dependency_error(&cycle, position),
-                ));
+                return Err(Self::boxed(self.convert_const_compile_error(err, position)));
             }
         };
 
-        // Step 4: Evaluate constants in dependency order
-        let mut local_constants: HashMap<String, Object> = HashMap::new();
-        for const_name in &eval_order {
-            let (expr, pos) = constant_exprs.get(const_name).unwrap();
-            match eval_const_expr(expr, &local_constants) {
-                Ok(const_value) => {
-                    local_constants.insert(const_name.clone(), const_value.clone());
-                    let qualified_name = format!("{}.{}", binding_name, const_name);
-                    self.module_constants.insert(qualified_name, const_value);
-                }
-                Err(err) => {
-                    self.current_module_prefix = previous_module;
-                    return Err(Self::boxed(self.const_eval_error_to_diagnostic(err, *pos)));
-                }
-            }
-        }
+        // Store evaluated constants in compiler's module_constants map
+        self.module_constants.extend(constants);
 
         // ====================================================================
         // END: MODULE CONSTANTS
@@ -1693,6 +1652,24 @@ impl Compiler {
                 cycle_str
             ))
             .with_hint("Break the cycle by using a literal value.")
+    }
+
+    /// Converts a `ConstCompileError` to a `Diagnostic`.
+    fn convert_const_compile_error(
+        &self,
+        err: super::module_constants::ConstCompileError,
+        position: Position,
+    ) -> Diagnostic {
+        match err {
+            super::module_constants::ConstCompileError::CircularDependency(cycle) => {
+                self.make_circular_dependency_error(&cycle, position)
+            }
+            super::module_constants::ConstCompileError::EvalError {
+                position: pos,
+                error,
+                ..
+            } => self.const_eval_error_to_diagnostic(error, pos),
+        }
     }
 }
 

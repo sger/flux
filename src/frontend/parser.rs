@@ -315,6 +315,7 @@ impl Parser {
             TokenType::Int => self.parse_integer(),
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
+            TokenType::InterpolationStart => self.parse_interpolation_start(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),
             TokenType::Some => self.parse_some(),
@@ -552,16 +553,20 @@ impl Parser {
         let start = self.current_token.position;
         let first_part = self.current_token.literal.clone();
 
-        // Check if this is an interpolated string by looking at peek token
-        // If peek is an expression-start token, we have interpolation
-        if self.is_interpolation_expression_start() {
-            return self.parse_interpolated_string(start, first_part);
-        }
-
+        // Simple string - no interpolation
         Some(Expression::String {
             value: first_part,
             span: Span::new(start, self.current_token.position),
         })
+    }
+
+    fn parse_interpolation_start(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        let first_part = self.current_token.literal.clone();
+
+        // InterpolationStart token signals the lexer found #{
+        // Now parse as interpolated string
+        self.parse_interpolated_string(start, first_part)
     }
 
     /// Check if peek_token could be the start of an interpolation expression
@@ -612,21 +617,15 @@ impl Parser {
             }
 
             // After RBrace, check what's next
-            // It should be either String (more content) or StringEnd (end of string)
-            if self.is_peek_token(TokenType::String) {
-                // More string content with possibly more interpolations
+            // It should be either InterpolationStart (more content) or StringEnd (end of string)
+            if self.is_peek_token(TokenType::InterpolationStart) {
+                // More string content with another interpolation
                 self.next_token();
                 let literal = self.current_token.literal.clone();
                 if !literal.is_empty() {
                     parts.push(StringPart::Literal(literal));
                 }
-                // Check if there's another interpolation
-                if !self.is_interpolation_expression_start() {
-                    // No more interpolations, but we got String not StringEnd - this shouldn't happen
-                    // Just break and return what we have
-                    break;
-                }
-                // Continue to parse next interpolation
+                // Continue to parse next interpolation (loop will handle it)
             } else if self.is_peek_token(TokenType::StringEnd) {
                 // End of interpolated string
                 self.next_token();

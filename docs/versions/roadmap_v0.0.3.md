@@ -32,15 +32,65 @@ Create a comprehensive plan for Flux v0.0.3 focusing on the most important langu
 
 **Primary Objectives:**
 1. **Foundation:** Strengthen compiler architecture (error registry, AST spans)
-2. **Usability:** Enhance pattern matching and add Tuple type
-3. **Ergonomics:** Provide utility libraries for Option/Either
-4. **Iteration:** Enable for-loop syntax for common patterns
+2. **Organization:** Split large files into maintainable modules 🆕
+3. **Usability:** Enhance pattern matching and add Tuple type
+4. **Ergonomics:** Provide utility libraries for Option/Either
+5. **Iteration:** Enable for-loop syntax for common patterns
 
 **Success Criteria:**
 - Zero breaking changes to v0.0.2
 - Test coverage ≥ 85% for new features
 - Performance regression < 5%
+- Largest file < 400 lines (down from 1,671) 🆕
 - All features documented with examples
+
+**Timeline:** 11 weeks (updated from 8 weeks)
+- Weeks 1-2: Foundation (M1, M2)
+- Weeks 3-5: Module Split (Proposal 006) 🆕
+- Weeks 6-11: Language Features (M3-M7)
+
+---
+
+## Quick Reference: Timeline Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Week 1-2: Foundation (M1+M2)                                    │
+│   ✓ Error Registry ✓ AST Spans                                 │
+│   → Better errors, foundation for macros                         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Week 3-5: Module Split (Proposal 006) 🆕                        │
+│   ✓ Compiler (4 modules) ✓ Parser (3 modules) ✓ VM (6 modules) │
+│   → Clean architecture, easy maintenance                         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Week 6-7: Language Features (M3+M4)                             │
+│   ✓ Pattern Guards ✓ Tuple Type                                │
+│   → Enhanced pattern matching                                    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Week 8-9: Ergonomics (M5+M6)                                    │
+│   ✓ Option/Either Utils ✓ For-Loop Syntax                      │
+│   → Better developer experience                                  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Week 10-11: Advanced Patterns (M7)                              │
+│   ✓ Array/Tuple Pattern Matching                               │
+│   → Complete pattern system                                      │
+└─────────────────────────────────────────────────────────────────┘
+
+Total: 11 weeks (2.75 months)
+```
+
+**Future (Post v0.0.3):**
+- Macro System (Proposal 009) - 12 weeks
+- Reduces builtins from 35 to ~10
+- Enables user-defined language features
 
 ---
 
@@ -191,6 +241,52 @@ error[E007]: UNDEFINED VARIABLE
 - `src/frontend/parser.rs` (track positions)
 - `src/frontend/position.rs` (span utilities)
 - `src/frontend/diagnostic.rs` (use spans)
+
+---
+
+### M2.5: Linter Enhancements (v0.0.3)
+**Priority:** MEDIUM | **Effort:** Small (1-2 days) | **Risk:** Low
+
+**Goal:** Add dead code detection and basic complexity checks to the linter.
+
+**v0.0.2 Fixes (Completed):**
+- ✅ Fixed match pattern bindings bug (W001 now tracks pattern variables)
+- ✅ Added unused function warnings (W007)
+- ✅ Fixed anonymous function parameter positions
+
+**v0.0.3 Additions:**
+1. **Dead Code Detection** - W008: Code after return/break
+   ```flux
+   fun test() {
+       return 42;
+       print("unreachable");  // ← W008: Dead code after return
+   }
+   ```
+
+2. **Function Complexity** - W009: Function too long (>50 lines)
+   ```flux
+   fun massive_function() {  // ← W009: Function too long (75 lines)
+       // 75 lines of code...
+   }
+   ```
+
+3. **Parameter Count** - W010: Too many parameters (>5)
+   ```flux
+   fun complex(a, b, c, d, e, f) {  // ← W010: Too many parameters (6)
+       // ...
+   }
+   ```
+
+**Implementation:**
+- Add dead code tracking in `lint_statement()` after return
+- Add line counting for functions
+- Add parameter count check
+
+**Deliverable:** Enhanced linter with 3 new warning types (W008-W010)
+
+**Files Modified:**
+- `src/frontend/linter.rs` - Add new checks
+- `tests/linter_tests.rs` - Add tests for new warnings
 
 ---
 
@@ -434,7 +530,7 @@ match tuple {
 ## Implementation Phases
 
 ### Phase 1: Foundation (Weeks 1-2)
-**Focus:** Architectural improvements
+**Focus:** Error reporting and AST infrastructure
 
 1. **Week 1:**
    - M1: Central Error Code Registry (2-3 days)
@@ -444,18 +540,53 @@ match tuple {
    - Complete M2: AST Spans (4-5 days)
    - Testing and integration
 
-**Deliverable:** Improved error reporting and architectural foundation
+**Deliverable:** Improved error reporting and AST foundation for macros
 
 ---
 
-### Phase 2: Language Features (Weeks 3-4)
-**Focus:** Pattern matching and tuples
+### Phase 1.5: Code Organization (Weeks 3-5) 🆕
+**Focus:** Module split for maintainability
+**Proposal:** [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md)
+
+**Goal:** Split large files into focused modules before adding complexity.
 
 1. **Week 3:**
+   - Split `compiler.rs` (1,671 lines) → 4 modules
+   - Modules: expression.rs, statement.rs, builder.rs, errors.rs
+   - Test after each extraction
+
+2. **Week 4:**
+   - Split `parser.rs` (1,144 lines) → 3 modules
+   - Modules: expression.rs, statement.rs, utils.rs
+   - Test after each extraction
+
+3. **Week 5:**
+   - Split `vm.rs` (824 lines) → 6 modules
+   - Modules: dispatch.rs, binary_ops.rs, comparison_ops.rs, index_ops.rs, function_call.rs, trace.rs
+   - Full integration testing
+
+**Benefits:**
+- Easier to navigate and modify code
+- Reduces merge conflicts
+- Sets pattern for future development
+- Foundation for visitor pattern (Proposal 007)
+
+**Deliverable:** Clean, modular codebase ready for rapid feature development
+
+**Related Proposals:**
+- [Proposal 007: Visitor Pattern](../proposals/007_visitor_pattern.md) - Future multi-pass compilation
+- [Proposal 008: Builtins Module Architecture](../proposals/008_builtins_module_architecture.md) - Future builtin organization
+
+---
+
+### Phase 2: Language Features (Weeks 6-7)
+**Focus:** Pattern matching and tuples
+
+1. **Week 6:**
    - M3: Pattern Matching Guards (3-5 days)
    - Start M4: Tuple Type
 
-2. **Week 4:**
+2. **Week 7:**
    - Complete M4: Tuple Type (4-6 days)
    - Integration testing
 
@@ -463,14 +594,14 @@ match tuple {
 
 ---
 
-### Phase 3: Ergonomics (Weeks 5-6)
+### Phase 3: Ergonomics (Weeks 8-9)
 **Focus:** Usability and iteration
 
-1. **Week 5:**
+1. **Week 8:**
    - M5: Option & Either Utilities (2-3 days)
    - Start M6: For-Loop Syntax
 
-2. **Week 6:**
+2. **Week 9:**
    - Complete M6: For-Loop Syntax (4-5 days)
    - Documentation and examples
 
@@ -478,10 +609,10 @@ match tuple {
 
 ---
 
-### Phase 4: Advanced Patterns (Weeks 7-8)
+### Phase 4: Advanced Patterns (Weeks 10-11)
 **Focus:** Complete pattern matching system
 
-1. **Week 7-8:**
+1. **Week 10-11:**
    - M7: Array/Tuple Pattern Matching (5-7 days)
    - Comprehensive testing
    - Performance validation
@@ -490,7 +621,9 @@ match tuple {
 
 ---
 
-## Total Timeline: 8 weeks (2 months)
+## Total Timeline: 11 weeks (2.75 months)
+
+**Extended from 8 weeks due to Module Split (Phase 1.5)**
 
 ---
 
@@ -498,9 +631,9 @@ match tuple {
 
 ```
 Error Registry (M1) ──┐
-                      ├──> AST Spans (M2)
-Pattern Guards (M3) ──┘
-
+                      ├──> AST Spans (M2) ──┐
+Pattern Guards (M3) ──┘                     │
+                                            ├──> Module Split
 Tuple Type (M4) ────────> Array/Tuple Patterns (M7)
 
 Option/Either Utils (M5)  [Independent]
@@ -508,9 +641,11 @@ Option/Either Utils (M5)  [Independent]
 For-Loop Syntax (M6)     [Independent]
 ```
 
-**Critical Path:** M1 → M2 → M3 → M4 → M7
+**Critical Path:** M1 → M2 → Module Split → M3 → M4 → M7
 
-**Parallel Track:** M5, M6 can be developed alongside
+**Parallel Track:** M5, M6 can be developed alongside Phase 2-4
+
+**Note:** AST Spans (M2) is a prerequisite for future Macro System (see Proposal 009)
 
 ---
 
@@ -563,6 +698,9 @@ For-Loop Syntax (M6)     [Independent]
   - *Fallback:* Partial spans better than none
 
 ### Low Risk / High Value
+- **Module Split (Phase 1.5):** Refactoring with no behavior changes
+  - *Mitigation:* Test after each module extraction
+  - *Benefit:* Improved maintainability for all future work
 - **Pattern Matching Guards:** Well-understood feature
 - **Option/Either Utilities:** Pure library code
 - **Error Code Registry:** Refactoring existing code
@@ -581,6 +719,8 @@ For-Loop Syntax (M6)     [Independent]
 - [ ] Test coverage ≥ 85% for new code
 - [ ] All error messages use error registry
 - [ ] All AST nodes have spans
+- [ ] Module split: No file exceeds 400 lines
+- [ ] All modules have clear single responsibility
 - [ ] Documentation complete for all features
 
 ### Performance
@@ -596,8 +736,9 @@ For-Loop Syntax (M6)     [Independent]
 
 ---
 
-## What's Next (v0.0.4)?
+## What's Next (Post v0.0.3)?
 
+### Immediate Next Steps (v0.0.4)
 **High Priority:**
 1. Tail Call Optimization - Enable stdlib development
 2. Range Type - `1..10` syntax
@@ -610,6 +751,47 @@ For-Loop Syntax (M6)     [Independent]
 - Flow.String module (extended utilities)
 - Flow.Math module (advanced operations)
 - Flow.Func module (composition, etc.)
+
+### Major Architectural Enhancement (Future)
+**Macro System** - [Proposal 009](../proposals/009_macro_system.md)
+**Timeline:** 12 weeks after v0.0.3 completion
+**Prerequisites:** ✅ AST Spans (M2), ✅ Module Split (Phase 1.5)
+
+**What Macros Enable:**
+- Reduce VM builtins from 35 to ~10 (71% reduction)
+- User-defined control flow (unless, until, guard)
+- DSLs (testing frameworks, SQL, HTML templates)
+- Macro-based standard library
+- Keep compiler small (Elixir philosophy)
+
+**Examples:**
+```flux
+// Custom control flow
+macro unless(condition, body) {
+    quote { if !(unquote(condition)) { unquote(body) } }
+}
+
+// Type checking as macros (not builtins)
+macro is_int(x) {
+    quote { type_of(unquote(x)) == "Integer" }
+}
+
+// Testing DSL
+macro assert_eq(left, right) {
+    quote {
+        let _l = unquote(left);
+        let _r = unquote(right);
+        if _l != _r {
+            print("Expected: " + to_string(_r));
+            print("Got: " + to_string(_l));
+        }
+    }
+}
+```
+
+**Decision Point:** After v0.0.3, evaluate:
+- Option A: Continue with v0.0.4 features → Macros later
+- Option B: Implement Macro System → Then v0.0.4 features using macros
 
 ---
 
@@ -642,10 +824,26 @@ flux fmt examples/**/*.flx    # Formatter validation
 
 ## Summary
 
-This plan for v0.0.3 balances:
-- **Quick wins:** Option/Either utilities, guards (weeks 3-5)
-- **Foundational work:** Error registry, AST spans (weeks 1-2)
-- **High-value features:** Tuples, for-loops (weeks 4-6)
-- **Advanced capabilities:** Array/tuple patterns (weeks 7-8)
+This updated plan for v0.0.3 balances:
+- **Quick wins:** Error registry, AST spans (weeks 1-2)
+- **Foundational work:** Module split for maintainability (weeks 3-5)
+- **High-value features:** Guards, tuples, for-loops (weeks 6-9)
+- **Advanced capabilities:** Array/tuple patterns (weeks 10-11)
 
-The 8-week timeline is realistic with clear milestones, dependencies, and risk mitigation strategies. Each phase delivers independently testable value.
+**Key Changes from Original Plan:**
+- ✅ Added Phase 1.5: Module Split (Proposal 006) - 3 weeks
+- ✅ Extended timeline: 8 weeks → 11 weeks
+- ✅ Sets foundation for future Macro System (Proposal 009)
+- ✅ Improves codebase maintainability before adding complexity
+
+**The 11-week timeline** is realistic with clear milestones, dependencies, and risk mitigation strategies. Each phase delivers independently testable value.
+
+**Next Decision Point:** After v0.0.3 completion, evaluate whether to:
+1. Continue with v0.0.4 language features, OR
+2. Implement Macro System to transform Flux architecture
+
+**Related Proposals:**
+- [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md) - Module organization
+- [007_visitor_pattern.md](../proposals/007_visitor_pattern.md) - Multi-pass compilation (future)
+- [008_builtins_module_architecture.md](../proposals/008_builtins_module_architecture.md) - Builtin organization (future)
+- [009_macro_system.md](../proposals/009_macro_system.md) - Metaprogramming foundation (future)

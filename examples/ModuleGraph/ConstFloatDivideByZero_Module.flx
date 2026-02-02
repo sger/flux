@@ -1,0 +1,7 @@
+// Run with: cargo run -- examples/ModuleGraph/ConstFloatDivideByZero.flx
+// Expected: compiler error for float division by zero during const eval.
+
+module ModuleGraph.ConstFloatDivideByZero {
+    let crash = 1.0 / 0.0;
+    fun value() { crash; }
+}

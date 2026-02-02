@@ -246,7 +246,8 @@ impl Lexer {
             // depth = 1 because we already consumed the opening { of #{
             self.in_string = true;
             self.interpolation_depth = 1;
-            Token::new(TokenType::String, content, line, col)
+            // Return InterpolationStart instead of String to signal interpolation
+            Token::new(TokenType::InterpolationStart, content, line, col)
         } else {
             // Simple string with no interpolation (or unterminated)
             Token::new(TokenType::String, content, line, col)
@@ -263,7 +264,8 @@ impl Lexer {
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed #{
             self.interpolation_depth = 1;
-            Token::new(TokenType::String, content, line, col)
+            // Return InterpolationStart to signal another interpolation
+            Token::new(TokenType::InterpolationStart, content, line, col)
         } else {
             // End of interpolated string
             self.in_string = false;

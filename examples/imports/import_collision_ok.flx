@@ -1,5 +1,5 @@
-import Modules.Math
+import Modules.Math as Math
 
-  fun main() {
+fun main() {
     print(Math.square(5));
-  }
+}

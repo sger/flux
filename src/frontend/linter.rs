@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::frontend::{
     diagnostic::Diagnostic,
-    expression::{Expression, StringPart},
+    expression::{Expression, Pattern, StringPart},
     module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
     position::Position,
     program::Program,
@@ -160,11 +160,13 @@ impl Linter {
                 }
             }
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                body,
+                span,
             } => {
                 self.enter_scope();
                 for param in parameters {
-                    self.define_binding(param, Position::default(), BindingKind::Param);
+                    self.define_binding(param, span.start, BindingKind::Param);
                 }
                 for stmt in &body.statements {
                     self.lint_statement(stmt);
@@ -213,8 +215,10 @@ impl Linter {
             } => {
                 self.lint_expression(scrutinee);
                 for arm in arms {
-                    // TODO: Handle pattern bindings properly
+                    self.enter_scope();
+                    self.extract_pattern_bindings(&arm.pattern);
                     self.lint_expression(&arm.body);
+                    self.finish_scope();
                 }
             }
         }
@@ -252,7 +256,12 @@ impl Linter {
                         info.position,
                         format!("`{}` is never used.", name),
                     ),
-                    BindingKind::Function => {}
+                    BindingKind::Function => self.push_warning(
+                        "UNUSED FUNCTION",
+                        "W007",
+                        info.position,
+                        format!("`{}` is never called.", name),
+                    ),
                 }
             }
         }
@@ -297,6 +306,18 @@ impl Linter {
                 info.used = true;
                 return;
             }
+        }
+    }
+
+    fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                self.define_binding(name, Position::default(), BindingKind::Let);
+            }
+            Pattern::Some(inner) | Pattern::Left(inner) | Pattern::Right(inner) => {
+                self.extract_pattern_bindings(inner);
+            }
+            Pattern::Wildcard | Pattern::Literal(_) | Pattern::None => {}
         }
     }
 
