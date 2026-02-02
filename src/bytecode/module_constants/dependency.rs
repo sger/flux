@@ -11,20 +11,20 @@ pub fn find_constant_refs(
     expression: &Expression,
     known_constants: &HashSet<String>,
 ) -> Vec<String> {
-    let mut refs = Vec::new();
+    let mut refs = HashSet::new();
     collect_constant_refs(expression, known_constants, &mut refs);
-    refs
+    refs.into_iter().collect()
 }
 
 fn collect_constant_refs(
     expr: &Expression,
     known_constants: &HashSet<String>,
-    refs: &mut Vec<String>,
+    refs: &mut HashSet<String>,
 ) {
     match expr {
         Expression::Identifier { name, .. } => {
-            if known_constants.contains(name) && !refs.contains(name) {
-                refs.push(name.clone());
+            if known_constants.contains(name) {
+                refs.insert(name.clone());
             }
         }
         Expression::Infix { left, right, .. } => {
@@ -63,7 +63,9 @@ pub fn topological_sort_constants(
     let mut visited = HashSet::new();
     let mut in_progress = HashSet::new();
 
-    for name in dependencies.keys() {
+    let mut names: Vec<&String> = dependencies.keys().collect();
+    names.sort();
+    for name in names {
         visit_constant(
             name,
             dependencies,

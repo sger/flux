@@ -202,6 +202,7 @@ fn run_file(
                     vm.set_trace(trace);
                     if let Err(err) = vm.run() {
                         eprintln!("{}", err);
+                        std::process::exit(1);
                     }
                     if leak_detector {
                         print_leak_stats();
@@ -222,7 +223,7 @@ fn run_file(
                     "{}",
                     render_diagnostics(&parser.errors, Some(&source), Some(path))
                 );
-                return;
+                std::process::exit(1);
             }
 
             let entry_path = Path::new(path);
@@ -233,7 +234,7 @@ fn run_file(
                 Ok(graph) => graph,
                 Err(diags) => {
                     eprintln!("{}", render_diagnostics_multi(&diags));
-                    return;
+                    std::process::exit(1);
                 }
             };
 
@@ -253,7 +254,7 @@ fn run_file(
             }
             if !compile_errors.is_empty() {
                 eprintln!("{}", render_diagnostics_multi(&compile_errors));
-                return;
+                std::process::exit(1);
             }
 
             let bytecode = compiler.bytecode();
@@ -283,6 +284,7 @@ fn run_file(
             vm.set_trace(trace);
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
+                std::process::exit(1);
             }
             if leak_detector {
                 print_leak_stats();
@@ -405,13 +407,13 @@ fn show_bytecode(path: &str) {
                     "{}",
                     render_diagnostics(&parser.errors, Some(&source), Some(path))
                 );
-                return;
+                std::process::exit(1);
             }
 
             let mut compiler = Compiler::new_with_file_path(path);
             if let Err(diags) = compiler.compile(&program) {
                 eprintln!("{}", render_diagnostics(&diags, Some(&source), Some(path)));
-                return;
+                std::process::exit(1);
             }
 
             let bytecode = compiler.bytecode();
@@ -440,7 +442,7 @@ fn lint_file(path: &str) {
                     "{}",
                     render_diagnostics(&parser.errors, Some(&source), Some(path))
                 );
-                return;
+                std::process::exit(1);
             }
 
             let lints = Linter::new(Some(path.to_string())).lint(&program);
