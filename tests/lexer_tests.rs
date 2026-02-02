@@ -102,7 +102,7 @@ mod tests {
         let mut lexer = Lexer::new(input);
 
         let expected = vec![
-            (TokenType::String, "Hello "),
+            (TokenType::InterpolationStart, "Hello "),
             (TokenType::Ident, "name"),
             (TokenType::RBrace, "}"),
             (TokenType::StringEnd, ""),
