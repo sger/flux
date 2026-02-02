@@ -9,7 +9,7 @@ use crate::{
         compilation_scope::CompilationScope,
         debug_info::{FunctionDebugInfo, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
-        module_constants::{compile_module_constants, ConstCompileError},
+        module_constants::compile_module_constants,
         op_code::{Instructions, OpCode, make},
         symbol::Symbol,
         symbol_scope::SymbolScope,
@@ -1334,16 +1334,7 @@ impl Compiler {
             Ok(result) => result,
             Err(err) => {
                 self.current_module_prefix = previous_module;
-                return Err(Self::boxed(match err {
-                    ConstCompileError::CircularDependency(cycle) => {
-                        self.make_circular_dependency_error(&cycle, position)
-                    }
-                    ConstCompileError::EvalError {
-                        position: pos,
-                        error,
-                        ..
-                    } => self.const_eval_error_to_diagnostic(error, pos),
-                }));
+                return Err(Self::boxed(self.convert_const_compile_error(err, position)));
             }
         };
 
@@ -1661,6 +1652,24 @@ impl Compiler {
                 cycle_str
             ))
             .with_hint("Break the cycle by using a literal value.")
+    }
+
+    /// Converts a `ConstCompileError` to a `Diagnostic`.
+    fn convert_const_compile_error(
+        &self,
+        err: super::module_constants::ConstCompileError,
+        position: Position,
+    ) -> Diagnostic {
+        match err {
+            super::module_constants::ConstCompileError::CircularDependency(cycle) => {
+                self.make_circular_dependency_error(&cycle, position)
+            }
+            super::module_constants::ConstCompileError::EvalError {
+                position: pos,
+                error,
+                ..
+            } => self.const_eval_error_to_diagnostic(error, pos),
+        }
     }
 }
 
