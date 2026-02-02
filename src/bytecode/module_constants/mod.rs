@@ -9,7 +9,7 @@ pub mod error;
 pub mod eval;
 
 pub use analysis::{ModuleConstantAnalysis, analyze_module_constants};
-pub use compile::{compile_module_constants, ConstCompileError};
+pub use compile::{ConstCompileError, compile_module_constants};
 pub use dependency::{find_constant_refs, topological_sort_constants};
 pub use error::ConstEvalError;
 pub use eval::eval_const_expr;

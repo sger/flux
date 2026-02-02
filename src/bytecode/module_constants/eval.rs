@@ -370,9 +370,10 @@ mod tests {
         let err = eval(&expr).unwrap_err();
         assert_eq!(err.code, "E042");
         assert!(err.hint.is_some());
-        assert!(err
-            .hint
-            .unwrap()
-            .contains("Module constants must be evaluable at compile time"));
+        assert!(
+            err.hint
+                .unwrap()
+                .contains("Module constants must be evaluable at compile time")
+        );
     }
 }

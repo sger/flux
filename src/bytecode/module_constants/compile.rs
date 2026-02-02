@@ -35,8 +35,7 @@ pub fn compile_module_constants(
     module_name: &str,
 ) -> Result<HashMap<String, Object>, ConstCompileError> {
     // Step 1: Analyze constants and resolve dependencies
-    let analysis = analyze_module_constants(body)
-        .map_err(|cycle| ConstCompileError::CircularDependency(cycle))?;
+    let analysis = analyze_module_constants(body).map_err(ConstCompileError::CircularDependency)?;
 
     // Step 2: Evaluate constants in dependency order
     let mut local_constants: HashMap<String, Object> = HashMap::new();
