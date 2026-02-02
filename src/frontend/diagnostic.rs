@@ -1,4 +1,7 @@
-use crate::frontend::position::{Position, Span};
+use crate::frontend::{
+    error_codes_registry::ErrorType,
+    position::{Position, Span},
+};
 use std::env;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +17,7 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub title: String,
     pub code: Option<String>,
+    pub error_type: Option<ErrorType>,
     pub message: Option<String>,
     pub file: Option<String>,
     pub position: Option<Position>,
@@ -37,6 +41,7 @@ impl Diagnostic {
             severity: Severity::Error,
             title: title.into(),
             code: None,
+            error_type: None,
             message: None,
             file: None,
             position: None,
@@ -50,6 +55,7 @@ impl Diagnostic {
             severity: Severity::Warning,
             title: title.into(),
             code: None,
+            error_type: None,
             message: None,
             file: None,
             position: None,
@@ -60,6 +66,11 @@ impl Diagnostic {
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+
+    pub fn with_error_type(mut self, error_type: ErrorType) -> Self {
+        self.error_type = Some(error_type);
         self
     }
 
@@ -104,21 +115,10 @@ impl Diagnostic {
             .unwrap_or_else(|| "<unknown>".to_string());
         let code = self.code.as_deref().unwrap_or("E000");
 
-        // Determine error type prefix from error code
-        let error_type_prefix = if let Some(code_str) = self.code.as_deref() {
-            if code_str.starts_with("E1") || code_str.starts_with("E2") && code_str.len() == 5 {
-                // E1000+ = Runtime errors
-                "RUNTIME ERROR"
-            } else if code_str.starts_with('E') {
-                // E001-E999 = Compiler errors
-                "COMPILER ERROR"
-            } else {
-                // Unknown format, no prefix
-                ""
-            }
-        } else {
-            ""
-        };
+        // Get error type prefix from explicit error_type field
+        let error_type_prefix = self.error_type
+            .map(|et| et.prefix())
+            .unwrap_or("");
 
         if use_color {
             out.push_str(yellow);
