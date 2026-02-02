@@ -20,7 +20,7 @@ use crate::{
         diagnostic::Diagnostic,
         error_codes_registry::{
             CATCHALL_NOT_LAST, CIRCULAR_DEPENDENCY, DUPLICATE_NAME,
-            DUPLICATE_PARAMETER, EMPTY_MATCH, IMMUTABLE_BINDING,
+            DUPLICATE_PARAMETER, EMPTY_MATCH, ErrorCode, ErrorType, IMMUTABLE_BINDING,
             IMPORT_NAME_COLLISION, IMPORT_SCOPE, INVALID_MODULE_CONTENT,
             INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_NOT_IMPORTED,
             MODULE_SCOPE, NON_EXHAUSTIVE_MATCH, OUTER_ASSIGNMENT,
@@ -154,13 +154,13 @@ impl Compiler {
                 // Check for duplicate declaration first (takes precedence)
                 if self.symbol_table.exists_in_current_scope(name) {
                     self.errors
-                        .push(self.make_redeclaration_error(name, position));
+                        .push(self.make_error(&DUPLICATE_NAME, &[name], position));
                     continue;
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
                     self.errors
-                        .push(self.make_import_collision_error(name, position));
+                        .push(self.make_error(&IMPORT_NAME_COLLISION, &[name], position));
                     continue;
                 }
                 // Predeclare the function name
@@ -199,11 +199,11 @@ impl Compiler {
                     let position = span.start;
                     if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
                         return Err(Self::boxed(
-                            self.make_import_collision_error(name, position),
+                            self.make_error(&IMPORT_NAME_COLLISION, &[name], position),
                         ));
                     }
                     if self.symbol_table.exists_in_current_scope(name) {
-                        return Err(Self::boxed(self.make_redeclaration_error(name, position)));
+                        return Err(Self::boxed(self.make_error(&DUPLICATE_NAME, &[name], position)));
                     }
 
                     let symbol = self.symbol_table.define(name);
@@ -216,6 +216,7 @@ impl Compiler {
                             return Err(Self::boxed(
                                 Diagnostic::error("INTERNAL COMPILER ERROR")
                                     .with_code("ICE001")
+                                    .with_error_type(ErrorType::Compiler)
                                     .with_message("unexpected symbol scope for let binding")
                                     .with_hint(format!(
                                         "{}:{} ({})",
@@ -236,18 +237,18 @@ impl Compiler {
                     let position = span.start;
                     // Check if variable exists
                     let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                        Self::boxed(self.make_undefined_variable_error(name, position))
+                        Self::boxed(self.make_error(&UNDEFINED_VARIABLE, &[name], position))
                     })?;
 
                     if symbol.symbol_scope == SymbolScope::Free {
                         return Err(Self::boxed(
-                            self.make_outer_assignment_error(name, position),
+                            self.make_error(&OUTER_ASSIGNMENT, &[name], position),
                         ));
                     }
 
                     // Check if variable is already assigned (immutability check)
                     if symbol.is_assigned {
-                        return Err(Self::boxed(self.make_immutability_error(name, position)));
+                        return Err(Self::boxed(self.make_error(&IMMUTABLE_BINDING, &[name], position)));
                     }
 
                     self.compile_expression(value)?;
@@ -259,6 +260,7 @@ impl Compiler {
                             return Err(Self::boxed(
                                 Diagnostic::error("INTERNAL COMPILER ERROR")
                                     .with_code("ICE002")
+                                    .with_error_type(ErrorType::Compiler)
                                     .with_message("unexpected symbol scope for assignment")
                                     .with_hint(format!(
                                         "{}:{} ({})",
@@ -293,7 +295,7 @@ impl Compiler {
                     // For top-level functions, checks were already done in pass 1
                     // Only check for nested functions (scope_index > 0)
                     if self.scope_index > 0 && self.symbol_table.exists_in_current_scope(name) {
-                        return Err(Self::boxed(self.make_redeclaration_error(name, position)));
+                        return Err(Self::boxed(self.make_error(&DUPLICATE_NAME, &[name], position)));
                     }
                     self.compile_function_statement(name, parameters, body, position)?;
                     // For nested functions, add to file_scope_symbols
@@ -305,27 +307,18 @@ impl Compiler {
                 Statement::Module { name, body, span } => {
                     let position = span.start;
                     if self.scope_index > 0 {
-                        let err_spec = &MODULE_SCOPE;
-                        let message = format_message(err_spec.message, &[]);
-                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_file(self.file_path.clone())
-                            .with_position(position)
-                            .with_message(message);
-                        if let Some(hint_text) = hint {
-                            diag = diag.with_hint(hint_text);
-                        }
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            self.make_error(&MODULE_SCOPE, &[], position)
+                        ));
                     }
                     let binding_name = module_binding_name(name);
                     if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
                         return Err(Self::boxed(
-                            self.make_import_collision_error(binding_name, position),
+                            self.make_error(&IMPORT_NAME_COLLISION, &[binding_name], position),
                         ));
                     }
                     if !is_valid_module_name(name) {
-                        return Err(Self::boxed(self.make_module_name_error(name, position)));
+                        return Err(Self::boxed(self.make_error(&INVALID_MODULE_NAME, &[name], position)));
                     }
                     self.compile_module_statement(name, body, position)?;
                     if self.scope_index == 0 {
@@ -335,12 +328,12 @@ impl Compiler {
                 Statement::Import { name, alias, span } => {
                     let position = span.start;
                     if self.scope_index > 0 {
-                        return Err(Self::boxed(self.make_import_scope_error(name, position)));
+                        return Err(Self::boxed(self.make_error(&IMPORT_SCOPE, &[name], position)));
                     }
                     let binding_name = import_binding_name(name, alias.as_deref());
                     if self.file_scope_symbols.contains(binding_name) {
                         return Err(Self::boxed(
-                            self.make_import_collision_error(binding_name, position),
+                            self.make_error(&IMPORT_NAME_COLLISION, &[binding_name], position),
                         ));
                     }
                     // Reserve the name for this file so later declarations can't collide.
@@ -450,40 +443,14 @@ impl Compiler {
                         // Module constant - inline the value
                         self.emit_constant_object(constant_value.clone());
                     } else {
-                        let err_spec = &UNDEFINED_VARIABLE;
-                        let message = format_message(err_spec.message, &[name]);
-                        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
-
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_error_type(err_spec.error_type)
-                            .with_file(self.file_path.clone())
-                            .with_span(*span)
-                            .with_message(message);
-
-                        if let Some(hint_text) = hint {
-                            diag = diag.with_hint(hint_text);
-                        }
-
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            self.make_error_span(&UNDEFINED_VARIABLE, &[name], *span)
+                        ));
                     }
                 } else {
-                    let err_spec = &UNDEFINED_VARIABLE;
-                    let message = format_message(err_spec.message, &[name]);
-                    let hint = err_spec.hint.map(|h| format_message(h, &[name]));
-
-                    let mut diag = Diagnostic::error(err_spec.title)
-                        .with_code(err_spec.code)
-                        .with_error_type(err_spec.error_type)
-                        .with_file(self.file_path.clone())
-                        .with_span(*span)
-                        .with_message(message);
-
-                    if let Some(hint_text) = hint {
-                        diag = diag.with_hint(hint_text);
-                    }
-
-                    return Err(Self::boxed(diag));
+                    return Err(Self::boxed(
+                        self.make_error_span(&UNDEFINED_VARIABLE, &[name], *span)
+                    ));
                 }
             }
             Expression::Prefix {
@@ -494,18 +461,9 @@ impl Compiler {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
                     _ => {
-                        let err_spec = &UNKNOWN_PREFIX_OPERATOR;
-                        let message = format_message(err_spec.message, &[operator]);
-
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_message(message);
-
-                        if let Some(hint) = err_spec.hint {
-                            diag = diag.with_hint(hint);
-                        }
-
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            self.make_error_span(&UNKNOWN_PREFIX_OPERATOR, &[operator], expression.span())
+                        ));
                     }
                 };
             }
@@ -561,16 +519,9 @@ impl Compiler {
                     ">" => self.emit(OpCode::OpGreaterThan, &[]),
                     ">=" => self.emit(OpCode::OpGreaterThanOrEqual, &[]),
                     _ => {
-                        let err_spec = &UNKNOWN_INFIX_OPERATOR;
-                        let message = format_message(err_spec.message, &[operator]);
-                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_message(message);
-                        if let Some(hint_text) = hint {
-                            diag = diag.with_hint(hint_text);
-                        }
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            self.make_error_span(&UNKNOWN_INFIX_OPERATOR, &[operator], expression.span())
+                        ));
                     }
                 };
             }
@@ -658,18 +609,9 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    let err_spec = &UNKNOWN_MODULE_MEMBER;
-                    let message = format_message(err_spec.message, &[&module_name, member]);
-                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                    let mut diag = Diagnostic::error(err_spec.title)
-                        .with_code(err_spec.code)
-                        .with_span(expr_span)
-                        .with_message(message)
-                        .with_file(self.file_path.clone());
-                    if let Some(hint_text) = hint {
-                        diag = diag.with_hint(hint_text);
-                    }
-                    return Err(Self::boxed(diag));
+                    return Err(Self::boxed(
+                        self.make_error_span(&UNKNOWN_MODULE_MEMBER, &[&module_name, member], expr_span)
+                    ));
                 }
 
                 if let Expression::Identifier { name, .. } = object.as_ref()
@@ -678,17 +620,14 @@ impl Compiler {
                 {
                     let has_symbol = self.symbol_table.resolve(name).is_some();
                     if !has_symbol {
-                        let err_spec = &MODULE_NOT_IMPORTED;
-                        let message = format_message(err_spec.message, &[name]);
-                        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_message(message)
-                            .with_file(self.file_path.clone());
-                        if let Some(hint_text) = hint {
-                            diag = diag.with_hint(hint_text);
-                        }
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            Diagnostic::error(MODULE_NOT_IMPORTED.title)
+                                .with_code(MODULE_NOT_IMPORTED.code)
+                                .with_error_type(MODULE_NOT_IMPORTED.error_type)
+                                .with_message(format_message(MODULE_NOT_IMPORTED.message, &[name]))
+                                .with_hint(format_message(MODULE_NOT_IMPORTED.hint.unwrap(), &[name]))
+                                .with_file(self.file_path.clone())
+                        ));
                     }
                 }
 
@@ -763,16 +702,9 @@ impl Compiler {
         body: &Block,
     ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
-            let err_spec = &DUPLICATE_PARAMETER;
-            let message = format_message(err_spec.message, &[name]);
-            let hint = err_spec.hint.map(|h| format_message(h, &[]));
-            let mut diag = Diagnostic::error(err_spec.title)
-                .with_code(err_spec.code)
-                .with_message(message);
-            if let Some(hint_text) = hint {
-                diag = diag.with_hint(hint_text);
-            }
-            return Err(Self::boxed(diag));
+            return Err(Self::boxed(
+                self.make_error(&DUPLICATE_PARAMETER, &[name], Position::default())
+            ));
         }
 
         self.enter_scope();
@@ -892,30 +824,16 @@ impl Compiler {
         arms: &[MatchArm],
     ) -> CompileResult<()> {
         if arms.is_empty() {
-            let err_spec = &EMPTY_MATCH;
-            let message = format_message(err_spec.message, &[]);
-            let hint = err_spec.hint.map(|h| format_message(h, &[]));
-            let mut diag = Diagnostic::error(err_spec.title)
-                .with_code(err_spec.code)
-                .with_message(message);
-            if let Some(hint_text) = hint {
-                diag = diag.with_hint(hint_text);
-            }
-            return Err(Self::boxed(diag));
+            return Err(Self::boxed(
+                self.make_error_span(&EMPTY_MATCH, &[], scrutinee.span())
+            ));
         }
         if arms.len() > 1 {
             for arm in &arms[..arms.len() - 1] {
                 if matches!(arm.pattern, Pattern::Identifier(_) | Pattern::Wildcard) {
-                    let err_spec = &CATCHALL_NOT_LAST;
-                    let message = format_message(err_spec.message, &[]);
-                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                    let mut diag = Diagnostic::error(err_spec.title)
-                        .with_code(err_spec.code)
-                        .with_message(message);
-                    if let Some(hint_text) = hint {
-                        diag = diag.with_hint(hint_text);
-                    }
-                    return Err(Self::boxed(diag));
+                    return Err(Self::boxed(
+                        self.make_error_span(&CATCHALL_NOT_LAST, &[], scrutinee.span())
+                    ));
                 }
             }
         }
@@ -923,16 +841,9 @@ impl Compiler {
         if let Some(last) = arms.last()
             && !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_))
         {
-            let err_spec = &NON_EXHAUSTIVE_MATCH;
-            let message = format_message(err_spec.message, &[]);
-            let hint = err_spec.hint.map(|h| format_message(h, &[]));
-            let mut diag = Diagnostic::error(err_spec.title)
-                .with_code(err_spec.code)
-                .with_message(message);
-            if let Some(hint_text) = hint {
-                diag = diag.with_hint(hint_text);
-            }
-            return Err(Self::boxed(diag));
+            return Err(Self::boxed(
+                self.make_error_span(&NON_EXHAUSTIVE_MATCH, &[], scrutinee.span())
+            ));
         }
 
         // Compile scrutinee once and store it in a temp local
@@ -950,6 +861,7 @@ impl Compiler {
                 return Err(Self::boxed(
                     Diagnostic::error("INTERNAL COMPILER ERROR")
                         .with_code("ICE003")
+                        .with_error_type(ErrorType::Compiler)
                         .with_message("unexpected temp symbol scope in match scrutinee")
                         .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                 ));
@@ -1053,6 +965,7 @@ impl Compiler {
                                 return Err(Self::boxed(
                                     Diagnostic::error("INTERNAL COMPILER ERROR")
                                         .with_code("ICE004")
+                                        .with_error_type(ErrorType::Compiler)
                                         .with_message(
                                             "unexpected temp symbol scope in Some pattern",
                                         )
@@ -1095,6 +1008,7 @@ impl Compiler {
                                 return Err(Self::boxed(
                                     Diagnostic::error("INTERNAL COMPILER ERROR")
                                         .with_code("ICE007")
+                                        .with_error_type(ErrorType::Compiler)
                                         .with_message(
                                             "unexpected temp symbol scope in Left pattern",
                                         )
@@ -1138,6 +1052,7 @@ impl Compiler {
                                 return Err(Self::boxed(
                                     Diagnostic::error("INTERNAL COMPILER ERROR")
                                         .with_code("ICE007")
+                                        .with_error_type(ErrorType::Compiler)
                                         .with_message(
                                             "unexpected temp symbol scope in Right pattern",
                                         )
@@ -1183,6 +1098,7 @@ impl Compiler {
                         return Err(Self::boxed(
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE005")
+                                .with_error_type(ErrorType::Compiler)
                                 .with_message("unexpected symbol scope for pattern binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
@@ -1204,6 +1120,7 @@ impl Compiler {
                         return Err(Self::boxed(
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE006")
+                                .with_error_type(ErrorType::Compiler)
                                 .with_message("unexpected temp symbol scope in Some binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
@@ -1228,6 +1145,7 @@ impl Compiler {
                         return Err(Self::boxed(
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE009")
+                                .with_error_type(ErrorType::Compiler)
                                 .with_message("unexpected temp symbol scope in Left binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
@@ -1250,6 +1168,7 @@ impl Compiler {
                         return Err(Self::boxed(
                             Diagnostic::error("INTERNAL COMPILER ERROR")
                                 .with_code("ICE010")
+                                .with_error_type(ErrorType::Compiler)
                                 .with_message("unexpected temp symbol scope in Right binding")
                                 .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!())),
                         ));
@@ -1270,18 +1189,9 @@ impl Compiler {
         position: Position,
     ) -> CompileResult<()> {
         if let Some(param) = Self::find_duplicate_name(parameters) {
-            let err_spec = &DUPLICATE_PARAMETER;
-            let message = format_message(err_spec.message, &[param]);
-            let hint = err_spec.hint.map(|h| format_message(h, &[]));
-            let mut diag = Diagnostic::error(err_spec.title)
-                .with_code(err_spec.code)
-                .with_file(self.file_path.clone())
-                .with_position(position)
-                .with_message(message);
-            if let Some(hint_text) = hint {
-                diag = diag.with_hint(hint_text);
-            }
-            return Err(Self::boxed(diag));
+            return Err(Self::boxed(
+                self.make_error(&DUPLICATE_PARAMETER, &[param], position)
+            ));
         }
 
         // Resolve the symbol - it may have been predeclared in pass 1
@@ -1348,7 +1258,7 @@ impl Compiler {
         let binding_name = module_binding_name(name);
         if self.symbol_table.exists_in_current_scope(binding_name) {
             return Err(Self::boxed(
-                self.make_redeclaration_error(binding_name, position),
+                self.make_error(&DUPLICATE_NAME, &[binding_name], position),
             ));
         }
 
@@ -1357,17 +1267,9 @@ impl Compiler {
             match statement {
                 Statement::Function { name: fn_name, .. } => {
                     if fn_name == binding_name {
-                        let err_spec = &MODULE_NAME_CLASH;
-                        let message = format_message(err_spec.message, &[binding_name]);
-                        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                        let mut diag = Diagnostic::error(err_spec.title)
-                            .with_code(err_spec.code)
-                            .with_position(statement.position())
-                            .with_message(message);
-                        if let Some(hint_text) = hint {
-                            diag = diag.with_hint(hint_text);
-                        }
-                        return Err(Self::boxed(diag));
+                        return Err(Self::boxed(
+                            self.make_error(&MODULE_NAME_CLASH, &[binding_name], statement.position())
+                        ));
                     }
                 }
                 // Module Constants Allow let statements in modules
@@ -1375,17 +1277,9 @@ impl Compiler {
                     // Let statements are allowed for module constants
                 }
                 _ => {
-                    let err_spec = &INVALID_MODULE_CONTENT;
-                    let message = format_message(err_spec.message, &[]);
-                    let hint = err_spec.hint.map(|h| format_message(h, &[]));
-                    let mut diag = Diagnostic::error(err_spec.title)
-                        .with_code(err_spec.code)
-                        .with_position(statement.position())
-                        .with_message(message);
-                    if let Some(hint_text) = hint {
-                        diag = diag.with_hint(hint_text);
-                    }
-                    return Err(Self::boxed(diag));
+                    return Err(Self::boxed(
+                        self.make_error(&INVALID_MODULE_CONTENT, &[], statement.position())
+                    ));
                 }
             }
         }
@@ -1436,7 +1330,7 @@ impl Compiler {
                 if self.symbol_table.exists_in_current_scope(&qualified_name) {
                     self.current_module_prefix = previous_module;
                     return Err(Self::boxed(
-                        self.make_redeclaration_error(&qualified_name, position),
+                        self.make_error(&DUPLICATE_NAME, &[&qualified_name], position),
                     ));
                 }
                 // Predeclare the function
@@ -1504,18 +1398,7 @@ impl Compiler {
             return Ok(());
         }
 
-        let err_spec = &PRIVATE_MEMBER;
-        let message = format_message(err_spec.message, &[member]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_file(self.file_path.clone())
-            .with_span(expr_span)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        Err(Self::boxed(diag))
+        Err(Self::boxed(self.make_error_span(&PRIVATE_MEMBER, &[member], expr_span)))
     }
     fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
@@ -1608,10 +1491,15 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
     }
 
-    fn make_immutability_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &IMMUTABLE_BINDING;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
+    /// Generic error builder - creates diagnostic from error code, values, and position
+    fn make_error(
+        &self,
+        err_spec: &'static ErrorCode,
+        values: &[&str],
+        position: Position,
+    ) -> Diagnostic {
+        let message = format_message(err_spec.message, values);
+        let hint = err_spec.hint.map(|h| format_message(h, values));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
             .with_error_type(err_spec.error_type)
@@ -1624,95 +1512,20 @@ impl Compiler {
         diag
     }
 
-    fn make_undefined_variable_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &UNDEFINED_VARIABLE;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[name]));
+    /// Generic error builder with Span instead of Position
+    fn make_error_span(
+        &self,
+        err_spec: &'static ErrorCode,
+        values: &[&str],
+        span: Span,
+    ) -> Diagnostic {
+        let message = format_message(err_spec.message, values);
+        let hint = err_spec.hint.map(|h| format_message(h, values));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
             .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
-    fn make_redeclaration_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &DUPLICATE_NAME;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
-    fn make_outer_assignment_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &OUTER_ASSIGNMENT;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
-    fn make_module_name_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &INVALID_MODULE_NAME;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
-    fn make_import_collision_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &IMPORT_NAME_COLLISION;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
-            .with_message(message);
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-        diag
-    }
-
-    fn make_import_scope_error(&self, name: &str, position: Position) -> Diagnostic {
-        let err_spec = &IMPORT_SCOPE;
-        let message = format_message(err_spec.message, &[name]);
-        let hint = err_spec.hint.map(|h| format_message(h, &[]));
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(self.file_path.clone())
-            .with_position(position)
+            .with_span(span)
             .with_message(message);
         if let Some(hint_text) = hint {
             diag = diag.with_hint(hint_text);
@@ -1738,6 +1551,7 @@ impl Compiler {
     ) -> Diagnostic {
         let diag = Diagnostic::error("CONSTANT EVALUATION ERROR")
             .with_code(err.code)
+            .with_error_type(ErrorType::Compiler)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(err.message);
