@@ -108,12 +108,12 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         (Object::Integer(a), "-", Object::Integer(b)) => Ok(Object::Integer(a - b)),
         (Object::Integer(a), "*", Object::Integer(b)) => Ok(Object::Integer(a * b)),
         (Object::Integer(_), "/", Object::Integer(0)) => Err(ConstEvalError::new(
-            "E046",
+            "E059",
             "Division by zero in module constant.",
         )),
         (Object::Integer(a), "/", Object::Integer(b)) => Ok(Object::Integer(a / b)),
         (Object::Integer(_), "%", Object::Integer(0)) => Err(ConstEvalError::new(
-            "E046",
+            "E059",
             "Modulo by zero in module constant.",
         )),
         (Object::Integer(a), "%", Object::Integer(b)) => Ok(Object::Integer(a % b)),
@@ -123,7 +123,7 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         (Object::Float(a), "-", Object::Float(b)) => Ok(Object::Float(a - b)),
         (Object::Float(a), "*", Object::Float(b)) => Ok(Object::Float(a * b)),
         (Object::Float(_), "/", Object::Float(b)) if *b == 0.0 => Err(ConstEvalError::new(
-            "E046",
+            "E059",
             "Division by zero in module constant.",
         )),
         (Object::Float(a), "/", Object::Float(b)) => Ok(Object::Float(a / b)),
@@ -172,7 +172,7 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         (Object::Boolean(a), "!=", Object::Boolean(b)) => Ok(Object::Boolean(a != b)),
 
         _ => Err(ConstEvalError::new(
-            "E044",
+            "E048",
             format!(
                 "Cannot apply '{}' to {:?} and {:?} at compile time.",
                 op, left, right
@@ -204,7 +204,7 @@ mod tests {
             span: Default::default(),
         };
         let err = eval(&expr).unwrap_err();
-        assert_eq!(err.code, "E046");
+        assert_eq!(err.code, "E059");
         assert!(err.message.contains("Division by zero"));
     }
 
@@ -223,7 +223,7 @@ mod tests {
             span: Default::default(),
         };
         let err = eval(&expr).unwrap_err();
-        assert_eq!(err.code, "E046");
+        assert_eq!(err.code, "E059");
         assert!(err.message.contains("Modulo by zero"));
     }
 
@@ -260,7 +260,7 @@ mod tests {
             span: Default::default(),
         };
         let err = eval(&expr).unwrap_err();
-        assert_eq!(err.code, "E046");
+        assert_eq!(err.code, "E059");
         assert!(err.message.contains("Division by zero"));
     }
 
