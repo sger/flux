@@ -152,20 +152,41 @@ impl Diagnostic {
             for line_no in start_line..=end_line {
                 if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
                     let line_len = line_text.len();
-                    let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
+                    let mut caret_start;
+                    let mut caret_end;
+                    if line_no == start_line && line_no == end_line {
                         let start = span.start.column.min(line_len);
                         let end = span.end.column.min(line_len);
                         let end = end.max(start + 1);
-                        (start, end)
+                        caret_start = start;
+                        caret_end = end;
                     } else if line_no == start_line {
                         let start = span.start.column.min(line_len);
-                        (start, line_len.max(start + 1))
+                        caret_start = start;
+                        caret_end = line_len.max(start + 1);
                     } else if line_no == end_line {
                         let end = span.end.column.min(line_len);
-                        (0, end.max(1))
+                        caret_start = 0;
+                        caret_end = end.max(1);
                     } else {
-                        (0, line_len.max(1))
-                    };
+                        caret_start = 0;
+                        caret_end = line_len.max(1);
+                    }
+
+                    if line_no == start_line
+                        && line_no == end_line
+                        && self.message.as_deref()
+                            == Some("Lexer error: unterminated string literal.")
+                    {
+                        let start_col = span.start.column.min(line_len);
+                        if let Some((quote_idx, _)) = line_text
+                            .char_indices()
+                            .find(|(idx, ch)| *idx >= start_col && *ch == '"')
+                        {
+                            caret_start = quote_idx;
+                            caret_end = (quote_idx + 1).min(line_len.max(1));
+                        }
+                    }
 
                     out.push('\n');
                     out.push_str(&format!(
