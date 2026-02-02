@@ -456,6 +456,7 @@ impl Compiler {
 
                         let mut diag = Diagnostic::error(err_spec.title)
                             .with_code(err_spec.code)
+                            .with_error_type(err_spec.error_type)
                             .with_file(self.file_path.clone())
                             .with_span(*span)
                             .with_message(message);
@@ -473,6 +474,7 @@ impl Compiler {
 
                     let mut diag = Diagnostic::error(err_spec.title)
                         .with_code(err_spec.code)
+                        .with_error_type(err_spec.error_type)
                         .with_file(self.file_path.clone())
                         .with_span(*span)
                         .with_message(message);
@@ -1612,6 +1614,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1627,6 +1630,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[name]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1642,6 +1646,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1657,6 +1662,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1672,6 +1678,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1687,6 +1694,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1702,6 +1710,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
@@ -1746,6 +1755,7 @@ impl Compiler {
         let hint = err_spec.hint.map(|h| format_message(h, &[]));
         let mut diag = Diagnostic::error(err_spec.title)
             .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
             .with_file(self.file_path.clone())
             .with_position(position)
             .with_message(message);
