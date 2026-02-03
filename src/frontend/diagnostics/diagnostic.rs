@@ -297,7 +297,12 @@ impl Diagnostic {
         if !self.hints.is_empty() {
             out.push_str("\n\nHint:\n");
             for hint in &self.hints {
-                out.push_str(&format!("  {}\n", hint));
+                let cleaned = hint
+                    .strip_prefix("Hint:\n")
+                    .or_else(|| hint.strip_prefix("Hint:"))
+                    .unwrap_or(hint)
+                    .trim_start();
+                out.push_str(&format!("  {}\n", cleaned));
             }
         }
 
