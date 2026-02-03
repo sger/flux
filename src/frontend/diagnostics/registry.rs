@@ -112,24 +112,3 @@ pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
         .with_code(code.code)
         .with_error_type(code.error_type)
 }
-
-/// Convenience function to build error with formatted message
-pub fn diag_with_message(
-    code: &str,
-    values: &[&str],
-) -> Option<Diagnostic> {
-    use super::format::format_message;
-
-    get_enhanced(code).map(|err| {
-        let mut diag = Diagnostic::error(err.title)
-            .with_code(err.code)
-            .with_error_type(err.error_type)
-            .with_message(format_message(err.message, values));
-
-        if let Some(hint) = err.hint {
-            diag = diag.with_hint(hint);
-        }
-
-        diag
-    })
-}

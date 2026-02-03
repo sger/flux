@@ -95,7 +95,13 @@ impl Diagnostic {
     }
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hints.push(hint.into());
+        let hint = hint.into();
+        let cleaned = hint
+            .strip_prefix("Hint:\n")
+            .or_else(|| hint.strip_prefix("Hint:"))
+            .unwrap_or(hint.as_str())
+            .trim_start();
+        self.hints.push(cleaned.to_string());
         self
     }
 
@@ -297,12 +303,7 @@ impl Diagnostic {
         if !self.hints.is_empty() {
             out.push_str("\n\nHint:\n");
             for hint in &self.hints {
-                let cleaned = hint
-                    .strip_prefix("Hint:\n")
-                    .or_else(|| hint.strip_prefix("Hint:"))
-                    .unwrap_or(hint)
-                    .trim_start();
-                out.push_str(&format!("  {}\n", cleaned));
+                out.push_str(&format!("  {}\n", hint));
             }
         }
 
