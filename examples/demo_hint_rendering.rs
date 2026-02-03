@@ -2,7 +2,7 @@
 /// Run with: cargo run --example demo_hint_rendering
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint},
+    diagnostics::{Diagnostic, ErrorType},
     position::{Position, Span},
 };
 
@@ -20,6 +20,12 @@ fn main() {
 
     // Example 3: Multiple hints showing complex scenarios
     example_complex_hints();
+
+    // Example 4: NEW - Inline labels (like Rust compiler)
+    example_inline_labels();
+
+    // Example 5: Unknown operator with inline labels (real compiler integration)
+    example_unknown_operator();
 }
 
 fn example_duplicate_variable() {
@@ -118,5 +124,77 @@ let result = name + age;
     println!("   • Line 6: The problematic operation");
     println!("   • Line 1: Where 'name' (String) was defined");
     println!("   • Line 2: Where 'age' (Int) was defined");
+    println!();
+}
+
+fn example_inline_labels() {
+    println!("\n📍 Example 4: Inline Labels (NEW FEATURE - Rust-Style)");
+    println!("{}", "-".repeat(70));
+
+    let source = "\
+add(name, age)
+";
+
+    // Main error spans the whole function call
+    let error_span = Span::new(Position::new(1, 0), Position::new(1, 14));
+    // Label for first argument
+    let arg1_span = Span::new(Position::new(1, 4), Position::new(1, 8));
+    // Label for second argument
+    let arg2_span = Span::new(Position::new(1, 10), Position::new(1, 13));
+
+    let diagnostic = Diagnostic::error("Type mismatch in function call")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("Function `add` expects (Int, Int) but got (String, Int)")
+        .with_file("example.flx")
+        .with_span(error_span)
+        .with_secondary_label(arg1_span, "String value")
+        .with_secondary_label(arg2_span, "expected Int");
+
+    println!("{}\n", diagnostic.render(Some(source), None));
+
+    println!("🎉 NEW: Inline labels annotate specific parts of the same line!");
+    println!("   This is like Rust's compiler error messages.");
+    println!("   • Primary caret (^^^) shows the whole problematic expression");
+    println!("   • Secondary labels (---) point to specific arguments");
+    println!("   • Each label explains what's wrong with that part");
+    println!();
+    println!("💡 You can add multiple labels with different styles:");
+    println!("   • Primary labels (red) - main error location");
+    println!("   • Secondary labels (blue) - additional context");
+    println!("   • Note labels (cyan) - informational hints");
+}
+
+fn example_unknown_operator() {
+    println!("\n📍 Example 5: Unknown Operator (Real Compiler Integration)");
+    println!("{}", "-".repeat(70));
+
+    let source = "\
+let result = x ~ y;
+";
+
+    // Main error spans the whole infix expression
+    let error_span = Span::new(Position::new(1, 13), Position::new(1, 18));
+    // Label for left operand
+    let left_span = Span::new(Position::new(1, 13), Position::new(1, 14));
+    // Label for right operand
+    let right_span = Span::new(Position::new(1, 17), Position::new(1, 18));
+
+    let diagnostic = Diagnostic::error("Unknown infix operator")
+        .with_code("E006")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("The operator '~' is not recognized")
+        .with_file("example.flx")
+        .with_span(error_span)
+        .with_hint_text("Valid operators are: +, -, *, /, ==, !=, <, >, <=, >=, &&, ||")
+        .with_secondary_label(left_span, "left operand")
+        .with_secondary_label(right_span, "right operand");
+
+    println!("{}\n", diagnostic.render(Some(source), None));
+
+    println!("🔧 This example shows inline labels integrated into the compiler!");
+    println!("   • This is the ACTUAL error format from src/bytecode/compiler.rs:521");
+    println!("   • The compiler now uses .with_secondary_label() for operands");
+    println!("   • Labels help identify which parts of the expression are problematic");
     println!();
 }

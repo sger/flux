@@ -37,6 +37,12 @@ $FLUX_BIN "$SCRIPT_DIR/shadowing_ok.flx" 2>&1 && echo "✓ Compiled successfully
 echo ""
 echo ""
 
+echo "5. Testing unknown_operator.flx"
+echo "------------------------------------------"
+$FLUX_BIN "$SCRIPT_DIR/unknown_operator.flx" 2>&1 || true
+echo ""
+echo ""
+
 echo "=========================================="
 echo "Demo Complete!"
 echo "=========================================="

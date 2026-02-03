@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint},
+    diagnostics::{Diagnostic, ErrorType, Hint, Label, LabelStyle},
     position::{Position, Span},
 };
 
@@ -209,4 +209,122 @@ fn hint_builder_methods() {
     // Test with_label()
     let hint4 = Hint::at("hint", span).with_label("added label");
     assert_eq!(hint4.label, Some("added label".to_string()));
+}
+
+#[test]
+fn renders_single_label() {
+    set_no_color();
+    let source = "add(name, age)\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 14));
+    let label_span = Span::new(Position::new(1, 4), Position::new(1, 8));
+
+    let output = Diagnostic::error("Type mismatch")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_file("test.flx")
+        .with_span(span)
+        .with_secondary_label(label_span, "expected Int, got String")
+        .render(Some(source), None);
+
+    // Should show primary caret
+    assert!(output.contains("^^^^^^^^^^^^^^"));
+    // Should show secondary label with dashes
+    assert!(output.contains("----"));
+    // Should show label text
+    assert!(output.contains("expected Int, got String"));
+}
+
+#[test]
+fn renders_multiple_labels_on_same_line() {
+    set_no_color();
+    let source = "add(name, age)\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 14));
+    let label1_span = Span::new(Position::new(1, 4), Position::new(1, 8));
+    let label2_span = Span::new(Position::new(1, 10), Position::new(1, 13));
+
+    let output = Diagnostic::error("Type mismatch")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_file("test.flx")
+        .with_span(span)
+        .with_secondary_label(label1_span, "String value")
+        .with_note_label(label2_span, "expected Int")
+        .render(Some(source), None);
+
+    // Should show primary caret
+    assert!(output.contains("^^^^^^^^^^^^^^"));
+    // Should show both labels
+    assert!(output.contains("String value"));
+    assert!(output.contains("expected Int"));
+    // Should have dashes for both labels (checking for at least one dash followed by text)
+    assert!(output.contains("---- String value"));
+    assert!(output.contains("--- expected Int"));
+}
+
+#[test]
+fn label_builder_methods() {
+    let span = Span::new(Position::new(1, 0), Position::new(1, 5));
+
+    // Test Label::primary()
+    let label1 = Label::primary(span, "main error");
+    assert_eq!(label1.span, span);
+    assert_eq!(label1.text, "main error");
+    assert_eq!(label1.style, LabelStyle::Primary);
+
+    // Test Label::secondary()
+    let label2 = Label::secondary(span, "additional context");
+    assert_eq!(label2.span, span);
+    assert_eq!(label2.text, "additional context");
+    assert_eq!(label2.style, LabelStyle::Secondary);
+
+    // Test Label::note()
+    let label3 = Label::note(span, "informational");
+    assert_eq!(label3.span, span);
+    assert_eq!(label3.text, "informational");
+    assert_eq!(label3.style, LabelStyle::Note);
+}
+
+#[test]
+fn renders_labels_without_primary_span_on_same_line() {
+    set_no_color();
+    let source = "let x = add(name, age);\n";
+    // Primary span is on the entire line
+    let span = Span::new(Position::new(1, 0), Position::new(1, 23));
+    // Labels are on specific parts
+    let label1_span = Span::new(Position::new(1, 12), Position::new(1, 16));
+    let label2_span = Span::new(Position::new(1, 18), Position::new(1, 21));
+
+    let output = Diagnostic::error("Type error in function call")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_file("test.flx")
+        .with_span(span)
+        .with_secondary_label(label1_span, "String")
+        .with_secondary_label(label2_span, "requires Int")
+        .render(Some(source), None);
+
+    // Should show the source line once
+    assert_eq!(output.matches("let x = add(name, age);").count(), 1);
+    // Should show both label texts
+    assert!(output.contains("String"));
+    assert!(output.contains("requires Int"));
+}
+
+#[test]
+fn diagnostic_with_label_method() {
+    set_no_color();
+    let source = "foo(x, y)\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 9));
+    let label_span = Span::new(Position::new(1, 4), Position::new(1, 5));
+    let label = Label::secondary(label_span, "wrong type");
+
+    let output = Diagnostic::error("Type error")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_file("test.flx")
+        .with_span(span)
+        .with_label(label)
+        .render(Some(source), None);
+
+    assert!(output.contains("wrong type"));
 }

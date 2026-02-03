@@ -59,6 +59,54 @@ impl Hint {
     }
 }
 
+/// Style for inline source labels
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelStyle {
+    /// Primary label - main focus of the error (rendered in red)
+    Primary,
+    /// Secondary label - additional context (rendered in blue)
+    Secondary,
+    /// Note label - informational (rendered in cyan)
+    Note,
+}
+
+/// An inline label that annotates a specific span within the source snippet
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Label {
+    pub span: Span,
+    pub text: String,
+    pub style: LabelStyle,
+}
+
+impl Label {
+    /// Create a primary label (main error location)
+    pub fn primary(span: Span, text: impl Into<String>) -> Self {
+        Self {
+            span,
+            text: text.into(),
+            style: LabelStyle::Primary,
+        }
+    }
+
+    /// Create a secondary label (additional context)
+    pub fn secondary(span: Span, text: impl Into<String>) -> Self {
+        Self {
+            span,
+            text: text.into(),
+            style: LabelStyle::Secondary,
+        }
+    }
+
+    /// Create a note label (informational)
+    pub fn note(span: Span, text: impl Into<String>) -> Self {
+        Self {
+            span,
+            text: text.into(),
+            style: LabelStyle::Note,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     severity: Severity,
@@ -68,6 +116,7 @@ pub struct Diagnostic {
     message: Option<String>,
     file: Option<String>,
     span: Option<Span>,
+    labels: Vec<Label>,
     hints: Vec<Hint>,
 }
 
@@ -92,6 +141,7 @@ impl Diagnostic {
             message: None,
             file: None,
             span: None,
+            labels: Vec::new(),
             hints: Vec::new(),
         }
     }
@@ -106,6 +156,7 @@ impl Diagnostic {
             message: None,
             file: None,
             span: None,
+            labels: Vec::new(),
             hints: Vec::new(),
         }
     }
@@ -218,6 +269,30 @@ impl Diagnostic {
         self
     }
 
+    /// Add a primary label to the diagnostic (main error location)
+    pub fn with_primary_label(mut self, span: Span, text: impl Into<String>) -> Self {
+        self.labels.push(Label::primary(span, text));
+        self
+    }
+
+    /// Add a secondary label to the diagnostic (additional context)
+    pub fn with_secondary_label(mut self, span: Span, text: impl Into<String>) -> Self {
+        self.labels.push(Label::secondary(span, text));
+        self
+    }
+
+    /// Add a note label to the diagnostic (informational)
+    pub fn with_note_label(mut self, span: Span, text: impl Into<String>) -> Self {
+        self.labels.push(Label::note(span, text));
+        self
+    }
+
+    /// Add a label with explicit style
+    pub fn with_label(mut self, label: Label) -> Self {
+        self.labels.push(label);
+        self
+    }
+
     /// Generic error builder using ErrorCode specification
     pub fn make_error(
         err_spec: &'static ErrorCode,
@@ -297,6 +372,7 @@ impl Diagnostic {
             message: Some(message.into()),
             file: Some(file.into()),
             span: Some(span),
+            labels: Vec::new(),
             hints: Vec::new(),
         }
     }
@@ -316,6 +392,7 @@ impl Diagnostic {
             message: Some(message.into()),
             file: Some(file.into()),
             span: Some(span),
+            labels: Vec::new(),
             hints: Vec::new(),
         }
     }
@@ -391,90 +468,145 @@ impl Diagnostic {
 
     fn render_source_snippet(&self, out: &mut String, source: Option<&str>, use_color: bool) {
         let red = "\u{1b}[31m";
+        let blue = "\u{1b}[34m";
+        let cyan = "\u{1b}[36m";
         let reset = "\u{1b}[0m";
+
         if let Some(position) = self.position() {
             let span = self.span.unwrap_or_else(|| Span::new(position, position));
             let start_line = span.start.line;
             let end_line = span.end.line.max(start_line);
-            let line_width = end_line.to_string().len();
+
+            // Expand range to include all label lines
+            let label_start = self.labels.iter().map(|l| l.span.start.line).min().unwrap_or(start_line);
+            let label_end = self.labels.iter().map(|l| l.span.end.line).max().unwrap_or(end_line);
+            let actual_start = start_line.min(label_start);
+            let actual_end = end_line.max(label_end);
+
+            let line_width = actual_end.to_string().len();
 
             // Add separator line
             out.push_str(&format!("{:>width$} |\n", "", width = line_width));
 
             let mut printed_any = false;
-            for line_no in start_line..=end_line {
+            for line_no in actual_start..=actual_end {
                 if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
                     if printed_any {
                         out.push('\n');
                     }
                     printed_any = true;
                     let line_len = line_text.len();
-                    let mut caret_start;
-                    let mut caret_end;
-                    if line_no == start_line && line_no == end_line {
-                        // Handle end-of-line sentinel value
-                        let start = if span.start.column >= END_OF_LINE_SENTINEL {
-                            line_len
-                        } else {
-                            span.start.column.min(line_len)
-                        };
-                        let end = if span.end.column >= END_OF_LINE_SENTINEL {
-                            line_len
-                        } else {
-                            span.end.column.min(line_len)
-                        };
-                        let end = end.max(start + 1);
-                        caret_start = start;
-                        caret_end = end;
-                    } else if line_no == start_line {
-                        let start = span.start.column.min(line_len);
-                        caret_start = start;
-                        caret_end = line_len.max(start + 1);
-                    } else if line_no == end_line {
-                        let end = span.end.column.min(line_len);
-                        caret_start = 0;
-                        caret_end = end.max(1);
-                    } else {
-                        caret_start = 0;
-                        caret_end = line_len.max(1);
-                    }
 
-                    // Special handling for unterminated string literals
-                    // Highlight the opening quote instead of EOF position
-                    if line_no == start_line
-                        && line_no == end_line
-                        && self.code.as_deref() == Some(UNTERMINATED_STRING_ERROR_CODE)
-                        && self.message.as_deref().map_or(false, |msg| msg.contains("unterminated string"))
-                    {
-                        let start_col = span.start.column.min(line_len);
-                        if let Some((quote_idx, _)) = line_text
-                            .char_indices()
-                            .find(|(idx, ch)| *idx >= start_col && *ch == '"')
-                        {
-                            caret_start = quote_idx;
-                            caret_end = (quote_idx + 1).min(line_len.max(1));
-                        }
-                    }
-
+                    // Print the source line
                     out.push_str(&format!(
                         "{:>width$} | {}\n",
                         line_no,
                         line_text,
                         width = line_width
                     ));
-                    out.push_str(&format!(
-                        "{:>width$} | {}",
-                        "",
-                        " ".repeat(caret_start),
-                        width = line_width
-                    ));
-                    if use_color {
-                        out.push_str(red);
+
+                    // Only render primary caret if this line is in the primary span
+                    let render_primary = line_no >= start_line && line_no <= end_line;
+
+                    // Render primary caret if this line is in the primary span
+                    if render_primary {
+                        let mut caret_start;
+                        let mut caret_end;
+                        if line_no == start_line && line_no == end_line {
+                            // Handle end-of-line sentinel value
+                            let start = if span.start.column >= END_OF_LINE_SENTINEL {
+                                line_len
+                            } else {
+                                span.start.column.min(line_len)
+                            };
+                            let end = if span.end.column >= END_OF_LINE_SENTINEL {
+                                line_len
+                            } else {
+                                span.end.column.min(line_len)
+                            };
+                            let end = end.max(start + 1);
+                            caret_start = start;
+                            caret_end = end;
+                        } else if line_no == start_line {
+                            let start = span.start.column.min(line_len);
+                            caret_start = start;
+                            caret_end = line_len.max(start + 1);
+                        } else if line_no == end_line {
+                            let end = span.end.column.min(line_len);
+                            caret_start = 0;
+                            caret_end = end.max(1);
+                        } else {
+                            caret_start = 0;
+                            caret_end = line_len.max(1);
+                        }
+
+                        // Special handling for unterminated string literals
+                        // Highlight the opening quote instead of EOF position
+                        if line_no == start_line
+                            && line_no == end_line
+                            && self.code.as_deref() == Some(UNTERMINATED_STRING_ERROR_CODE)
+                            && self.message.as_deref().map_or(false, |msg| msg.contains("unterminated string"))
+                        {
+                            let start_col = span.start.column.min(line_len);
+                            if let Some((quote_idx, _)) = line_text
+                                .char_indices()
+                                .find(|(idx, ch)| *idx >= start_col && *ch == '"')
+                            {
+                                caret_start = quote_idx;
+                                caret_end = (quote_idx + 1).min(line_len.max(1));
+                            }
+                        }
+
+                        out.push_str(&format!(
+                            "{:>width$} | {}",
+                            "",
+                            " ".repeat(caret_start),
+                            width = line_width
+                        ));
+                        if use_color {
+                            out.push_str(red);
+                        }
+                        let caret_len = caret_end.saturating_sub(caret_start).max(1);
+                        out.push_str(&"^".repeat(caret_len));
+                        if use_color {
+                            out.push_str(reset);
+                        }
                     }
-                    let caret_len = caret_end.saturating_sub(caret_start).max(1);
-                    out.push_str(&"^".repeat(caret_len));
-                    if use_color {
-                        out.push_str(reset);
+
+                    // Render labels for this line
+                    for label in &self.labels {
+                        // Only render labels that are on this specific line
+                        if label.span.start.line == line_no && label.span.end.line == line_no {
+                            let label_start = label.span.start.column.min(line_len);
+                            let label_end = label.span.end.column.min(line_len).max(label_start + 1);
+                            let label_len = label_end.saturating_sub(label_start);
+
+                            // Choose color based on label style
+                            let color = match label.style {
+                                LabelStyle::Primary => red,
+                                LabelStyle::Secondary => blue,
+                                LabelStyle::Note => cyan,
+                            };
+
+                            out.push('\n');
+                            out.push_str(&format!(
+                                "{:>width$} | {}",
+                                "",
+                                " ".repeat(label_start),
+                                width = line_width
+                            ));
+                            if use_color {
+                                out.push_str(color);
+                            }
+                            out.push_str(&"-".repeat(label_len));
+                            if !label.text.is_empty() {
+                                out.push(' ');
+                                out.push_str(&label.text);
+                            }
+                            if use_color {
+                                out.push_str(reset);
+                            }
+                        }
                     }
                 }
             }
