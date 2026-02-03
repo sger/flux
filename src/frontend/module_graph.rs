@@ -5,9 +5,8 @@ use std::{
 };
 
 use crate::frontend::{
-    diagnostic::Diagnostic,
-    error_codes_registry::{
-        format_message, DUPLICATE_MODULE, IMPORT_CYCLE,
+    diagnostics::{
+        format_message, Diagnostic, DUPLICATE_MODULE, IMPORT_CYCLE,
         IMPORT_NOT_FOUND, IMPORT_READ_FAILED, INVALID_MODULE_ALIAS,
         INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
         MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,

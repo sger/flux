@@ -17,9 +17,8 @@ use crate::{
     },
     frontend::{
         block::Block,
-        diagnostic::Diagnostic,
-        error_codes_registry::{
-            CATCHALL_NOT_LAST, CIRCULAR_DEPENDENCY, DUPLICATE_NAME,
+        diagnostics::{
+            CATCHALL_NOT_LAST, CIRCULAR_DEPENDENCY, Diagnostic, DUPLICATE_NAME,
             DUPLICATE_PARAMETER, EMPTY_MATCH, ErrorType,
             ICE_SYMBOL_SCOPE_ASSIGN, ICE_SYMBOL_SCOPE_LET, ICE_SYMBOL_SCOPE_PATTERN,
             ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN,

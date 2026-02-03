@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
 pub mod block;
-pub mod diagnostic;
-pub mod error_codes_registry;
+pub mod diagnostics;
 pub mod expression;
 pub mod formatter;
 pub mod lexer;

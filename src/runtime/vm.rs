@@ -6,9 +6,8 @@ use crate::{
         op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
     frontend::{
-        diagnostic::Diagnostic,
-        error_codes_registry::{
-            format_message, ErrorCode, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
+        diagnostics::{
+            format_message, ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
             NOT_A_FUNCTION,
         },
         position::Span,

@@ -7,7 +7,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     frontend::{
-        diagnostic::Diagnostic, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
+        diagnostics::Diagnostic, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
         program::Program,
     },
 };
@@ -42,7 +42,7 @@ fn parse_program(source: &str) -> Program {
     program
 }
 
-fn first_code(diags: Vec<flux::frontend::diagnostic::Diagnostic>) -> String {
+fn first_code(diags: Vec<flux::frontend::diagnostics::Diagnostic>) -> String {
     diags
         .first()
         .and_then(|d| d.code.clone())

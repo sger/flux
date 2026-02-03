@@ -1,5 +1,4 @@
-use crate::frontend::diagnostic::Diagnostic;
-
+use super::diagnostic::Diagnostic;
 use super::compiler_errors::*;
 use super::runtime_errors::*;
 use super::types::ErrorCode;

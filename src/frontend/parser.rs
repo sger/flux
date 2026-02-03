@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostic::Diagnostic,
+    diagnostics::Diagnostic,
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
