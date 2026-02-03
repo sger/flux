@@ -9,8 +9,8 @@ impl ErrorType {
     /// Returns the prefix string used in error headers
     pub fn prefix(&self) -> &'static str {
         match self {
-            ErrorType::Compiler => "compiler error",
-            ErrorType::Runtime => "runtime error",
+            ErrorType::Compiler => "Compiler error",
+            ErrorType::Runtime => "Runtime error",
         }
     }
 }

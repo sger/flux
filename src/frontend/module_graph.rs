@@ -205,7 +205,7 @@ fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
     if !parser.errors.is_empty() {
         let mut diags = parser.errors;
         for diag in &mut diags {
-            diag.file = Some(path.display().to_string());
+            diag.set_file(path.display().to_string());
         }
         return Err(diags);
     }
