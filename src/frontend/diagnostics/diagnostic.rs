@@ -2,6 +2,9 @@ use crate::frontend::position::{Position, Span};
 use super::{ErrorCode, ErrorType, format_message};
 use std::env;
 
+// Error code constants for special rendering cases
+const UNTERMINATED_STRING_ERROR_CODE: &str = "E031";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
@@ -18,7 +21,6 @@ pub struct Diagnostic {
     pub error_type: Option<ErrorType>,
     pub message: Option<String>,
     pub file: Option<String>,
-    pub position: Option<Position>,
     pub span: Option<Span>,
     pub hints: Vec<String>,
 }
@@ -42,7 +44,6 @@ impl Diagnostic {
             error_type: None,
             message: None,
             file: None,
-            position: None,
             span: None,
             hints: Vec::new(),
         }
@@ -56,10 +57,14 @@ impl Diagnostic {
             error_type: None,
             message: None,
             file: None,
-            position: None,
             span: None,
             hints: Vec::new(),
         }
+    }
+
+    /// Get the starting position from the span (derived field)
+    pub fn position(&self) -> Option<Position> {
+        self.span.map(|s| s.start)
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
@@ -83,13 +88,11 @@ impl Diagnostic {
     }
 
     pub fn with_position(mut self, position: Position) -> Self {
-        self.position = Some(position);
         self.span = Some(Span::new(position, position));
         self
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
-        self.position = Some(span.start);
         self.span = Some(span);
         self
     }
@@ -192,7 +195,7 @@ impl Diagnostic {
         }
 
         // Location indicator: --> file:line:column
-        if let Some(position) = self.position {
+        if let Some(position) = self.position() {
             out.push('\n');
             // Handle end-of-line sentinel value (usize::MAX - 1)
             let display_col = if position.column >= usize::MAX - 1 {
@@ -212,9 +215,7 @@ impl Diagnostic {
             ));
         }
 
-        if let Some(position) = self.position {
-            let _display_column = position.column + 1;
-
+        if let Some(position) = self.position() {
             let span = self.span.unwrap_or_else(|| Span::new(position, position));
             let start_line = span.start.line;
             let end_line = span.end.line.max(start_line);
@@ -261,10 +262,12 @@ impl Diagnostic {
                         caret_end = line_len.max(1);
                     }
 
+                    // Special handling for unterminated string literals
+                    // Highlight the opening quote instead of EOF position
                     if line_no == start_line
                         && line_no == end_line
-                        && self.message.as_deref()
-                            == Some("Lexer error: unterminated string literal.")
+                        && self.code.as_deref() == Some(UNTERMINATED_STRING_ERROR_CODE)
+                        && self.message.as_deref().map_or(false, |msg| msg.contains("unterminated string"))
                     {
                         let start_col = span.start.column.min(line_len);
                         if let Some((quote_idx, _)) = line_text
