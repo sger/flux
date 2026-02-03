@@ -157,35 +157,47 @@ impl Diagnostic {
         let file = self
             .file
             .as_deref()
+            .filter(|f| !f.is_empty())
             .or(default_file)
             .map(render_display_path)
             .unwrap_or_else(|| "<unknown>".to_string());
         let code = self.code.as_deref().unwrap_or("E000");
 
         // Get error type prefix from explicit error_type field
-        let error_type_prefix = self.error_type
-            .map(|et| et.prefix())
-            .unwrap_or("");
+        let error_type_label = if let Some(error_type) = self.error_type {
+            match error_type {
+                ErrorType::Compiler => "compiler error",
+                ErrorType::Runtime => "runtime error",
+            }
+        } else {
+            "Error"
+        };
 
+        // Header: -- Compiler error: expected expression [E031]
         if use_color {
             out.push_str(yellow);
         }
-        if error_type_prefix.is_empty() {
-            out.push_str(&format!("-- {} -- {} -- [{}]\n", self.title, file, code));
-        } else {
-            out.push_str(&format!(
-                "-- {}: {} -- {} -- [{}]\n",
-                error_type_prefix, self.title, file, code
-            ));
-        }
+        out.push_str(&format!("-- {}: {} [{}]\n", error_type_label, self.title.to_lowercase(), code));
         if use_color {
             out.push_str(reset);
         }
 
+        // Message
         if let Some(message) = &self.message {
             out.push('\n');
             out.push_str(message);
             out.push('\n');
+        }
+
+        // Location indicator: --> file:line:column
+        if let Some(position) = self.position {
+            out.push('\n');
+            out.push_str(&format!(
+                "  --> {}:{}:{}\n",
+                file,
+                position.line,
+                position.column + 1
+            ));
         }
 
         if let Some(position) = self.position {
@@ -195,6 +207,9 @@ impl Diagnostic {
             let start_line = span.start.line;
             let end_line = span.end.line.max(start_line);
             let line_width = end_line.to_string().len();
+
+            // Add separator line
+            out.push_str(&format!("{:>width$} |\n", "", width = line_width));
 
             for line_no in start_line..=end_line {
                 if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
@@ -260,10 +275,11 @@ impl Diagnostic {
             }
         }
 
+        // Hints section
         if !self.hints.is_empty() {
-            out.push('\n');
+            out.push_str("\n\nHint:\n");
             for hint in &self.hints {
-                out.push_str(&format!("\nHint: {}", hint));
+                out.push_str(&format!("  {}\n", hint));
             }
         }
 
