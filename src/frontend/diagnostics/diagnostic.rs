@@ -257,7 +257,6 @@ impl Diagnostic {
         &self,
         out: &mut String,
         use_color: bool,
-        error_type_label: &str,
         code: &str,
     ) {
         let yellow = "\u{1b}[33m";
@@ -266,7 +265,12 @@ impl Diagnostic {
         if use_color {
             out.push_str(yellow);
         }
-        out.push_str(&format!("-- {}: {} [{}]\n", error_type_label, self.title, code));
+        out.push_str(&format!(
+            "-- {}: {} [{}]\n",
+            self.header_label(),
+            self.title,
+            code
+        ));
         if use_color {
             out.push_str(reset);
         }
@@ -423,19 +427,27 @@ impl Diagnostic {
             .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
         let code = self.code.as_deref().unwrap_or("E000");
 
-        // Get error type prefix from explicit error_type field
-        let error_type_label = self
-            .error_type
-            .map(|error_type| error_type.prefix())
-            .unwrap_or("error");
-
-        self.render_header(&mut out, use_color, error_type_label, code);
+        self.render_header(&mut out, use_color, code);
         self.render_message(&mut out);
         self.render_location(&mut out, source, file.as_ref());
         self.render_source_snippet(&mut out, source, use_color);
         self.render_hints(&mut out);
 
         out
+    }
+}
+
+impl Diagnostic {
+    fn header_label(&self) -> &'static str {
+        match self.severity {
+            Severity::Error => self
+                .error_type
+                .map(|error_type| error_type.prefix())
+                .unwrap_or("Error"),
+            Severity::Warning => "Warning",
+            Severity::Note => "Note",
+            Severity::Help => "Help",
+        }
     }
 }
 

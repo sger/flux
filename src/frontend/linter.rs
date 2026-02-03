@@ -4,7 +4,7 @@ use crate::frontend::{
     diagnostics::Diagnostic,
     expression::{Expression, Pattern, StringPart},
     module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
-    position::Position,
+    position::{Position, Span},
     program::Program,
     statement::Statement,
 };
@@ -30,6 +30,9 @@ pub struct Linter {
     file: Option<String>,
 }
 
+const MAX_FUNCTION_LINES: usize = 50;
+const MAX_FUNCTION_PARAMS: usize = 5;
+
 impl Linter {
     pub fn new(file: Option<String>) -> Self {
         Self {
@@ -40,9 +43,7 @@ impl Linter {
     }
 
     pub fn lint(mut self, program: &Program) -> Vec<Diagnostic> {
-        for statement in &program.statements {
-            self.lint_statement(statement);
-        }
+        self.lint_block_statements(&program.statements);
         self.finish_scope();
         self.warnings
     }
@@ -76,6 +77,7 @@ impl Linter {
                 span,
                 ..
             } => {
+                self.check_function_complexity(Some(name), parameters, body, span.start);
                 if !is_snake_case(name) {
                     self.push_warning(
                         "FUNCTION NAME STYLE",
@@ -89,18 +91,14 @@ impl Linter {
                 for param in parameters {
                     self.define_binding(param, span.start, BindingKind::Param);
                 }
-                for stmt in &body.statements {
-                    self.lint_statement(stmt);
-                }
+                self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
             Statement::Module { name, body, span } => {
                 let binding = module_binding_name(name);
                 self.define_binding(binding, span.start, BindingKind::Function);
                 self.enter_scope();
-                for stmt in &body.statements {
-                    self.lint_statement(stmt);
-                }
+                self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
             Statement::Import { name, alias, span } => {
@@ -150,13 +148,9 @@ impl Linter {
                 ..
             } => {
                 self.lint_expression(condition);
-                for stmt in &consequence.statements {
-                    self.lint_statement(stmt);
-                }
+                self.lint_block_statements(&consequence.statements);
                 if let Some(alt) = alternative {
-                    for stmt in &alt.statements {
-                        self.lint_statement(stmt);
-                    }
+                    self.lint_block_statements(&alt.statements);
                 }
             }
             Expression::Function {
@@ -164,13 +158,12 @@ impl Linter {
                 body,
                 span,
             } => {
+                self.check_function_complexity(None, parameters, body, span.start);
                 self.enter_scope();
                 for param in parameters {
                     self.define_binding(param, span.start, BindingKind::Param);
                 }
-                for stmt in &body.statements {
-                    self.lint_statement(stmt);
-                }
+                self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
             Expression::Call {
@@ -226,6 +219,24 @@ impl Linter {
 
     fn enter_scope(&mut self) {
         self.scopes.push(HashMap::new());
+    }
+
+    fn lint_block_statements(&mut self, statements: &[Statement]) {
+        let mut unreachable = false;
+        for statement in statements {
+            if unreachable {
+                self.push_warning(
+                    "DEAD CODE",
+                    "W008",
+                    statement.span().start,
+                    "Unreachable code after return.".to_string(),
+                );
+            }
+            self.lint_statement(statement);
+            if matches!(statement, Statement::Return { .. }) {
+                unreachable = true;
+            }
+        }
     }
 
     fn finish_scope(&mut self) {
@@ -333,6 +344,50 @@ impl Linter {
         }
         self.warnings.push(diag);
     }
+
+    fn check_function_complexity(
+        &mut self,
+        name: Option<&str>,
+        parameters: &[String],
+        body: &crate::frontend::block::Block,
+        position: Position,
+    ) {
+        if parameters.len() > MAX_FUNCTION_PARAMS {
+            let label = name.unwrap_or("<anonymous>");
+            self.push_warning(
+                "TOO MANY PARAMETERS",
+                "W010",
+                position,
+                format!(
+                    "Function `{}` has {} parameters (max {}).",
+                    label,
+                    parameters.len(),
+                    MAX_FUNCTION_PARAMS
+                ),
+            );
+        }
+
+        let line_count = span_line_count(body.span());
+        if line_count > MAX_FUNCTION_LINES {
+            let label = name.unwrap_or("<anonymous>");
+            self.push_warning(
+                "FUNCTION TOO LONG",
+                "W009",
+                position,
+                format!(
+                    "Function `{}` is {} lines long (max {}).",
+                    label, line_count, MAX_FUNCTION_LINES
+                ),
+            );
+        }
+    }
+}
+
+fn span_line_count(span: Span) -> usize {
+    if span.start.line == 0 || span.end.line == 0 {
+        return 0;
+    }
+    span.end.line.saturating_sub(span.start.line) + 1
 }
 
 fn is_snake_case(name: &str) -> bool {

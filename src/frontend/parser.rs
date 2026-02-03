@@ -92,7 +92,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNKNOWN KEYWORD")
                         .with_code("E101")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message("Flux uses `fun` for function declarations.")
                         .with_hint("Replace it with `fun`."),
                 );
@@ -107,7 +108,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNKNOWN KEYWORD")
                         .with_code("E101")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
                             self.current_token.literal
@@ -484,7 +486,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID PIPE TARGET")
                         .with_code("E103")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message("Pipe operator expects a function or function call.")
                         .with_hint("Use `value |> func` or `value |> func(arg)`"),
                 );
@@ -566,7 +569,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID INTEGER")
                         .with_code("E103")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Could not parse `{}` as an integer.",
                             self.current_token.literal
@@ -588,7 +592,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID FLOAT")
                         .with_code("E104")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Could not parse `{}` as a float.",
                             self.current_token.literal
@@ -689,7 +694,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNTERMINATED INTERPOLATION")
                         .with_code("E107")
-                        .with_position(self.peek_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.peek_token.span())
                         .with_message("Expected string continuation or end after interpolation."),
                 );
                 self.suppress_unterminated_string_error = true;
@@ -891,7 +897,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID PATTERN")
                         .with_code("E106")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Expected a pattern, found `{}`.",
                             self.current_token.token_type
@@ -1038,7 +1045,8 @@ impl Parser {
             self.errors.push(
                 Diagnostic::error("INVALID LAMBDA")
                     .with_code("E106")
-                    .with_position(self.current_token.position)
+                    .with_error_type(ErrorType::Compiler)
+                    .with_span(self.current_token.span())
                     .with_message("Expected parameter or `(` after `\\`.")
                     .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
             );
@@ -1050,7 +1058,8 @@ impl Parser {
             self.errors.push(
                 Diagnostic::error("EXPECTED ARROW")
                     .with_code("E107")
-                    .with_position(self.current_token.position)
+                    .with_error_type(ErrorType::Compiler)
+                    .with_span(self.current_token.span())
                     .with_message(format!(
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
@@ -1193,7 +1202,7 @@ impl Parser {
             Diagnostic::error("UNEXPECTED TOKEN")
                 .with_code("E105")
                 .with_error_type(ErrorType::Compiler)
-                .with_position(self.peek_token.position)
+                .with_span(self.peek_token.span())
                 .with_message(format!(
                     "Expected {}, got {}.",
                     expected, self.peek_token.token_type
