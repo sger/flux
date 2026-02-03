@@ -1,0 +1,8 @@
+// Error Example: Reassigning immutable variable
+// Expected Error: [E002] Compiler error: immutable binding
+//
+// This demonstrates trying to reassign a variable that wasn't declared as mutable.
+
+let x = 10
+x = 20  // Error: x is not mutable
+print(x)

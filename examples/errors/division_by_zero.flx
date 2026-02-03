@@ -1,0 +1,8 @@
+// Error Example: Division by zero
+// Expected Error: [E1008] Runtime error: division by zero
+//
+// This demonstrates a runtime error when dividing by zero.
+
+let x = 10
+let y = 0
+print(x / y)

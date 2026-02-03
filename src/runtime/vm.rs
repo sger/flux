@@ -56,9 +56,13 @@ impl VM {
         match self.run_inner() {
             Ok(()) => Ok(()),
             Err(err) => {
+                let normalized = strip_ansi(&err);
                 // Check if error is already formatted (from runtime_error_enhanced)
-                // All formatted errors start with "-- "
-                if err.starts_with("-- ") {
+                // Formatted errors start with "-- " and contain error code "[EXXX]"
+                // Check for both uppercase and lowercase error codes
+                if normalized.starts_with("-- ")
+                    && (normalized.contains("[E") || normalized.contains("[e"))
+                {
                     Err(err)
                 } else {
                     // Format unmigrated errors through Diagnostic system
@@ -852,4 +856,24 @@ fn split_first_line(message: &str) -> (&str, &str) {
     } else {
         (message, "")
     }
+}
+
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            if let Some('[') = chars.peek().copied() {
+                chars.next();
+                while let Some(seq_ch) = chars.next() {
+                    if ('@'..='~').contains(&seq_ch) {
+                        break;
+                    }
+                }
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
 }
