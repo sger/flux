@@ -1,7 +1,5 @@
-use crate::frontend::{
-    error_codes_registry::{ErrorCode, ErrorType, format_message},
-    position::{Position, Span},
-};
+use crate::frontend::position::{Position, Span};
+use super::{ErrorCode, ErrorType, format_message};
 use std::env;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +27,7 @@ pub struct Diagnostic {
 #[macro_export]
 macro_rules! ice {
     ($msg:expr) => {
-        $crate::frontend::diagnostic::Diagnostic::error("INTERNAL COMPILER ERROR")
+        $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
             .with_message($msg)
             .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!()))
     };

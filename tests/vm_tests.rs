@@ -1,5 +1,5 @@
 use flux::bytecode::compiler::Compiler;
-use flux::frontend::diagnostic::render_diagnostics;
+use flux::frontend::diagnostics::render_diagnostics;
 use flux::frontend::lexer::Lexer;
 use flux::frontend::parser::Parser;
 use flux::runtime::object::Object;

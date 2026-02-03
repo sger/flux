@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostic::Diagnostic,
+    diagnostics::Diagnostic,
     position::{Position, Span},
 };
 

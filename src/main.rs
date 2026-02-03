@@ -10,7 +10,7 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostic::{Diagnostic, render_diagnostics},
+        diagnostics::{Diagnostic, render_diagnostics},
         formatter::format_source,
         lexer::Lexer,
         linter::Linter,
