@@ -7,7 +7,7 @@ use crate::{
     },
     frontend::{
         diagnostics::{
-            format_message, ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
+            ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
             NOT_A_FUNCTION,
         },
         position::Span,
@@ -379,20 +379,20 @@ impl VM {
         error_code: &'static ErrorCode,
         values: &[&str],
     ) -> String {
-        let message = format_message(error_code.message, values);
-        let hint = error_code.hint.map(|h| format_message(h, &[]));
+        use crate::frontend::position::{Position, Span};
 
-        let mut diag = Diagnostic::error(error_code.title)
-            .with_code(error_code.code)
-            .with_message(message);
+        let (file, span) = self.current_location()
+            .unwrap_or_else(|| (
+                String::from("<unknown>"),
+                Span::new(Position::default(), Position::default())
+            ));
 
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
-        }
-
-        if let Some((file, span)) = self.current_location() {
-            diag = diag.with_file(file).with_span(span);
-        }
+        let diag = Diagnostic::make_error(
+            error_code,
+            values,
+            file,
+            span,
+        );
 
         // Read source for the diagnostic render
         let source = self

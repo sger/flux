@@ -6,14 +6,14 @@ use std::{
 
 use crate::frontend::{
     diagnostics::{
-        format_message, Diagnostic, DUPLICATE_MODULE, IMPORT_CYCLE,
+        Diagnostic, DUPLICATE_MODULE, IMPORT_CYCLE,
         IMPORT_NOT_FOUND, IMPORT_READ_FAILED, INVALID_MODULE_ALIAS,
         INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
         MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     },
     lexer::Lexer,
     parser::Parser,
-    position::Position,
+    position::{Position, Span},
     program::Program,
     statement::Statement,
 };
@@ -189,17 +189,12 @@ fn is_valid_module_segment(segment: &str) -> bool {
 fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
     let source = fs::read_to_string(path).map_err(|err| {
         let error_spec = &IMPORT_READ_FAILED;
-        let message = format_message(
-            error_spec.message,
+        let diag = Diagnostic::make_error(
+            error_spec,
             &[&path.display().to_string(), &err.to_string()],
+            path.display().to_string(),
+            Span::new(Position::default(), Position::default()),
         );
-        let mut diag = Diagnostic::error(error_spec.title)
-            .with_code(error_spec.code)
-            .with_message(message)
-            .with_file(path.display().to_string());
-        if let Some(hint) = error_spec.hint {
-            diag = diag.with_hint(hint);
-        }
         vec![diag]
     })?;
 
@@ -234,15 +229,12 @@ fn resolve_imports(
 
         if !is_valid_module_name(&name) {
             let error_spec = &INVALID_MODULE_NAME;
-            let message = format_message(error_spec.message, &[&name]);
-            let mut diag = Diagnostic::error(error_spec.title)
-                .with_code(error_spec.code)
-                .with_position(position)
-                .with_message(message)
-                .with_file(path.display().to_string());
-            if let Some(hint) = error_spec.hint {
-                diag = diag.with_hint(hint);
-            }
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[&name],
+                path.display().to_string(),
+                Span::new(position, position),
+            );
             diagnostics.push(diag);
             continue;
         }
@@ -251,15 +243,12 @@ fn resolve_imports(
             && !is_valid_module_alias(alias)
         {
             let error_spec = &INVALID_MODULE_ALIAS;
-            let message = format_message(error_spec.message, &[alias]);
-            let mut diag = Diagnostic::error(error_spec.title)
-                .with_code(error_spec.code)
-                .with_position(position)
-                .with_message(message)
-                .with_file(path.display().to_string());
-            if let Some(hint) = error_spec.hint {
-                diag = diag.with_hint(hint);
-            }
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[alias],
+                path.display().to_string(),
+                Span::new(position, position),
+            );
             diagnostics.push(diag);
             continue;
         }
@@ -304,7 +293,6 @@ fn resolve_import_path(
     let import_path = match matches.len() {
         0 => {
             let error_spec = &IMPORT_NOT_FOUND;
-            let message = format_message(error_spec.message, &[name]);
             let hint = format!(
                 "Looked for module `{}` under roots: {} (imported from {}).",
                 name,
@@ -315,18 +303,17 @@ fn resolve_import_path(
                     .join(", "),
                 source_path.display()
             );
-            return Err(Box::new(
-                Diagnostic::error(error_spec.title)
-                    .with_code(error_spec.code)
-                    .with_position(position)
-                    .with_message(message)
-                    .with_hint(hint),
-            ));
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[name],
+                source_path.display().to_string(),
+                Span::new(position, position),
+            ).with_hint(hint);
+            return Err(Box::new(diag));
         }
         1 => matches.remove(0),
         _ => {
             let error_spec = &DUPLICATE_MODULE;
-            let message = format_message(error_spec.message, &[name]);
             let hint = format!(
                 "Found: {}",
                 matches
@@ -335,14 +322,13 @@ fn resolve_import_path(
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            return Err(Box::new(
-                Diagnostic::error(error_spec.title)
-                    .with_code(error_spec.code)
-                    .with_position(position)
-                    .with_message(message)
-                    .with_hint(hint)
-                    .with_file(source_path.display().to_string()),
-            ));
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[name],
+                source_path.display().to_string(),
+                Span::new(position, position),
+            ).with_hint(hint);
+            return Err(Box::new(diag));
         }
     };
 
@@ -398,14 +384,12 @@ fn validate_file_kind(
 
     if module_decls.len() > 1 {
         let error_spec = &MULTIPLE_MODULES;
-        let message = format_message(error_spec.message, &[]);
-        let mut diag = Diagnostic::error(error_spec.title)
-            .with_code(error_spec.code)
-            .with_message(message)
-            .with_file(path.display().to_string());
-        if let Some(hint) = error_spec.hint {
-            diag = diag.with_hint(hint);
-        }
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[],
+            path.display().to_string(),
+            Span::new(Position::default(), Position::default()),
+        );
         diagnostics.push(diag);
         return Err(diagnostics);
     }
@@ -418,18 +402,12 @@ fn validate_file_kind(
                 Statement::Module { .. } => {}
                 _ => {
                     let error_spec = &INVALID_MODULE_FILE;
-                    let message = format_message(
-                        error_spec.message,
+                    let diag = Diagnostic::make_error(
+                        error_spec,
                         &["Module files may only contain imports and a single module declaration"],
+                        path.display().to_string(),
+                        Span::new(statement.position(), statement.position()),
                     );
-                    let mut diag = Diagnostic::error(error_spec.title)
-                        .with_code(error_spec.code)
-                        .with_position(statement.position())
-                        .with_message(message)
-                        .with_file(path.display().to_string());
-                    if let Some(hint) = error_spec.hint {
-                        diag = diag.with_hint(hint);
-                    }
                     diagnostics.push(diag);
                     break;
                 }
@@ -438,42 +416,31 @@ fn validate_file_kind(
 
         if !is_valid_module_name(&module_name) {
             let error_spec = &INVALID_MODULE_NAME;
-            let message = format_message(error_spec.message, &[&module_name]);
-            let mut diag = Diagnostic::error(error_spec.title)
-                .with_code(error_spec.code)
-                .with_position(position)
-                .with_message(message)
-                .with_file(path.display().to_string());
-            if let Some(hint) = error_spec.hint {
-                diag = diag.with_hint(hint);
-            }
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[&module_name],
+                path.display().to_string(),
+                Span::new(position, position),
+            );
             diagnostics.push(diag);
         } else if !module_name_matches_path(&module_name, path, roots) {
             let error_spec = &MODULE_PATH_MISMATCH;
-            let message = format_message(
-                error_spec.message,
+            let diag = Diagnostic::make_error(
+                error_spec,
                 &[&module_name, &path.display().to_string()],
+                path.display().to_string(),
+                Span::new(position, position),
             );
-            let mut diag = Diagnostic::error(error_spec.title)
-                .with_code(error_spec.code)
-                .with_position(position)
-                .with_message(message)
-                .with_file(path.display().to_string());
-            if let Some(hint) = error_spec.hint {
-                diag = diag.with_hint(hint);
-            }
             diagnostics.push(diag);
         }
     } else if !is_entry {
         let error_spec = &SCRIPT_NOT_IMPORTABLE;
-        let message = format_message(error_spec.message, &[&path.display().to_string()]);
-        let mut diag = Diagnostic::error(error_spec.title)
-            .with_code(error_spec.code)
-            .with_message(message)
-            .with_file(path.display().to_string());
-        if let Some(hint) = error_spec.hint {
-            diag = diag.with_hint(hint);
-        }
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[&path.display().to_string()],
+            path.display().to_string(),
+            Span::new(Position::default(), Position::default()),
+        );
         diagnostics.push(diag);
     }
 
@@ -548,14 +515,12 @@ fn topo_order(
             .collect::<Vec<_>>()
             .join(" -> ");
         let error_spec = &IMPORT_CYCLE;
-        let message = format_message(error_spec.message, &[&cycle_str]);
-        let mut diag = Diagnostic::error(error_spec.title)
-            .with_code(error_spec.code)
-            .with_message(message)
-            .with_file(entry.as_str().to_string());
-        if let Some(hint) = error_spec.hint {
-            diag = diag.with_hint(hint);
-        }
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[&cycle_str],
+            entry.as_str().to_string(),
+            Span::new(Position::default(), Position::default()),
+        );
         return Err(Box::new(diag));
     }
 
