@@ -8,7 +8,7 @@ use crate::{
     frontend::{
         diagnostics::{
             ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
-            NOT_A_FUNCTION,
+            NOT_A_FUNCTION, render_display_path,
         },
         position::Span,
     },
@@ -339,7 +339,12 @@ impl VM {
 
         // Add stack trace if available
         if !self.frames.is_empty() {
-            rendered.push_str("\n\nStack trace:");
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
                 rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
@@ -385,7 +390,12 @@ impl VM {
 
         // Add stack trace if available
         if !self.frames.is_empty() {
-            rendered.push_str("\n\nStack trace:");
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
                 rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
@@ -418,7 +428,7 @@ impl VM {
                 info.file_for(loc.file_id).map(|file| {
                     format!(
                         "{}:{}:{}",
-                        file,
+                        render_display_path(file),
                         loc.span.start.line,
                         loc.span.start.column
                     )

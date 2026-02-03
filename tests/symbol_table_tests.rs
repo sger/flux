@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use flux::bytecode::{symbol::Symbol, symbol_scope::SymbolScope, symbol_table::SymbolTable};
+    use flux::frontend::position::Span;
 
     fn assert_symbol(sym: Symbol, name: &str, scope: SymbolScope, index: usize) {
         assert_eq!(sym.name, name);
@@ -11,8 +12,8 @@ mod tests {
     #[test]
     fn define_resolve() {
         let mut global = SymbolTable::new();
-        global.define("a");
-        global.define("b");
+        global.define("a", Span::default());
+        global.define("b", Span::default());
 
         assert_eq!(global.resolve("a").unwrap().index, 0);
         assert_eq!(global.resolve("b").unwrap().index, 1);
@@ -21,10 +22,10 @@ mod tests {
     #[test]
     fn nested_scopes() {
         let mut global = SymbolTable::new();
-        global.define("a");
+        global.define("a", Span::default());
 
         let mut local = SymbolTable::new_enclosed(global);
-        local.define("b");
+        local.define("b", Span::default());
 
         assert_eq!(
             local.resolve("a").unwrap().symbol_scope,
@@ -37,8 +38,8 @@ mod tests {
     fn define_global() {
         let mut global = SymbolTable::new();
 
-        let a = global.define("a");
-        let b = global.define("b");
+        let a = global.define("a", Span::default());
+        let b = global.define("b", Span::default());
 
         assert_symbol(a, "a", SymbolScope::Global, 0);
         assert_symbol(b, "b", SymbolScope::Global, 1);
@@ -49,8 +50,8 @@ mod tests {
         let global = SymbolTable::new();
         let mut local = SymbolTable::new_enclosed(global);
 
-        let a = local.define("a");
-        let b = local.define("b");
+        let a = local.define("a", Span::default());
+        let b = local.define("b", Span::default());
 
         assert_symbol(a, "a", SymbolScope::Local, 0);
         assert_symbol(b, "b", SymbolScope::Local, 1);
@@ -59,8 +60,8 @@ mod tests {
     #[test]
     fn resolve_global() {
         let mut global = SymbolTable::new();
-        global.define("a");
-        global.define("b");
+        global.define("a", Span::default());
+        global.define("b", Span::default());
 
         let a = global.resolve("a").unwrap();
         let b = global.resolve("b").unwrap();
@@ -72,12 +73,12 @@ mod tests {
     #[test]
     fn resolve_local_and_global() {
         let mut global = SymbolTable::new();
-        global.define("a");
-        global.define("b");
+        global.define("a", Span::default());
+        global.define("b", Span::default());
 
         let mut local = SymbolTable::new_enclosed(global);
-        local.define("c");
-        local.define("d");
+        local.define("c", Span::default());
+        local.define("d", Span::default());
 
         // locals
         assert_symbol(local.resolve("c").unwrap(), "c", SymbolScope::Local, 0);
@@ -122,7 +123,7 @@ mod tests {
         let global = SymbolTable::new();
         let mut local = SymbolTable::new_enclosed(global);
 
-        let fn_sym = local.define_function_name("myFunc");
+        let fn_sym = local.define_function_name("myFunc", Span::default());
         assert_symbol(fn_sym, "myFunc", SymbolScope::Function, 0);
 
         // should resolve from same scope
@@ -145,16 +146,16 @@ mod tests {
         // inner references: a, b (globals), c, d (free), e, f (locals)
 
         let mut global = SymbolTable::new();
-        global.define("a");
-        global.define("b");
+        global.define("a", Span::default());
+        global.define("b", Span::default());
 
         let mut outer = SymbolTable::new_enclosed(global);
-        outer.define("c");
-        outer.define("d");
+        outer.define("c", Span::default());
+        outer.define("d", Span::default());
 
         let mut inner = SymbolTable::new_enclosed(outer);
-        inner.define("e");
-        inner.define("f");
+        inner.define("e", Span::default());
+        inner.define("f", Span::default());
 
         // locals
         assert_symbol(inner.resolve("e").unwrap(), "e", SymbolScope::Local, 0);
@@ -190,13 +191,13 @@ mod tests {
         // second references: a (global), b (free), c (local)
 
         let mut global = SymbolTable::new();
-        global.define("a");
+        global.define("a", Span::default());
 
         let mut first = SymbolTable::new_enclosed(global);
-        first.define("b");
+        first.define("b", Span::default());
 
         let mut second = SymbolTable::new_enclosed(first);
-        second.define("c");
+        second.define("c", Span::default());
 
         assert_symbol(second.resolve("a").unwrap(), "a", SymbolScope::Global, 0);
         assert_symbol(second.resolve("c").unwrap(), "c", SymbolScope::Local, 0);
@@ -211,10 +212,10 @@ mod tests {
     #[test]
     fn free_symbol_is_not_duplicated() {
         let mut global = SymbolTable::new();
-        global.define("a");
+        global.define("a", Span::default());
 
         let mut outer = SymbolTable::new_enclosed(global);
-        outer.define("b");
+        outer.define("b", Span::default());
 
         let mut inner = SymbolTable::new_enclosed(outer);
 

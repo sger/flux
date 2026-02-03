@@ -1,0 +1,12 @@
+// This example demonstrates hint positioning for duplicate variable errors
+// The error will show where the variable was first defined
+
+let x = 10;
+
+let y = 20;
+
+// This will error: variable 'x' is already defined
+// The hint will point back to line 3 where x was first defined
+let x = 30;
+
+x + y

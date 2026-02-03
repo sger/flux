@@ -1,0 +1,18 @@
+// This example shows that shadowing in different scopes is OK
+// No errors should occur here
+
+let x = 10;
+
+fun compute(value) {
+    // This 'x' is in a different scope, so it's OK
+    let x = value * 2;
+    x + 5
+}
+
+// This is also fine - sequential definitions in same scope
+let result1 = compute(x);
+
+// If we uncomment the line below, it would error
+// let x = 20;  // Error: duplicate variable 'x' in same scope
+
+result1

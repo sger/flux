@@ -16,6 +16,49 @@ pub enum Severity {
     Help,
 }
 
+/// A hint with optional source location and label
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub text: String,
+    pub span: Option<Span>,
+    pub label: Option<String>,
+}
+
+impl Hint {
+    /// Create a simple text-only hint
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            span: None,
+            label: None,
+        }
+    }
+
+    /// Create a hint with a source location
+    pub fn at(text: impl Into<String>, span: Span) -> Self {
+        Self {
+            text: text.into(),
+            span: Some(span),
+            label: None,
+        }
+    }
+
+    /// Create a hint with a source location and label
+    pub fn labeled(text: impl Into<String>, span: Span, label: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            span: Some(span),
+            label: Some(label.into()),
+        }
+    }
+
+    /// Add a label to this hint
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     severity: Severity,
@@ -25,7 +68,7 @@ pub struct Diagnostic {
     message: Option<String>,
     file: Option<String>,
     span: Option<Span>,
-    hints: Vec<String>,
+    hints: Vec<Hint>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -34,7 +77,7 @@ macro_rules! ice {
     ($msg:expr) => {
         $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
             .with_message($msg)
-            .with_hint(format!("{}:{} ({})", file!(), line!(), module_path!()))
+            .with_hint_text(format!("{}:{} ({})", file!(), line!(), module_path!()))
     };
 }
 
@@ -101,7 +144,7 @@ impl Diagnostic {
         self.span
     }
 
-    pub fn hints(&self) -> &[String] {
+    pub fn hints(&self) -> &[Hint] {
         &self.hints
     }
 
@@ -140,14 +183,38 @@ impl Diagnostic {
         self
     }
 
-    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        let hint = hint.into();
-        let cleaned = hint
+    /// Add a hint to the diagnostic
+    pub fn with_hint(mut self, hint: Hint) -> Self {
+        self.hints.push(hint);
+        self
+    }
+
+    /// Add a text-only hint (convenience method for backward compatibility)
+    pub fn with_hint_text(mut self, text: impl Into<String>) -> Self {
+        let text = text.into();
+        let cleaned = text
             .strip_prefix("Hint:\n")
-            .or_else(|| hint.strip_prefix("Hint:"))
-            .unwrap_or(hint.as_str())
+            .or_else(|| text.strip_prefix("Hint:"))
+            .unwrap_or(text.as_str())
             .trim_start();
-        self.hints.push(cleaned.to_string());
+        self.hints.push(Hint::text(cleaned));
+        self
+    }
+
+    /// Add a hint with a source location (convenience method)
+    pub fn with_hint_at(mut self, text: impl Into<String>, span: Span) -> Self {
+        self.hints.push(Hint::at(text, span));
+        self
+    }
+
+    /// Add a hint with a source location and label (convenience method)
+    pub fn with_hint_labeled(
+        mut self,
+        text: impl Into<String>,
+        span: Span,
+        label: impl Into<String>,
+    ) -> Self {
+        self.hints.push(Hint::labeled(text, span, label));
         self
     }
 
@@ -169,7 +236,7 @@ impl Diagnostic {
             .with_message(message);
 
         if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
+            diag = diag.with_hint_text(hint_text);
         }
 
         diag
@@ -194,7 +261,7 @@ impl Diagnostic {
             .with_message(message);
 
         if let Some(hint_text) = hint {
-            diag = diag.with_hint(hint_text);
+            diag = diag.with_hint_text(hint_text);
         }
 
         diag
@@ -266,7 +333,7 @@ impl Diagnostic {
             out.push_str(yellow);
         }
         out.push_str(&format!(
-            "-- {}: {} [{}]\n",
+            "-- {}: {} [{}]",
             self.header_label(),
             self.title,
             code
@@ -274,15 +341,21 @@ impl Diagnostic {
         if use_color {
             out.push_str(reset);
         }
+        out.push('\n');
     }
 
     fn render_message(&self, out: &mut String) {
         // Message
         if let Some(message) = &self.message {
-            out.push('\n');
-            out.push_str(message);
-            out.push('\n');
+            if !message.is_empty() {
+                out.push('\n');
+                out.push_str(message);
+                out.push('\n');
+                return;
+            }
         }
+        // Keep a blank line between header and location when no message is provided.
+        out.push('\n');
     }
 
     fn render_location(
@@ -293,7 +366,10 @@ impl Diagnostic {
     ) {
         // Location indicator: --> file:line:column
         if let Some(position) = self.position() {
-            out.push('\n');
+            // Only add newline if there was a non-empty message
+            if self.message.as_ref().map_or(false, |m| !m.is_empty()) {
+                out.push('\n');
+            }
             // Handle end-of-line sentinel value
             let display_col = if position.column >= END_OF_LINE_SENTINEL {
                 // Get actual line length from source if available
@@ -405,12 +481,148 @@ impl Diagnostic {
         }
     }
 
-    fn render_hints(&self, out: &mut String) {
-        // Hints section
-        if !self.hints.is_empty() {
+    fn render_hints(&self, out: &mut String, source: Option<&str>, use_color: bool) {
+        if self.hints.is_empty() {
+            return;
+        }
+
+        let blue = "\u{1b}[34m";
+        let reset = "\u{1b}[0m";
+
+        // Separate hints into those with and without spans
+        let (text_hints, span_hints): (Vec<_>, Vec<_>) =
+            self.hints.iter().partition(|h| h.span.is_none());
+
+        let has_text_hints = !text_hints.is_empty();
+
+        // Render text-only hints first
+        if has_text_hints {
             out.push_str("\n\nHint:\n");
-            for hint in &self.hints {
-                out.push_str(&format!("  {}\n", hint));
+            for hint in text_hints {
+                out.push_str(&format!("  {}\n", hint.text));
+            }
+        }
+
+        // Render hints with spans
+        for hint in span_hints {
+            if let Some(span) = hint.span {
+                // Add separator before each span-based hint
+                // Use single newline if text hints already added double newline
+                if has_text_hints {
+                    out.push('\n');
+                } else {
+                    out.push_str("\n\n");
+                }
+
+                // Render the note header with optional label
+                if let Some(label) = &hint.label {
+                    if use_color {
+                        out.push_str(blue);
+                    }
+                    out.push_str(&format!("   = note: {}\n", label));
+                    if use_color {
+                        out.push_str(reset);
+                    }
+                } else {
+                    if use_color {
+                        out.push_str(blue);
+                    }
+                    out.push_str("   = note:\n");
+                    if use_color {
+                        out.push_str(reset);
+                    }
+                }
+
+                // Render location
+                let start = span.start;
+                let display_col = if start.column >= END_OF_LINE_SENTINEL {
+                    source
+                        .and_then(|src| get_source_line(src, start.line))
+                        .map(|line| line.len() + 1)
+                        .unwrap_or(1)
+                } else {
+                    start.column + 1
+                };
+
+                let file = self
+                    .file
+                    .as_deref()
+                    .filter(|f| !f.is_empty())
+                    .map(render_display_path)
+                    .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
+                out.push_str(&format!(
+                    "  --> {}:{}:{}\n",
+                    file, start.line, display_col
+                ));
+
+                // Render source snippet for this hint
+                self.render_hint_snippet(out, source, span, use_color);
+
+                // Render hint text if provided
+                if !hint.text.is_empty() {
+                    out.push_str("\n\nHint:\n");
+                    out.push_str(&format!("  {}\n", hint.text));
+                }
+            }
+        }
+    }
+
+    fn render_hint_snippet(&self, out: &mut String, source: Option<&str>, span: Span, use_color: bool) {
+        let red = "\u{1b}[31m";
+        let reset = "\u{1b}[0m";
+
+        let start_line = span.start.line;
+        let end_line = span.end.line.max(start_line);
+        let line_width = end_line.to_string().len();
+
+        // Add separator line
+        out.push_str(&format!("{:>width$} |\n", "", width = line_width));
+
+        for line_no in start_line..=end_line {
+            if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
+                let line_len = line_text.len();
+                let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
+                    let start = if span.start.column >= END_OF_LINE_SENTINEL {
+                        line_len
+                    } else {
+                        span.start.column.min(line_len)
+                    };
+                    let end = if span.end.column >= END_OF_LINE_SENTINEL {
+                        line_len
+                    } else {
+                        span.end.column.min(line_len)
+                    };
+                    (start, end.max(start + 1))
+                } else if line_no == start_line {
+                    let start = span.start.column.min(line_len);
+                    (start, line_len.max(start + 1))
+                } else if line_no == end_line {
+                    let end = span.end.column.min(line_len);
+                    (0, end.max(1))
+                } else {
+                    (0, line_len.max(1))
+                };
+
+                out.push_str(&format!(
+                    "{:>width$} | {}\n",
+                    line_no, line_text, width = line_width
+                ));
+                out.push_str(&format!(
+                    "{:>width$} | {}",
+                    "", " ".repeat(caret_start), width = line_width
+                ));
+                if use_color {
+                    out.push_str(red);
+                }
+                let caret_len = caret_end.saturating_sub(caret_start).max(1);
+                out.push_str(&"^".repeat(caret_len));
+                if use_color {
+                    out.push_str(reset);
+                }
+
+                if line_no < end_line {
+                    out.push('\n');
+                }
             }
         }
     }
@@ -431,7 +643,11 @@ impl Diagnostic {
         self.render_message(&mut out);
         self.render_location(&mut out, source, file.as_ref());
         self.render_source_snippet(&mut out, source, use_color);
-        self.render_hints(&mut out);
+        self.render_hints(&mut out, source, use_color);
+
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
 
         out
     }
@@ -471,7 +687,7 @@ fn get_source_line(source: &str, line: usize) -> Option<&str> {
     source.lines().nth(line.saturating_sub(1))
 }
 
-fn render_display_path(file: &str) -> Cow<'_, str> {
+pub fn render_display_path(file: &str) -> Cow<'_, str> {
     let path = std::path::Path::new(file);
     if path.is_absolute()
         && let Ok(cwd) = std::env::current_dir()

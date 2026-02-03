@@ -95,7 +95,7 @@ impl Parser {
                         .with_error_type(ErrorType::Compiler)
                         .with_span(self.current_token.span())
                         .with_message("Flux uses `fun` for function declarations.")
-                        .with_hint("Replace it with `fun`."),
+                        .with_hint_text("Replace it with `fun`."),
                 );
                 self.synchronize_after_error();
                 None
@@ -114,7 +114,7 @@ impl Parser {
                             "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
                             self.current_token.literal
                         ))
-                        .with_hint("Did you mean `fun`?"),
+                        .with_hint_text("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
                 None
@@ -489,7 +489,7 @@ impl Parser {
                         .with_error_type(ErrorType::Compiler)
                         .with_span(self.current_token.span())
                         .with_message("Pipe operator expects a function or function call.")
-                        .with_hint("Use `value |> func` or `value |> func(arg)`"),
+                        .with_hint_text("Use `value |> func` or `value |> func(arg)`"),
                 );
                 None
             }
@@ -1048,7 +1048,7 @@ impl Parser {
                     .with_error_type(ErrorType::Compiler)
                     .with_span(self.current_token.span())
                     .with_message("Expected parameter or `(` after `\\`.")
-                    .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`."),
             );
             return None;
         };
@@ -1064,7 +1064,7 @@ impl Parser {
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
                     ))
-                    .with_hint("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_hint_text("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
             );
             return None;
         }

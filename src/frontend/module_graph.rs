@@ -308,7 +308,7 @@ fn resolve_import_path(
                 &[name],
                 source_path.display().to_string(),
                 Span::new(position, position),
-            ).with_hint(hint);
+            ).with_hint_text(hint);
             return Err(Box::new(diag));
         }
         1 => matches.remove(0),
@@ -327,7 +327,7 @@ fn resolve_import_path(
                 &[name],
                 source_path.display().to_string(),
                 Span::new(position, position),
-            ).with_hint(hint);
+            ).with_hint_text(hint);
             return Err(Box::new(diag));
         }
     };

@@ -1,4 +1,5 @@
 use crate::bytecode::symbol_scope::SymbolScope;
+use crate::frontend::position::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Symbol {
@@ -6,15 +7,17 @@ pub struct Symbol {
     pub symbol_scope: SymbolScope,
     pub index: usize,
     pub is_assigned: bool,
+    pub span: Span,
 }
 
 impl Symbol {
-    pub fn new(name: impl Into<String>, symbol_scope: SymbolScope, index: usize) -> Self {
+    pub fn new(name: impl Into<String>, symbol_scope: SymbolScope, index: usize, span: Span) -> Self {
         Self {
             name: name.into(),
             symbol_scope,
             index,
             is_assigned: false,
+            span,
         }
     }
 
