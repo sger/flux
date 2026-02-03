@@ -8,7 +8,7 @@
 // See examples/basics/semicolons.flx for complete semicolon rules
 
 let greeting = "hello"  // No semicolon needed
-let target = " world"   // No semicolon needed
+let target = " world   // No semicolon needed
 print(greeting + target)  // No semicolon needed
 
 let lang = "flux";

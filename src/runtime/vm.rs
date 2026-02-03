@@ -56,11 +56,13 @@ impl VM {
         match self.run_inner() {
             Ok(()) => Ok(()),
             Err(err) => {
-                // Skip formatting if already formatted with enhanced registry
-                if err.starts_with("-- RUNTIME ERROR:") {
+                // Check if error is already formatted (from runtime_error_enhanced)
+                // All formatted errors start with "-- "
+                if err.starts_with("-- ") {
                     Err(err)
                 } else {
-                    Err(self.format_runtime_error(&err))
+                    // Format unmigrated errors through Diagnostic system
+                    Err(self.runtime_error_from_string(&err))
                 }
             }
         }
@@ -270,14 +272,14 @@ impl VM {
                     let value = self.pop()?;
                     match value {
                         Object::Left(inner) => self.push(*inner)?,
-                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Left value")),
+                        _ => return Err("Cannot unwrap non-Left value".to_string()),
                     }
                 }
                 OpCode::OpUnwrapRight => {
                     let value = self.pop()?;
                     match value {
                         Object::Right(inner) => self.push(*inner)?,
-                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Right value")),
+                        _ => return Err("Cannot unwrap non-Right value".to_string()),
                     }
                 }
                 OpCode::OpToString => {
@@ -290,87 +292,63 @@ impl VM {
         Ok(())
     }
 
-    fn format_runtime_error(&self, message: &str) -> String {
+    /// Convert a string error message to a formatted Diagnostic
+    fn runtime_error_from_string(&self, message: &str) -> String {
+        use crate::frontend::{diagnostics::ErrorType, position::{Position, Span}};
+
         let (message, hint) = split_hint(message);
         let (title, details) = split_first_line(message);
-        let mut out = String::new();
-        let use_color = std::env::var_os("NO_COLOR").is_none();
-        if use_color {
-            out.push_str("\u{1b}[33m");
-        }
-        out.push_str("-- Runtime error: ");
-        out.push_str(title.trim());
-        if use_color {
-            out.push_str("\u{1b}[0m");
-        }
 
-        if !details.trim().is_empty() {
-            out.push_str("\n\n");
-            out.push_str(details.trim());
-        }
-
-        if let Some((file, span)) = self.current_location()
-            && let Ok(source) = std::fs::read_to_string(&file)
-            && let Some(line_text) = get_source_line(&source, span.start.line)
-        {
-            let display_file = render_display_path(&file);
-            out.push_str("\n\n  --> ");
-            out.push_str(&format!(
-                "{}:{}:{}",
-                display_file, span.start.line, span.start.column
+        let (file, span) = self.current_location()
+            .unwrap_or_else(|| (
+                String::from("<unknown>"),
+                Span::new(Position::default(), Position::default())
             ));
-            out.push_str("\n   |");
-            let line_no = span.start.line;
-            let line_width = line_no.to_string().len();
-            out.push('\n');
-            out.push_str(&format!(
-                "{:>width$} | {}",
-                line_no,
-                line_text,
-                width = line_width
-            ));
-            out.push('\n');
-            let line_len = line_text.len();
-            let caret_start = span.start.column.min(line_len);
-            let caret_end = if span.start.line == span.end.line {
-                span.end.column.min(line_len).max(caret_start + 1)
-            } else {
-                line_len.max(caret_start + 1)
-            };
-            out.push_str(&format!(
-                "{:>width$} | {}",
-                "",
-                " ".repeat(caret_start),
-                width = line_width
-            ));
-            if use_color {
-                out.push_str("\u{1b}[31m");
-            }
-            out.push_str(&"^".repeat(caret_end.saturating_sub(caret_start).max(1)));
-            if use_color {
-                out.push_str("\u{1b}[0m");
-            }
-        }
 
-        if let Some(hint) = hint {
-            out.push_str("\n\n");
-            out.push_str(hint.trim());
-        }
+        // Determine error code based on error message pattern
+        let error_code = if title.contains("wrong number of arguments") {
+            "E1000" // WRONG_NUMBER_OF_ARGUMENTS
+        } else if title.contains("division by zero") {
+            "E1008" // DIVISION_BY_ZERO_RUNTIME
+        } else if title.contains("not a function") {
+            "E1002" // NOT_A_FUNCTION
+        } else {
+            "EXXX" // Unmigrated error - needs proper error code
+        };
 
+        // Create a dynamic runtime error using Diagnostic::make_error_dynamic
+        let diag = Diagnostic::make_error_dynamic(
+            error_code,
+            title.trim(),
+            ErrorType::Runtime,
+            details.trim(),
+            hint.map(|h| h.trim().to_string()),
+            file.clone(),
+            span,
+        );
+
+        // Read source for the diagnostic render
+        let source = self.current_location()
+            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
+
+        let mut rendered = diag.render(source.as_deref(), None);
+
+        // Add stack trace if available
         if !self.frames.is_empty() {
-            out.push_str("\n\nStack trace:");
+            rendered.push_str("\n\nStack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
-                out.push_str("\n  at ");
+                rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
-                out.push_str(&name);
+                rendered.push_str(&name);
                 if let Some(loc) = location {
-                    out.push_str(" (");
-                    out.push_str(&loc);
-                    out.push(')');
+                    rendered.push_str(" (");
+                    rendered.push_str(&loc);
+                    rendered.push(')');
                 }
             }
         }
-        out
+
+        rendered
     }
 
     /// Format a runtime error using the enhanced error registry
@@ -436,7 +414,7 @@ impl VM {
                 info.file_for(loc.file_id).map(|file| {
                     format!(
                         "{}:{}:{}",
-                        render_display_path(file),
+                        file,
                         loc.span.start.line,
                         loc.span.start.column
                     )
@@ -860,17 +838,6 @@ impl VM {
     }
 }
 
-fn render_display_path(file: &str) -> String {
-    let path = std::path::Path::new(file);
-    if path.is_absolute()
-        && let Ok(cwd) = std::env::current_dir()
-        && let Ok(stripped) = path.strip_prefix(&cwd)
-    {
-        return stripped.to_string_lossy().to_string();
-    }
-    file.to_string()
-}
-
 fn split_hint(message: &str) -> (&str, Option<&str>) {
     if let Some(index) = message.find("\nHint:") {
         (&message[..index], Some(&message[index..]))
@@ -885,11 +852,4 @@ fn split_first_line(message: &str) -> (&str, &str) {
     } else {
         (message, "")
     }
-}
-
-fn get_source_line(source: &str, line: usize) -> Option<&str> {
-    if line == 0 {
-        return None;
-    }
-    source.lines().nth(line.saturating_sub(1))
 }

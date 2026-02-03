@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::Diagnostic,
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION},
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
@@ -348,32 +348,51 @@ impl Parser {
     }
 
     fn no_prefix_parse_error(&mut self) {
-        self.errors.push(
-            Diagnostic::error("EXPECTED EXPRESSION")
-                .with_code("E102")
-                .with_position(self.current_token.position)
-                .with_message(format!(
-                    "Expected an expression, found `{}`.",
-                    self.current_token.token_type
-                )),
+        let error_spec = &EXPECTED_EXPRESSION;
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[&self.current_token.token_type.to_string()],
+            String::new(), // No file context in parser
+            Span::new(self.current_token.position, self.current_token.position),
         );
+        self.errors.push(diag);
     }
 
     fn unterminated_string_error(&mut self) {
-        let pos = if self.current_token.position.column > 0 {
-            crate::frontend::position::Position::new(
-                self.current_token.position.line,
-                self.current_token.position.column - 1,
-            )
-        } else {
-            self.current_token.position
-        };
-        self.errors.push(
-            Diagnostic::error("EXPECTED EXPRESSION")
-                .with_code("E102")
-                .with_span(Span::new(pos, pos))
-                .with_message("Lexer error: unterminated string literal."),
+        // Get the string literal content
+        let literal = &self.current_token.literal;
+
+        // The literal includes everything from opening quote to end of line
+        // Find where to end the highlighting (before any "//" comment)
+        let mut highlight_len = literal.len();
+        if let Some(comment_pos) = literal.find("//") {
+            // Trim whitespace before the comment
+            let before_comment = &literal[..comment_pos];
+            highlight_len = before_comment.trim_end().len();
+        }
+
+        // Ensure we highlight at least something (minimum 1 char)
+        if highlight_len == 0 {
+            highlight_len = 1;
+        }
+
+        // Start position is where the token begins
+        let start_pos = self.current_token.position;
+
+        // End position is start + length of content to highlight
+        let end_pos = crate::frontend::position::Position::new(
+            start_pos.line,
+            start_pos.column + highlight_len,
         );
+
+        let error_spec = &EXPECTED_EXPRESSION;
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &["unterminated string literal"],
+            String::new(), // No file context in parser
+            Span::new(start_pos, end_pos),
+        );
+        self.errors.push(diag);
         self.synchronize_after_error();
     }
 
