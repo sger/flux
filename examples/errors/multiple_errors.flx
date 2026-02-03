@@ -1,0 +1,9 @@
+// Error Example: Multiple errors in one file
+// Expected Errors:
+// - [E004] Compiler error: undefined variable (line 7)
+// - [E105] Compiler error: unexpected token (line 8)
+//
+// This demonstrates how multiple errors are displayed together.
+
+print(undefined_var)
+print("test"

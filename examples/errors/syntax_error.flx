@@ -1,0 +1,6 @@
+// Error Example: Missing closing parenthesis
+// Expected Error: [E105] Compiler error: unexpected token
+//
+// This demonstrates a syntax error where the closing parenthesis is missing.
+
+print("Hello World"
