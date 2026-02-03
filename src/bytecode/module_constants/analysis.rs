@@ -85,6 +85,7 @@ mod tests {
                     span: Span::new(pos(2, 0), pos(2, 2)),
                 },
             ],
+            span: Span::default(),
         };
 
         let analysis = analyze_module_constants(&body).unwrap();
@@ -114,6 +115,7 @@ mod tests {
                     span: Span::new(pos(2, 0), pos(2, 2)),
                 },
             ],
+            span: Span::default(),
         };
 
         let err = analyze_module_constants(&body).unwrap_err();

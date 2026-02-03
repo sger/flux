@@ -1,17 +1,23 @@
 use std::fmt;
 
-use crate::frontend::statement::Statement;
+use crate::frontend::{position::Span, statement::Statement};
 
 #[derive(Debug, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
+    pub span: Span,
 }
 
 impl Program {
     pub fn new() -> Self {
         Self {
             statements: Vec::new(),
+            span: Span::default(),
         }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 

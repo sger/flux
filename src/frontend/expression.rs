@@ -10,19 +10,20 @@ pub enum StringPart {
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
-    Wildcard,
-    Literal(Expression),
-    Identifier(Identifier),
-    None,
-    Some(Box<Pattern>),
-    Left(Box<Pattern>),
-    Right(Box<Pattern>),
+    Wildcard { span: Span },
+    Literal { expression: Expression, span: Span },
+    Identifier { name: Identifier, span: Span },
+    None { span: Span },
+    Some { pattern: Box<Pattern>, span: Span },
+    Left { pattern: Box<Pattern>, span: Span },
+    Right { pattern: Box<Pattern>, span: Span },
 }
 
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
     pub body: Expression,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -237,13 +238,27 @@ impl Expression {
 impl fmt::Display for Pattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Pattern::Wildcard => write!(f, "_"),
-            Pattern::Literal(expr) => write!(f, "{}", expr),
-            Pattern::Identifier(ident) => write!(f, "{}", ident),
-            Pattern::None => write!(f, "None"),
-            Pattern::Some(pattern) => write!(f, "Some({})", pattern),
-            Pattern::Left(pattern) => write!(f, "Left({})", pattern),
-            Pattern::Right(pattern) => write!(f, "Right({})", pattern),
+            Pattern::Wildcard { .. } => write!(f, "_"),
+            Pattern::Literal { expression, .. } => write!(f, "{}", expression),
+            Pattern::Identifier { name, .. } => write!(f, "{}", name),
+            Pattern::None { .. } => write!(f, "None"),
+            Pattern::Some { pattern, .. } => write!(f, "Some({})", pattern),
+            Pattern::Left { pattern, .. } => write!(f, "Left({})", pattern),
+            Pattern::Right { pattern, .. } => write!(f, "Right({})", pattern),
+        }
+    }
+}
+
+impl Pattern {
+    pub fn span(&self) -> Span {
+        match self {
+            Pattern::Wildcard { span }
+            | Pattern::Literal { span, .. }
+            | Pattern::Identifier { span, .. }
+            | Pattern::None { span }
+            | Pattern::Some { span, .. }
+            | Pattern::Left { span, .. }
+            | Pattern::Right { span, .. } => *span,
         }
     }
 }
@@ -251,5 +266,11 @@ impl fmt::Display for Pattern {
 impl fmt::Display for MatchArm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} -> {}", self.pattern, self.body)
+    }
+}
+
+impl MatchArm {
+    pub fn span(&self) -> Span {
+        self.span
     }
 }

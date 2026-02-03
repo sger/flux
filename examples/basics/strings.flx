@@ -25,4 +25,4 @@ print(upper("hello world"));
 print(lower("HELLO world"));
 
 print(chars("HELLO world"));
-print(substring("HELLO world", 0));
+print(substring("HELLO world", 0, 2));

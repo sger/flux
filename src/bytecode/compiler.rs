@@ -636,9 +636,9 @@ impl Compiler {
                 self.emit(OpCode::OpRight, &[]);
             }
             Expression::Match {
-                scrutinee, arms, ..
+                scrutinee, arms, span,
             } => {
-                self.compile_match_expression(scrutinee, arms)?;
+                self.compile_match_expression(scrutinee, arms, *span)?;
             }
         }
         self.current_span = previous_span;
@@ -796,27 +796,28 @@ impl Compiler {
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
+        match_span: Span,
     ) -> CompileResult<()> {
         if arms.is_empty() {
             return Err(Self::boxed(
-                Diagnostic::make_error(&EMPTY_MATCH, &[], self.file_path.clone(), scrutinee.span())
+                Diagnostic::make_error(&EMPTY_MATCH, &[], self.file_path.clone(), match_span)
             ));
         }
         if arms.len() > 1 {
             for arm in &arms[..arms.len() - 1] {
-                if matches!(arm.pattern, Pattern::Identifier(_) | Pattern::Wildcard) {
+                if matches!(arm.pattern, Pattern::Identifier { .. } | Pattern::Wildcard { .. }) {
                     return Err(Self::boxed(
-                        Diagnostic::make_error(&CATCHALL_NOT_LAST, &[], self.file_path.clone(), scrutinee.span())
+                        Diagnostic::make_error(&CATCHALL_NOT_LAST, &[], self.file_path.clone(), arm.pattern.span())
                     ));
                 }
             }
         }
 
         if let Some(last) = arms.last()
-            && !matches!(last.pattern, Pattern::Wildcard | Pattern::Identifier(_))
+            && !matches!(last.pattern, Pattern::Wildcard { .. } | Pattern::Identifier { .. })
         {
             return Err(Self::boxed(
-                Diagnostic::make_error(&NON_EXHAUSTIVE_MATCH, &[], self.file_path.clone(), scrutinee.span())
+                Diagnostic::make_error(&NON_EXHAUSTIVE_MATCH, &[], self.file_path.clone(), match_span)
             ));
         }
 
@@ -888,7 +889,7 @@ impl Compiler {
         pattern: &Pattern,
     ) -> CompileResult<Vec<usize>> {
         match pattern {
-            Pattern::Wildcard => {
+            Pattern::Wildcard { .. } => {
                 // Wildcard always matches, so we never jump to next arm
                 // Emit OpTrue and OpJumpNotTruthy (which will never jump)
                 // Actually, for wildcard we should always execute this arm
@@ -897,29 +898,29 @@ impl Compiler {
                 self.emit(OpCode::OpTrue, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
-            Pattern::Literal(expr) => {
+            Pattern::Literal { expression, .. } => {
                 // Push pattern value onto stack: [scrutinee, pattern]
                 // OpEqual compares and pushes boolean: [result]
                 // OpJumpNotTruthy jumps when false (no match), continues when true (match)
                 self.load_symbol(scrutinee);
-                self.compile_expression(expr)?;
+                self.compile_expression(expression)?;
                 self.emit(OpCode::OpEqual, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
-            Pattern::None => {
+            Pattern::None { .. } => {
                 // Check if scrutinee is None
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpNone, &[]);
                 self.emit(OpCode::OpEqual, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
-            Pattern::Some(inner) => {
+            Pattern::Some { pattern: inner, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsSome, &[]);
                 let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
 
                 match inner.as_ref() {
-                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
                     _ => {
                         let inner_symbol = self.symbol_table.define_temp();
                         self.load_symbol(scrutinee);
@@ -943,14 +944,14 @@ impl Compiler {
                     }
                 }
             }
-            Pattern::Left(inner) => {
+            Pattern::Left { pattern: inner, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsLeft, &[]);
 
                 let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
 
                 match inner.as_ref() {
-                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
                     _ => {
                         let inner_symbol = self.symbol_table.define_temp();
                         self.load_symbol(scrutinee);
@@ -976,14 +977,14 @@ impl Compiler {
                     }
                 }
             }
-            Pattern::Right(inner) => {
+            Pattern::Right { pattern: inner, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsRight, &[]);
 
                 let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
 
                 match inner.as_ref() {
-                    Pattern::Wildcard | Pattern::Identifier(_) => Ok(jumps),
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
                     _ => {
                         let inner_symbol = self.symbol_table.define_temp();
                         self.load_symbol(scrutinee);
@@ -1009,7 +1010,7 @@ impl Compiler {
                     }
                 }
             }
-            Pattern::Identifier(_name) => {
+            Pattern::Identifier { .. } => {
                 // Identifier always matches and binds the value
                 // For now, we'll treat it like wildcard
                 // TODO: Implement proper binding
@@ -1021,7 +1022,7 @@ impl Compiler {
 
     fn compile_pattern_bind(&mut self, scrutinee: &Symbol, pattern: &Pattern) -> CompileResult<()> {
         match pattern {
-            Pattern::Identifier(name) => {
+            Pattern::Identifier { name, .. } => {
                 self.load_symbol(scrutinee);
                 let symbol = self.symbol_table.define(name.clone());
                 match symbol.symbol_scope {
@@ -1038,7 +1039,7 @@ impl Compiler {
                     }
                 };
             }
-            Pattern::Some(inner) => {
+            Pattern::Some { pattern: inner, .. } => {
                 let inner_symbol = self.symbol_table.define_temp();
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpUnwrapSome, &[]);
@@ -1058,7 +1059,7 @@ impl Compiler {
                 self.compile_pattern_bind(&inner_symbol, inner)?;
             }
             // Either type pattern bindings
-            Pattern::Left(inner) => {
+            Pattern::Left { pattern: inner, .. } => {
                 let inner_symbol = self.symbol_table.define_temp();
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpUnwrapLeft, &[]);
@@ -1078,7 +1079,7 @@ impl Compiler {
                 }
                 self.compile_pattern_bind(&inner_symbol, inner)?;
             }
-            Pattern::Right(inner) => {
+            Pattern::Right { pattern: inner, .. } => {
                 let inner_symbol = self.symbol_table.define_temp();
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpUnwrapRight, &[]);
@@ -1097,7 +1098,7 @@ impl Compiler {
                 }
                 self.compile_pattern_bind(&inner_symbol, inner)?;
             }
-            Pattern::Wildcard | Pattern::Literal(_) | Pattern::None => {}
+            Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
         Ok(())
     }

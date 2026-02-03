@@ -311,13 +311,15 @@ impl Linter {
 
     fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
-            Pattern::Identifier(name) => {
+            Pattern::Identifier { name, .. } => {
                 self.define_binding(name, Position::default(), BindingKind::Let);
             }
-            Pattern::Some(inner) | Pattern::Left(inner) | Pattern::Right(inner) => {
-                self.extract_pattern_bindings(inner);
+            Pattern::Some { pattern, .. }
+            | Pattern::Left { pattern, .. }
+            | Pattern::Right { pattern, .. } => {
+                self.extract_pattern_bindings(pattern);
             }
-            Pattern::Wildcard | Pattern::Literal(_) | Pattern::None => {}
+            Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
     }
 
