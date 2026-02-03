@@ -16,9 +16,23 @@ pub enum Severity {
     Help,
 }
 
+/// Kind of hint to display
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HintKind {
+    /// General hint or suggestion (default)
+    Hint,
+    /// Additional context or information
+    Note,
+    /// Explicit help on how to fix
+    Help,
+    /// Code example demonstrating the solution
+    Example,
+}
+
 /// A hint with optional source location and label
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hint {
+    pub kind: HintKind,
     pub text: String,
     pub span: Option<Span>,
     pub label: Option<String>,
@@ -28,6 +42,7 @@ impl Hint {
     /// Create a simple text-only hint
     pub fn text(text: impl Into<String>) -> Self {
         Self {
+            kind: HintKind::Hint,
             text: text.into(),
             span: None,
             label: None,
@@ -37,6 +52,7 @@ impl Hint {
     /// Create a hint with a source location
     pub fn at(text: impl Into<String>, span: Span) -> Self {
         Self {
+            kind: HintKind::Hint,
             text: text.into(),
             span: Some(span),
             label: None,
@@ -46,9 +62,40 @@ impl Hint {
     /// Create a hint with a source location and label
     pub fn labeled(text: impl Into<String>, span: Span, label: impl Into<String>) -> Self {
         Self {
+            kind: HintKind::Hint,
             text: text.into(),
             span: Some(span),
             label: Some(label.into()),
+        }
+    }
+
+    /// Create a note hint
+    pub fn note(text: impl Into<String>) -> Self {
+        Self {
+            kind: HintKind::Note,
+            text: text.into(),
+            span: None,
+            label: None,
+        }
+    }
+
+    /// Create a help hint
+    pub fn help(text: impl Into<String>) -> Self {
+        Self {
+            kind: HintKind::Help,
+            text: text.into(),
+            span: None,
+            label: None,
+        }
+    }
+
+    /// Create an example hint
+    pub fn example(text: impl Into<String>) -> Self {
+        Self {
+            kind: HintKind::Example,
+            text: text.into(),
+            span: None,
+            label: None,
         }
     }
 
@@ -266,6 +313,24 @@ impl Diagnostic {
         label: impl Into<String>,
     ) -> Self {
         self.hints.push(Hint::labeled(text, span, label));
+        self
+    }
+
+    /// Add a note hint (additional context or information)
+    pub fn with_note(mut self, text: impl Into<String>) -> Self {
+        self.hints.push(Hint::note(text));
+        self
+    }
+
+    /// Add a help hint (explicit instructions on how to fix)
+    pub fn with_help(mut self, text: impl Into<String>) -> Self {
+        self.hints.push(Hint::help(text));
+        self
+    }
+
+    /// Add an example hint (code example demonstrating the solution)
+    pub fn with_example(mut self, text: impl Into<String>) -> Self {
+        self.hints.push(Hint::example(text));
         self
     }
 
@@ -619,6 +684,8 @@ impl Diagnostic {
         }
 
         let blue = "\u{1b}[34m";
+        let cyan = "\u{1b}[36m";
+        let green = "\u{1b}[32m";
         let reset = "\u{1b}[0m";
 
         // Separate hints into those with and without spans
@@ -627,11 +694,34 @@ impl Diagnostic {
 
         let has_text_hints = !text_hints.is_empty();
 
-        // Render text-only hints first
-        if has_text_hints {
-            out.push_str("\n\nHint:\n");
-            for hint in text_hints {
-                out.push_str(&format!("  {}\n", hint.text));
+        // Group text-only hints by kind
+        let mut hints_by_kind: std::collections::HashMap<HintKind, Vec<&Hint>> =
+            std::collections::HashMap::new();
+        for hint in text_hints {
+            hints_by_kind.entry(hint.kind).or_default().push(hint);
+        }
+
+        // Render text-only hints grouped by kind
+        // Order: Hint, Note, Help, Example
+        for kind in [HintKind::Hint, HintKind::Note, HintKind::Help, HintKind::Example] {
+            if let Some(hints) = hints_by_kind.get(&kind) {
+                out.push_str("\n\n");
+                let (label, color) = match kind {
+                    HintKind::Hint => ("Hint", blue),
+                    HintKind::Note => ("Note", cyan),
+                    HintKind::Help => ("Help", green),
+                    HintKind::Example => ("Example", blue),
+                };
+                if use_color {
+                    out.push_str(color);
+                }
+                out.push_str(&format!("{}:\n", label));
+                if use_color {
+                    out.push_str(reset);
+                }
+                for hint in hints {
+                    out.push_str(&format!("  {}\n", hint.text));
+                }
             }
         }
 
@@ -692,7 +782,20 @@ impl Diagnostic {
 
                 // Render hint text if provided
                 if !hint.text.is_empty() {
-                    out.push_str("\n\nHint:\n");
+                    let (label, color) = match hint.kind {
+                        HintKind::Hint => ("Hint", blue),
+                        HintKind::Note => ("Note", cyan),
+                        HintKind::Help => ("Help", green),
+                        HintKind::Example => ("Example", blue),
+                    };
+                    out.push_str("\n\n");
+                    if use_color {
+                        out.push_str(color);
+                    }
+                    out.push_str(&format!("{}:\n", label));
+                    if use_color {
+                        out.push_str(reset);
+                    }
                     out.push_str(&format!("  {}\n", hint.text));
                 }
             }

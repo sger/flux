@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, Label, LabelStyle},
+    diagnostics::{Diagnostic, ErrorType, Hint, HintKind, Label, LabelStyle},
     position::{Position, Span},
 };
 
@@ -327,4 +327,86 @@ fn diagnostic_with_label_method() {
         .render(Some(source), None);
 
     assert!(output.contains("wrong type"));
+}
+
+#[test]
+fn renders_categorized_hints() {
+    set_no_color();
+    let output = Diagnostic::error("Test error")
+        .with_note("This is a note")
+        .with_help("This is help")
+        .with_example("let x = 10;")
+        .with_hint_text("This is a hint")
+        .render(None, Some("test.flx"));
+
+    // Check all hint types are present
+    assert!(output.contains("\n\nNote:\n"));
+    assert!(output.contains("  This is a note\n"));
+    assert!(output.contains("\n\nHelp:\n"));
+    assert!(output.contains("  This is help\n"));
+    assert!(output.contains("\n\nExample:\n"));
+    assert!(output.contains("  let x = 10;\n"));
+    assert!(output.contains("\n\nHint:\n"));
+    assert!(output.contains("  This is a hint\n"));
+}
+
+#[test]
+fn hint_kind_constructors() {
+    // Test that different constructors create correct hint kinds
+    let hint = Hint::note("note text");
+    assert_eq!(hint.kind, HintKind::Note);
+    assert_eq!(hint.text, "note text");
+
+    let help = Hint::help("help text");
+    assert_eq!(help.kind, HintKind::Help);
+    assert_eq!(help.text, "help text");
+
+    let example = Hint::example("example text");
+    assert_eq!(example.kind, HintKind::Example);
+    assert_eq!(example.text, "example text");
+
+    let regular = Hint::text("regular hint");
+    assert_eq!(regular.kind, HintKind::Hint);
+    assert_eq!(regular.text, "regular hint");
+}
+
+#[test]
+fn categorized_hints_ordering() {
+    set_no_color();
+    // Hints should be rendered in order: Hint, Note, Help, Example
+    let output = Diagnostic::error("Test")
+        .with_example("example")
+        .with_hint_text("hint")
+        .with_help("help")
+        .with_note("note")
+        .render(None, Some("test.flx"));
+
+    // Find positions of each section
+    let hint_pos = output.find("Hint:\n").expect("Hint section not found");
+    let note_pos = output.find("Note:\n").expect("Note section not found");
+    let help_pos = output.find("Help:\n").expect("Help section not found");
+    let example_pos = output.find("Example:\n").expect("Example section not found");
+
+    // Verify order: Hint < Note < Help < Example
+    assert!(hint_pos < note_pos, "Hint should come before Note");
+    assert!(note_pos < help_pos, "Note should come before Help");
+    assert!(help_pos < example_pos, "Help should come before Example");
+}
+
+#[test]
+fn builder_methods_for_categorized_hints() {
+    set_no_color();
+    let output = Diagnostic::error("Variable name error")
+        .with_code("E015")
+        .with_note("Variables must follow naming conventions")
+        .with_help("Use camelCase or snake_case")
+        .with_example("let myVariable = 10;\nlet my_variable = 20;")
+        .render(None, Some("test.flx"));
+
+    assert!(output.contains("Note:"));
+    assert!(output.contains("Variables must follow naming conventions"));
+    assert!(output.contains("Help:"));
+    assert!(output.contains("Use camelCase or snake_case"));
+    assert!(output.contains("Example:"));
+    assert!(output.contains("let myVariable = 10;"));
 }

@@ -26,6 +26,9 @@ fn main() {
 
     // Example 5: Unknown operator with inline labels (real compiler integration)
     example_unknown_operator();
+
+    // Example 6: Categorized hints (Note, Help, Example)
+    example_categorized_hints();
 }
 
 fn example_duplicate_variable() {
@@ -197,4 +200,39 @@ let result = x ~ y;
     println!("   • The compiler now uses .with_secondary_label() for operands");
     println!("   • Labels help identify which parts of the expression are problematic");
     println!();
+}
+
+fn example_categorized_hints() {
+    println!("\n📍 Example 6: Categorized Hints (NEW FEATURE)");
+    println!("{}", "-".repeat(70));
+
+    let source = "\
+let myVariable = 10;
+let MyOtherVariable = 20;
+";
+
+    let error_span = Span::new(Position::new(2, 4), Position::new(2, 19));
+
+    let diagnostic = Diagnostic::error("Invalid variable name")
+        .with_code("E015")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("Variable names must start with a lowercase letter")
+        .with_file("example.flx")
+        .with_span(error_span)
+        .with_note("Variables are case-sensitive in Flux")
+        .with_help("Change 'MyOtherVariable' to start with a lowercase letter")
+        .with_example("let myVariable = 10;\nlet myOtherVariable = 20;");
+
+    println!("{}\n", diagnostic.render(Some(source), None));
+
+    println!("✨ NEW: Hints are now categorized by type!");
+    println!("   • Note (cyan) - Additional context or information");
+    println!("   • Help (green) - Explicit instructions on how to fix");
+    println!("   • Example (blue) - Code examples demonstrating the solution");
+    println!("   • Hint (blue) - General hints or suggestions");
+    println!();
+    println!("💡 Benefits:");
+    println!("   • Easier to scan and find the information you need");
+    println!("   • Clear distinction between context, guidance, and examples");
+    println!("   • Consistent formatting across all error messages");
 }
