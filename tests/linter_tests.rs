@@ -8,7 +8,7 @@ fn lint(input: &str) -> String {
     let diagnostics = Linter::new(None).lint(&program);
     diagnostics
         .iter()
-        .map(|d| format!("{}:{}", d.code.as_deref().unwrap_or(""), d.title))
+        .map(|d| format!("{}:{}", d.code().unwrap_or(""), d.title()))
         .collect::<Vec<_>>()
         .join("\n")
 }

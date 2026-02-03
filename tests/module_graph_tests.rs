@@ -45,7 +45,7 @@ fn parse_program(source: &str) -> Program {
 fn first_code(diags: Vec<flux::frontend::diagnostics::Diagnostic>) -> String {
     diags
         .first()
-        .and_then(|d| d.code.clone())
+        .and_then(|d| d.code().map(|s| s.to_string()))
         .unwrap_or_default()
 }
 

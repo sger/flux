@@ -4,6 +4,8 @@ use std::env;
 
 // Error code constants for special rendering cases
 const UNTERMINATED_STRING_ERROR_CODE: &str = "E031";
+// Sentinel value for end-of-line positions.
+const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -15,14 +17,14 @@ pub enum Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    pub severity: Severity,
-    pub title: String,
-    pub code: Option<String>,
-    pub error_type: Option<ErrorType>,
-    pub message: Option<String>,
-    pub file: Option<String>,
-    pub span: Option<Span>,
-    pub hints: Vec<String>,
+    severity: Severity,
+    title: String,
+    code: Option<String>,
+    error_type: Option<ErrorType>,
+    message: Option<String>,
+    file: Option<String>,
+    span: Option<Span>,
+    hints: Vec<String>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -65,6 +67,44 @@ impl Diagnostic {
     /// Get the starting position from the span (derived field)
     pub fn position(&self) -> Option<Position> {
         self.span.map(|s| s.start)
+    }
+
+    // Getters for read access
+    pub fn severity(&self) -> Severity {
+        self.severity
+    }
+
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    pub fn code(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+
+    pub fn error_type(&self) -> Option<ErrorType> {
+        self.error_type
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+
+    pub fn file(&self) -> Option<&str> {
+        self.file.as_deref()
+    }
+
+    pub fn span(&self) -> Option<Span> {
+        self.span
+    }
+
+    pub fn hints(&self) -> &[String] {
+        &self.hints
+    }
+
+    // Setter for file (needed by module_graph)
+    pub fn set_file(&mut self, file: impl Into<String>) {
+        self.file = Some(file.into());
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
@@ -157,6 +197,59 @@ impl Diagnostic {
         diag
     }
 
+    /// Warning builder for linter and non-fatal issues
+    pub fn make_warning(
+        code: impl Into<String>,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        Diagnostic::warning(title)
+            .with_code(code)
+            .with_file(file)
+            .with_span(span)
+            .with_message(message)
+    }
+
+    /// Note builder for informational diagnostics
+    pub fn make_note(
+        title: impl Into<String>,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        Self {
+            severity: Severity::Note,
+            title: title.into(),
+            code: None,
+            error_type: None,
+            message: Some(message.into()),
+            file: Some(file.into()),
+            span: Some(span),
+            hints: Vec::new(),
+        }
+    }
+
+    /// Help builder for suggestions and assistance
+    pub fn make_help(
+        title: impl Into<String>,
+        message: impl Into<String>,
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        Self {
+            severity: Severity::Help,
+            title: title.into(),
+            code: None,
+            error_type: None,
+            message: Some(message.into()),
+            file: Some(file.into()),
+            span: Some(span),
+            hints: Vec::new(),
+        }
+    }
+
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
@@ -182,7 +275,7 @@ impl Diagnostic {
         if use_color {
             out.push_str(yellow);
         }
-        out.push_str(&format!("-- {}: {} [{}]\n", error_type_label, self.title.to_lowercase(), code));
+        out.push_str(&format!("-- {}: {} [{}]\n", error_type_label, self.title, code));
         if use_color {
             out.push_str(reset);
         }
@@ -197,8 +290,8 @@ impl Diagnostic {
         // Location indicator: --> file:line:column
         if let Some(position) = self.position() {
             out.push('\n');
-            // Handle end-of-line sentinel value (usize::MAX - 1)
-            let display_col = if position.column >= usize::MAX - 1 {
+            // Handle end-of-line sentinel value
+            let display_col = if position.column >= END_OF_LINE_SENTINEL {
                 // Get actual line length from source if available
                 source
                     .and_then(|src| get_source_line(src, position.line))
@@ -236,12 +329,12 @@ impl Diagnostic {
                     let mut caret_end;
                     if line_no == start_line && line_no == end_line {
                         // Handle end-of-line sentinel value
-                        let start = if span.start.column >= usize::MAX - 1 {
+                        let start = if span.start.column >= END_OF_LINE_SENTINEL {
                             line_len
                         } else {
                             span.start.column.min(line_len)
                         };
-                        let end = if span.end.column >= usize::MAX - 1 {
+                        let end = if span.end.column >= END_OF_LINE_SENTINEL {
                             line_len
                         } else {
                             span.end.column.min(line_len)

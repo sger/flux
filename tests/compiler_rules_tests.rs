@@ -28,7 +28,7 @@ fn compile_err(input: &str) -> String {
         .compile(&program)
         .expect_err("expected compile error");
     err.first()
-        .map(|d| d.code.clone().unwrap_or_default())
+        .map(|d| d.code().unwrap_or("").to_string())
         .unwrap_or_default()
 }
 
@@ -46,7 +46,7 @@ fn compile_err_in(file_path: &str, input: &str) -> String {
         .compile(&program)
         .expect_err("expected compile error");
     err.first()
-        .map(|d| d.code.clone().unwrap_or_default())
+        .map(|d| d.code().unwrap_or("").to_string())
         .unwrap_or_default()
 }
 
@@ -63,7 +63,7 @@ fn compile_err_title(input: &str) -> String {
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");
-    err.first().map(|d| d.title.clone()).unwrap_or_default()
+    err.first().map(|d| d.title().to_string()).unwrap_or_default()
 }
 
 #[test]

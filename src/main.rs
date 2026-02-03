@@ -244,8 +244,8 @@ fn run_file(
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 if let Err(mut diags) = compiler.compile(&node.program) {
                     for diag in &mut diags {
-                        if diag.file.is_none() {
-                            diag.file = Some(node.path.to_string_lossy().to_string());
+                        if diag.file().is_none() {
+                            diag.set_file(node.path.to_string_lossy().to_string());
                         }
                     }
                     compile_errors.append(&mut diags);
@@ -307,10 +307,9 @@ fn render_diagnostics_multi(diagnostics: &[Diagnostic]) -> String {
         .iter()
         .map(|diag| {
             let source = diag
-                .file
-                .as_deref()
+                .file()
                 .and_then(|file| fs::read_to_string(file).ok());
-            diag.render(source.as_deref(), diag.file.as_deref())
+            diag.render(source.as_deref(), diag.file())
         })
         .collect::<Vec<_>>()
         .join("\n\n")
