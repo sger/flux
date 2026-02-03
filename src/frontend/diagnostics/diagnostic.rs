@@ -170,14 +170,10 @@ impl Diagnostic {
         let code = self.code.as_deref().unwrap_or("E000");
 
         // Get error type prefix from explicit error_type field
-        let error_type_label = if let Some(error_type) = self.error_type {
-            match error_type {
-                ErrorType::Compiler => "compiler error",
-                ErrorType::Runtime => "runtime error",
-            }
-        } else {
-            "error"
-        };
+        let error_type_label = self
+            .error_type
+            .map(|error_type| error_type.prefix())
+            .unwrap_or("error");
 
         // Header: -- Compiler error: expected expression [E031]
         if use_color {
@@ -227,8 +223,13 @@ impl Diagnostic {
             // Add separator line
             out.push_str(&format!("{:>width$} |\n", "", width = line_width));
 
+            let mut printed_any = false;
             for line_no in start_line..=end_line {
                 if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
+                    if printed_any {
+                        out.push('\n');
+                    }
+                    printed_any = true;
                     let line_len = line_text.len();
                     let mut caret_start;
                     let mut caret_end;
