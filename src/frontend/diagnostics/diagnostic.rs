@@ -166,11 +166,11 @@ impl Diagnostic {
         // Get error type prefix from explicit error_type field
         let error_type_label = if let Some(error_type) = self.error_type {
             match error_type {
-                ErrorType::Compiler => "Compiler error",
-                ErrorType::Runtime => "Runtime error",
+                ErrorType::Compiler => "compiler error",
+                ErrorType::Runtime => "runtime error",
             }
         } else {
-            "Error"
+            "error"
         };
 
         // Header: -- Compiler error: expected expression [E031]
@@ -269,7 +269,6 @@ impl Diagnostic {
                         }
                     }
 
-                    out.push('\n');
                     out.push_str(&format!(
                         "{:>width$} | {}\n",
                         line_no,
