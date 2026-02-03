@@ -166,8 +166,8 @@ impl Diagnostic {
         // Get error type prefix from explicit error_type field
         let error_type_label = if let Some(error_type) = self.error_type {
             match error_type {
-                ErrorType::Compiler => "compiler error",
-                ErrorType::Runtime => "runtime error",
+                ErrorType::Compiler => "Compiler error",
+                ErrorType::Runtime => "Runtime error",
             }
         } else {
             "Error"
@@ -192,11 +192,21 @@ impl Diagnostic {
         // Location indicator: --> file:line:column
         if let Some(position) = self.position {
             out.push('\n');
+            // Handle end-of-line sentinel value (usize::MAX - 1)
+            let display_col = if position.column >= usize::MAX - 1 {
+                // Get actual line length from source if available
+                source
+                    .and_then(|src| get_source_line(src, position.line))
+                    .map(|line| line.len() + 1)
+                    .unwrap_or(1)
+            } else {
+                position.column + 1
+            };
             out.push_str(&format!(
                 "  --> {}:{}:{}\n",
                 file,
                 position.line,
-                position.column + 1
+                display_col
             ));
         }
 
@@ -217,8 +227,17 @@ impl Diagnostic {
                     let mut caret_start;
                     let mut caret_end;
                     if line_no == start_line && line_no == end_line {
-                        let start = span.start.column.min(line_len);
-                        let end = span.end.column.min(line_len);
+                        // Handle end-of-line sentinel value
+                        let start = if span.start.column >= usize::MAX - 1 {
+                            line_len
+                        } else {
+                            span.start.column.min(line_len)
+                        };
+                        let end = if span.end.column >= usize::MAX - 1 {
+                            line_len
+                        } else {
+                            span.end.column.min(line_len)
+                        };
                         let end = end.max(start + 1);
                         caret_start = start;
                         caret_end = end;
