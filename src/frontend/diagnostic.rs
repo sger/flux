@@ -1,5 +1,5 @@
 use crate::frontend::{
-    error_codes_registry::ErrorType,
+    error_codes_registry::{ErrorCode, ErrorType, format_message},
     position::{Position, Span},
 };
 use std::env;
@@ -99,6 +99,30 @@ impl Diagnostic {
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hints.push(hint.into());
         self
+    }
+
+    /// Generic error builder using ErrorCode specification
+    pub fn make_error(
+        err_spec: &'static ErrorCode,
+        values: &[&str],
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        let message = format_message(err_spec.message, values);
+        let hint = err_spec.hint.map(|h| format_message(h, values));
+
+        let mut diag = Diagnostic::error(err_spec.title)
+            .with_code(err_spec.code)
+            .with_error_type(err_spec.error_type)
+            .with_file(file)
+            .with_span(span)
+            .with_message(message);
+
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+
+        diag
     }
 
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
