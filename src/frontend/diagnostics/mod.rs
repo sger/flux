@@ -1,3 +1,8 @@
+//! Diagnostics module.
+//!
+//! Provides structured diagnostics with severity, optional error codes, source spans,
+//! and rendering helpers for consistent compiler/runtime output.
+
 pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
@@ -7,7 +12,7 @@ pub mod types;
 
 pub use diagnostic::{Diagnostic, Severity, render_diagnostics};
 pub use format::{format_message, format_message_named};
-pub use registry::{ERROR_CODES, diag_enhanced, get_enhanced};
+pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
 pub use types::{ErrorCode, ErrorType};
 
 pub use compiler_errors::*;

@@ -1,5 +1,6 @@
 use crate::frontend::position::{Position, Span};
 use super::{ErrorCode, ErrorType, format_message};
+use std::borrow::Cow;
 use std::env;
 
 // Error code constants for special rendering cases
@@ -38,6 +39,7 @@ macro_rules! ice {
 }
 
 impl Diagnostic {
+    /// Create a new error diagnostic with the given title.
     pub fn error(title: impl Into<String>) -> Self {
         Self {
             severity: Severity::Error,
@@ -51,6 +53,7 @@ impl Diagnostic {
         }
     }
 
+    /// Create a new warning diagnostic with the given title.
     pub fn warning(title: impl Into<String>) -> Self {
         Self {
             severity: Severity::Warning,
@@ -212,7 +215,7 @@ impl Diagnostic {
             .with_message(message)
     }
 
-    /// Note builder for informational diagnostics
+    /// Note builder for informational diagnostics.
     pub fn make_note(
         title: impl Into<String>,
         message: impl Into<String>,
@@ -231,7 +234,7 @@ impl Diagnostic {
         }
     }
 
-    /// Help builder for suggestions and assistance
+    /// Help builder for suggestions and assistance.
     pub fn make_help(
         title: impl Into<String>,
         message: impl Into<String>,
@@ -417,7 +420,7 @@ impl Diagnostic {
             .filter(|f| !f.is_empty())
             .or(default_file)
             .map(render_display_path)
-            .unwrap_or_else(|| "<unknown>".to_string());
+            .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
         let code = self.code.as_deref().unwrap_or("E000");
 
         // Get error type prefix from explicit error_type field
@@ -428,7 +431,7 @@ impl Diagnostic {
 
         self.render_header(&mut out, use_color, error_type_label, code);
         self.render_message(&mut out);
-        self.render_location(&mut out, source, &file);
+        self.render_location(&mut out, source, file.as_ref());
         self.render_source_snippet(&mut out, source, use_color);
         self.render_hints(&mut out);
 
@@ -456,13 +459,13 @@ fn get_source_line(source: &str, line: usize) -> Option<&str> {
     source.lines().nth(line.saturating_sub(1))
 }
 
-fn render_display_path(file: &str) -> String {
+fn render_display_path(file: &str) -> Cow<'_, str> {
     let path = std::path::Path::new(file);
     if path.is_absolute()
         && let Ok(cwd) = std::env::current_dir()
         && let Ok(stripped) = path.strip_prefix(&cwd)
     {
-        return stripped.to_string_lossy().to_string();
+        return Cow::Owned(stripped.to_string_lossy().to_string());
     }
-    file.to_string()
+    Cow::Borrowed(file)
 }
