@@ -1444,16 +1444,15 @@ impl Compiler {
                     .map(|ec| (ec.title, ec.error_type))
                     .unwrap_or(("CONSTANT EVALUATION ERROR", ErrorType::Compiler));
 
-                let mut diag = Diagnostic::error(title)
-                    .with_code(error.code)
-                    .with_error_type(error_type)
-                    .with_file(self.file_path.clone())
-                    .with_span(Span::new(pos, pos))
-                    .with_message(error.message);
-                if let Some(hint_text) = error.hint {
-                    diag = diag.with_hint(hint_text);
-                }
-                diag
+                Diagnostic::make_error_dynamic(
+                    error.code,
+                    title,
+                    error_type,
+                    error.message,
+                    error.hint,
+                    self.file_path.clone(),
+                    Span::new(pos, pos),
+                )
             }
         }
     }
