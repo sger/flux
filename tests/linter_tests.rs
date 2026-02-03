@@ -81,3 +81,27 @@ fn tracks_nested_pattern_bindings() {
     let output = lint("match Some(Some(5)) { Some(Some(y)) -> y; _ -> 0; }");
     assert!(!output.contains("W001"), "y should be tracked as used");
 }
+
+#[test]
+fn warns_on_dead_code_after_return() {
+    let output = lint("fun f() { return 1; 2; } f();");
+    assert!(output.contains("W008:DEAD CODE"));
+}
+
+#[test]
+fn warns_on_too_many_params() {
+    let output = lint("fun f(a, b, c, d, e, f) { 1; } f(1,2,3,4,5,6);");
+    assert!(output.contains("W010:TOO MANY PARAMETERS"));
+}
+
+#[test]
+fn warns_on_function_too_long() {
+    let mut source = String::from("fun big() {\n");
+    for _ in 0..55 {
+        source.push_str("  1;\n");
+    }
+    source.push_str("}\n");
+    source.push_str("big();\n");
+    let output = lint(&source);
+    assert!(output.contains("W009:FUNCTION TOO LONG"));
+}
