@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, EXPECTED_EXPRESSION},
+    diagnostics::{Diagnostic, ErrorType, EXPECTED_EXPRESSION},
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
@@ -1121,6 +1121,7 @@ impl Parser {
             self.errors.push(
                 Diagnostic::error("UNEXPECTED TOKEN")
                     .with_code("E105")
+                    .with_error_type(ErrorType::Compiler)
                     .with_span(Span::new(eof_pos, eof_pos))
                     .with_message(format!("Missing {} before end of line.", end)),
             );
@@ -1161,6 +1162,7 @@ impl Parser {
         self.errors.push(
             Diagnostic::error("UNEXPECTED TOKEN")
                 .with_code("E105")
+                .with_error_type(ErrorType::Compiler)
                 .with_position(self.peek_token.position)
                 .with_message(format!(
                     "Expected {}, got {}.",
