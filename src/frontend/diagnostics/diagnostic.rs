@@ -123,6 +123,31 @@ impl Diagnostic {
         diag
     }
 
+    /// Dynamic error builder for runtime-generated error information
+    /// Use this when error details come from runtime values rather than static ErrorCode
+    pub fn make_error_dynamic(
+        code: impl Into<String>,
+        title: impl Into<String>,
+        error_type: ErrorType,
+        message: impl Into<String>,
+        hint: Option<String>,
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        let mut diag = Diagnostic::error(title)
+            .with_code(code)
+            .with_error_type(error_type)
+            .with_file(file)
+            .with_span(span)
+            .with_message(message);
+
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint(hint_text);
+        }
+
+        diag
+    }
+
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
