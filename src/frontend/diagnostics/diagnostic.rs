@@ -250,27 +250,15 @@ impl Diagnostic {
         }
     }
 
-    pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
-        let mut out = String::new();
-        let use_color = env::var_os("NO_COLOR").is_none();
+    fn render_header(
+        &self,
+        out: &mut String,
+        use_color: bool,
+        error_type_label: &str,
+        code: &str,
+    ) {
         let yellow = "\u{1b}[33m";
-        let red = "\u{1b}[31m";
         let reset = "\u{1b}[0m";
-        let file = self
-            .file
-            .as_deref()
-            .filter(|f| !f.is_empty())
-            .or(default_file)
-            .map(render_display_path)
-            .unwrap_or_else(|| "<unknown>".to_string());
-        let code = self.code.as_deref().unwrap_or("E000");
-
-        // Get error type prefix from explicit error_type field
-        let error_type_label = self
-            .error_type
-            .map(|error_type| error_type.prefix())
-            .unwrap_or("error");
-
         // Header: -- Compiler error: expected expression [E031]
         if use_color {
             out.push_str(yellow);
@@ -279,14 +267,23 @@ impl Diagnostic {
         if use_color {
             out.push_str(reset);
         }
+    }
 
+    fn render_message(&self, out: &mut String) {
         // Message
         if let Some(message) = &self.message {
             out.push('\n');
             out.push_str(message);
             out.push('\n');
         }
+    }
 
+    fn render_location(
+        &self,
+        out: &mut String,
+        source: Option<&str>,
+        file: &str,
+    ) {
         // Location indicator: --> file:line:column
         if let Some(position) = self.position() {
             out.push('\n');
@@ -307,7 +304,11 @@ impl Diagnostic {
                 display_col
             ));
         }
+    }
 
+    fn render_source_snippet(&self, out: &mut String, source: Option<&str>, use_color: bool) {
+        let red = "\u{1b}[31m";
+        let reset = "\u{1b}[0m";
         if let Some(position) = self.position() {
             let span = self.span.unwrap_or_else(|| Span::new(position, position));
             let start_line = span.start.line;
@@ -395,7 +396,9 @@ impl Diagnostic {
                 }
             }
         }
+    }
 
+    fn render_hints(&self, out: &mut String) {
         // Hints section
         if !self.hints.is_empty() {
             out.push_str("\n\nHint:\n");
@@ -403,6 +406,31 @@ impl Diagnostic {
                 out.push_str(&format!("  {}\n", hint));
             }
         }
+    }
+
+    pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
+        let mut out = String::new();
+        let use_color = env::var_os("NO_COLOR").is_none();
+        let file = self
+            .file
+            .as_deref()
+            .filter(|f| !f.is_empty())
+            .or(default_file)
+            .map(render_display_path)
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let code = self.code.as_deref().unwrap_or("E000");
+
+        // Get error type prefix from explicit error_type field
+        let error_type_label = self
+            .error_type
+            .map(|error_type| error_type.prefix())
+            .unwrap_or("error");
+
+        self.render_header(&mut out, use_color, error_type_label, code);
+        self.render_message(&mut out);
+        self.render_location(&mut out, source, &file);
+        self.render_source_snippet(&mut out, source, use_color);
+        self.render_hints(&mut out);
 
         out
     }
