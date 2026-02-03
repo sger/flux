@@ -1,10 +1,11 @@
 use std::fmt;
 
-use crate::frontend::statement::Statement;
+use crate::frontend::{position::Span, statement::Statement};
 
 #[derive(Debug, Clone)]
 pub struct Block {
     pub statements: Vec<Statement>,
+    pub span: Span,
 }
 
 impl fmt::Display for Block {
@@ -14,5 +15,11 @@ impl fmt::Display for Block {
             write!(f, "{} ", statement)?;
         }
         write!(f, "}}")
+    }
+}
+
+impl Block {
+    pub fn span(&self) -> Span {
+        self.span
     }
 }

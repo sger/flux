@@ -15,6 +15,7 @@ mod tests {
                 },
                 span: Span::default(),
             }],
+            span: Span::default(),
         };
 
         assert_eq!(program.to_string(), "let x = 5;");
