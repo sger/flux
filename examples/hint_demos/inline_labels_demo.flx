@@ -1,0 +1,9 @@
+// This file demonstrates where inline labels WOULD appear
+// once integrated into the compiler
+
+// Example 1: Binary operation with type mismatch
+let result = "hello" + 123;
+
+// Example 2: Function call with wrong argument types  
+fun add(a, b) { a + b }
+add("text", 456);

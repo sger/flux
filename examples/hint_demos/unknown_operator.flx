@@ -1,0 +1,32 @@
+// UNKNOWN_INFIX_OPERATOR Error Demonstration
+//
+// This file demonstrates the UNKNOWN_INFIX_OPERATOR error format with inline labels.
+//
+// NOTE: In the current implementation, all infix operators (+, -, *, /, %, <, >, <=, >=,
+// ==, !=, &&, ||) are fully supported, so this error doesn't trigger naturally.
+//
+// To see the error format with inline labels pointing to operands, run:
+//   cargo run --example demo_hint_rendering
+//
+// The error format looks like this:
+//
+//   -- Compiler error: Unknown infix operator [E006]
+//
+//   The operator '~' is not recognized
+//
+//     --> example.flx:1:14
+//     |
+//   1 | let result = x ~ y;
+//     |              ^^^^^
+//     |              - left operand
+//     |                  - right operand
+//
+//   Hint:
+//     Valid operators are: +, -, *, /, ==, !=, <, >, <=, >=, &&, ||
+//
+// The inline labels implementation is in src/bytecode/compiler.rs:521
+
+let x = 10;
+let y = 20;
+let result = x + y;
+result
