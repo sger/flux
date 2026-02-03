@@ -28,7 +28,7 @@ use crate::{
             IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH,
             MODULE_NOT_IMPORTED, MODULE_SCOPE, NON_EXHAUSTIVE_MATCH, OUTER_ASSIGNMENT,
             PRIVATE_MEMBER, UNDEFINED_VARIABLE, UNKNOWN_INFIX_OPERATOR,
-            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR, get_enhanced,
+            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR, lookup_error_code,
         },
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
@@ -1440,7 +1440,7 @@ impl Compiler {
                 ..
             } => {
                 // Try to look up the error code in the registry to get proper title and type
-                let (title, error_type) = get_enhanced(&error.code)
+                let (title, error_type) = lookup_error_code(&error.code)
                     .map(|ec| (ec.title, ec.error_type))
                     .unwrap_or(("CONSTANT EVALUATION ERROR", ErrorType::Compiler));
 

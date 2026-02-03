@@ -1,7 +1,9 @@
-use super::diagnostic::Diagnostic;
 use super::compiler_errors::*;
+use super::diagnostic::Diagnostic;
 use super::runtime_errors::*;
 use super::types::ErrorCode;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Central registry of all error codes (compiler + runtime)
 pub const ERROR_CODES: &[ErrorCode] = &[
@@ -101,9 +103,20 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     INVALID_SUBSTRING,
 ];
 
+fn error_code_map() -> &'static HashMap<&'static str, &'static ErrorCode> {
+    static MAP: OnceLock<HashMap<&'static str, &'static ErrorCode>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut map = HashMap::with_capacity(ERROR_CODES.len());
+        for code in ERROR_CODES {
+            map.insert(code.code, code);
+        }
+        map
+    })
+}
+
 /// Look up error code by code string (e.g., "E007", "E1001")
-pub fn get_enhanced(code: &str) -> Option<&'static ErrorCode> {
-    ERROR_CODES.iter().find(|item| item.code == code)
+pub fn lookup_error_code(code: &str) -> Option<&'static ErrorCode> {
+    error_code_map().get(code).copied()
 }
 
 /// Create a diagnostic from an error code (without message formatting)
