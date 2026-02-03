@@ -1,0 +1,7 @@
+// This example demonstrates categorized hints for lambda syntax errors
+// The error will show Note, Help, and Example sections
+
+// This will error: missing '->' in lambda
+let double = \x * 2;
+
+double(5)

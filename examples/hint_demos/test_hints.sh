@@ -43,6 +43,12 @@ $FLUX_BIN "$SCRIPT_DIR/unknown_operator.flx" 2>&1 || true
 echo ""
 echo ""
 
+echo "6. Testing invalid_lambda.flx (categorized hints)"
+echo "------------------------------------------"
+$FLUX_BIN "$SCRIPT_DIR/invalid_lambda.flx" 2>&1 || true
+echo ""
+echo ""
+
 echo "=========================================="
 echo "Demo Complete!"
 echo "=========================================="

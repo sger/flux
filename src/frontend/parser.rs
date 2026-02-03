@@ -1064,7 +1064,9 @@ impl Parser {
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
                     ))
-                    .with_hint_text("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_note("Lambda functions are anonymous functions defined with backslash syntax")
+                    .with_help("Use `\\parameter -> expression` for the lambda syntax")
+                    .with_example("let double = \\x -> x * 2;\nlet add = \\(a, b) -> a + b;"),
             );
             return None;
         }
