@@ -152,23 +152,23 @@ impl Compiler {
         for statement in &program.statements {
             if let Statement::Function { name, span, .. } = statement {
                 // Check for duplicate declaration first (takes precedence)
-                if let Some(existing) = self.symbol_table.resolve(name) {
-                    if self.symbol_table.exists_in_current_scope(name) {
-                        self.errors.push(
-                            Diagnostic::make_error(
-                                &DUPLICATE_NAME,
-                                &[name],
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_hint_labeled(
-                                "",
-                                existing.span,
-                                "first defined here",
-                            ),
-                        );
-                        continue;
-                    }
+                if let Some(existing) = self.symbol_table.resolve(name)
+                    && self.symbol_table.exists_in_current_scope(name)
+                {
+                    self.errors.push(
+                        Diagnostic::make_error(
+                            &DUPLICATE_NAME,
+                            &[name],
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_hint_labeled(
+                            "",
+                            existing.span,
+                            "first defined here",
+                        ),
+                    );
+                    continue;
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
@@ -214,22 +214,22 @@ impl Compiler {
                 }
                 Statement::Let { name, value, span } => {
                     // Check for duplicate in current scope FIRST (takes precedence)
-                    if let Some(existing) = self.symbol_table.resolve(name) {
-                        if self.symbol_table.exists_in_current_scope(name) {
-                            return Err(Self::boxed(
-                                Diagnostic::make_error(
-                                    &DUPLICATE_NAME,
-                                    &[name],
-                                    self.file_path.clone(),
-                                    *span,
-                                )
-                                .with_hint_labeled(
-                                    "",
-                                    existing.span,
-                                    "first defined here",
-                                ),
-                            ));
-                        }
+                    if let Some(existing) = self.symbol_table.resolve(name)
+                        && self.symbol_table.exists_in_current_scope(name)
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::make_error(
+                                &DUPLICATE_NAME,
+                                &[name],
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_hint_labeled(
+                                "",
+                                existing.span,
+                                "first defined here",
+                            ),
+                        ));
                     }
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
@@ -328,27 +328,26 @@ impl Compiler {
                 } => {
                     // For top-level functions, checks were already done in pass 1
                     // Only check for nested functions (scope_index > 0)
-                    if self.scope_index > 0 {
-                        if let Some(existing) = self.symbol_table.resolve(name) {
-                            if self.symbol_table.exists_in_current_scope(name) {
-                                return Err(Self::boxed(
-                                    Diagnostic::make_error(
-                                        &DUPLICATE_NAME,
-                                        &[name],
-                                        self.file_path.clone(),
-                                        *span,
-                                    )
-                                    .with_hint_text(
-                                        "Use a different name or remove the previous definition",
-                                    )
-                                    .with_hint_labeled(
-                                        "",
-                                        existing.span,
-                                        "first defined here",
-                                    ),
-                                ));
-                            }
-                        }
+                    if self.scope_index > 0
+                        && let Some(existing) = self.symbol_table.resolve(name)
+                        && self.symbol_table.exists_in_current_scope(name)
+                    {
+                        return Err(Self::boxed(
+                            Diagnostic::make_error(
+                                &DUPLICATE_NAME,
+                                &[name],
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_hint_text(
+                                "Use a different name or remove the previous definition",
+                            )
+                            .with_hint_labeled(
+                                "",
+                                existing.span,
+                                "first defined here",
+                            ),
+                        ));
                     }
                     self.compile_function_statement(name, parameters, body, span.start)?;
                     // For nested functions, add to file_scope_symbols
@@ -1420,26 +1419,24 @@ impl Compiler {
             {
                 let qualified_name = format!("{}.{}", binding_name, fn_name);
                 // Check for duplicate declaration
-                if let Some(existing) = self.symbol_table.resolve(&qualified_name) {
-                    if self.symbol_table.exists_in_current_scope(&qualified_name) {
-                        self.current_module_prefix = previous_module;
-                        return Err(Self::boxed(
-                            Diagnostic::make_error(
-                                &DUPLICATE_NAME,
-                                &[&qualified_name],
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_hint_text(
-                                "Use a different name or remove the previous definition",
-                            )
-                            .with_hint_labeled(
-                                "",
-                                existing.span,
-                                "first defined here",
-                            ),
-                        ));
-                    }
+                if let Some(existing) = self.symbol_table.resolve(&qualified_name)
+                    && self.symbol_table.exists_in_current_scope(&qualified_name)
+                {
+                    self.current_module_prefix = previous_module;
+                    return Err(Self::boxed(
+                        Diagnostic::make_error(
+                            &DUPLICATE_NAME,
+                            &[&qualified_name],
+                            self.file_path.clone(),
+                            *span,
+                        )
+                        .with_hint_text("Use a different name or remove the previous definition")
+                        .with_hint_labeled(
+                            "",
+                            existing.span,
+                            "first defined here",
+                        ),
+                    ));
                 }
                 // Predeclare the function
                 self.symbol_table.define(&qualified_name, *span);
@@ -1636,7 +1633,7 @@ impl Compiler {
                 ..
             } => {
                 // Try to look up the error code in the registry to get proper title and type
-                let (title, error_type) = lookup_error_code(&error.code)
+                let (title, error_type) = lookup_error_code(error.code)
                     .map(|ec| (ec.title, ec.error_type))
                     .unwrap_or(("CONSTANT EVALUATION ERROR", ErrorType::Compiler));
 

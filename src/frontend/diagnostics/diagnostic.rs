@@ -1,5 +1,5 @@
-use crate::frontend::position::{Position, Span};
 use super::{ErrorCode, ErrorType, format_message};
+use crate::frontend::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env;
@@ -300,6 +300,7 @@ macro_rules! ice {
     ($msg:expr) => {
         $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
             .with_message($msg)
+            .with_error_type($crate::frontend::diagnostics::ErrorType::Compiler)
             .with_hint_text(format!("{}:{} ({})", file!(), line!(), module_path!()))
     };
 }
@@ -514,12 +515,9 @@ impl Diagnostic {
     }
 
     /// Add an inline suggestion with replacement text (convenience method)
-    pub fn with_suggestion_replace(
-        mut self,
-        span: Span,
-        replacement: impl Into<String>,
-    ) -> Self {
-        self.suggestions.push(InlineSuggestion::new(span, replacement));
+    pub fn with_suggestion_replace(mut self, span: Span, replacement: impl Into<String>) -> Self {
+        self.suggestions
+            .push(InlineSuggestion::new(span, replacement));
         self
     }
 
@@ -530,10 +528,8 @@ impl Diagnostic {
         replacement: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        self.suggestions.push(
-            InlineSuggestion::new(span, replacement)
-                .with_message(message)
-        );
+        self.suggestions
+            .push(InlineSuggestion::new(span, replacement).with_message(message));
         self
     }
 
@@ -550,10 +546,7 @@ impl Diagnostic {
     }
 
     /// Add a hint chain from a list of steps (convenience method)
-    pub fn with_steps<S: Into<String>>(
-        mut self,
-        steps: impl IntoIterator<Item = S>,
-    ) -> Self {
+    pub fn with_steps<S: Into<String>>(mut self, steps: impl IntoIterator<Item = S>) -> Self {
         self.hint_chains.push(HintChain::from_steps(steps));
         self
     }
@@ -564,9 +557,8 @@ impl Diagnostic {
         steps: impl IntoIterator<Item = S>,
         conclusion: impl Into<String>,
     ) -> Self {
-        self.hint_chains.push(
-            HintChain::from_steps(steps).with_conclusion(conclusion)
-        );
+        self.hint_chains
+            .push(HintChain::from_steps(steps).with_conclusion(conclusion));
         self
     }
 
@@ -705,12 +697,7 @@ impl Diagnostic {
         }
     }
 
-    fn render_header(
-        &self,
-        out: &mut String,
-        use_color: bool,
-        code: &str,
-    ) {
+    fn render_header(&self, out: &mut String, use_color: bool, code: &str) {
         let yellow = "\u{1b}[33m";
         let reset = "\u{1b}[0m";
         // Header: --> compiler error[E031]: expected expression
@@ -727,28 +714,23 @@ impl Diagnostic {
 
     fn render_message(&self, out: &mut String) {
         // Message
-        if let Some(message) = &self.message {
-            if !message.is_empty() {
-                out.push('\n');
-                out.push_str(message);
-                out.push('\n');
-                return;
-            }
+        if let Some(message) = &self.message
+            && !message.is_empty()
+        {
+            out.push('\n');
+            out.push_str(message);
+            out.push('\n');
+            return;
         }
         // Keep a blank line between header and location when no message is provided.
         out.push('\n');
     }
 
-    fn render_location(
-        &self,
-        out: &mut String,
-        source: Option<&str>,
-        file: &str,
-    ) {
+    fn render_location(&self, out: &mut String, source: Option<&str>, file: &str) {
         // Location indicator: --> file:line:column
         if let Some(position) = self.position() {
             // Only add newline if there was a non-empty message
-            if self.message.as_ref().map_or(false, |m| !m.is_empty()) {
+            if self.message.as_ref().is_some_and(|m| !m.is_empty()) {
                 out.push('\n');
             }
             // Handle end-of-line sentinel value
@@ -763,9 +745,7 @@ impl Diagnostic {
             };
             out.push_str(&format!(
                 "  --> {}:{}:{}\n",
-                file,
-                position.line,
-                display_col
+                file, position.line, display_col
             ));
         }
     }
@@ -782,8 +762,18 @@ impl Diagnostic {
             let end_line = span.end.line.max(start_line);
 
             // Expand range to include all label lines
-            let label_start = self.labels.iter().map(|l| l.span.start.line).min().unwrap_or(start_line);
-            let label_end = self.labels.iter().map(|l| l.span.end.line).max().unwrap_or(end_line);
+            let label_start = self
+                .labels
+                .iter()
+                .map(|l| l.span.start.line)
+                .min()
+                .unwrap_or(start_line);
+            let label_end = self
+                .labels
+                .iter()
+                .map(|l| l.span.end.line)
+                .max()
+                .unwrap_or(end_line);
             let actual_start = start_line.min(label_start);
             let actual_end = end_line.max(label_end);
 
@@ -849,7 +839,10 @@ impl Diagnostic {
                         if line_no == start_line
                             && line_no == end_line
                             && self.code.as_deref() == Some(UNTERMINATED_STRING_ERROR_CODE)
-                            && self.message.as_deref().map_or(false, |msg| msg.contains("unterminated string"))
+                            && self
+                                .message
+                                .as_deref()
+                                .is_some_and(|msg| msg.contains("unterminated string"))
                         {
                             let start_col = span.start.column.min(line_len);
                             if let Some((quote_idx, _)) = line_text
@@ -882,7 +875,8 @@ impl Diagnostic {
                         // Only render labels that are on this specific line
                         if label.span.start.line == line_no && label.span.end.line == line_no {
                             let label_start = label.span.start.column.min(line_len);
-                            let label_end = label.span.end.column.min(line_len).max(label_start + 1);
+                            let label_end =
+                                label.span.end.column.min(line_len).max(label_start + 1);
                             let label_len = label_end.saturating_sub(label_start);
 
                             // Choose color based on label style
@@ -941,7 +935,10 @@ impl Diagnostic {
                 if let Some(msg) = &suggestion.message {
                     out.push_str(&format!("help: {}\n", msg));
                 } else {
-                    out.push_str(&format!("help: Replace with '{}'\n", suggestion.replacement));
+                    out.push_str(&format!(
+                        "help: Replace with '{}'\n",
+                        suggestion.replacement
+                    ));
                 }
                 if use_color {
                     out.push_str(reset);
@@ -965,16 +962,20 @@ impl Diagnostic {
                 let suffix = &line_text[end_col..];
                 let replaced_line = format!("{}{}{}", prefix, suggestion.replacement, suffix);
 
-                out.push_str(&format!("   |\n"));
+                out.push_str("   |\n");
                 out.push_str(&format!(
                     "{:>width$} | {}\n",
-                    line_no, replaced_line, width = line_width
+                    line_no,
+                    replaced_line,
+                    width = line_width
                 ));
 
                 // Show tildes under the replacement
                 out.push_str(&format!(
                     "{:>width$} | {}",
-                    "", " ".repeat(start_col), width = line_width
+                    "",
+                    " ".repeat(start_col),
+                    width = line_width
                 ));
                 if use_color {
                     out.push_str(green);
@@ -1013,7 +1014,12 @@ impl Diagnostic {
 
         // Render text-only hints grouped by kind
         // Order: Hint, Note, Help, Example
-        for kind in [HintKind::Hint, HintKind::Note, HintKind::Help, HintKind::Example] {
+        for kind in [
+            HintKind::Hint,
+            HintKind::Note,
+            HintKind::Help,
+            HintKind::Example,
+        ] {
             if let Some(hints) = hints_by_kind.get(&kind) {
                 out.push_str("\n\n");
                 let (label, color) = match kind {
@@ -1080,14 +1086,11 @@ impl Diagnostic {
                 let file = hint
                     .file
                     .as_deref()
-                    .or_else(|| self.file.as_deref())
+                    .or(self.file.as_deref())
                     .filter(|f| !f.is_empty())
                     .map(render_display_path)
                     .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
-                out.push_str(&format!(
-                    "  --> {}:{}:{}\n",
-                    file, start.line, display_col
-                ));
+                out.push_str(&format!("  --> {}:{}:{}\n", file, start.line, display_col));
 
                 // Render source snippet for this hint
                 self.render_hint_snippet(out, source, span, use_color);
@@ -1135,7 +1138,13 @@ impl Diagnostic {
         }
     }
 
-    fn render_hint_snippet(&self, out: &mut String, source: Option<&str>, span: Span, use_color: bool) {
+    fn render_hint_snippet(
+        &self,
+        out: &mut String,
+        source: Option<&str>,
+        span: Span,
+        use_color: bool,
+    ) {
         let red = "\u{1b}[31m";
         let reset = "\u{1b}[0m";
 
@@ -1173,11 +1182,15 @@ impl Diagnostic {
 
                 out.push_str(&format!(
                     "{:>width$} | {}\n",
-                    line_no, line_text, width = line_width
+                    line_no,
+                    line_text,
+                    width = line_width
                 ));
                 out.push_str(&format!(
                     "{:>width$} | {}",
-                    "", " ".repeat(caret_start), width = line_width
+                    "",
+                    " ".repeat(caret_start),
+                    width = line_width
                 ));
                 if use_color {
                     out.push_str(red);
@@ -1248,7 +1261,7 @@ impl Diagnostic {
                 let file = related
                     .file
                     .as_deref()
-                    .or_else(|| self.file.as_deref())
+                    .or(self.file.as_deref())
                     .or(default_file)
                     .filter(|f| !f.is_empty())
                     .map(render_display_path)
@@ -1262,10 +1275,7 @@ impl Diagnostic {
                 } else {
                     start.column + 1
                 };
-                out.push_str(&format!(
-                    "  --> {}:{}:{}\n",
-                    file, start.line, display_col
-                ));
+                out.push_str(&format!("  --> {}:{}:{}\n", file, start.line, display_col));
                 self.render_hint_snippet(out, related_source, span, use_color);
             }
         }
@@ -1280,13 +1290,12 @@ impl Diagnostic {
         default_file: Option<&str>,
         sources_by_file: Option<&HashMap<String, String>>,
     ) -> String {
-        let primary_source = sources_by_file
-            .and_then(|sources| {
-                self.file
-                    .as_deref()
-                    .or(default_file)
-                    .and_then(|file| sources.get(file).map(|s| s.as_str()))
-            });
+        let primary_source = sources_by_file.and_then(|sources| {
+            self.file
+                .as_deref()
+                .or(default_file)
+                .and_then(|file| sources.get(file).map(|s| s.as_str()))
+        });
         self.render_with_context(primary_source, default_file, sources_by_file)
     }
 

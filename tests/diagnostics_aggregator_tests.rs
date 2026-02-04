@@ -34,9 +34,7 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let b_idx = output.find("--> b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
-    let err_idx = output
-        .find("--> error[E000]: ERR")
-        .expect("missing error");
+    let err_idx = output.find("--> error[E000]: ERR").expect("missing error");
     let warn_idx = output
         .find("--> warning[E000]: WARN")
         .expect("missing warning");

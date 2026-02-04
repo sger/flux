@@ -120,10 +120,18 @@ struct DiagnosticKey {
 
 impl DiagnosticKey {
     fn from_diagnostic(diag: &Diagnostic, default_file: Option<&str>) -> Self {
-        let mut labels = diag.labels().iter().map(LabelKey::from_label).collect::<Vec<_>>();
+        let mut labels = diag
+            .labels()
+            .iter()
+            .map(LabelKey::from_label)
+            .collect::<Vec<_>>();
         labels.sort_by(label_sort);
 
-        let mut hints = diag.hints().iter().map(HintKey::from_hint).collect::<Vec<_>>();
+        let mut hints = diag
+            .hints()
+            .iter()
+            .map(HintKey::from_hint)
+            .collect::<Vec<_>>();
         hints.sort_by(hint_sort);
 
         let mut suggestions = diag
@@ -140,7 +148,11 @@ impl DiagnosticKey {
             .collect::<Vec<_>>();
         hint_chains.sort_by(chain_sort);
 
-        let mut related = diag.related().iter().map(RelatedKey::from_related).collect::<Vec<_>>();
+        let mut related = diag
+            .related()
+            .iter()
+            .map(RelatedKey::from_related)
+            .collect::<Vec<_>>();
         related.sort_by(related_sort);
         Self {
             file: effective_file(diag, default_file).map(|f| f.to_string()),
@@ -243,8 +255,10 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .cmp(b_file)
                 .then_with(|| line_key(a.diag).cmp(&line_key(b.diag)))
                 .then_with(|| column_key(a.diag).cmp(&column_key(b.diag)))
-                .then_with(|| severity_rank(a.diag.severity()).cmp(&severity_rank(b.diag.severity())))
-                .then_with(|| message_key(a.diag).cmp(&message_key(b.diag)))
+                .then_with(|| {
+                    severity_rank(a.diag.severity()).cmp(&severity_rank(b.diag.severity()))
+                })
+                .then_with(|| message_key(a.diag).cmp(message_key(b.diag)))
                 .then_with(|| a.diag.title().cmp(b.diag.title()))
                 .then_with(|| a.index.cmp(&b.index))
         });
@@ -284,7 +298,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
 
             if show_file_headers {
-                if current_file_key.map_or(true, |f| f != file_key.unwrap_or("")) {
+                if current_file_key.is_none_or(|f| f != file_key.unwrap_or("")) {
                     if !current_group.is_empty() {
                         groups.push(current_group);
                         current_group = String::new();
@@ -339,7 +353,7 @@ pub fn render_diagnostics_multi(diagnostics: &[Diagnostic], max_errors: Option<u
         .render()
 }
 
-fn normalize_file<'a>(file: Option<&'a str>) -> Option<&'a str> {
+fn normalize_file(file: Option<&str>) -> Option<&str> {
     file.filter(|f| !f.is_empty())
 }
 
@@ -358,10 +372,10 @@ fn ensure_source(file: Option<&str>, cache: &mut HashMap<String, String>) {
         Some(file) if !file.is_empty() => file,
         _ => return,
     };
-    if !cache.contains_key(file) {
-        if let Ok(source) = fs::read_to_string(Path::new(file)) {
-            cache.insert(file.to_string(), source);
-        }
+    if !cache.contains_key(file)
+        && let Ok(source) = fs::read_to_string(Path::new(file))
+    {
+        cache.insert(file.to_string(), source);
     }
 }
 
@@ -389,7 +403,11 @@ fn format_summary(counts: &DiagnosticCounts) -> Option<String> {
         parts.push(format!("{} error{}", counts.errors, plural(counts.errors)));
     }
     if counts.warnings > 0 {
-        parts.push(format!("{} warning{}", counts.warnings, plural(counts.warnings)));
+        parts.push(format!(
+            "{} warning{}",
+            counts.warnings,
+            plural(counts.warnings)
+        ));
     }
     if counts.notes > 0 {
         parts.push(format!("{} note{}", counts.notes, plural(counts.notes)));
@@ -434,12 +452,10 @@ fn line_key(diag: &Diagnostic) -> usize {
 }
 
 fn column_key(diag: &Diagnostic) -> usize {
-    diag.position()
-        .map(|pos| pos.column)
-        .unwrap_or(usize::MAX)
+    diag.position().map(|pos| pos.column).unwrap_or(usize::MAX)
 }
 
-fn message_key<'a>(diag: &'a Diagnostic) -> &'a str {
+fn message_key(diag: &Diagnostic) -> &str {
     diag.message().unwrap_or("")
 }
 

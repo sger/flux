@@ -382,7 +382,9 @@ fn categorized_hints_ordering() {
     let hint_pos = output.find("Hint:\n").expect("Hint section not found");
     let note_pos = output.find("Note:\n").expect("Note section not found");
     let help_pos = output.find("Help:\n").expect("Help section not found");
-    let example_pos = output.find("Example:\n").expect("Example section not found");
+    let example_pos = output
+        .find("Example:\n")
+        .expect("Example section not found");
 
     // Verify order: Hint < Note < Help < Example
     assert!(hint_pos < note_pos, "Hint should come before Note");
@@ -436,10 +438,9 @@ fn hint_with_different_file() {
 #[test]
 fn hint_with_file_builder() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let span = Span::new(Position::new(10, 5), Position::new(10, 15));
+    let _span = Span::new(Position::new(10, 5), Position::new(10, 15));
 
-    let hint = Hint::note("This was imported from another module")
-        .with_file("src/module.flx");
+    let hint = Hint::note("This was imported from another module").with_file("src/module.flx");
 
     assert_eq!(hint.file, Some("src/module.flx".to_string()));
     assert_eq!(hint.kind, HintKind::Note);
@@ -452,8 +453,7 @@ fn hint_falls_back_to_diagnostic_file() {
     let span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
     // Hint without explicit file should use diagnostic's file
-    let hint = Hint::at("variable defined here", span)
-        .with_label("first definition");
+    let hint = Hint::at("variable defined here", span).with_label("first definition");
 
     let output = Diagnostic::error("Duplicate variable")
         .with_file("test.flx")
@@ -505,11 +505,13 @@ fn inline_suggestion_with_message() {
 #[test]
 fn inline_suggestion_builder() {
     let span = Span::new(Position::new(1, 0), Position::new(1, 5));
-    let suggestion = InlineSuggestion::new(span, "const")
-        .with_message("Use const for constants");
+    let suggestion = InlineSuggestion::new(span, "const").with_message("Use const for constants");
 
     assert_eq!(suggestion.replacement, "const");
-    assert_eq!(suggestion.message, Some("Use const for constants".to_string()));
+    assert_eq!(
+        suggestion.message,
+        Some("Use const for constants".to_string())
+    );
 }
 
 #[test]
@@ -554,7 +556,8 @@ fn hint_chain_with_conclusion() {
     let chain = HintChain::from_steps(vec![
         "Check the variable type",
         "Ensure it matches the expected type",
-    ]).with_conclusion("Type annotations can help prevent these errors");
+    ])
+    .with_conclusion("Type annotations can help prevent these errors");
 
     let output = Diagnostic::error("Type error")
         .with_hint_chain(chain)
@@ -568,12 +571,12 @@ fn hint_chain_with_conclusion() {
 #[test]
 fn hint_chain_builder_methods() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    
+
     // Test with_steps
     let output1 = Diagnostic::error("Error")
         .with_steps(vec!["Step 1", "Step 2"])
         .render(None, Some("test.flx"));
-    
+
     assert!(output1.contains("1. Step 1"));
     assert!(output1.contains("2. Step 2"));
 
@@ -581,7 +584,7 @@ fn hint_chain_builder_methods() {
     let output2 = Diagnostic::error("Error")
         .with_steps_and_conclusion(
             vec!["Fix step 1", "Fix step 2"],
-            "This should resolve the issue"
+            "This should resolve the issue",
         )
         .render(None, Some("test.flx"));
 
@@ -609,9 +612,9 @@ fn multiple_hint_chains() {
 #[test]
 fn make_warning_from_code() {
     use flux::frontend::diagnostics::{ErrorCode, ErrorType};
-    
+
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    
+
     const TEST_WARNING: ErrorCode = ErrorCode {
         code: "W001",
         title: "Unused variable",
@@ -624,8 +627,9 @@ fn make_warning_from_code() {
         &TEST_WARNING,
         &["count"],
         "test.flx",
-        Span::new(Position::new(5, 4), Position::new(5, 9))
-    ).render(None, None);
+        Span::new(Position::new(5, 4), Position::new(5, 9)),
+    )
+    .render(None, None);
 
     assert!(output.contains("--> warning[W001]: Unused variable"));
     assert!(output.contains("W001"));
@@ -637,7 +641,7 @@ fn make_warning_from_code() {
 #[test]
 fn all_severity_levels() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    
+
     // Test all severity levels can be created
     let error = Diagnostic::error("Error title").render(None, Some("test.flx"));
     assert!(error.contains("--> error[E000]: Error title"));
@@ -646,20 +650,12 @@ fn all_severity_levels() {
     assert!(warning.contains("--> warning[E000]: Warning title"));
 
     let span = Span::new(Position::new(1, 0), Position::new(1, 5));
-    
-    let note = Diagnostic::make_note(
-        "Note title",
-        "This is a note",
-        "test.flx",
-        span
-    ).render(None, None);
+
+    let note =
+        Diagnostic::make_note("Note title", "This is a note", "test.flx", span).render(None, None);
     assert!(note.contains("--> note[E000]: Note title"));
 
-    let help = Diagnostic::make_help(
-        "Help title",
-        "This is help",
-        "test.flx",
-        span
-    ).render(None, None);
+    let help =
+        Diagnostic::make_help("Help title", "This is help", "test.flx", span).render(None, None);
     assert!(help.contains("--> help[E000]: Help title"));
 }

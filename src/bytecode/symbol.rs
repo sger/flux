@@ -11,7 +11,12 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn new(name: impl Into<String>, symbol_scope: SymbolScope, index: usize, span: Span) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        symbol_scope: SymbolScope,
+        index: usize,
+        span: Span,
+    ) -> Self {
         Self {
             name: name.into(),
             symbol_scope,
