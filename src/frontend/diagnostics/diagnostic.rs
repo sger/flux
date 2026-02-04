@@ -2,10 +2,10 @@ use super::{ErrorCode, ErrorType, format_message};
 use crate::frontend::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::env;
+use std::{env, fs};
 
 // Error code constants for special rendering cases
-const UNTERMINATED_STRING_ERROR_CODE: &str = "E031";
+const UNTERMINATED_STRING_ERROR_CODE: &str = "E071";
 // Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
@@ -1324,6 +1324,21 @@ impl Diagnostic {
         default_file: Option<&str>,
         sources_by_file: Option<&HashMap<String, String>>,
     ) -> String {
+        let mut fallback_source: Option<String> = None;
+        let source = match source {
+            Some(source) => Some(source),
+            None => {
+                let file = self
+                    .file
+                    .as_deref()
+                    .filter(|f| !f.is_empty())
+                    .or(default_file);
+                if let Some(file) = file {
+                    fallback_source = fs::read_to_string(file).ok();
+                }
+                fallback_source.as_deref()
+            }
+        };
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
         let file = self

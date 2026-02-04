@@ -592,3 +592,11 @@ pub const ICE_TEMP_SYMBOL_RIGHT_BINDING: ErrorCode = ErrorCode {
         "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
     ),
 };
+
+pub const UNTERMINATED_STRING: ErrorCode = ErrorCode {
+    code: "E071",
+    title: "UNTERMINATED STRING",
+    error_type: ErrorType::Compiler,
+    message: "String literal is missing closing quote.",
+    hint: Some("Add a closing \" at the end of the string."),
+};
