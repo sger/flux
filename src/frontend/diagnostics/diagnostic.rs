@@ -120,7 +120,7 @@ impl Hint {
 }
 
 /// Style for inline source labels
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LabelStyle {
     /// Primary label - main focus of the error (rendered in red)
     Primary,
@@ -376,6 +376,18 @@ impl Diagnostic {
 
     pub fn hints(&self) -> &[Hint] {
         &self.hints
+    }
+
+    pub fn labels(&self) -> &[Label] {
+        &self.labels
+    }
+
+    pub fn suggestions(&self) -> &[InlineSuggestion] {
+        &self.suggestions
+    }
+
+    pub fn hint_chains(&self) -> &[HintChain] {
+        &self.hint_chains
     }
 
     pub fn related(&self) -> &[RelatedDiagnostic] {

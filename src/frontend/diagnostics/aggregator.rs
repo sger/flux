@@ -3,7 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use super::{Diagnostic, RelatedDiagnostic, RelatedKind, Severity, render_display_path};
+use super::{
+    Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
+    RelatedKind, Severity, render_display_path,
+};
 use crate::frontend::position::Span;
 
 /// Default max error limit to avoid overwhelming output.
@@ -72,6 +75,35 @@ impl RelatedKey {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct LabelKey {
+    span: SpanKey,
+    text: String,
+    style: LabelStyle,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct HintKey {
+    kind: HintKind,
+    text: String,
+    span: Option<SpanKey>,
+    label: Option<String>,
+    file: Option<String>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct SuggestionKey {
+    replacement: String,
+    span: SpanKey,
+    message: Option<String>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct HintChainKey {
+    steps: Vec<String>,
+    conclusion: Option<String>,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct DiagnosticKey {
     file: Option<String>,
     span: Option<SpanKey>,
@@ -79,12 +111,37 @@ struct DiagnosticKey {
     code: Option<String>,
     title: String,
     message: Option<String>,
+    labels: Vec<LabelKey>,
+    hints: Vec<HintKey>,
+    suggestions: Vec<SuggestionKey>,
+    hint_chains: Vec<HintChainKey>,
     related: Vec<RelatedKey>,
 }
 
 impl DiagnosticKey {
     fn from_diagnostic(diag: &Diagnostic, default_file: Option<&str>) -> Self {
-        let related = diag.related().iter().map(RelatedKey::from_related).collect();
+        let mut labels = diag.labels().iter().map(LabelKey::from_label).collect::<Vec<_>>();
+        labels.sort_by(label_sort);
+
+        let mut hints = diag.hints().iter().map(HintKey::from_hint).collect::<Vec<_>>();
+        hints.sort_by(hint_sort);
+
+        let mut suggestions = diag
+            .suggestions()
+            .iter()
+            .map(SuggestionKey::from_suggestion)
+            .collect::<Vec<_>>();
+        suggestions.sort_by(suggestion_sort);
+
+        let mut hint_chains = diag
+            .hint_chains()
+            .iter()
+            .map(HintChainKey::from_chain)
+            .collect::<Vec<_>>();
+        hint_chains.sort_by(chain_sort);
+
+        let mut related = diag.related().iter().map(RelatedKey::from_related).collect::<Vec<_>>();
+        related.sort_by(related_sort);
         Self {
             file: effective_file(diag, default_file).map(|f| f.to_string()),
             span: diag.span().map(SpanKey::from_span),
@@ -92,6 +149,10 @@ impl DiagnosticKey {
             code: diag.code().map(|c| c.to_string()),
             title: diag.title().to_string(),
             message: diag.message().map(|m| m.to_string()),
+            labels,
+            hints,
+            suggestions,
+            hint_chains,
             related,
         }
     }
@@ -358,4 +419,120 @@ fn column_key(diag: &Diagnostic) -> usize {
 
 fn message_key<'a>(diag: &'a Diagnostic) -> &'a str {
     diag.message().unwrap_or("")
+}
+
+impl LabelKey {
+    fn from_label(label: &Label) -> Self {
+        Self {
+            span: SpanKey::from_span(label.span),
+            text: label.text.clone(),
+            style: label.style,
+        }
+    }
+}
+
+impl HintKey {
+    fn from_hint(hint: &Hint) -> Self {
+        Self {
+            kind: hint.kind,
+            text: hint.text.clone(),
+            span: hint.span.map(SpanKey::from_span),
+            label: hint.label.clone(),
+            file: hint.file.clone(),
+        }
+    }
+}
+
+impl SuggestionKey {
+    fn from_suggestion(suggestion: &InlineSuggestion) -> Self {
+        Self {
+            replacement: suggestion.replacement.clone(),
+            span: SpanKey::from_span(suggestion.span),
+            message: suggestion.message.clone(),
+        }
+    }
+}
+
+impl HintChainKey {
+    fn from_chain(chain: &HintChain) -> Self {
+        Self {
+            steps: chain.steps.clone(),
+            conclusion: chain.conclusion.clone(),
+        }
+    }
+}
+
+fn label_sort(a: &LabelKey, b: &LabelKey) -> std::cmp::Ordering {
+    span_sort_key(Some(&a.span))
+        .cmp(&span_sort_key(Some(&b.span)))
+        .then_with(|| label_style_rank(a.style).cmp(&label_style_rank(b.style)))
+        .then_with(|| a.text.cmp(&b.text))
+}
+
+fn hint_sort(a: &HintKey, b: &HintKey) -> std::cmp::Ordering {
+    hint_kind_rank(a.kind)
+        .cmp(&hint_kind_rank(b.kind))
+        .then_with(|| a.text.cmp(&b.text))
+        .then_with(|| span_sort_key(a.span.as_ref()).cmp(&span_sort_key(b.span.as_ref())))
+        .then_with(|| a.label.cmp(&b.label))
+        .then_with(|| a.file.cmp(&b.file))
+}
+
+fn suggestion_sort(a: &SuggestionKey, b: &SuggestionKey) -> std::cmp::Ordering {
+    span_sort_key(Some(&a.span))
+        .cmp(&span_sort_key(Some(&b.span)))
+        .then_with(|| a.replacement.cmp(&b.replacement))
+        .then_with(|| a.message.cmp(&b.message))
+}
+
+fn chain_sort(a: &HintChainKey, b: &HintChainKey) -> std::cmp::Ordering {
+    a.steps
+        .cmp(&b.steps)
+        .then_with(|| a.conclusion.cmp(&b.conclusion))
+}
+
+fn related_sort(a: &RelatedKey, b: &RelatedKey) -> std::cmp::Ordering {
+    related_kind_rank(a.kind)
+        .cmp(&related_kind_rank(b.kind))
+        .then_with(|| a.message.cmp(&b.message))
+        .then_with(|| span_sort_key(a.span.as_ref()).cmp(&span_sort_key(b.span.as_ref())))
+        .then_with(|| a.file.cmp(&b.file))
+}
+
+fn span_sort_key(span: Option<&SpanKey>) -> (u8, usize, usize, usize, usize) {
+    match span {
+        Some(span) => (
+            0,
+            span.start_line,
+            span.start_col,
+            span.end_line,
+            span.end_col,
+        ),
+        None => (1, 0, 0, 0, 0),
+    }
+}
+
+fn label_style_rank(style: LabelStyle) -> u8 {
+    match style {
+        LabelStyle::Primary => 0,
+        LabelStyle::Secondary => 1,
+        LabelStyle::Note => 2,
+    }
+}
+
+fn hint_kind_rank(kind: HintKind) -> u8 {
+    match kind {
+        HintKind::Hint => 0,
+        HintKind::Note => 1,
+        HintKind::Help => 2,
+        HintKind::Example => 3,
+    }
+}
+
+fn related_kind_rank(kind: RelatedKind) -> u8 {
+    match kind {
+        RelatedKind::Note => 0,
+        RelatedKind::Help => 1,
+        RelatedKind::Related => 2,
+    }
 }
