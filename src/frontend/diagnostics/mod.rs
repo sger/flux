@@ -5,12 +5,14 @@
 
 pub mod compiler_errors;
 pub mod diagnostic;
+pub mod aggregator;
 pub mod format;
 pub mod registry;
 pub mod runtime_errors;
 pub mod types;
 
-pub use diagnostic::{Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, Severity, render_diagnostics, render_display_path};
+pub use aggregator::{DiagnosticCounts, DiagnosticsAggregator, DiagnosticsReport, DEFAULT_MAX_ERRORS, render_diagnostics_multi};
+pub use diagnostic::{Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity, render_diagnostics, render_display_path};
 pub use format::{format_message, format_message_named};
 pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
 pub use types::{ErrorCode, ErrorType};
