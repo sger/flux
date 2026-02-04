@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, HintKind, InlineSuggestion, Label, LabelStyle},
+    diagnostics::{Diagnostic, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle},
     position::{Position, Span},
 };
 
@@ -528,4 +528,83 @@ fn multiple_inline_suggestions() {
 
     assert!(output.contains("fun add(a, b)"));
     assert!(output.contains("~~~"));
+}
+
+#[test]
+fn hint_chain_basic() {
+    set_no_color();
+    let chain = HintChain::new(vec![
+        "Convert the String to Int using .parse()".to_string(),
+        "Handle the potential parse error".to_string(),
+        "Or change the function signature".to_string(),
+    ]);
+
+    let output = Diagnostic::error("Type mismatch")
+        .with_code("E020")
+        .with_hint_chain(chain)
+        .render(None, Some("test.flx"));
+
+    assert!(output.contains("Hint:"));
+    assert!(output.contains("To fix this error:"));
+    assert!(output.contains("1. Convert the String to Int using .parse()"));
+    assert!(output.contains("2. Handle the potential parse error"));
+    assert!(output.contains("3. Or change the function signature"));
+}
+
+#[test]
+fn hint_chain_with_conclusion() {
+    set_no_color();
+    let chain = HintChain::from_steps(vec![
+        "Check the variable type",
+        "Ensure it matches the expected type",
+    ]).with_conclusion("Type annotations can help prevent these errors");
+
+    let output = Diagnostic::error("Type error")
+        .with_hint_chain(chain)
+        .render(None, Some("test.flx"));
+
+    assert!(output.contains("1. Check the variable type"));
+    assert!(output.contains("2. Ensure it matches the expected type"));
+    assert!(output.contains("Type annotations can help prevent these errors"));
+}
+
+#[test]
+fn hint_chain_builder_methods() {
+    set_no_color();
+    
+    // Test with_steps
+    let output1 = Diagnostic::error("Error")
+        .with_steps(vec!["Step 1", "Step 2"])
+        .render(None, Some("test.flx"));
+    
+    assert!(output1.contains("1. Step 1"));
+    assert!(output1.contains("2. Step 2"));
+
+    // Test with_steps_and_conclusion
+    let output2 = Diagnostic::error("Error")
+        .with_steps_and_conclusion(
+            vec!["Fix step 1", "Fix step 2"],
+            "This should resolve the issue"
+        )
+        .render(None, Some("test.flx"));
+
+    assert!(output2.contains("1. Fix step 1"));
+    assert!(output2.contains("2. Fix step 2"));
+    assert!(output2.contains("This should resolve the issue"));
+}
+
+#[test]
+fn multiple_hint_chains() {
+    set_no_color();
+    let chain1 = HintChain::from_steps(vec!["Option 1 step 1", "Option 1 step 2"]);
+    let chain2 = HintChain::from_steps(vec!["Option 2 step 1", "Option 2 step 2"]);
+
+    let output = Diagnostic::error("Multiple solutions")
+        .with_hint_chain(chain1)
+        .with_hint_chain(chain2)
+        .render(None, Some("test.flx"));
+
+    // Both chains should be present
+    assert!(output.contains("Option 1 step 1"));
+    assert!(output.contains("Option 2 step 1"));
 }
