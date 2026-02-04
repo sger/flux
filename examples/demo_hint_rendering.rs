@@ -2,7 +2,7 @@
 /// Run with: cargo run --example demo_hint_rendering
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType},
+    diagnostics::{Diagnostic, ErrorType, Hint},
     position::{Position, Span},
 };
 
@@ -29,6 +29,9 @@ fn main() {
 
     // Example 6: Categorized hints (Note, Help, Example)
     example_categorized_hints();
+
+    // Example 7: Multi-file support (cross-file references)
+    example_multi_file_hints();
 }
 
 fn example_duplicate_variable() {
@@ -235,4 +238,53 @@ let MyOtherVariable = 20;
     println!("   • Easier to scan and find the information you need");
     println!("   • Clear distinction between context, guidance, and examples");
     println!("   • Consistent formatting across all error messages");
+}
+
+fn example_multi_file_hints() {
+    println!("\n📍 Example 7: Multi-File Support (NEW FEATURE)");
+    println!("{}", "-".repeat(70));
+
+    // Simulate code in main.flx calling a function from lib.flx
+    let main_source = "\
+calculate(x, y, z)
+";
+
+    let lib_source = "\
+// Library file
+fun calculate(a, b) {
+    return a + b;
+}
+";
+
+    // Error in main.flx
+    let call_span = Span::new(Position::new(1, 0), Position::new(1, 18));
+    
+    // Function definition in lib.flx
+    let def_span = Span::new(Position::new(2, 14), Position::new(2, 20));
+
+    // Create hint that points to a different file
+    let hint = Hint::at("Function defined with 2 parameters here", def_span)
+        .with_label("defined with 2 parameters")
+        .with_file("src/lib.flx");
+
+    let diagnostic = Diagnostic::error("Function signature mismatch")
+        .with_code("E050")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("Expected 2 arguments, found 3")
+        .with_file("src/main.flx")
+        .with_span(call_span)
+        .with_hint(hint);
+
+    println!("{}\n", diagnostic.render(Some(main_source), None));
+
+    println!("✨ NEW: Hints can reference code in different files!");
+    println!("   • Main error shows location in src/main.flx");
+    println!("   • Hint points to function definition in src/lib.flx");
+    println!("   • Perfect for module imports and cross-file references");
+    println!();
+    println!("💡 Use cases:");
+    println!("   • Function signature mismatches across modules");
+    println!("   • Type definitions in other files");
+    println!("   • Variable declarations in imported modules");
+    println!("   • Any cross-file reference that helps explain an error");
 }

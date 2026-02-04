@@ -410,3 +410,60 @@ fn builder_methods_for_categorized_hints() {
     assert!(output.contains("Example:"));
     assert!(output.contains("let myVariable = 10;"));
 }
+
+#[test]
+fn hint_with_different_file() {
+    set_no_color();
+    let main_source = "calculate(x, y, z)\n";
+    let main_span = Span::new(Position::new(1, 0), Position::new(1, 18));
+    let lib_span = Span::new(Position::new(8, 4), Position::new(8, 9));
+
+    let hint = Hint::at("Function defined with 2 parameters", lib_span)
+        .with_label("defined here")
+        .with_file("src/lib.flx");
+
+    let output = Diagnostic::error("Function signature mismatch")
+        .with_code("E050")
+        .with_file("src/main.flx")
+        .with_span(main_span)
+        .with_message("Expected 2 arguments, found 3")
+        .with_hint(hint)
+        .render(Some(main_source), None);
+
+    // Check that both files are mentioned
+    assert!(output.contains("src/main.flx"));
+    assert!(output.contains("src/lib.flx"));
+    assert!(output.contains("defined here"));
+}
+
+#[test]
+fn hint_with_file_builder() {
+    set_no_color();
+    let span = Span::new(Position::new(10, 5), Position::new(10, 15));
+
+    let hint = Hint::note("This was imported from another module")
+        .with_file("src/module.flx");
+
+    assert_eq!(hint.file, Some("src/module.flx".to_string()));
+    assert_eq!(hint.kind, HintKind::Note);
+}
+
+#[test]
+fn hint_falls_back_to_diagnostic_file() {
+    set_no_color();
+    let source = "let x = 10;\n";
+    let span = Span::new(Position::new(1, 4), Position::new(1, 5));
+
+    // Hint without explicit file should use diagnostic's file
+    let hint = Hint::at("variable defined here", span)
+        .with_label("first definition");
+
+    let output = Diagnostic::error("Duplicate variable")
+        .with_file("test.flx")
+        .with_span(span)
+        .with_hint(hint)
+        .render(Some(source), None);
+
+    // Should use diagnostic's file (test.flx)
+    assert!(output.contains("test.flx"));
+}

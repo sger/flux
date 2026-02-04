@@ -36,6 +36,7 @@ pub struct Hint {
     pub text: String,
     pub span: Option<Span>,
     pub label: Option<String>,
+    pub file: Option<String>,
 }
 
 impl Hint {
@@ -46,6 +47,7 @@ impl Hint {
             text: text.into(),
             span: None,
             label: None,
+            file: None,
         }
     }
 
@@ -56,6 +58,7 @@ impl Hint {
             text: text.into(),
             span: Some(span),
             label: None,
+            file: None,
         }
     }
 
@@ -66,6 +69,7 @@ impl Hint {
             text: text.into(),
             span: Some(span),
             label: Some(label.into()),
+            file: None,
         }
     }
 
@@ -76,6 +80,7 @@ impl Hint {
             text: text.into(),
             span: None,
             label: None,
+            file: None,
         }
     }
 
@@ -86,6 +91,7 @@ impl Hint {
             text: text.into(),
             span: None,
             label: None,
+            file: None,
         }
     }
 
@@ -96,12 +102,19 @@ impl Hint {
             text: text.into(),
             span: None,
             label: None,
+            file: None,
         }
     }
 
     /// Add a label to this hint
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Set the file for this hint (for cross-file references)
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
         self
     }
 }
@@ -766,9 +779,11 @@ impl Diagnostic {
                     start.column + 1
                 };
 
-                let file = self
+                // Use hint's file if specified, otherwise fall back to diagnostic's file
+                let file = hint
                     .file
                     .as_deref()
+                    .or_else(|| self.file.as_deref())
                     .filter(|f| !f.is_empty())
                     .map(render_display_path)
                     .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
