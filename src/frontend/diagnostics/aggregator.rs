@@ -169,6 +169,7 @@ pub struct DiagnosticsAggregator<'a> {
     max_errors: Option<usize>,
     default_file: Option<String>,
     sources: HashMap<String, String>,
+    show_file_headers: Option<bool>,
 }
 
 impl<'a> DiagnosticsAggregator<'a> {
@@ -178,6 +179,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             max_errors: None,
             default_file: None,
             sources: HashMap::new(),
+            show_file_headers: None,
         }
     }
 
@@ -188,6 +190,13 @@ impl<'a> DiagnosticsAggregator<'a> {
 
     pub fn with_default_file(mut self, file: impl Into<String>) -> Self {
         self.default_file = Some(file.into());
+        self
+    }
+
+    /// Control file grouping headers in output.
+    /// When unset, headers are shown for consistency even in single-file output.
+    pub fn with_file_headers(mut self, show: bool) -> Self {
+        self.show_file_headers = Some(show);
         self
     }
 
@@ -240,20 +249,23 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .then_with(|| a.index.cmp(&b.index))
         });
 
+        let mut file_cache: HashMap<String, String> = self.sources.clone();
+        let mut errors_shown = 0usize;
+        let max_errors = self.max_errors.unwrap_or(usize::MAX);
+        // Default to always showing file headers for consistent output.
+        let show_file_headers = self.show_file_headers.unwrap_or(true);
+
         let mut rendered = String::new();
         if let Some(summary) = format_summary(&counts) {
             rendered.push_str(&summary);
             rendered.push_str("\n\n");
         }
 
-        let mut file_cache: HashMap<String, String> = self.sources.clone();
-        let mut errors_shown = 0usize;
-        let max_errors = self.max_errors.unwrap_or(usize::MAX);
-
         let mut groups: Vec<String> = Vec::new();
         let mut current_file_key: Option<&str> = None;
         let mut current_group = String::new();
         let mut first_in_group = true;
+        let mut rendered_items: Vec<String> = Vec::new();
 
         for indexed in &unique {
             let diag = indexed.diag;
@@ -264,36 +276,43 @@ impl<'a> DiagnosticsAggregator<'a> {
                 errors_shown += 1;
             }
 
-            let file_key = effective_file(diag, default_file).unwrap_or("");
-            if current_file_key.map_or(true, |f| f != file_key) {
-                if !current_group.is_empty() {
-                    groups.push(current_group);
-                    current_group = String::new();
-                }
-                current_file_key = Some(file_key);
-                first_in_group = true;
-                let display = file_display(effective_file(diag, default_file));
-                current_group.push_str(&format!("--> {}\n", display));
-            }
-
-            if !first_in_group {
-                current_group.push_str("\n\n");
-            }
-            first_in_group = false;
-
             let file_key = effective_file(diag, default_file);
             ensure_source(file_key, &mut file_cache);
             for related in diag.related() {
                 ensure_source(related.file.as_deref(), &mut file_cache);
             }
-            current_group.push_str(&diag.render_with_sources(default_file, Some(&file_cache)));
+            let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
+
+            if show_file_headers {
+                if current_file_key.map_or(true, |f| f != file_key.unwrap_or("")) {
+                    if !current_group.is_empty() {
+                        groups.push(current_group);
+                        current_group = String::new();
+                    }
+                    current_file_key = Some(file_key.unwrap_or(""));
+                    first_in_group = true;
+                    let display = file_display(file_key);
+                    current_group.push_str(&format!("--> {}\n", display));
+                }
+
+                if !first_in_group {
+                    current_group.push_str("\n\n");
+                }
+                first_in_group = false;
+                current_group.push_str(&rendered_diag);
+            } else {
+                rendered_items.push(rendered_diag);
+            }
         }
 
-        if !current_group.is_empty() {
-            groups.push(current_group);
+        if show_file_headers {
+            if !current_group.is_empty() {
+                groups.push(current_group);
+            }
+            rendered.push_str(&groups.join("\n\n"));
+        } else {
+            rendered.push_str(&rendered_items.join("\n\n"));
         }
-
-        rendered.push_str(&groups.join("\n\n"));
 
         let errors_truncated = counts.errors.saturating_sub(errors_shown);
         if errors_truncated > 0 {

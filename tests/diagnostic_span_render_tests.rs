@@ -45,7 +45,7 @@ fn renders_single_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
--- Compiler error: TEST [E123]
+--> compiler error[E123]: TEST
 
 message
 
@@ -72,7 +72,7 @@ fn renders_multi_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
--- Compiler error: TEST [E123]
+--> compiler error[E123]: TEST
 
 message
 

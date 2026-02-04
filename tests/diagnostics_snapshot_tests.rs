@@ -38,7 +38,7 @@ fn snapshot_aggregated_output() {
 Found 1 error and 1 warning.
 
 --> a.flx
--- Compiler error: TEST A [E100]
+--> compiler error[E100]: TEST A
 
 message a
 
@@ -49,7 +49,7 @@ message a
 
 
 --> b.flx
--- Warning: TEST B [W200]
+--> warning[W200]: TEST B
 
 message b
 
@@ -81,7 +81,7 @@ fn snapshot_multi_line_span_output() {
 
     let expected = "\
 --> multi.flx
--- Compiler error: MULTI [E123]
+--> compiler error[E123]: MULTI
 
 multi
 
@@ -111,7 +111,7 @@ fn snapshot_colorized_output() {
     let output = diag.render(Some(source), None);
 
     let expected = "\
-\u{1b}[33m-- Compiler error: COLOR [E123]\u{1b}[0m
+\u{1b}[33m--> compiler error[E123]: COLOR\u{1b}[0m
 
 message
 
