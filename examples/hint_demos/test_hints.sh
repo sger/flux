@@ -49,6 +49,12 @@ $FLUX_BIN "$SCRIPT_DIR/invalid_lambda.flx" 2>&1 || true
 echo ""
 echo ""
 
+echo "7. Testing inline_suggestion_demo.flx (inline suggestions)"
+echo "------------------------------------------"
+$FLUX_BIN "$SCRIPT_DIR/inline_suggestion_demo.flx" 2>&1 || true
+echo ""
+echo ""
+
 echo "=========================================="
 echo "Demo Complete!"
 echo "=========================================="

@@ -167,6 +167,31 @@ impl Label {
     }
 }
 
+/// An inline suggestion that shows how to fix the code
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineSuggestion {
+    pub replacement: String,
+    pub span: Span,
+    pub message: Option<String>,
+}
+
+impl InlineSuggestion {
+    /// Create a suggestion with a replacement text
+    pub fn new(span: Span, replacement: impl Into<String>) -> Self {
+        Self {
+            span,
+            replacement: replacement.into(),
+            message: None,
+        }
+    }
+
+    /// Add a message explaining the suggestion
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     severity: Severity,
@@ -178,6 +203,7 @@ pub struct Diagnostic {
     span: Option<Span>,
     labels: Vec<Label>,
     hints: Vec<Hint>,
+    suggestions: Vec<InlineSuggestion>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -203,6 +229,7 @@ impl Diagnostic {
             span: None,
             labels: Vec::new(),
             hints: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -218,6 +245,7 @@ impl Diagnostic {
             span: None,
             labels: Vec::new(),
             hints: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -371,6 +399,36 @@ impl Diagnostic {
         self
     }
 
+    /// Add an inline code suggestion
+    pub fn with_suggestion(mut self, suggestion: InlineSuggestion) -> Self {
+        self.suggestions.push(suggestion);
+        self
+    }
+
+    /// Add an inline suggestion with replacement text (convenience method)
+    pub fn with_suggestion_replace(
+        mut self,
+        span: Span,
+        replacement: impl Into<String>,
+    ) -> Self {
+        self.suggestions.push(InlineSuggestion::new(span, replacement));
+        self
+    }
+
+    /// Add an inline suggestion with message (convenience method)
+    pub fn with_suggestion_message(
+        mut self,
+        span: Span,
+        replacement: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        self.suggestions.push(
+            InlineSuggestion::new(span, replacement)
+                .with_message(message)
+        );
+        self
+    }
+
     /// Generic error builder using ErrorCode specification
     pub fn make_error(
         err_spec: &'static ErrorCode,
@@ -452,6 +510,7 @@ impl Diagnostic {
             span: Some(span),
             labels: Vec::new(),
             hints: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -472,6 +531,7 @@ impl Diagnostic {
             span: Some(span),
             labels: Vec::new(),
             hints: Vec::new(),
+            suggestions: Vec::new(),
         }
     }
 
@@ -691,6 +751,77 @@ impl Diagnostic {
         }
     }
 
+    fn render_suggestions(&self, out: &mut String, source: Option<&str>, use_color: bool) {
+        if self.suggestions.is_empty() {
+            return;
+        }
+
+        let green = "\u{1b}[32m";
+        let reset = "\u{1b}[0m";
+
+        for suggestion in &self.suggestions {
+            let span = suggestion.span;
+            let line_no = span.start.line;
+
+            // Get the source line
+            if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
+                let line_width = line_no.to_string().len();
+
+                // Show "help:" message
+                out.push_str("   |\n");
+                if use_color {
+                    out.push_str(green);
+                }
+                if let Some(msg) = &suggestion.message {
+                    out.push_str(&format!("help: {}\n", msg));
+                } else {
+                    out.push_str(&format!("help: Replace with '{}'\n", suggestion.replacement));
+                }
+                if use_color {
+                    out.push_str(reset);
+                }
+
+                // Show the line with replacement
+                // Note: Use the same logic as render_source_snippet for consistency
+                let start_col = if span.start.column >= END_OF_LINE_SENTINEL {
+                    line_text.len()
+                } else {
+                    span.start.column.min(line_text.len())
+                };
+                let end_col = if span.end.column >= END_OF_LINE_SENTINEL {
+                    line_text.len()
+                } else {
+                    span.end.column.min(line_text.len())
+                };
+
+                // Build the line with replacement
+                let prefix = &line_text[..start_col];
+                let suffix = &line_text[end_col..];
+                let replaced_line = format!("{}{}{}", prefix, suggestion.replacement, suffix);
+
+                out.push_str(&format!("   |\n"));
+                out.push_str(&format!(
+                    "{:>width$} | {}\n",
+                    line_no, replaced_line, width = line_width
+                ));
+
+                // Show tildes under the replacement
+                out.push_str(&format!(
+                    "{:>width$} | {}",
+                    "", " ".repeat(start_col), width = line_width
+                ));
+                if use_color {
+                    out.push_str(green);
+                }
+                out.push_str(&"~".repeat(suggestion.replacement.len()));
+                if use_color {
+                    out.push_str(reset);
+                }
+                out.push('\n');
+            }
+        }
+    }
+
     fn render_hints(&self, out: &mut String, source: Option<&str>, use_color: bool) {
         if self.hints.is_empty() {
             return;
@@ -893,6 +1024,7 @@ impl Diagnostic {
         self.render_message(&mut out);
         self.render_location(&mut out, source, file.as_ref());
         self.render_source_snippet(&mut out, source, use_color);
+        self.render_suggestions(&mut out, source, use_color);
         self.render_hints(&mut out, source, use_color);
 
         if !out.ends_with('\n') {
