@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType},
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING, ErrorType},
     expression::Expression,
     position::{Position, Span},
     precedence::{Precedence, token_precedence},
@@ -157,33 +157,32 @@ impl Parser {
 
         // The literal includes everything from opening quote to end of line
         // Find where to end the highlighting (before any "//" comment)
-        let mut highlight_len = literal.len();
+        let mut content_len = literal.len();
         if let Some(comment_pos) = literal.find("//") {
             // Trim whitespace before the comment
             let before_comment = &literal[..comment_pos];
-            highlight_len = before_comment.trim_end().len();
+            content_len = before_comment.trim_end().len();
         }
 
-        // Ensure we highlight at least something (minimum 1 char)
-        if highlight_len == 0 {
-            highlight_len = 1;
+        // Ensure we point to at least one position after the opening quote
+        if content_len == 0 {
+            content_len = 1;
         }
 
-        // Start position is where the token begins
+        // Start position is where the token begins (the opening quote)
         let start_pos = self.current_token.position;
 
-        // End position is start + length of content to highlight
-        let end_pos = Position::new(
-            start_pos.line,
-            start_pos.column + highlight_len,
-        );
+        // Point to where the closing quote should be: after the opening quote + content
+        // +1 accounts for the opening quote character
+        let error_column = start_pos.column + 1 + content_len;
+        let error_pos = Position::new(start_pos.line, error_column);
 
-        let error_spec = &EXPECTED_EXPRESSION;
+        let error_spec = &UNTERMINATED_STRING;
         let diag = Diagnostic::make_error(
             error_spec,
-            &["unterminated string literal"],
+            &[], // No message formatting args needed
             String::new(), // No file context in parser
-            Span::new(start_pos, end_pos),
+            Span::new(error_pos, error_pos),
         );
         self.errors.push(diag);
         self.synchronize_after_error();
