@@ -1,0 +1,8 @@
+// Error Example: Wrong number of arguments
+// Expected Error: [E1000] Runtime error: wrong number of arguments
+//
+// This demonstrates calling a function with the wrong number of arguments.
+
+// substring expects 3 arguments: string, start, end
+let result = substring("hello", 0)
+print(result)

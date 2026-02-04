@@ -1,0 +1,35 @@
+// Main Module - Uses the math module
+// This file demonstrates multi-file error reporting
+
+// Import the math module
+import Math
+
+let x = 10;
+let y = 20;
+let z = 30;
+
+// Correct usage: add takes 2 parameters
+let sum = Math.add(x, y);
+
+// ERROR: This will trigger a multi-file error
+// The average function is defined with 2 parameters in Math.flx
+// but we're calling it with 3 arguments
+let avg = Math.average(x, y, z);
+
+// Expected error output:
+// -- Compiler error: Function signature mismatch [E050]
+//
+// Expected 2 arguments, found 3
+//
+//   --> examples/hint_demos/math_module/main.flx:19:11
+//    |
+// 19 | let avg = Math.average(x, y, z);
+//    |           ^^^^^^^^^^^^^^^^^^^^^
+//
+//    = note: function defined here
+//   --> examples/hint_demos/math_module/Math.flx:15:5
+//    |
+// 15 | fun average(num1, num2) {
+//    |     ^^^^^^^^^^^^^^^^^^^
+
+sum

@@ -5,7 +5,13 @@ use crate::{
         bytecode::Bytecode,
         op_code::{OpCode, operand_widths, read_u8, read_u16},
     },
-    frontend::position::Span,
+    frontend::{
+        diagnostics::{
+            DIVISION_BY_ZERO_RUNTIME, Diagnostic, DiagnosticsAggregator, ErrorCode,
+            INVALID_OPERATION, NOT_A_FUNCTION, render_display_path,
+        },
+        position::Span,
+    },
     runtime::{
         builtins::BUILTINS, closure::Closure, compiled_function::CompiledFunction, frame::Frame,
         hash_key::HashKey, leak_detector, object::Object,
@@ -49,7 +55,22 @@ impl VM {
     pub fn run(&mut self) -> Result<(), String> {
         match self.run_inner() {
             Ok(()) => Ok(()),
-            Err(err) => Err(self.format_runtime_error(&err)),
+            Err(err) => {
+                let normalized = strip_ansi(&err);
+                // Check if error is already formatted (from runtime_error_enhanced / aggregator)
+                // Formatted errors may start with "-- " or a file header "-->" and include an error code.
+                let has_code = normalized.contains("[E") || normalized.contains("[e");
+                let looks_formatted = has_code
+                    && (normalized.starts_with("-- ")
+                        || normalized.starts_with("--> ")
+                        || normalized.contains("\n-- "));
+                if looks_formatted {
+                    Err(err)
+                } else {
+                    // Format unmigrated errors through Diagnostic system
+                    Err(self.runtime_error_from_string(&err))
+                }
+            }
         }
     }
 
@@ -257,14 +278,14 @@ impl VM {
                     let value = self.pop()?;
                     match value {
                         Object::Left(inner) => self.push(*inner)?,
-                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Left value")),
+                        _ => return Err("Cannot unwrap non-Left value".to_string()),
                     }
                 }
                 OpCode::OpUnwrapRight => {
                     let value = self.pop()?;
                     match value {
                         Object::Right(inner) => self.push(*inner)?,
-                        _ => return Err(self.format_runtime_error("Cannot unwrap non-Right value")),
+                        _ => return Err("Cannot unwrap non-Right value".to_string()),
                     }
                 }
                 OpCode::OpToString => {
@@ -277,87 +298,134 @@ impl VM {
         Ok(())
     }
 
-    fn format_runtime_error(&self, message: &str) -> String {
+    /// Convert a string error message to a formatted Diagnostic
+    fn runtime_error_from_string(&self, message: &str) -> String {
+        use crate::frontend::{
+            diagnostics::ErrorType,
+            position::{Position, Span},
+        };
+
         let (message, hint) = split_hint(message);
         let (title, details) = split_first_line(message);
-        let mut out = String::new();
-        let use_color = std::env::var_os("NO_COLOR").is_none();
-        if use_color {
-            out.push_str("\u{1b}[33m");
-        }
-        out.push_str("-- Runtime error: ");
-        out.push_str(title.trim());
-        if use_color {
-            out.push_str("\u{1b}[0m");
-        }
 
-        if !details.trim().is_empty() {
-            out.push_str("\n\n");
-            out.push_str(details.trim());
-        }
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
+                String::from("<unknown>"),
+                Span::new(Position::default(), Position::default()),
+            )
+        });
 
-        if let Some((file, span)) = self.current_location()
-            && let Ok(source) = std::fs::read_to_string(&file)
-            && let Some(line_text) = get_source_line(&source, span.start.line)
-        {
-            let display_file = render_display_path(&file);
-            out.push_str("\n\n  --> ");
-            out.push_str(&format!(
-                "{}:{}:{}",
-                display_file, span.start.line, span.start.column
-            ));
-            out.push_str("\n   |");
-            let line_no = span.start.line;
-            let line_width = line_no.to_string().len();
-            out.push('\n');
-            out.push_str(&format!(
-                "{:>width$} | {}",
-                line_no,
-                line_text,
-                width = line_width
-            ));
-            out.push('\n');
-            let line_len = line_text.len();
-            let caret_start = span.start.column.min(line_len);
-            let caret_end = if span.start.line == span.end.line {
-                span.end.column.min(line_len).max(caret_start + 1)
-            } else {
-                line_len.max(caret_start + 1)
-            };
-            out.push_str(&format!(
-                "{:>width$} | {}",
-                "",
-                " ".repeat(caret_start),
-                width = line_width
-            ));
-            if use_color {
-                out.push_str("\u{1b}[31m");
-            }
-            out.push_str(&"^".repeat(caret_end.saturating_sub(caret_start).max(1)));
-            if use_color {
-                out.push_str("\u{1b}[0m");
-            }
-        }
+        // Determine error code based on error message pattern
+        let error_code = if title.contains("wrong number of arguments") {
+            "E1000" // WRONG_NUMBER_OF_ARGUMENTS
+        } else if title.contains("division by zero") {
+            "E1008" // DIVISION_BY_ZERO_RUNTIME
+        } else if title.contains("not a function") {
+            "E1001" // NOT_A_FUNCTION
+        } else {
+            "EXXX" // Unmigrated error - needs proper error code
+        };
 
-        if let Some(hint) = hint {
-            out.push_str("\n\n");
-            out.push_str(hint.trim());
-        }
+        // Create a dynamic runtime error using Diagnostic::make_error_dynamic
+        let diag = Diagnostic::make_error_dynamic(
+            error_code,
+            title.trim(),
+            ErrorType::Runtime,
+            details.trim(),
+            hint.map(|h| h.trim().to_string()),
+            file.clone(),
+            span,
+        );
 
+        // Read source for the diagnostic render
+        let source = self
+            .current_location()
+            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
+
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
+
+        // Add stack trace if available
         if !self.frames.is_empty() {
-            out.push_str("\n\nStack trace:");
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
-                out.push_str("\n  at ");
+                rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
-                out.push_str(&name);
+                rendered.push_str(&name);
                 if let Some(loc) = location {
-                    out.push_str(" (");
-                    out.push_str(&loc);
-                    out.push(')');
+                    rendered.push_str(" (");
+                    rendered.push_str(&loc);
+                    rendered.push(')');
                 }
             }
         }
-        out
+
+        rendered
+    }
+
+    /// Format a runtime error using the enhanced error registry
+    fn runtime_error_enhanced(&self, error_code: &'static ErrorCode, values: &[&str]) -> String {
+        use crate::frontend::position::{Position, Span};
+
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
+                String::from("<unknown>"),
+                Span::new(Position::default(), Position::default()),
+            )
+        });
+
+        let diag = Diagnostic::make_error(error_code, values, file.clone(), span);
+
+        // Read source for the diagnostic render
+        let source = self
+            .current_location()
+            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
+
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
+
+        // Add stack trace if available
+        if !self.frames.is_empty() {
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
+            for frame in self.frames[..=self.frame_index].iter().rev() {
+                rendered.push_str("\n  at ");
+                let (name, location) = self.format_frame(frame);
+                rendered.push_str(&name);
+                if let Some(loc) = location {
+                    rendered.push_str(" (");
+                    rendered.push_str(&loc);
+                    rendered.push(')');
+                }
+            }
+        }
+
+        rendered
     }
 
     fn current_location(&self) -> Option<(String, Span)> {
@@ -379,7 +447,7 @@ impl VM {
                         "{}:{}:{}",
                         render_display_path(file),
                         loc.span.start.line,
-                        loc.span.start.column
+                        loc.span.start.column + 1
                     )
                 })
             })
@@ -518,7 +586,7 @@ impl VM {
                 self.current_frame_mut().ip += 1;
                 Ok(())
             }
-            _ => Err(format!("calling non-function: {}", callee.type_name())),
+            _ => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[callee.type_name()])),
         }
     }
 
@@ -528,6 +596,9 @@ impl VM {
 
         match (&left, &right) {
             (Object::Integer(l), Object::Integer(r)) => {
+                if *r == 0 && (op == OpCode::OpDiv || op == OpCode::OpMod) {
+                    return Err(self.runtime_error_enhanced(&DIVISION_BY_ZERO_RUNTIME, &[]));
+                }
                 let result = match op {
                     OpCode::OpAdd => l + r,
                     OpCode::OpSub => l - r,
@@ -576,11 +647,91 @@ impl VM {
             (Object::String(l), Object::String(r)) if op == OpCode::OpAdd => {
                 self.push(Object::String(format!("{}{}", l, r)))
             }
-            _ => Err(format!(
-                "unsupported types: {} and {}",
-                left.type_name(),
-                right.type_name()
-            )),
+            _ => {
+                let op_name = match op {
+                    OpCode::OpAdd => "add",
+                    OpCode::OpSub => "subtract",
+                    OpCode::OpMul => "multiply",
+                    OpCode::OpDiv => "divide",
+                    OpCode::OpMod => "modulo",
+                    _ => "operate on",
+                };
+
+                // Special handling for String + Int/Float with hint chains
+                if op == OpCode::OpAdd
+                    && ((left.type_name() == "String"
+                        && matches!(right, Object::Integer(_) | Object::Float(_)))
+                        || (right.type_name() == "String"
+                            && matches!(left, Object::Integer(_) | Object::Float(_))))
+                {
+                    use crate::frontend::diagnostics::HintChain;
+                    use crate::frontend::position::{Position, Span};
+
+                    let (file, span) = self.current_location().unwrap_or_else(|| {
+                        (
+                            String::from("<unknown>"),
+                            Span::new(Position::default(), Position::default()),
+                        )
+                    });
+
+                    let chain = HintChain::from_steps(vec![
+                        "Convert the number to String using to_string()",
+                        "Or parse the String to Int/Float if it contains a number",
+                        "Or use string interpolation: \"text ${value}\"",
+                    ])
+                    .with_conclusion("Flux requires explicit type conversions for safety");
+
+                    let diag = Diagnostic::error("INVALID OPERATION")
+                        .with_code("E1009")
+                        .with_error_type(crate::frontend::diagnostics::ErrorType::Runtime)
+                        .with_message(format!(
+                            "Cannot {} {} and {} values.",
+                            op_name,
+                            left.type_name(),
+                            right.type_name()
+                        ))
+                        .with_file(file.clone())
+                        .with_span(span)
+                        .with_hint_chain(chain);
+
+                    let source = std::fs::read_to_string(&file).ok();
+                    let mut rendered = if let Some(src) = source.as_deref() {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .with_source(file.clone(), src)
+                            .report()
+                            .rendered
+                    } else {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .report()
+                            .rendered
+                    };
+
+                    // Add stack trace
+                    if !self.frames.is_empty() {
+                        if rendered.ends_with('\n') {
+                            rendered.push('\n');
+                        } else {
+                            rendered.push_str("\n\n");
+                        }
+                        rendered.push_str("Stack trace:");
+                        for frame in self.frames[..=self.frame_index].iter().rev() {
+                            rendered.push_str("\n  at ");
+                            let (name, location) = self.format_frame(frame);
+                            rendered.push_str(&name);
+                            if let Some(loc) = location {
+                                rendered.push_str(&format!(" ({})", loc));
+                            }
+                        }
+                    }
+
+                    return Err(rendered);
+                }
+
+                Err(self.runtime_error_enhanced(
+                    &INVALID_OPERATION,
+                    &[op_name, left.type_name(), right.type_name()],
+                ))
+            }
         }
     }
 
@@ -789,17 +940,6 @@ impl VM {
     }
 }
 
-fn render_display_path(file: &str) -> String {
-    let path = std::path::Path::new(file);
-    if path.is_absolute()
-        && let Ok(cwd) = std::env::current_dir()
-        && let Ok(stripped) = path.strip_prefix(&cwd)
-    {
-        return stripped.to_string_lossy().to_string();
-    }
-    file.to_string()
-}
-
 fn split_hint(message: &str) -> (&str, Option<&str>) {
     if let Some(index) = message.find("\nHint:") {
         (&message[..index], Some(&message[index..]))
@@ -816,9 +956,22 @@ fn split_first_line(message: &str) -> (&str, &str) {
     }
 }
 
-fn get_source_line(source: &str, line: usize) -> Option<&str> {
-    if line == 0 {
-        return None;
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}'
+            && let Some('[') = chars.peek().copied()
+        {
+            chars.next();
+            for seq_ch in chars.by_ref() {
+                if ('@'..='~').contains(&seq_ch) {
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(ch);
     }
-    source.lines().nth(line.saturating_sub(1))
+    out
 }

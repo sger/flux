@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostic::Diagnostic,
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType},
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
@@ -17,6 +17,7 @@ pub struct Parser {
     peek_token: Token,
     peek2_token: Token,
     pub errors: Vec<Diagnostic>,
+    suppress_unterminated_string_error: bool,
 }
 
 impl Parser {
@@ -27,6 +28,7 @@ impl Parser {
             peek_token: Token::new(TokenType::Eof, "", 0, 0),
             peek2_token: Token::new(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
+            suppress_unterminated_string_error: false,
         };
         parser.next_token();
         parser.next_token();
@@ -35,6 +37,7 @@ impl Parser {
     }
 
     pub fn parse_program(&mut self) -> Program {
+        let start = self.current_token.position;
         let mut program = Program::new();
 
         while self.current_token.token_type != TokenType::Eof {
@@ -48,6 +51,7 @@ impl Parser {
             self.next_token();
         }
 
+        program.span = Span::new(start, self.current_token.position);
         program
     }
 
@@ -88,9 +92,14 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNKNOWN KEYWORD")
                         .with_code("E101")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message("Flux uses `fun` for function declarations.")
-                        .with_hint("Replace it with `fun`."),
+                        .with_suggestion_message(
+                            self.current_token.span(),
+                            "fun",
+                            "Replace 'fn' with 'fun'",
+                        ),
                 );
                 self.synchronize_after_error();
                 None
@@ -103,12 +112,13 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNKNOWN KEYWORD")
                         .with_code("E101")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
                             self.current_token.literal
                         ))
-                        .with_hint("Did you mean `fun`?"),
+                        .with_hint_text("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
                 None
@@ -315,6 +325,15 @@ impl Parser {
             TokenType::Int => self.parse_integer(),
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
+            TokenType::UnterminatedString => {
+                if self.suppress_unterminated_string_error {
+                    self.suppress_unterminated_string_error = false;
+                    None
+                } else {
+                    self.unterminated_string_error();
+                    None
+                }
+            }
             TokenType::InterpolationStart => self.parse_interpolation_start(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),
@@ -337,15 +356,52 @@ impl Parser {
     }
 
     fn no_prefix_parse_error(&mut self) {
-        self.errors.push(
-            Diagnostic::error("EXPECTED EXPRESSION")
-                .with_code("E102")
-                .with_position(self.current_token.position)
-                .with_message(format!(
-                    "Expected an expression, found `{}`.",
-                    self.current_token.token_type
-                )),
+        let error_spec = &EXPECTED_EXPRESSION;
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[&self.current_token.token_type.to_string()],
+            String::new(), // No file context in parser
+            Span::new(self.current_token.position, self.current_token.position),
         );
+        self.errors.push(diag);
+    }
+
+    fn unterminated_string_error(&mut self) {
+        // Get the string literal content
+        let literal = &self.current_token.literal;
+
+        // The literal includes everything from opening quote to end of line
+        // Find where to end the highlighting (before any "//" comment)
+        let mut highlight_len = literal.len();
+        if let Some(comment_pos) = literal.find("//") {
+            // Trim whitespace before the comment
+            let before_comment = &literal[..comment_pos];
+            highlight_len = before_comment.trim_end().len();
+        }
+
+        // Ensure we highlight at least something (minimum 1 char)
+        if highlight_len == 0 {
+            highlight_len = 1;
+        }
+
+        // Start position is where the token begins
+        let start_pos = self.current_token.position;
+
+        // End position is start + length of content to highlight
+        let end_pos = crate::frontend::position::Position::new(
+            start_pos.line,
+            start_pos.column + highlight_len,
+        );
+
+        let error_spec = &EXPECTED_EXPRESSION;
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &["unterminated string literal"],
+            String::new(), // No file context in parser
+            Span::new(start_pos, end_pos),
+        );
+        self.errors.push(diag);
+        self.synchronize_after_error();
     }
 
     fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
@@ -434,9 +490,10 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID PIPE TARGET")
                         .with_code("E103")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message("Pipe operator expects a function or function call.")
-                        .with_hint("Use `value |> func` or `value |> func(arg)`"),
+                        .with_hint_text("Use `value |> func` or `value |> func(arg)`"),
                 );
                 None
             }
@@ -516,7 +573,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID INTEGER")
                         .with_code("E103")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Could not parse `{}` as an integer.",
                             self.current_token.literal
@@ -538,7 +596,8 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("INVALID FLOAT")
                         .with_code("E104")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Could not parse `{}` as a float.",
                             self.current_token.literal
@@ -639,9 +698,12 @@ impl Parser {
                 self.errors.push(
                     Diagnostic::error("UNTERMINATED INTERPOLATION")
                         .with_code("E107")
-                        .with_position(self.peek_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.peek_token.span())
                         .with_message("Expected string continuation or end after interpolation."),
                 );
+                self.suppress_unterminated_string_error = true;
+                self.synchronize_after_error();
                 return None;
             }
         }
@@ -745,7 +807,12 @@ impl Parser {
             self.next_token();
             let body = self.parse_expression(Precedence::Lowest)?;
 
-            arms.push(MatchArm { pattern, body });
+            let span = Span::new(pattern.span().start, body.span().end);
+            arms.push(MatchArm {
+                pattern,
+                body,
+                span,
+            });
 
             if self.is_peek_token(TokenType::Semicolon) {
                 self.next_token();
@@ -768,10 +835,18 @@ impl Parser {
     }
 
     fn parse_pattern(&mut self) -> Option<Pattern> {
+        let start = self.current_token.position;
         match &self.current_token.token_type {
-            TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard),
-            TokenType::Ident => Some(Pattern::Identifier(self.current_token.literal.clone())),
-            TokenType::None => Some(Pattern::None),
+            TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard {
+                span: Span::new(start, self.current_token.position),
+            }),
+            TokenType::Ident => Some(Pattern::Identifier {
+                name: self.current_token.literal.clone(),
+                span: Span::new(start, self.current_token.position),
+            }),
+            TokenType::None => Some(Pattern::None {
+                span: Span::new(start, self.current_token.position),
+            }),
             TokenType::Some => {
                 if !self.expect_peek(TokenType::LParen) {
                     return None;
@@ -781,7 +856,10 @@ impl Parser {
                 if !self.expect_peek(TokenType::RParen) {
                     return None;
                 }
-                Some(Pattern::Some(Box::new(inner_pattern)))
+                Some(Pattern::Some {
+                    pattern: Box::new(inner_pattern),
+                    span: Span::new(start, self.current_token.position),
+                })
             }
             TokenType::Left => {
                 if !self.expect_peek(TokenType::LParen) {
@@ -792,7 +870,10 @@ impl Parser {
                 if !self.expect_peek(TokenType::RParen) {
                     return None;
                 }
-                Some(Pattern::Left(Box::new(inner_pattern)))
+                Some(Pattern::Left {
+                    pattern: Box::new(inner_pattern),
+                    span: Span::new(start, self.current_token.position),
+                })
             }
             TokenType::Right => {
                 if !self.expect_peek(TokenType::LParen) {
@@ -803,7 +884,10 @@ impl Parser {
                 if !self.expect_peek(TokenType::RParen) {
                     return None;
                 }
-                Some(Pattern::Right(Box::new(inner_pattern)))
+                Some(Pattern::Right {
+                    pattern: Box::new(inner_pattern),
+                    span: Span::new(start, self.current_token.position),
+                })
             }
             TokenType::Int
             | TokenType::Float
@@ -811,13 +895,18 @@ impl Parser {
             | TokenType::True
             | TokenType::False => {
                 let expr = self.parse_prefix()?;
-                Some(Pattern::Literal(expr))
+                let span = expr.span();
+                Some(Pattern::Literal {
+                    expression: expr,
+                    span,
+                })
             }
             _ => {
                 self.errors.push(
                     Diagnostic::error("INVALID PATTERN")
                         .with_code("E106")
-                        .with_position(self.current_token.position)
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
                         .with_message(format!(
                             "Expected a pattern, found `{}`.",
                             self.current_token.token_type
@@ -964,9 +1053,10 @@ impl Parser {
             self.errors.push(
                 Diagnostic::error("INVALID LAMBDA")
                     .with_code("E106")
-                    .with_position(self.current_token.position)
+                    .with_error_type(ErrorType::Compiler)
+                    .with_span(self.current_token.span())
                     .with_message("Expected parameter or `(` after `\\`.")
-                    .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`."),
             );
             return None;
         };
@@ -976,12 +1066,17 @@ impl Parser {
             self.errors.push(
                 Diagnostic::error("EXPECTED ARROW")
                     .with_code("E107")
-                    .with_position(self.current_token.position)
+                    .with_error_type(ErrorType::Compiler)
+                    .with_span(self.current_token.span())
                     .with_message(format!(
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
                     ))
-                    .with_hint("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_note(
+                        "Lambda functions are anonymous functions defined with backslash syntax",
+                    )
+                    .with_help("Use `\\parameter -> expression` for the lambda syntax")
+                    .with_example("let double = \\x -> x * 2;\nlet add = \\(a, b) -> a + b;"),
             );
             return None;
         }
@@ -995,11 +1090,13 @@ impl Parser {
             // Expression body: \x -> expr
             let expr_start = self.current_token.position;
             let expr = self.parse_expression(Precedence::Lowest)?;
+            let expr_span = expr.span();
             Block {
                 statements: vec![Statement::Expression {
                     expression: expr,
                     span: Span::new(expr_start, self.current_token.position),
                 }],
+                span: expr_span,
             }
         };
 
@@ -1035,6 +1132,7 @@ impl Parser {
     }
 
     fn parse_block(&mut self) -> Block {
+        let start = self.current_token.position;
         let mut statements = Vec::new();
         self.next_token();
 
@@ -1045,7 +1143,10 @@ impl Parser {
             self.next_token();
         }
 
-        Block { statements }
+        Block {
+            statements,
+            span: Span::new(start, self.current_token.position),
+        }
     }
 
     fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
@@ -1065,9 +1166,19 @@ impl Parser {
             list.push(self.parse_expression(Precedence::Lowest)?);
         }
 
-        if !self.expect_peek(end) {
+        if !self.is_peek_token(end) {
+            let line = self.current_token.position.line;
+            let eof_pos = crate::frontend::position::Position::new(line, usize::MAX - 1);
+            self.errors.push(
+                Diagnostic::error("UNEXPECTED TOKEN")
+                    .with_code("E105")
+                    .with_error_type(ErrorType::Compiler)
+                    .with_span(Span::new(eof_pos, eof_pos))
+                    .with_message(format!("Missing {} before end of line.", end)),
+            );
             return None;
         }
+        self.next_token();
 
         Some(list)
     }
@@ -1102,7 +1213,8 @@ impl Parser {
         self.errors.push(
             Diagnostic::error("UNEXPECTED TOKEN")
                 .with_code("E105")
-                .with_position(self.peek_token.position)
+                .with_error_type(ErrorType::Compiler)
+                .with_span(self.peek_token.span())
                 .with_message(format!(
                     "Expected {}, got {}.",
                     expected, self.peek_token.token_type

@@ -1,0 +1,7 @@
+// This triggers an inline suggestion for the fn keyword error
+
+fn add(x, y) {
+    return x + y;
+}
+
+add(5, 10)

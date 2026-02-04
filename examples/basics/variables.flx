@@ -23,3 +23,5 @@ print(name);
 
 let flag = true;
 print(flag);
+
+let MyOtherVariable = 20;

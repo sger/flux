@@ -1,0 +1,6 @@
+// Error Example: Undefined variable
+// Expected Error: [E004] Compiler error: undefined variable
+//
+// This demonstrates using a variable that hasn't been defined.
+
+print(nonexistent_variable)
