@@ -1,7 +1,7 @@
 use flux::bytecode::{
     bytecode::Bytecode,
     compiler::Compiler,
-    op_code::{make, OpCode},
+    op_code::{OpCode, make},
 };
 use flux::frontend::diagnostics::render_diagnostics;
 use flux::frontend::lexer::Lexer;
