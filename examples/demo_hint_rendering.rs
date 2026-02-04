@@ -2,7 +2,7 @@
 /// Run with: cargo run --example demo_hint_rendering
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint},
+    diagnostics::{Diagnostic, ErrorType, Hint, InlineSuggestion},
     position::{Position, Span},
 };
 
@@ -32,6 +32,9 @@ fn main() {
 
     // Example 7: Multi-file support (cross-file references)
     example_multi_file_hints();
+
+    // Example 8: Inline suggestions (code fixes)
+    example_inline_suggestions();
 }
 
 fn example_duplicate_variable() {
@@ -287,4 +290,41 @@ fun calculate(a, b) {
     println!("   • Type definitions in other files");
     println!("   • Variable declarations in imported modules");
     println!("   • Any cross-file reference that helps explain an error");
+}
+
+fn example_inline_suggestions() {
+    println!("\n📍 Example 8: Inline Suggestions (NEW FEATURE)");
+    println!("{}", "-".repeat(70));
+
+    let source = "\
+fn calculate(x, y) {
+    return x + y;
+}
+";
+
+    let error_span = Span::new(Position::new(1, 0), Position::new(1, 2));
+    let suggestion = InlineSuggestion::new(error_span, "fun")
+        .with_message("Use 'fun' for function declarations");
+
+    let diagnostic = Diagnostic::error("Unknown keyword")
+        .with_code("E101")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("Flux uses 'fun' for function declarations")
+        .with_file("example.flx")
+        .with_span(error_span)
+        .with_suggestion(suggestion);
+
+    println!("{}\n", diagnostic.render(Some(source), None));
+
+    println!("🎉 NEW: Inline suggestions show how to fix the code!");
+    println!("   This is like Rust's compiler suggestions");
+    println!("   • Shows the exact fix inline with the error");
+    println!("   • Uses tildes (~~~) to highlight the replacement");
+    println!("   • Improves reading flow - fix is right there");
+    println!();
+    println!("💡 Perfect for:");
+    println!("   • Keyword typos (fn → fun)");
+    println!("   • Syntax corrections");
+    println!("   • Simple find-and-replace fixes");
+    println!("   • Any fix that can be shown as a text replacement");
 }

@@ -95,7 +95,11 @@ impl Parser {
                         .with_error_type(ErrorType::Compiler)
                         .with_span(self.current_token.span())
                         .with_message("Flux uses `fun` for function declarations.")
-                        .with_hint_text("Replace it with `fun`."),
+                        .with_suggestion_message(
+                            self.current_token.span(),
+                            "fun",
+                            "Replace 'fn' with 'fun'"
+                        ),
                 );
                 self.synchronize_after_error();
                 None

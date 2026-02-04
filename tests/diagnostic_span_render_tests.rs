@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, HintKind, Label, LabelStyle},
+    diagnostics::{Diagnostic, ErrorType, Hint, HintKind, InlineSuggestion, Label, LabelStyle},
     position::{Position, Span},
 };
 
@@ -466,4 +466,66 @@ fn hint_falls_back_to_diagnostic_file() {
 
     // Should use diagnostic's file (test.flx)
     assert!(output.contains("test.flx"));
+}
+
+#[test]
+fn inline_suggestion_basic() {
+    set_no_color();
+    let source = "fn calculate(x) { x + 1 }\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 2));
+
+    let suggestion = InlineSuggestion::new(span, "fun");
+
+    let output = Diagnostic::error("Unknown keyword")
+        .with_code("E101")
+        .with_file("test.flx")
+        .with_span(span)
+        .with_message("'fn' is not a valid keyword")
+        .with_suggestion(suggestion)
+        .render(Some(source), None);
+
+    // Check that suggestion is rendered
+    assert!(output.contains("help: Replace with 'fun'"));
+    assert!(output.contains("fun calculate(x) { x + 1 }"));
+    assert!(output.contains("~~~"));
+}
+
+#[test]
+fn inline_suggestion_with_message() {
+    set_no_color();
+    let source = "fn main() {}\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 2));
+
+    let output = Diagnostic::error("Invalid keyword")
+        .with_span(span)
+        .with_suggestion_message(span, "fun", "Use 'fun' instead of 'fn'")
+        .render(Some(source), None);
+
+    assert!(output.contains("help: Use 'fun' instead of 'fn'"));
+    assert!(output.contains("fun main() {}"));
+}
+
+#[test]
+fn inline_suggestion_builder() {
+    let span = Span::new(Position::new(1, 0), Position::new(1, 5));
+    let suggestion = InlineSuggestion::new(span, "const")
+        .with_message("Use const for constants");
+
+    assert_eq!(suggestion.replacement, "const");
+    assert_eq!(suggestion.message, Some("Use const for constants".to_string()));
+}
+
+#[test]
+fn multiple_inline_suggestions() {
+    set_no_color();
+    let source = "fn add(a, b) { a + b }\n";
+    let fn_span = Span::new(Position::new(1, 0), Position::new(1, 2));
+
+    let output = Diagnostic::error("Multiple issues")
+        .with_span(fn_span)
+        .with_suggestion_replace(fn_span, "fun")
+        .render(Some(source), None);
+
+    assert!(output.contains("fun add(a, b)"));
+    assert!(output.contains("~~~"));
 }
