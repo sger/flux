@@ -25,3 +25,6 @@ pub use types::{ErrorCode, ErrorType};
 
 pub use compiler_errors::*;
 pub use runtime_errors::*;
+
+#[cfg(test)]
+mod diagnostics_test;

@@ -87,3 +87,6 @@ fn is_pascal_case_ident(token: &Token) -> bool {
     // Must contain at least one lowercase letter (to distinguish from ALL_CAPS)
     literal.chars().any(|ch| ch.is_ascii_lowercase())
 }
+
+#[cfg(test)]
+mod parser_test;

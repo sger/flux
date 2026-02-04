@@ -151,3 +151,6 @@ impl ModuleGraph {
         files
     }
 }
+
+#[cfg(test)]
+mod module_graph_test;
