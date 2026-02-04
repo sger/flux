@@ -1,4 +1,8 @@
-use flux::bytecode::compiler::Compiler;
+use flux::bytecode::{
+    bytecode::Bytecode,
+    compiler::Compiler,
+    op_code::{make, OpCode},
+};
 use flux::frontend::diagnostics::render_diagnostics;
 use flux::frontend::lexer::Lexer;
 use flux::frontend::parser::Parser;
@@ -18,11 +22,62 @@ fn run(input: &str) -> Object {
     vm.last_popped_stack_elem().clone()
 }
 
+fn run_error(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    let mut compiler = Compiler::new_with_file_path("test.flx");
+    compiler
+        .compile(&program)
+        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
+    let mut vm = VM::new(compiler.bytecode());
+    vm.run().unwrap_err()
+}
+
 #[test]
 fn test_integer_arithmetic() {
     assert_eq!(run("1 + 2;"), Object::Integer(3));
     assert_eq!(run("5 * 2 + 10;"), Object::Integer(20));
     assert_eq!(run("-5;"), Object::Integer(-5));
+}
+
+#[test]
+fn runtime_stack_trace_columns_are_one_based() {
+    let input = r#"let inner = fun() {
+1 / 0;
+};
+let outer = fun() {
+inner();
+};
+outer();"#;
+
+    let err = run_error(input);
+    assert!(err.contains("Stack trace:"));
+    assert!(
+        err.contains("test.flx:2:1"),
+        "expected 1-based column in stack trace, got:\n{}",
+        err
+    );
+}
+
+#[test]
+fn unmigrated_runtime_error_maps_not_a_function_code() {
+    let instructions = make(OpCode::OpClosure, &[0, 0]);
+    let bytecode = Bytecode {
+        instructions,
+        constants: vec![Object::Integer(1)],
+        debug_info: None,
+    };
+
+    let mut vm = VM::new(bytecode);
+    let err = vm.run().unwrap_err();
+
+    assert!(err.contains("[E1001]"), "expected E1001, got:\n{}", err);
+    assert!(
+        !err.contains("[E1002]"),
+        "should not map to E1002, got:\n{}",
+        err
+    );
 }
 
 #[test]

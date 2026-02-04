@@ -292,6 +292,9 @@ impl<'a> DiagnosticsAggregator<'a> {
 
             let file_key = effective_file(diag, default_file);
             ensure_source(file_key, &mut file_cache);
+            for hint in diag.hints() {
+                ensure_source(hint.file.as_deref(), &mut file_cache);
+            }
             for related in diag.related() {
                 ensure_source(related.file.as_deref(), &mut file_cache);
             }

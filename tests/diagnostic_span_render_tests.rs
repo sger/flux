@@ -2,7 +2,8 @@ mod diagnostics_env;
 
 use flux::frontend::{
     diagnostics::{
-        Diagnostic, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle,
+        Diagnostic, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind, InlineSuggestion,
+        Label, LabelStyle,
     },
     position::{Position, Span},
 };
@@ -414,25 +415,32 @@ fn builder_methods_for_categorized_hints() {
 fn hint_with_different_file() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let main_source = "calculate(x, y, z)\n";
+    let lib_source = "fn add(a, b) { a + b }\n";
     let main_span = Span::new(Position::new(1, 0), Position::new(1, 18));
-    let lib_span = Span::new(Position::new(8, 4), Position::new(8, 9));
+    let lib_span = Span::new(Position::new(1, 3), Position::new(1, 6));
 
     let hint = Hint::at("Function defined with 2 parameters", lib_span)
         .with_label("defined here")
         .with_file("src/lib.flx");
 
-    let output = Diagnostic::error("Function signature mismatch")
+    let diag = Diagnostic::error("Function signature mismatch")
         .with_code("E050")
         .with_file("src/main.flx")
         .with_span(main_span)
         .with_message("Expected 2 arguments, found 3")
-        .with_hint(hint)
-        .render(Some(main_source), None);
+        .with_hint(hint);
+
+    let output = DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+        .with_source("src/main.flx", main_source)
+        .with_source("src/lib.flx", lib_source)
+        .render();
 
     // Check that both files are mentioned
     assert!(output.contains("src/main.flx"));
     assert!(output.contains("src/lib.flx"));
     assert!(output.contains("defined here"));
+    // Hint snippet should render from lib source
+    assert!(output.contains("1 | fn add(a, b) { a + b }"));
 }
 
 #[test]
