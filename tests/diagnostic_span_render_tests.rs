@@ -608,3 +608,61 @@ fn multiple_hint_chains() {
     assert!(output.contains("Option 1 step 1"));
     assert!(output.contains("Option 2 step 1"));
 }
+
+#[test]
+fn make_warning_from_code() {
+    use flux::frontend::diagnostics::{ErrorCode, ErrorType};
+    
+    set_no_color();
+    
+    const TEST_WARNING: ErrorCode = ErrorCode {
+        code: "W001",
+        title: "Unused variable",
+        message: "Variable '{}' is declared but never used",
+        hint: Some("Remove the variable or prefix it with '_'"),
+        error_type: ErrorType::Compiler,
+    };
+
+    let output = Diagnostic::make_warning_from_code(
+        &TEST_WARNING,
+        &["count"],
+        "test.flx",
+        Span::new(Position::new(5, 4), Position::new(5, 9))
+    ).render(None, None);
+
+    assert!(output.contains("Warning"));
+    assert!(output.contains("W001"));
+    assert!(output.contains("Unused variable"));
+    assert!(output.contains("Variable 'count' is declared but never used"));
+    assert!(output.contains("Remove the variable or prefix it with '_'"));
+}
+
+#[test]
+fn all_severity_levels() {
+    set_no_color();
+    
+    // Test all severity levels can be created
+    let error = Diagnostic::error("Error title").render(None, Some("test.flx"));
+    assert!(error.contains("Error: Error title"));
+
+    let warning = Diagnostic::warning("Warning title").render(None, Some("test.flx"));
+    assert!(warning.contains("Warning: Warning title"));
+
+    let span = Span::new(Position::new(1, 0), Position::new(1, 5));
+    
+    let note = Diagnostic::make_note(
+        "Note title",
+        "This is a note",
+        "test.flx",
+        span
+    ).render(None, None);
+    assert!(note.contains("Note: Note title"));
+
+    let help = Diagnostic::make_help(
+        "Help title",
+        "This is help",
+        "test.flx",
+        span
+    ).render(None, None);
+    assert!(help.contains("Help: Help title"));
+}
