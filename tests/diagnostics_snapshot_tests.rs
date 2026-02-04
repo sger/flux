@@ -1,46 +1,9 @@
-use std::ffi::OsString;
-use std::sync::{Mutex, MutexGuard};
+mod diagnostics_env;
 
 use flux::frontend::{
     diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorType},
     position::{Position, Span},
 };
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct EnvGuard {
-    prev: Option<OsString>,
-}
-
-impl EnvGuard {
-    fn set_no_color(value: Option<&str>) -> Self {
-        let prev = std::env::var_os("NO_COLOR");
-        unsafe {
-            match value {
-                Some(val) => std::env::set_var("NO_COLOR", val),
-                None => std::env::remove_var("NO_COLOR"),
-            }
-        }
-        Self { prev }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prev {
-                Some(val) => std::env::set_var("NO_COLOR", val),
-                None => std::env::remove_var("NO_COLOR"),
-            }
-        }
-    }
-}
-
-fn with_no_color(value: Option<&str>) -> (MutexGuard<'static, ()>, EnvGuard) {
-    let lock = ENV_LOCK.lock().unwrap();
-    let guard = EnvGuard::set_no_color(value);
-    (lock, guard)
-}
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
     Span::new(Position::new(line, column), Position::new(end_line, end_column))
@@ -48,7 +11,7 @@ fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span 
 
 #[test]
 fn snapshot_aggregated_output() {
-    let (_lock, _guard) = with_no_color(Some("1"));
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source_a = "let x = 1;\n";
     let source_b = "let y = 2;\n";
@@ -101,7 +64,7 @@ message b
 
 #[test]
 fn snapshot_multi_line_span_output() {
-    let (_lock, _guard) = with_no_color(Some("1"));
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source = "let x = 1;\nlet y = 2;\n";
     let diag = Diagnostic::error("MULTI")
@@ -135,7 +98,7 @@ multi
 
 #[test]
 fn snapshot_colorized_output() {
-    let (_lock, _guard) = with_no_color(None);
+    let (_lock, _guard) = diagnostics_env::with_no_color(None);
 
     let source = "let x = 1;\n";
     let diag = Diagnostic::error("COLOR")

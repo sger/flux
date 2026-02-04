@@ -1,47 +1,15 @@
-use std::ffi::OsString;
-use std::sync::Mutex;
+mod diagnostics_env;
 
 use flux::frontend::{
     diagnostics::{Diagnostic, ErrorType, Severity, EXPECTED_EXPRESSION},
     position::{Position, Span},
 };
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-struct EnvGuard {
-    prev: Option<OsString>,
-}
-
-impl EnvGuard {
-    fn set_no_color(value: Option<&str>) -> Self {
-        let prev = std::env::var_os("NO_COLOR");
-        unsafe {
-            match value {
-                Some(val) => std::env::set_var("NO_COLOR", val),
-                None => std::env::remove_var("NO_COLOR"),
-            }
-        }
-        Self { prev }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prev {
-                Some(val) => std::env::set_var("NO_COLOR", val),
-                None => std::env::remove_var("NO_COLOR"),
-            }
-        }
-    }
-}
-
 fn render_with_color(diag: &Diagnostic, source: &str, file: &str, color: bool) -> String {
-    let _lock = ENV_LOCK.lock().unwrap();
-    let _guard = if color {
-        EnvGuard::set_no_color(None)
+    let (_lock, _guard) = if color {
+        diagnostics_env::with_no_color(None)
     } else {
-        EnvGuard::set_no_color(Some("1"))
+        diagnostics_env::with_no_color(Some("1"))
     };
     diag.render(Some(source), Some(file))
 }
