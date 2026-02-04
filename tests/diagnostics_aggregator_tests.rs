@@ -213,3 +213,50 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     assert!(output.contains("label A"));
     assert!(output.contains("label B"));
 }
+
+#[test]
+fn aggregator_renders_cross_file_related_snippet() {
+    set_no_color();
+
+    let primary_source = "let a = 1;\n";
+    let related_source = "let b = 2;\n";
+    let primary = Diagnostic::error("PRIMARY")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_related(
+            RelatedDiagnostic::note("see related")
+                .with_file("b.flx")
+                .with_span(span(1, 4)),
+        );
+
+    let output = DiagnosticsAggregator::new(&[primary])
+        .with_source("a.flx", primary_source)
+        .with_source("b.flx", related_source)
+        .render();
+
+    assert!(output.contains("  --> b.flx:1:5"));
+    assert!(output.contains("let b = 2;"));
+}
+
+#[test]
+fn aggregator_related_without_source_renders_no_snippet() {
+    set_no_color();
+
+    let primary_source = "let a = 1;\n";
+    let related_source = "let missing = 9;\n";
+    let primary = Diagnostic::error("PRIMARY")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_related(
+            RelatedDiagnostic::note("see related")
+                .with_file("missing_related.flx")
+                .with_span(span(1, 0)),
+        );
+
+    let output = DiagnosticsAggregator::new(&[primary])
+        .with_source("a.flx", primary_source)
+        .render();
+
+    assert!(output.contains("  --> missing_related.flx:1:1"));
+    assert!(!output.contains(related_source));
+}

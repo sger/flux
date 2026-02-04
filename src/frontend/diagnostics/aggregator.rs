@@ -281,8 +281,12 @@ impl<'a> DiagnosticsAggregator<'a> {
             }
             first_in_group = false;
 
-            let source = load_source(effective_file(diag, default_file), &mut file_cache);
-            current_group.push_str(&diag.render(source, default_file));
+            let file_key = effective_file(diag, default_file);
+            ensure_source(file_key, &mut file_cache);
+            for related in diag.related() {
+                ensure_source(related.file.as_deref(), &mut file_cache);
+            }
+            current_group.push_str(&diag.render_with_sources(default_file, Some(&file_cache)));
         }
 
         if !current_group.is_empty() {
@@ -330,17 +334,16 @@ fn file_display<'a>(file: Option<&'a str>) -> Cow<'a, str> {
         .unwrap_or_else(|| Cow::Borrowed("<unknown>"))
 }
 
-fn load_source<'a>(file: Option<&str>, cache: &'a mut HashMap<String, String>) -> Option<&'a str> {
-    let file = file?;
-    if file.is_empty() {
-        return None;
-    }
+fn ensure_source(file: Option<&str>, cache: &mut HashMap<String, String>) {
+    let file = match file {
+        Some(file) if !file.is_empty() => file,
+        _ => return,
+    };
     if !cache.contains_key(file) {
         if let Ok(source) = fs::read_to_string(Path::new(file)) {
             cache.insert(file.to_string(), source);
         }
     }
-    cache.get(file).map(|s| s.as_str())
 }
 
 fn count_severity(diags: &[IndexedDiagnostic<'_>]) -> DiagnosticCounts {
