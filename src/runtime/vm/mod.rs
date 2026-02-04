@@ -156,3 +156,16 @@ impl VM {
         &self.stack[self.sp]
     }
 }
+
+#[cfg(test)]
+mod binary_ops_test;
+#[cfg(test)]
+mod comparison_ops_test;
+#[cfg(test)]
+mod dispatch_test;
+#[cfg(test)]
+mod function_call_test;
+#[cfg(test)]
+mod index_ops_test;
+#[cfg(test)]
+mod trace_test;
