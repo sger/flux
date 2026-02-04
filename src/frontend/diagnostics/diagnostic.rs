@@ -8,7 +8,7 @@ const UNTERMINATED_STRING_ERROR_CODE: &str = "E031";
 // Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Severity {
     Error,
     Warning,
@@ -223,6 +223,60 @@ impl HintChain {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RelatedKind {
+    Note,
+    Help,
+    Related,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedDiagnostic {
+    pub kind: RelatedKind,
+    pub message: String,
+    pub span: Option<Span>,
+    pub file: Option<String>,
+}
+
+impl RelatedDiagnostic {
+    pub fn note(message: impl Into<String>) -> Self {
+        Self {
+            kind: RelatedKind::Note,
+            message: message.into(),
+            span: None,
+            file: None,
+        }
+    }
+
+    pub fn help(message: impl Into<String>) -> Self {
+        Self {
+            kind: RelatedKind::Help,
+            message: message.into(),
+            span: None,
+            file: None,
+        }
+    }
+
+    pub fn related(message: impl Into<String>) -> Self {
+        Self {
+            kind: RelatedKind::Related,
+            message: message.into(),
+            span: None,
+            file: None,
+        }
+    }
+
+    pub fn with_span(mut self, span: Span) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     severity: Severity,
@@ -236,6 +290,7 @@ pub struct Diagnostic {
     hints: Vec<Hint>,
     suggestions: Vec<InlineSuggestion>,
     hint_chains: Vec<HintChain>,
+    related: Vec<RelatedDiagnostic>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -263,6 +318,7 @@ impl Diagnostic {
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -280,6 +336,7 @@ impl Diagnostic {
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -319,6 +376,10 @@ impl Diagnostic {
 
     pub fn hints(&self) -> &[Hint] {
         &self.hints
+    }
+
+    pub fn related(&self) -> &[RelatedDiagnostic] {
+        &self.related
     }
 
     // Setter for file (needed by module_graph)
@@ -469,6 +530,12 @@ impl Diagnostic {
         self
     }
 
+    /// Add a related diagnostic entry (note/help/related)
+    pub fn with_related(mut self, related: RelatedDiagnostic) -> Self {
+        self.related.push(related);
+        self
+    }
+
     /// Add a hint chain from a list of steps (convenience method)
     pub fn with_steps<S: Into<String>>(
         mut self,
@@ -598,6 +665,7 @@ impl Diagnostic {
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -620,6 +688,7 @@ impl Diagnostic {
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
+            related: Vec::new(),
         }
     }
 
@@ -1117,6 +1186,79 @@ impl Diagnostic {
         }
     }
 
+    fn render_related(
+        &self,
+        out: &mut String,
+        source: Option<&str>,
+        default_file: Option<&str>,
+        use_color: bool,
+    ) {
+        if self.related.is_empty() {
+            return;
+        }
+
+        let blue = "\u{1b}[34m";
+        let cyan = "\u{1b}[36m";
+        let green = "\u{1b}[32m";
+        let reset = "\u{1b}[0m";
+
+        for related in &self.related {
+            out.push_str("\n\n");
+            let (label, color) = match related.kind {
+                RelatedKind::Note => ("note", cyan),
+                RelatedKind::Help => ("help", green),
+                RelatedKind::Related => ("related", blue),
+            };
+            if use_color {
+                out.push_str(color);
+            }
+            if related.message.is_empty() {
+                out.push_str(&format!("{}:", label));
+            } else {
+                out.push_str(&format!("{}: {}", label, related.message));
+            }
+            if use_color {
+                out.push_str(reset);
+            }
+            out.push('\n');
+
+            if let Some(span) = related.span {
+                let related_source = match related.file.as_deref() {
+                    Some(file) => {
+                        if self.file.as_deref() == Some(file) || default_file == Some(file) {
+                            source
+                        } else {
+                            None
+                        }
+                    }
+                    None => source,
+                };
+                let file = related
+                    .file
+                    .as_deref()
+                    .or_else(|| self.file.as_deref())
+                    .or(default_file)
+                    .filter(|f| !f.is_empty())
+                    .map(render_display_path)
+                    .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
+                let start = span.start;
+                let display_col = if start.column >= END_OF_LINE_SENTINEL {
+                    related_source
+                        .and_then(|src| get_source_line(src, start.line))
+                        .map(|line| line.len() + 1)
+                        .unwrap_or(1)
+                } else {
+                    start.column + 1
+                };
+                out.push_str(&format!(
+                    "  --> {}:{}:{}\n",
+                    file, start.line, display_col
+                ));
+                self.render_hint_snippet(out, related_source, span, use_color);
+            }
+        }
+    }
+
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
@@ -1135,6 +1277,7 @@ impl Diagnostic {
         self.render_source_snippet(&mut out, source, use_color);
         self.render_suggestions(&mut out, source, use_color);
         self.render_hints(&mut out, source, use_color);
+        self.render_related(&mut out, source, default_file, use_color);
 
         if !out.ends_with('\n') {
             out.push('\n');

@@ -10,7 +10,7 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostics::{Diagnostic, render_diagnostics},
+        diagnostics::{Diagnostic, DiagnosticsAggregator, DEFAULT_MAX_ERRORS, render_diagnostics_multi},
         formatter::format_source,
         lexer::Lexer,
         linter::Linter,
@@ -43,6 +43,10 @@ fn main() {
     if roots_only {
         args.retain(|arg| arg != "--roots-only");
     }
+    let max_errors = match extract_max_errors(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
     if !extract_roots(&mut args, &mut roots) {
         return;
     }
@@ -60,6 +64,7 @@ fn main() {
             trace,
             no_cache,
             roots_only,
+            max_errors,
             &roots,
         );
         return;
@@ -86,6 +91,7 @@ fn main() {
                 trace,
                 no_cache,
                 roots_only,
+                max_errors,
                 &roots,
             )
         }
@@ -105,14 +111,14 @@ fn main() {
                 eprintln!("Usage: flux bytecode <file.flx>");
                 return;
             }
-            show_bytecode(&args[2]);
+            show_bytecode(&args[2], max_errors);
         }
         "lint" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux lint <file.flx>");
                 return;
             }
-            lint_file(&args[2]);
+            lint_file(&args[2], max_errors);
         }
         "fmt" => {
             if args.len() < 3 {
@@ -167,6 +173,7 @@ Flags:
   --trace  Print VM instruction trace
   --leak-detector  Print approximate allocation stats after run
   --no-cache  Disable bytecode cache for this run
+  --max-errors <n>  Limit displayed errors (default: 50)
   --root <path>  Add a module root (can be repeated)
   --roots-only  Use only explicitly provided --root values
   -h, --help  Show this help message
@@ -181,6 +188,7 @@ fn run_file(
     trace: bool,
     no_cache: bool,
     roots_only: bool,
+    max_errors: usize,
     extra_roots: &[std::path::PathBuf],
 ) {
     match fs::read_to_string(path) {
@@ -219,10 +227,11 @@ fn run_file(
             let program = parser.parse_program();
 
             if !parser.errors.is_empty() {
-                eprintln!(
-                    "{}",
-                    render_diagnostics(&parser.errors, Some(&source), Some(path))
-                );
+                let report = DiagnosticsAggregator::new(&parser.errors)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
                 std::process::exit(1);
             }
 
@@ -233,7 +242,7 @@ fn run_file(
             {
                 Ok(graph) => graph,
                 Err(diags) => {
-                    eprintln!("{}", render_diagnostics_multi(&diags));
+                    eprintln!("{}", render_diagnostics_multi(&diags, Some(max_errors)));
                     std::process::exit(1);
                 }
             };
@@ -253,7 +262,7 @@ fn run_file(
                 }
             }
             if !compile_errors.is_empty() {
-                eprintln!("{}", render_diagnostics_multi(&compile_errors));
+                eprintln!("{}", render_diagnostics_multi(&compile_errors, Some(max_errors)));
                 std::process::exit(1);
             }
 
@@ -302,17 +311,31 @@ fn print_leak_stats() {
     );
 }
 
-fn render_diagnostics_multi(diagnostics: &[Diagnostic]) -> String {
-    diagnostics
-        .iter()
-        .map(|diag| {
-            let source = diag
-                .file()
-                .and_then(|file| fs::read_to_string(file).ok());
-            diag.render(source.as_deref(), diag.file())
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
+fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
+    let mut max_errors = DEFAULT_MAX_ERRORS;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--max-errors" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --max-errors <n>");
+                return None;
+            }
+            let value = args.remove(i + 1);
+            args.remove(i);
+            match value.parse::<usize>() {
+                Ok(parsed) => {
+                    max_errors = parsed;
+                }
+                Err(_) => {
+                    eprintln!("Error: --max-errors expects a non-negative integer.");
+                    return None;
+                }
+            }
+            continue;
+        }
+        i += 1;
+    }
+    Some(max_errors)
 }
 
 fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) -> bool {
@@ -394,7 +417,7 @@ fn show_tokens(path: &str) {
     }
 }
 
-fn show_bytecode(path: &str) {
+fn show_bytecode(path: &str, max_errors: usize) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -402,16 +425,21 @@ fn show_bytecode(path: &str) {
             let program = parser.parse_program();
 
             if !parser.errors.is_empty() {
-                eprintln!(
-                    "{}",
-                    render_diagnostics(&parser.errors, Some(&source), Some(path))
-                );
+                let report = DiagnosticsAggregator::new(&parser.errors)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
                 std::process::exit(1);
             }
 
             let mut compiler = Compiler::new_with_file_path(path);
             if let Err(diags) = compiler.compile(&program) {
-                eprintln!("{}", render_diagnostics(&diags, Some(&source), Some(path)));
+                let report = DiagnosticsAggregator::new(&diags)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
                 std::process::exit(1);
             }
 
@@ -429,7 +457,7 @@ fn show_bytecode(path: &str) {
     }
 }
 
-fn lint_file(path: &str) {
+fn lint_file(path: &str, max_errors: usize) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -437,16 +465,21 @@ fn lint_file(path: &str) {
             let program = parser.parse_program();
 
             if !parser.errors.is_empty() {
-                eprintln!(
-                    "{}",
-                    render_diagnostics(&parser.errors, Some(&source), Some(path))
-                );
+                let report = DiagnosticsAggregator::new(&parser.errors)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
                 std::process::exit(1);
             }
 
             let lints = Linter::new(Some(path.to_string())).lint(&program);
             if !lints.is_empty() {
-                println!("{}", render_diagnostics(&lints, Some(&source), Some(path)));
+                let report = DiagnosticsAggregator::new(&lints)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                println!("{}", report.rendered);
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
