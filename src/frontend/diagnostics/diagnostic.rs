@@ -713,16 +713,12 @@ impl Diagnostic {
     ) {
         let yellow = "\u{1b}[33m";
         let reset = "\u{1b}[0m";
-        // Header: -- Compiler error: expected expression [E031]
+        // Header: --> compiler error[E031]: expected expression
         if use_color {
             out.push_str(yellow);
         }
-        out.push_str(&format!(
-            "-- {}: {} [{}]",
-            self.header_label(),
-            self.title,
-            code
-        ));
+        let label = self.header_label().to_ascii_lowercase();
+        out.push_str(&format!("--> {}[{}]: {}", label, code, self.title));
         if use_color {
             out.push_str(reset);
         }

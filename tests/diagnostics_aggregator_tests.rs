@@ -34,8 +34,12 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let b_idx = output.find("--> b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
-    let err_idx = output.find("-- Error: ERR").expect("missing error");
-    let warn_idx = output.find("-- Warning: WARN").expect("missing warning");
+    let err_idx = output
+        .find("--> error[E000]: ERR")
+        .expect("missing error");
+    let warn_idx = output
+        .find("--> warning[E000]: WARN")
+        .expect("missing warning");
     assert!(err_idx < warn_idx);
 }
 
@@ -54,6 +58,20 @@ fn aggregator_prints_summary_counts() {
 
     let output = render_diagnostics_multi(&diags, Some(50));
     assert!(output.contains("Found 1 error and 1 warning."));
+}
+
+#[test]
+fn aggregator_single_file_shows_header() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let diags = vec![
+        Diagnostic::error("ERR")
+            .with_file("a.flx")
+            .with_span(span(1, 0)),
+    ];
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert!(output.contains("--> a.flx"));
 }
 
 #[test]
@@ -76,8 +94,8 @@ fn aggregator_enforces_max_errors() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(1));
-    assert_eq!(output.matches("-- Error:").count(), 1);
-    assert!(output.contains("-- Warning: W1"));
+    assert_eq!(output.matches("--> error[E000]:").count(), 1);
+    assert!(output.contains("--> warning[E000]: W1"));
     assert!(output.contains("... and 2 more errors not shown (use --max-errors to increase)."));
 }
 
@@ -98,7 +116,7 @@ fn aggregator_deduplicates_identical_diagnostics() {
         .with_span(span(1, 0));
 
     let output = render_diagnostics_multi(&[base, dup, near], Some(50));
-    assert_eq!(output.matches("-- Error: DUP").count(), 2);
+    assert_eq!(output.matches("--> error[E123]: DUP").count(), 2);
 }
 
 #[test]
@@ -113,7 +131,9 @@ fn aggregator_renders_related_diagnostics_in_order() {
 
     let output = render_diagnostics_multi(&[primary], Some(50));
 
-    let primary_idx = output.find("-- Error: PRIMARY").expect("missing primary");
+    let primary_idx = output
+        .find("--> error[E000]: PRIMARY")
+        .expect("missing primary");
     let note_idx = output.find("note: first note").expect("missing note");
     let help_idx = output.find("help: second help").expect("missing help");
     assert!(primary_idx < note_idx);
@@ -162,7 +182,7 @@ fn aggregator_keeps_diagnostics_with_different_hints() {
         .with_hint_text("extra context");
 
     let output = render_diagnostics_multi(&[base, with_hint], Some(50));
-    assert_eq!(output.matches("-- Error: HINTDEDUP").count(), 2);
+    assert_eq!(output.matches("--> error[E000]: HINTDEDUP").count(), 2);
     assert!(output.contains("extra context"));
 }
 
@@ -182,7 +202,7 @@ fn aggregator_dedupes_identical_with_hints() {
         .with_hint_text("same context");
 
     let output = render_diagnostics_multi(&[with_hint, with_hint_dup], Some(50));
-    assert_eq!(output.matches("-- Error: HINTDEDUP2").count(), 1);
+    assert_eq!(output.matches("--> error[E000]: HINTDEDUP2").count(), 1);
     assert_eq!(output.matches("same context").count(), 1);
 }
 
@@ -205,7 +225,7 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     let output = DiagnosticsAggregator::new(&[with_label_a, with_label_b])
         .with_source("a.flx", source)
         .render();
-    assert_eq!(output.matches("-- Error: LABELDEDUP").count(), 2);
+    assert_eq!(output.matches("--> error[E000]: LABELDEDUP").count(), 2);
     assert!(output.contains("label A"));
     assert!(output.contains("label B"));
 }

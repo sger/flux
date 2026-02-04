@@ -7,8 +7,8 @@ use crate::{
     },
     frontend::{
         diagnostics::{
-            ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
-            NOT_A_FUNCTION, render_display_path,
+            ErrorCode, Diagnostic, DiagnosticsAggregator, DIVISION_BY_ZERO_RUNTIME,
+            INVALID_OPERATION, NOT_A_FUNCTION, render_display_path,
         },
         position::Span,
     },
@@ -57,12 +57,14 @@ impl VM {
             Ok(()) => Ok(()),
             Err(err) => {
                 let normalized = strip_ansi(&err);
-                // Check if error is already formatted (from runtime_error_enhanced)
-                // Formatted errors start with "-- " and contain error code "[EXXX]"
-                // Check for both uppercase and lowercase error codes
-                if normalized.starts_with("-- ")
-                    && (normalized.contains("[E") || normalized.contains("[e"))
-                {
+                // Check if error is already formatted (from runtime_error_enhanced / aggregator)
+                // Formatted errors may start with "-- " or a file header "-->" and include an error code.
+                let has_code = normalized.contains("[E") || normalized.contains("[e");
+                let looks_formatted = has_code
+                    && (normalized.starts_with("-- ")
+                        || normalized.starts_with("--> ")
+                        || normalized.contains("\n-- "));
+                if looks_formatted {
                     Err(err)
                 } else {
                     // Format unmigrated errors through Diagnostic system
@@ -332,10 +334,20 @@ impl VM {
         );
 
         // Read source for the diagnostic render
-        let source = self.current_location()
+        let source = self
+            .current_location()
             .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
 
-        let mut rendered = diag.render(source.as_deref(), None);
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
 
         // Add stack trace if available
         if !self.frames.is_empty() {
@@ -377,7 +389,7 @@ impl VM {
         let diag = Diagnostic::make_error(
             error_code,
             values,
-            file,
+            file.clone(),
             span,
         );
 
@@ -386,7 +398,16 @@ impl VM {
             .current_location()
             .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
 
-        let mut rendered = diag.render(source.as_deref(), None);
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
 
         // Add stack trace if available
         if !self.frames.is_empty() {
@@ -669,7 +690,16 @@ impl VM {
                         .with_hint_chain(chain);
 
                     let source = std::fs::read_to_string(&file).ok();
-                    let mut rendered = diag.render(source.as_deref(), None);
+                    let mut rendered = if let Some(src) = source.as_deref() {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .with_source(file.clone(), src)
+                            .report()
+                            .rendered
+                    } else {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .report()
+                            .rendered
+                    };
 
                     // Add stack trace
                     if !self.frames.is_empty() {
