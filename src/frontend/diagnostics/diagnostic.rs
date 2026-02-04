@@ -1,6 +1,7 @@
 use crate::frontend::position::{Position, Span};
 use super::{ErrorCode, ErrorType, format_message};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::env;
 
 // Error code constants for special rendering cases
@@ -1203,6 +1204,7 @@ impl Diagnostic {
         out: &mut String,
         source: Option<&str>,
         default_file: Option<&str>,
+        sources_by_file: Option<&HashMap<String, String>>,
         use_color: bool,
     ) {
         if self.related.is_empty() {
@@ -1236,13 +1238,15 @@ impl Diagnostic {
 
             if let Some(span) = related.span {
                 let related_source = match related.file.as_deref() {
-                    Some(file) => {
-                        if self.file.as_deref() == Some(file) || default_file == Some(file) {
-                            source
-                        } else {
-                            None
-                        }
-                    }
+                    Some(file) => sources_by_file
+                        .and_then(|sources| sources.get(file).map(|s| s.as_str()))
+                        .or_else(|| {
+                            if self.file.as_deref() == Some(file) || default_file == Some(file) {
+                                source
+                            } else {
+                                None
+                            }
+                        }),
                     None => source,
                 };
                 let file = related
@@ -1272,6 +1276,30 @@ impl Diagnostic {
     }
 
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
+        self.render_with_context(source, default_file, None)
+    }
+
+    pub fn render_with_sources(
+        &self,
+        default_file: Option<&str>,
+        sources_by_file: Option<&HashMap<String, String>>,
+    ) -> String {
+        let primary_source = sources_by_file
+            .and_then(|sources| {
+                self.file
+                    .as_deref()
+                    .or(default_file)
+                    .and_then(|file| sources.get(file).map(|s| s.as_str()))
+            });
+        self.render_with_context(primary_source, default_file, sources_by_file)
+    }
+
+    fn render_with_context(
+        &self,
+        source: Option<&str>,
+        default_file: Option<&str>,
+        sources_by_file: Option<&HashMap<String, String>>,
+    ) -> String {
         let mut out = String::new();
         let use_color = env::var_os("NO_COLOR").is_none();
         let file = self
@@ -1289,7 +1317,7 @@ impl Diagnostic {
         self.render_source_snippet(&mut out, source, use_color);
         self.render_suggestions(&mut out, source, use_color);
         self.render_hints(&mut out, source, use_color);
-        self.render_related(&mut out, source, default_file, use_color);
+        self.render_related(&mut out, source, default_file, sources_by_file, use_color);
 
         if !out.ends_with('\n') {
             out.push('\n');
