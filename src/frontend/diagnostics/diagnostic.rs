@@ -514,6 +514,31 @@ impl Diagnostic {
         diag
     }
 
+    /// Generic warning builder using ErrorCode specification
+    /// Similar to make_error but creates warnings for non-fatal issues
+    pub fn make_warning_from_code(
+        warn_spec: &'static ErrorCode,
+        values: &[&str],
+        file: impl Into<String>,
+        span: Span,
+    ) -> Self {
+        let message = format_message(warn_spec.message, values);
+        let hint = warn_spec.hint.map(|h| format_message(h, values));
+
+        let mut diag = Diagnostic::warning(warn_spec.title)
+            .with_code(warn_spec.code)
+            .with_error_type(warn_spec.error_type)
+            .with_file(file)
+            .with_span(span)
+            .with_message(message);
+
+        if let Some(hint_text) = hint {
+            diag = diag.with_hint_text(hint_text);
+        }
+
+        diag
+    }
+
     /// Dynamic error builder for runtime-generated error information
     /// Use this when error details come from runtime values rather than static ErrorCode
     pub fn make_error_dynamic(
