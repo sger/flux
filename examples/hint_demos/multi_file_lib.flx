@@ -1,0 +1,17 @@
+// Multi-File Support Demo - Library File
+//
+// This is the library file that would be imported by multi_file_main.flx
+// It defines a function that the main file tries to call with wrong arguments.
+
+// Function that takes 2 parameters
+fun calculate(a, b) {
+    return a + b;
+}
+
+// Another example function
+fun multiply(x, y) {
+    return x * y;
+}
+
+// Export these functions (once module system is implemented)
+// export { calculate, multiply }
