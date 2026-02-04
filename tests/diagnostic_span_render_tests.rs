@@ -1,18 +1,15 @@
+mod diagnostics_env;
+
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle},
+    diagnostics::{
+        Diagnostic, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle,
+    },
     position::{Position, Span},
 };
 
-fn set_no_color() {
-    // set_var is unsafe in newer Rust editions due to global process mutation.
-    unsafe {
-        std::env::set_var("NO_COLOR", "1");
-    }
-}
-
 #[test]
 fn renders_hint_without_double_prefix() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let output = Diagnostic::error("TEST")
         .with_hint_text("Hint:\n  foo")
         .render(None, Some("test.flx"));
@@ -36,7 +33,7 @@ fn renders_multi_line_span() {
 
 #[test]
 fn renders_single_line_snapshot() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\n";
     let span = Span::new(Position::new(1, 4), Position::new(1, 5));
     let output = Diagnostic::error("TEST")
@@ -63,7 +60,7 @@ message
 
 #[test]
 fn renders_multi_line_snapshot() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\nlet y = 2;\n";
     let span = Span::new(Position::new(1, 4), Position::new(2, 5));
     let output = Diagnostic::error("TEST")
@@ -92,7 +89,7 @@ message
 
 #[test]
 fn renders_hint_with_span() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\nlet x = 2;\n";
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
@@ -121,7 +118,7 @@ fn renders_hint_with_span() {
 
 #[test]
 fn renders_hint_with_span_and_label() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\nlet x = 2;\n";
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
@@ -148,7 +145,7 @@ fn renders_hint_with_span_and_label() {
 
 #[test]
 fn renders_multiple_hints_mixed() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\nlet x = 2;\n";
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
@@ -174,7 +171,7 @@ fn renders_multiple_hints_mixed() {
 
 #[test]
 fn renders_hint_text_only() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let output = Diagnostic::error("TEST")
         .with_code("E001")
         .with_file("test.flx")
@@ -213,7 +210,7 @@ fn hint_builder_methods() {
 
 #[test]
 fn renders_single_label() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "add(name, age)\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 14));
     let label_span = Span::new(Position::new(1, 4), Position::new(1, 8));
@@ -236,7 +233,7 @@ fn renders_single_label() {
 
 #[test]
 fn renders_multiple_labels_on_same_line() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "add(name, age)\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 14));
     let label1_span = Span::new(Position::new(1, 4), Position::new(1, 8));
@@ -286,7 +283,7 @@ fn label_builder_methods() {
 
 #[test]
 fn renders_labels_without_primary_span_on_same_line() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = add(name, age);\n";
     // Primary span is on the entire line
     let span = Span::new(Position::new(1, 0), Position::new(1, 23));
@@ -312,7 +309,7 @@ fn renders_labels_without_primary_span_on_same_line() {
 
 #[test]
 fn diagnostic_with_label_method() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "foo(x, y)\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 9));
     let label_span = Span::new(Position::new(1, 4), Position::new(1, 5));
@@ -331,7 +328,7 @@ fn diagnostic_with_label_method() {
 
 #[test]
 fn renders_categorized_hints() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let output = Diagnostic::error("Test error")
         .with_note("This is a note")
         .with_help("This is help")
@@ -372,7 +369,7 @@ fn hint_kind_constructors() {
 
 #[test]
 fn categorized_hints_ordering() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     // Hints should be rendered in order: Hint, Note, Help, Example
     let output = Diagnostic::error("Test")
         .with_example("example")
@@ -395,7 +392,7 @@ fn categorized_hints_ordering() {
 
 #[test]
 fn builder_methods_for_categorized_hints() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let output = Diagnostic::error("Variable name error")
         .with_code("E015")
         .with_note("Variables must follow naming conventions")
@@ -413,7 +410,7 @@ fn builder_methods_for_categorized_hints() {
 
 #[test]
 fn hint_with_different_file() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let main_source = "calculate(x, y, z)\n";
     let main_span = Span::new(Position::new(1, 0), Position::new(1, 18));
     let lib_span = Span::new(Position::new(8, 4), Position::new(8, 9));
@@ -438,7 +435,7 @@ fn hint_with_different_file() {
 
 #[test]
 fn hint_with_file_builder() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let span = Span::new(Position::new(10, 5), Position::new(10, 15));
 
     let hint = Hint::note("This was imported from another module")
@@ -450,7 +447,7 @@ fn hint_with_file_builder() {
 
 #[test]
 fn hint_falls_back_to_diagnostic_file() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 10;\n";
     let span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
@@ -470,7 +467,7 @@ fn hint_falls_back_to_diagnostic_file() {
 
 #[test]
 fn inline_suggestion_basic() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "fn calculate(x) { x + 1 }\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 2));
 
@@ -492,7 +489,7 @@ fn inline_suggestion_basic() {
 
 #[test]
 fn inline_suggestion_with_message() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "fn main() {}\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 2));
 
@@ -517,7 +514,7 @@ fn inline_suggestion_builder() {
 
 #[test]
 fn multiple_inline_suggestions() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "fn add(a, b) { a + b }\n";
     let fn_span = Span::new(Position::new(1, 0), Position::new(1, 2));
 
@@ -532,7 +529,7 @@ fn multiple_inline_suggestions() {
 
 #[test]
 fn hint_chain_basic() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let chain = HintChain::new(vec![
         "Convert the String to Int using .parse()".to_string(),
         "Handle the potential parse error".to_string(),
@@ -553,7 +550,7 @@ fn hint_chain_basic() {
 
 #[test]
 fn hint_chain_with_conclusion() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let chain = HintChain::from_steps(vec![
         "Check the variable type",
         "Ensure it matches the expected type",
@@ -570,7 +567,7 @@ fn hint_chain_with_conclusion() {
 
 #[test]
 fn hint_chain_builder_methods() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     
     // Test with_steps
     let output1 = Diagnostic::error("Error")
@@ -595,7 +592,7 @@ fn hint_chain_builder_methods() {
 
 #[test]
 fn multiple_hint_chains() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let chain1 = HintChain::from_steps(vec!["Option 1 step 1", "Option 1 step 2"]);
     let chain2 = HintChain::from_steps(vec!["Option 2 step 1", "Option 2 step 2"]);
 
@@ -613,7 +610,7 @@ fn multiple_hint_chains() {
 fn make_warning_from_code() {
     use flux::frontend::diagnostics::{ErrorCode, ErrorType};
     
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     
     const TEST_WARNING: ErrorCode = ErrorCode {
         code: "W001",
@@ -639,7 +636,7 @@ fn make_warning_from_code() {
 
 #[test]
 fn all_severity_levels() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     
     // Test all severity levels can be created
     let error = Diagnostic::error("Error title").render(None, Some("test.flx"));

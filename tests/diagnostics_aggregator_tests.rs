@@ -1,13 +1,9 @@
+mod diagnostics_env;
+
 use flux::frontend::{
     diagnostics::{Diagnostic, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi},
     position::{Position, Span},
 };
-
-fn set_no_color() {
-    unsafe {
-        std::env::set_var("NO_COLOR", "1");
-    }
-}
 
 fn span(line: usize, column: usize) -> Span {
     Span::new(Position::new(line, column), Position::new(line, column + 1))
@@ -15,7 +11,7 @@ fn span(line: usize, column: usize) -> Span {
 
 #[test]
 fn aggregator_sorts_and_groups_by_file_and_severity() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
         Diagnostic::warning("WARN")
@@ -45,7 +41,7 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
 
 #[test]
 fn aggregator_prints_summary_counts() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
         Diagnostic::error("ERR")
@@ -62,7 +58,7 @@ fn aggregator_prints_summary_counts() {
 
 #[test]
 fn aggregator_enforces_max_errors() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
         Diagnostic::error("E1")
@@ -87,7 +83,7 @@ fn aggregator_enforces_max_errors() {
 
 #[test]
 fn aggregator_deduplicates_identical_diagnostics() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let base = Diagnostic::error("DUP")
         .with_code("E123")
@@ -107,7 +103,7 @@ fn aggregator_deduplicates_identical_diagnostics() {
 
 #[test]
 fn aggregator_renders_related_diagnostics_in_order() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let primary = Diagnostic::error("PRIMARY")
         .with_file("a.flx")
@@ -126,7 +122,7 @@ fn aggregator_renders_related_diagnostics_in_order() {
 
 #[test]
 fn aggregator_dedupes_related_sets_only_when_matching() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let with_related = Diagnostic::error("DUPREL")
         .with_message("same")
@@ -153,7 +149,7 @@ fn aggregator_dedupes_related_sets_only_when_matching() {
 
 #[test]
 fn aggregator_keeps_diagnostics_with_different_hints() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let base = Diagnostic::error("HINTDEDUP")
         .with_message("same")
@@ -172,7 +168,7 @@ fn aggregator_keeps_diagnostics_with_different_hints() {
 
 #[test]
 fn aggregator_dedupes_identical_with_hints() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let with_hint = Diagnostic::error("HINTDEDUP2")
         .with_message("same")
@@ -192,7 +188,7 @@ fn aggregator_dedupes_identical_with_hints() {
 
 #[test]
 fn aggregator_keeps_diagnostics_with_different_labels() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source = "let x = 1;\n";
     let with_label_a = Diagnostic::error("LABELDEDUP")
@@ -216,7 +212,7 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
 
 #[test]
 fn aggregator_renders_cross_file_related_snippet() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let primary_source = "let a = 1;\n";
     let related_source = "let b = 2;\n";
@@ -240,7 +236,7 @@ fn aggregator_renders_cross_file_related_snippet() {
 
 #[test]
 fn aggregator_related_without_source_renders_no_snippet() {
-    set_no_color();
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let primary_source = "let a = 1;\n";
     let related_source = "let missing = 9;\n";

@@ -1,3 +1,5 @@
+mod diagnostics_env;
+
 use flux::frontend::{
     diagnostics::Diagnostic,
     position::{Position, Span},
@@ -5,9 +7,7 @@ use flux::frontend::{
 
 #[test]
 fn render_uses_span_for_caret() {
-    unsafe {
-        std::env::set_var("NO_COLOR", "1");
-    }
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source = "let x = 1;\nlet y = x + 2;\n";
     let span = Span::new(Position::new(2, 8), Position::new(2, 9)); // points at 'x'
