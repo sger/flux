@@ -7,7 +7,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     frontend::{
-        diagnostic::Diagnostic, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
+        diagnostics::Diagnostic, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
         program::Program,
     },
 };
@@ -42,10 +42,10 @@ fn parse_program(source: &str) -> Program {
     program
 }
 
-fn first_code(diags: Vec<flux::frontend::diagnostic::Diagnostic>) -> String {
+fn first_code(diags: Vec<flux::frontend::diagnostics::Diagnostic>) -> String {
     diags
         .first()
-        .and_then(|d| d.code.clone())
+        .and_then(|d| d.code().map(|s| s.to_string()))
         .unwrap_or_default()
 }
 
@@ -84,7 +84,7 @@ fn importing_script_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected script import error");
-    assert_eq!(first_code(err), "E036");
+    assert_eq!(first_code(err), "E022");
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn module_path_mismatch_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected module path mismatch error");
-    assert_eq!(first_code(err), "E038");
+    assert_eq!(first_code(err), "E024");
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn module_file_with_script_code_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected mixed module/script error");
-    assert_eq!(first_code(err), "E042");
+    assert_eq!(first_code(err), "E028");
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn duplicate_module_across_roots_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root_a, root_b])
         .expect_err("expected duplicate module error");
-    assert_eq!(first_code(err), "E041");
+    assert_eq!(first_code(err), "E027");
 }
 
 #[test]
@@ -172,5 +172,5 @@ fn import_cycle_is_error() {
 
     let err = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, &[root])
         .expect_err("expected import cycle error");
-    assert_eq!(first_code(err), "E035");
+    assert_eq!(first_code(err), "E021");
 }

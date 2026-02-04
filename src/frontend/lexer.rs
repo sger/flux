@@ -161,6 +161,15 @@ impl Lexer {
     }
 
     fn read_char(&mut self) {
+        // Update column BEFORE moving to the next character
+        // This ensures column represents the position of current_char, not the next char
+        if self.current_char == Some('\n') {
+            self.line += 1;
+            self.column = 0;
+        } else if self.current_char.is_some() {
+            self.column += 1;
+        }
+
         self.current_char = if self.read_position >= self.input.len() {
             None
         } else {
@@ -169,17 +178,6 @@ impl Lexer {
 
         self.position = self.read_position;
         self.read_position += 1;
-
-        match self.current_char {
-            Some('\n') => {
-                self.line += 1;
-                self.column = 0;
-            }
-            Some(_) => {
-                self.column += 1;
-            }
-            None => {}
-        }
     }
 
     fn peek_char(&self) -> Option<char> {
@@ -239,7 +237,7 @@ impl Lexer {
         let col = self.column;
         self.read_char(); // skip opening quote
 
-        let (content, _ended, has_interpolation) = self.read_string_content();
+        let (content, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // String has interpolation - mark that we're in a string
@@ -248,8 +246,11 @@ impl Lexer {
             self.interpolation_depth = 1;
             // Return InterpolationStart instead of String to signal interpolation
             Token::new(TokenType::InterpolationStart, content, line, col)
+        } else if !ended {
+            // Hit EOF without closing quote
+            Token::new(TokenType::UnterminatedString, content, line, col)
         } else {
-            // Simple string with no interpolation (or unterminated)
+            // Simple string with no interpolation
             Token::new(TokenType::String, content, line, col)
         }
     }
@@ -259,13 +260,17 @@ impl Lexer {
         let line = self.line;
         let col = self.column;
 
-        let (content, _ended, has_interpolation) = self.read_string_content();
+        let (content, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed #{
             self.interpolation_depth = 1;
             // Return InterpolationStart to signal another interpolation
             Token::new(TokenType::InterpolationStart, content, line, col)
+        } else if !ended {
+            // Hit EOF without closing quote
+            self.in_string = false;
+            Token::new(TokenType::UnterminatedString, content, line, col)
         } else {
             // End of interpolated string
             self.in_string = false;
@@ -280,6 +285,10 @@ impl Lexer {
 
         while let Some(c) = self.current_char {
             match c {
+                '\n' | '\r' => {
+                    // Strings cannot span lines
+                    return (result, false, false);
+                }
                 '"' => {
                     // End of string
                     self.read_char(); // consume closing quote

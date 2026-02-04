@@ -29,6 +29,53 @@ cargo run -- path/to/file.flx
 cargo run -- --verbose run path/to/file.flx
 ```
 
+## Diagnostics
+
+Flux diagnostics are structured and phase-aware, with consistent headers, file grouping, and rich guidance.
+
+Header format:
+```
+--> compiler error[E101]: UNKNOWN KEYWORD
+```
+```
+--> runtime error[E1009]: INVALID OPERATION
+```
+```
+--> warning[W200]: UNUSED VARIABLE
+```
+
+Key behaviors:
+- Errors are grouped by file with a file header: `--> path/to/file.flx`
+- A summary line appears when there are multiple diagnostics, e.g. `Found 3 errors and 2 warnings.`
+- Diagnostics are sorted by file, then line/column, then severity
+- Error codes are stable identifiers (e.g. `E101`, `E1009`) for lookup and tooling
+- Hints, notes, and inline suggestions render with context and source snippets
+- Related diagnostics can point to other files (rendered when source is available)
+- Runtime errors include stack traces
+
+Example:
+```
+Found 2 errors.
+
+--> examples/hint_demos/inline_suggestion_demo.flx
+--> compiler error[E101]: UNKNOWN KEYWORD
+
+Flux uses `fun` for function declarations.
+
+  --> examples/hint_demos/inline_suggestion_demo.flx:24:1
+  |
+24 | fn add(a, b) {
+  | ^^   |
+help: Replace 'fn' with 'fun'
+   |
+24 | fun add(a, b) {
+  | ~~~
+```
+
+Options:
+- `--max-errors <n>` limits the number of errors displayed (warnings still show)
+- `NO_COLOR=1` disables ANSI color output
+
 ## Forward References and Mutual Recursion
 
 Functions can reference other functions defined later in the same scope. This enables mutual recursion and flexible code organization:

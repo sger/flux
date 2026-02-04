@@ -1,0 +1,7 @@
+// Error Example: Unterminated string literal
+// Expected Error: [E031] Compiler error: expected expression
+//
+// This demonstrates a string literal that is missing the closing quote.
+
+let message = "Hello World
+print(message)

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::position::Position;
+use super::position::{Position, Span};
 use super::token_type::TokenType;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +22,12 @@ impl Token {
             literal: literal.into(),
             position: Position::new(line, column),
         }
+    }
+
+    pub fn span(&self) -> Span {
+        let len = self.literal.chars().count();
+        let end = Position::new(self.position.line, self.position.column.saturating_add(len));
+        Span::new(self.position, end)
     }
 }
 

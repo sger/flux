@@ -1,4 +1,4 @@
-use flux::frontend::error_codes::{ERROR_CODES, get};
+use flux::frontend::diagnostics::{ERROR_CODES, lookup_error_code};
 
 #[test]
 fn registry_has_unique_codes() {
@@ -15,7 +15,7 @@ fn registry_has_unique_codes() {
 #[test]
 fn registry_get_finds_codes() {
     for item in ERROR_CODES {
-        let found = get(item.code).expect("code missing from registry");
+        let found = lookup_error_code(item.code).expect("code missing from registry");
         assert_eq!(found.title, item.title);
     }
 }

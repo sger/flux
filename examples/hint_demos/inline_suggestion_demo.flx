@@ -1,0 +1,32 @@
+// Inline Suggestion Demo
+// This file demonstrates the inline suggestion feature for the fn keyword error
+//
+// The error will show:
+// 1. The error message
+// 2. An inline suggestion showing how to fix it
+// 3. The corrected code with tildes (~~~) highlighting the fix
+//
+// Expected output:
+// -- Compiler error: UNKNOWN KEYWORD [E101]
+//
+// Flux uses `fun` for function declarations.
+//
+//   --> inline_suggestion_demo.flx:19:1
+//    |
+// 19 | fn add(a, b) {
+//    |  ^^
+//    |
+// help: Replace 'fn' with 'fun' 'fun'
+//    |
+// 19 | fun add(a, b) {
+//    |  ~~~
+
+fn add(a, b) {
+    return a + b;
+}
+
+fn multiply(x, y) {
+    return x * y;
+}
+
+add(5, 10)

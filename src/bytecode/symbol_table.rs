@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::bytecode::{symbol::Symbol, symbol_scope::SymbolScope};
+use crate::frontend::position::Span;
 
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
@@ -42,7 +43,7 @@ impl SymbolTable {
         }
     }
 
-    pub fn define(&mut self, name: impl Into<String>) -> Symbol {
+    pub fn define(&mut self, name: impl Into<String>, span: Span) -> Symbol {
         let name = name.into();
         let scope = if self.outer.is_none() {
             SymbolScope::Global
@@ -55,7 +56,7 @@ impl SymbolTable {
             // The compiler will handle the error message
         }
 
-        let symbol = Symbol::new(name.clone(), scope, self.num_definitions);
+        let symbol = Symbol::new(name.clone(), scope, self.num_definitions, span);
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
         symbol
@@ -76,14 +77,14 @@ impl SymbolTable {
 
     pub fn define_builtin(&mut self, index: usize, name: impl Into<String>) -> Symbol {
         let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Builtin, index);
+        let symbol = Symbol::new(name.clone(), SymbolScope::Builtin, index, Span::default());
         self.store.insert(name, symbol.clone());
         symbol
     }
 
-    pub fn define_function_name(&mut self, name: impl Into<String>) -> Symbol {
+    pub fn define_function_name(&mut self, name: impl Into<String>, span: Span) -> Symbol {
         let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Function, 0);
+        let symbol = Symbol::new(name.clone(), SymbolScope::Function, 0, span);
         self.store.insert(name, symbol.clone());
         symbol
     }
@@ -94,7 +95,7 @@ impl SymbolTable {
         } else {
             SymbolScope::Local
         };
-        let symbol = Symbol::new("<temp>", scope, self.num_definitions);
+        let symbol = Symbol::new("<temp>", scope, self.num_definitions, Span::default());
         self.num_definitions += 1;
         symbol
     }
@@ -125,9 +126,10 @@ impl SymbolTable {
     pub fn define_free(&mut self, original: Symbol) -> Symbol {
         self.free_symbols.push(original.clone());
         let symbol = Symbol::new(
-            original.name,
+            original.name.clone(),
             SymbolScope::Free,
             self.free_symbols.len() - 1,
+            original.span,
         );
         self.store.insert(symbol.name.clone(), symbol.clone());
         symbol
