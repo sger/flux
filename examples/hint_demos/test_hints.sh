@@ -50,6 +50,12 @@ echo ""
 echo ""
 
 echo "7. Testing inline_suggestion_demo.flx (inline suggestions)"
+echo ""
+echo ""
+
+echo "8. Testing hint_chain_demo.flx (hint chains - WORKING!)"
+echo "------------------------------------------"
+$FLUX_BIN "$SCRIPT_DIR/hint_chain_demo.flx" 2>&1 || true
 echo "------------------------------------------"
 $FLUX_BIN "$SCRIPT_DIR/inline_suggestion_demo.flx" 2>&1 || true
 echo ""

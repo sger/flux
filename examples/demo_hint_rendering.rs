@@ -2,7 +2,7 @@
 /// Run with: cargo run --example demo_hint_rendering
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, InlineSuggestion},
+    diagnostics::{Diagnostic, ErrorType, Hint, HintChain, InlineSuggestion},
     position::{Position, Span},
 };
 
@@ -35,6 +35,9 @@ fn main() {
 
     // Example 8: Inline suggestions (code fixes)
     example_inline_suggestions();
+
+    // Example 9: Hint chains (step-by-step guidance)
+    example_hint_chains();
 }
 
 fn example_duplicate_variable() {
@@ -327,4 +330,45 @@ fn calculate(x, y) {
     println!("   • Syntax corrections");
     println!("   • Simple find-and-replace fixes");
     println!("   • Any fix that can be shown as a text replacement");
+}
+
+fn example_hint_chains() {
+    println!("\n📍 Example 9: Hint Chains (NEW FEATURE)");
+    println!("{}", "-".repeat(70));
+
+    let source = "\
+let name = \"Alice\";
+let age = 25;
+let result = name + age;
+";
+
+    let error_span = Span::new(Position::new(3, 13), Position::new(3, 23));
+
+    let chain = HintChain::from_steps(vec![
+        "Convert the String to Int using .parse()",
+        "Handle the potential parse error with match or ?",
+        "Or change the function signature to accept String",
+    ]).with_conclusion("Type checking helps catch these errors at compile time");
+
+    let diagnostic = Diagnostic::error("Type mismatch")
+        .with_code("E020")
+        .with_error_type(ErrorType::Compiler)
+        .with_message("Cannot add String and Int")
+        .with_file("example.flx")
+        .with_span(error_span)
+        .with_hint_chain(chain);
+
+    println!("{}\n", diagnostic.render(Some(source), None));
+
+    println!("✨ NEW: Hint chains provide step-by-step guidance!");
+    println!("   Perfect for complex errors with multiple solutions");
+    println!("   • Clear numbered steps");
+    println!("   • Optional conclusion or summary");
+    println!("   • Helps users understand how to fix complex issues");
+    println!();
+    println!("💡 Use cases:");
+    println!("   • Type conversion errors with multiple approaches");
+    println!("   • Configuration errors requiring several steps");
+    println!("   • Migration guides for deprecated features");
+    println!("   • Any error that needs procedural guidance");
 }

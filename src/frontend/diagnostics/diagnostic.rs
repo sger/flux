@@ -192,6 +192,37 @@ impl InlineSuggestion {
     }
 }
 
+/// A hint chain that provides step-by-step guidance for complex errors
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HintChain {
+    pub steps: Vec<String>,
+    pub conclusion: Option<String>,
+}
+
+impl HintChain {
+    /// Create a new hint chain with the given steps
+    pub fn new(steps: Vec<String>) -> Self {
+        Self {
+            steps,
+            conclusion: None,
+        }
+    }
+
+    /// Add a conclusion to the hint chain
+    pub fn with_conclusion(mut self, conclusion: impl Into<String>) -> Self {
+        self.conclusion = Some(conclusion.into());
+        self
+    }
+
+    /// Create a hint chain from a slice of step strings
+    pub fn from_steps<S: Into<String>>(steps: impl IntoIterator<Item = S>) -> Self {
+        Self {
+            steps: steps.into_iter().map(|s| s.into()).collect(),
+            conclusion: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     severity: Severity,
@@ -204,6 +235,7 @@ pub struct Diagnostic {
     labels: Vec<Label>,
     hints: Vec<Hint>,
     suggestions: Vec<InlineSuggestion>,
+    hint_chains: Vec<HintChain>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -230,6 +262,7 @@ impl Diagnostic {
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
+            hint_chains: Vec::new(),
         }
     }
 
@@ -246,6 +279,7 @@ impl Diagnostic {
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
+            hint_chains: Vec::new(),
         }
     }
 
@@ -429,6 +463,33 @@ impl Diagnostic {
         self
     }
 
+    /// Add a hint chain for step-by-step guidance
+    pub fn with_hint_chain(mut self, chain: HintChain) -> Self {
+        self.hint_chains.push(chain);
+        self
+    }
+
+    /// Add a hint chain from a list of steps (convenience method)
+    pub fn with_steps<S: Into<String>>(
+        mut self,
+        steps: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.hint_chains.push(HintChain::from_steps(steps));
+        self
+    }
+
+    /// Add a hint chain with steps and conclusion (convenience method)
+    pub fn with_steps_and_conclusion<S: Into<String>>(
+        mut self,
+        steps: impl IntoIterator<Item = S>,
+        conclusion: impl Into<String>,
+    ) -> Self {
+        self.hint_chains.push(
+            HintChain::from_steps(steps).with_conclusion(conclusion)
+        );
+        self
+    }
+
     /// Generic error builder using ErrorCode specification
     pub fn make_error(
         err_spec: &'static ErrorCode,
@@ -511,6 +572,7 @@ impl Diagnostic {
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
+            hint_chains: Vec::new(),
         }
     }
 
@@ -532,6 +594,7 @@ impl Diagnostic {
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
+            hint_chains: Vec::new(),
         }
     }
 
@@ -823,7 +886,7 @@ impl Diagnostic {
     }
 
     fn render_hints(&self, out: &mut String, source: Option<&str>, use_color: bool) {
-        if self.hints.is_empty() {
+        if self.hints.is_empty() && self.hint_chains.is_empty() {
             return;
         }
 
@@ -944,6 +1007,27 @@ impl Diagnostic {
                     }
                     out.push_str(&format!("  {}\n", hint.text));
                 }
+            }
+        }
+
+        // Render hint chains
+        for chain in &self.hint_chains {
+            out.push_str("\n\n");
+            if use_color {
+                out.push_str(blue);
+            }
+            out.push_str("Hint:\n");
+            if use_color {
+                out.push_str(reset);
+            }
+            out.push_str("  To fix this error:\n");
+
+            for (i, step) in chain.steps.iter().enumerate() {
+                out.push_str(&format!("    {}. {}\n", i + 1, step));
+            }
+
+            if let Some(conclusion) = &chain.conclusion {
+                out.push_str(&format!("\n  {}\n", conclusion));
             }
         }
     }

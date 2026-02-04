@@ -1,0 +1,36 @@
+// Hint Chain Demo - Working Example!
+// This file demonstrates hint chains for complex errors with step-by-step guidance
+//
+// This triggers a runtime type mismatch error when trying to add String + Int.
+// The error includes a hint chain showing multiple ways to fix it.
+//
+// Run with: cargo run -- examples/hint_demos/hint_chain_demo.flx
+//
+// Output:
+// -- Runtime error: INVALID OPERATION [E1009]
+//
+// Cannot add String and Int values.
+//
+//   --> examples/hint_demos/hint_chain_demo.flx:21:14
+//    |
+// 21 | let result = name + age;
+//    |              ^^^^^^^
+//
+// Hint:
+//   To fix this error:
+//     1. Convert the number to String using to_string()
+//     2. Or parse the String to Int/Float if it contains a number
+//     3. Or use string interpolation: "text ${value}"
+//
+//   Flux requires explicit type conversions for safety
+//
+// Stack trace:
+//   at <main> (examples/hint_demos/hint_chain_demo.flx:21:13)
+
+let name = "Alice";
+let age = 25;
+
+// This triggers a type mismatch error with hint chains!
+let result = name + age;
+
+result
