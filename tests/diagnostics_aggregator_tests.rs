@@ -1,5 +1,5 @@
 use flux::frontend::{
-    diagnostics::{Diagnostic, RelatedDiagnostic, render_diagnostics_multi},
+    diagnostics::{Diagnostic, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi},
     position::{Position, Span},
 };
 
@@ -149,4 +149,67 @@ fn aggregator_dedupes_related_sets_only_when_matching() {
         Some(50),
     );
     assert_eq!(output.matches("note:").count(), 2);
+}
+
+#[test]
+fn aggregator_keeps_diagnostics_with_different_hints() {
+    set_no_color();
+
+    let base = Diagnostic::error("HINTDEDUP")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0));
+    let with_hint = Diagnostic::error("HINTDEDUP")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_hint_text("extra context");
+
+    let output = render_diagnostics_multi(&[base, with_hint], Some(50));
+    assert_eq!(output.matches("-- Error: HINTDEDUP").count(), 2);
+    assert!(output.contains("extra context"));
+}
+
+#[test]
+fn aggregator_dedupes_identical_with_hints() {
+    set_no_color();
+
+    let with_hint = Diagnostic::error("HINTDEDUP2")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_hint_text("same context");
+    let with_hint_dup = Diagnostic::error("HINTDEDUP2")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_hint_text("same context");
+
+    let output = render_diagnostics_multi(&[with_hint, with_hint_dup], Some(50));
+    assert_eq!(output.matches("-- Error: HINTDEDUP2").count(), 1);
+    assert_eq!(output.matches("same context").count(), 1);
+}
+
+#[test]
+fn aggregator_keeps_diagnostics_with_different_labels() {
+    set_no_color();
+
+    let source = "let x = 1;\n";
+    let with_label_a = Diagnostic::error("LABELDEDUP")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_primary_label(span(1, 0), "label A");
+    let with_label_b = Diagnostic::error("LABELDEDUP")
+        .with_message("same")
+        .with_file("a.flx")
+        .with_span(span(1, 0))
+        .with_primary_label(span(1, 0), "label B");
+
+    let output = DiagnosticsAggregator::new(&[with_label_a, with_label_b])
+        .with_source("a.flx", source)
+        .render();
+    assert_eq!(output.matches("-- Error: LABELDEDUP").count(), 2);
+    assert!(output.contains("label A"));
+    assert!(output.contains("label B"));
 }
