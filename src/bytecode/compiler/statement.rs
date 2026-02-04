@@ -8,10 +8,9 @@ use crate::{
     frontend::{
         block::Block,
         diagnostics::{
-            DUPLICATE_NAME, DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_ASSIGN,
-            ICE_SYMBOL_SCOPE_LET, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION, IMPORT_SCOPE,
-            INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
-            OUTER_ASSIGNMENT, UNDEFINED_VARIABLE,
+            DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_ASSIGN, ICE_SYMBOL_SCOPE_LET,
+            IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH,
+            MODULE_SCOPE,
         },
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         position::{Position, Span},
@@ -37,28 +36,16 @@ impl Compiler {
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        return Err(Self::boxed(
-                            Diagnostic::make_error(
-                                &DUPLICATE_NAME,
-                                &[name],
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_hint_labeled(
-                                "",
-                                existing.span,
-                                "first defined here",
-                            ),
-                        ));
+                        return Err(Self::boxed(self.make_redeclaration_error(
+                            name,
+                            *span,
+                            Some(existing.span),
+                            None,
+                        )));
                     }
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &IMPORT_NAME_COLLISION,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(self.make_import_collision_error(name, *span)));
                     }
 
                     let symbol = self.symbol_table.define(name, *span);
@@ -85,31 +72,16 @@ impl Compiler {
                 Statement::Assign { name, value, span } => {
                     // Check if variable exists
                     let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                        Self::boxed(Diagnostic::make_error(
-                            &UNDEFINED_VARIABLE,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        ))
+                        Self::boxed(self.make_undefined_variable_error(name, *span))
                     })?;
 
                     if symbol.symbol_scope == SymbolScope::Free {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &OUTER_ASSIGNMENT,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(self.make_outer_assignment_error(name, *span)));
                     }
 
                     // Check if variable is already assigned (immutability check)
                     if symbol.is_assigned {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &IMMUTABLE_BINDING,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(self.make_immutability_error(name, *span)));
                     }
 
                     self.compile_expression(value)?;
@@ -152,22 +124,12 @@ impl Compiler {
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        return Err(Self::boxed(
-                            Diagnostic::make_error(
-                                &DUPLICATE_NAME,
-                                &[name],
-                                self.file_path.clone(),
-                                *span,
-                            )
-                            .with_hint_text(
-                                "Use a different name or remove the previous definition",
-                            )
-                            .with_hint_labeled(
-                                "",
-                                existing.span,
-                                "first defined here",
-                            ),
-                        ));
+                        return Err(Self::boxed(self.make_redeclaration_error(
+                            name,
+                            *span,
+                            Some(existing.span),
+                            Some("Use a different name or remove the previous definition"),
+                        )));
                     }
                     self.compile_function_statement(name, parameters, body, span.start)?;
                     // For nested functions, add to file_scope_symbols
@@ -187,12 +149,9 @@ impl Compiler {
                     }
                     let binding_name = module_binding_name(name);
                     if self.scope_index == 0 && self.file_scope_symbols.contains(binding_name) {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &IMPORT_NAME_COLLISION,
-                            &[binding_name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(
+                            self.make_import_collision_error(binding_name, *span),
+                        ));
                     }
                     if !is_valid_module_name(name) {
                         return Err(Self::boxed(Diagnostic::make_error(
@@ -218,12 +177,9 @@ impl Compiler {
                     }
                     let binding_name = import_binding_name(name, alias.as_deref());
                     if self.file_scope_symbols.contains(binding_name) {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &IMPORT_NAME_COLLISION,
-                            &[binding_name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(
+                            self.make_import_collision_error(binding_name, *span),
+                        ));
                     }
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name.to_string());
@@ -316,11 +272,11 @@ impl Compiler {
         // Check if module is already defined
         let binding_name = module_binding_name(name);
         if self.symbol_table.exists_in_current_scope(binding_name) {
-            return Err(Self::boxed(Diagnostic::make_error(
-                &DUPLICATE_NAME,
-                &[binding_name],
-                self.file_path.clone(),
+            return Err(Self::boxed(self.make_redeclaration_error(
+                binding_name,
                 Span::new(position, position),
+                None,
+                None,
             )));
         }
 
@@ -400,20 +356,12 @@ impl Compiler {
                     && self.symbol_table.exists_in_current_scope(&qualified_name)
                 {
                     self.current_module_prefix = previous_module;
-                    return Err(Self::boxed(
-                        Diagnostic::make_error(
-                            &DUPLICATE_NAME,
-                            &[&qualified_name],
-                            self.file_path.clone(),
-                            *span,
-                        )
-                        .with_hint_text("Use a different name or remove the previous definition")
-                        .with_hint_labeled(
-                            "",
-                            existing.span,
-                            "first defined here",
-                        ),
-                    ));
+                    return Err(Self::boxed(self.make_redeclaration_error(
+                        &qualified_name,
+                        *span,
+                        Some(existing.span),
+                        Some("Use a different name or remove the previous definition"),
+                    )));
                 }
                 // Predeclare the function
                 self.symbol_table.define(&qualified_name, *span);

@@ -12,7 +12,7 @@ use crate::{
             ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
             ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN,
             ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED,
-            NON_EXHAUSTIVE_MATCH, UNDEFINED_VARIABLE, UNKNOWN_INFIX_OPERATOR,
+            NON_EXHAUSTIVE_MATCH, UNKNOWN_INFIX_OPERATOR,
             UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         },
         expression::{Expression, MatchArm, Pattern, StringPart},
@@ -62,20 +62,14 @@ impl Compiler {
                         // Module constant - inline the value
                         self.emit_constant_object(constant_value.clone());
                     } else {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &UNDEFINED_VARIABLE,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        )));
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name, *span),
+                        ));
                     }
                 } else {
-                    return Err(Self::boxed(Diagnostic::make_error(
-                        &UNDEFINED_VARIABLE,
-                        &[name],
-                        self.file_path.clone(),
-                        *span,
-                    )));
+                    return Err(Self::boxed(
+                        self.make_undefined_variable_error(name, *span),
+                    ));
                 }
             }
             Expression::Prefix {
