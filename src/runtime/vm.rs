@@ -321,7 +321,7 @@ impl VM {
         } else if title.contains("division by zero") {
             "E1008" // DIVISION_BY_ZERO_RUNTIME
         } else if title.contains("not a function") {
-            "E1002" // NOT_A_FUNCTION
+            "E1001" // NOT_A_FUNCTION
         } else {
             "EXXX" // Unmigrated error - needs proper error code
         };
@@ -447,7 +447,7 @@ impl VM {
                         "{}:{}:{}",
                         render_display_path(file),
                         loc.span.start.line,
-                        loc.span.start.column
+                        loc.span.start.column + 1
                     )
                 })
             })

@@ -989,7 +989,14 @@ impl Diagnostic {
         }
     }
 
-    fn render_hints(&self, out: &mut String, source: Option<&str>, use_color: bool) {
+    fn render_hints(
+        &self,
+        out: &mut String,
+        source: Option<&str>,
+        default_file: Option<&str>,
+        sources_by_file: Option<&HashMap<String, String>>,
+        use_color: bool,
+    ) {
         if self.hints.is_empty() && self.hint_chains.is_empty() {
             return;
         }
@@ -1092,8 +1099,20 @@ impl Diagnostic {
                     .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
                 out.push_str(&format!("  --> {}:{}:{}\n", file, start.line, display_col));
 
-                // Render source snippet for this hint
-                self.render_hint_snippet(out, source, span, use_color);
+                // Render source snippet for this hint (use hint's file if specified)
+                let hint_source = match hint.file.as_deref() {
+                    Some(file) => sources_by_file
+                        .and_then(|sources| sources.get(file).map(|s| s.as_str()))
+                        .or_else(|| {
+                            if self.file.as_deref() == Some(file) || default_file == Some(file) {
+                                source
+                            } else {
+                                None
+                            }
+                        }),
+                    None => source,
+                };
+                self.render_hint_snippet(out, hint_source, span, use_color);
 
                 // Render hint text if provided
                 if !hint.text.is_empty() {
@@ -1321,7 +1340,7 @@ impl Diagnostic {
         self.render_location(&mut out, source, file.as_ref());
         self.render_source_snippet(&mut out, source, use_color);
         self.render_suggestions(&mut out, source, use_color);
-        self.render_hints(&mut out, source, use_color);
+        self.render_hints(&mut out, source, default_file, sources_by_file, use_color);
         self.render_related(&mut out, source, default_file, sources_by_file, use_color);
 
         if !out.ends_with('\n') {
