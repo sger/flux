@@ -627,7 +627,7 @@ fn make_warning_from_code() {
         Span::new(Position::new(5, 4), Position::new(5, 9))
     ).render(None, None);
 
-    assert!(output.contains("Warning"));
+    assert!(output.contains("--> warning[W001]: Unused variable"));
     assert!(output.contains("W001"));
     assert!(output.contains("Unused variable"));
     assert!(output.contains("Variable 'count' is declared but never used"));
@@ -640,10 +640,10 @@ fn all_severity_levels() {
     
     // Test all severity levels can be created
     let error = Diagnostic::error("Error title").render(None, Some("test.flx"));
-    assert!(error.contains("Error: Error title"));
+    assert!(error.contains("--> error[E000]: Error title"));
 
     let warning = Diagnostic::warning("Warning title").render(None, Some("test.flx"));
-    assert!(warning.contains("Warning: Warning title"));
+    assert!(warning.contains("--> warning[E000]: Warning title"));
 
     let span = Span::new(Position::new(1, 0), Position::new(1, 5));
     
@@ -653,7 +653,7 @@ fn all_severity_levels() {
         "test.flx",
         span
     ).render(None, None);
-    assert!(note.contains("Note: Note title"));
+    assert!(note.contains("--> note[E000]: Note title"));
 
     let help = Diagnostic::make_help(
         "Help title",
@@ -661,5 +661,5 @@ fn all_severity_levels() {
         "test.flx",
         span
     ).render(None, None);
-    assert!(help.contains("Help: Help title"));
+    assert!(help.contains("--> help[E000]: Help title"));
 }
