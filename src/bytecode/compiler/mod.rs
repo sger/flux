@@ -10,8 +10,7 @@ use crate::{
     },
     frontend::{
         diagnostics::{
-            CIRCULAR_DEPENDENCY, DUPLICATE_NAME, Diagnostic, ErrorType, IMPORT_NAME_COLLISION,
-            PRIVATE_MEMBER, lookup_error_code,
+            CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code,
         },
         position::{Position, Span},
         program::Program,
@@ -21,6 +20,7 @@ use crate::{
 };
 
 mod expression;
+mod errors;
 mod builder;
 mod statement;
 
@@ -142,29 +142,18 @@ impl Compiler {
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
                 {
-                    self.errors.push(
-                        Diagnostic::make_error(
-                            &DUPLICATE_NAME,
-                            &[name],
-                            self.file_path.clone(),
-                            *span,
-                        )
-                        .with_hint_labeled(
-                            "",
-                            existing.span,
-                            "first defined here",
-                        ),
-                    );
+                    self.errors.push(self.make_redeclaration_error(
+                        name,
+                        *span,
+                        Some(existing.span),
+                        None,
+                    ));
                     continue;
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
-                    self.errors.push(Diagnostic::make_error(
-                        &IMPORT_NAME_COLLISION,
-                        &[name],
-                        self.file_path.clone(),
-                        *span,
-                    ));
+                    self.errors
+                        .push(self.make_import_collision_error(name, *span));
                     continue;
                 }
                 // Predeclare the function name
@@ -203,29 +192,6 @@ impl Compiler {
         };
     }
 
-    pub(super) fn check_private_member(
-        &self,
-        member: &str,
-        expr_span: Span,
-        module_name: Option<&str>,
-    ) -> CompileResult<()> {
-        if !member.starts_with('_') {
-            return Ok(());
-        }
-
-        let same_module =
-            module_name.is_some_and(|name| self.current_module_prefix.as_deref() == Some(name));
-        if same_module {
-            return Ok(());
-        }
-
-        Err(Self::boxed(Diagnostic::make_error(
-            &PRIVATE_MEMBER,
-            &[member],
-            self.file_path.clone(),
-            expr_span,
-        )))
-    }
     pub(super) fn enter_scope(&mut self) {
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;
