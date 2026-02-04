@@ -10,7 +10,9 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostics::{Diagnostic, DiagnosticsAggregator, DEFAULT_MAX_ERRORS, render_diagnostics_multi},
+        diagnostics::{
+            DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, render_diagnostics_multi,
+        },
         formatter::format_source,
         lexer::Lexer,
         linter::Linter,
@@ -181,6 +183,7 @@ Flags:
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_file(
     path: &str,
     verbose: bool,
@@ -262,7 +265,10 @@ fn run_file(
                 }
             }
             if !compile_errors.is_empty() {
-                eprintln!("{}", render_diagnostics_multi(&compile_errors, Some(max_errors)));
+                eprintln!(
+                    "{}",
+                    render_diagnostics_multi(&compile_errors, Some(max_errors))
+                );
                 std::process::exit(1);
             }
 

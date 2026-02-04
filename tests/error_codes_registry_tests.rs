@@ -1,4 +1,4 @@
-use flux::frontend::diagnostics::{lookup_error_code, ERROR_CODES};
+use flux::frontend::diagnostics::{ERROR_CODES, lookup_error_code};
 
 #[test]
 fn registry_has_unique_codes() {

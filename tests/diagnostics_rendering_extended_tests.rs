@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Severity, EXPECTED_EXPRESSION},
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType, Severity},
     position::{Position, Span},
 };
 
@@ -15,18 +15,16 @@ fn render_with_color(diag: &Diagnostic, source: &str, file: &str, color: bool) -
 }
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
-    Span::new(Position::new(line, column), Position::new(end_line, end_column))
+    Span::new(
+        Position::new(line, column),
+        Position::new(end_line, end_column),
+    )
 }
 
 #[test]
 fn make_error_sets_expected_fields() {
     let span = Span::new(Position::new(1, 0), Position::new(1, 1));
-    let diag = Diagnostic::make_error(
-        &EXPECTED_EXPRESSION,
-        &["';'"],
-        "test.flx",
-        span,
-    );
+    let diag = Diagnostic::make_error(&EXPECTED_EXPRESSION, &["';'"], "test.flx", span);
 
     assert_eq!(diag.severity(), Severity::Error);
     assert_eq!(diag.code(), Some("E031"));

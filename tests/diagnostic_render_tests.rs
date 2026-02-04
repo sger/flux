@@ -26,13 +26,9 @@ fn render_uses_span_for_caret() {
         .iter()
         .position(|line| line.contains("2 | let y = x + 2;"))
         .expect("missing snippet line");
-    let caret_line = lines
-        .get(snippet_idx + 1)
-        .expect("missing caret line");
+    let caret_line = lines.get(snippet_idx + 1).expect("missing caret line");
     let caret_col = caret_line.find('^').expect("missing caret");
     let snippet_line = lines[snippet_idx];
-    let x_col = snippet_line
-        .find("x + 2;")
-        .expect("missing x in snippet");
+    let x_col = snippet_line.find("x + 2;").expect("missing x in snippet");
     assert_eq!(caret_col, x_col);
 }

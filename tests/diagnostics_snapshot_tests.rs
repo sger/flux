@@ -6,7 +6,10 @@ use flux::frontend::{
 };
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
-    Span::new(Position::new(line, column), Position::new(end_line, end_column))
+    Span::new(
+        Position::new(line, column),
+        Position::new(end_line, end_column),
+    )
 }
 
 #[test]

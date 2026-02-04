@@ -7,7 +7,7 @@ use crate::{
     },
     frontend::{
         diagnostics::{
-            ErrorCode, Diagnostic, DiagnosticsAggregator, DIVISION_BY_ZERO_RUNTIME,
+            DIVISION_BY_ZERO_RUNTIME, Diagnostic, DiagnosticsAggregator, ErrorCode,
             INVALID_OPERATION, NOT_A_FUNCTION, render_display_path,
         },
         position::Span,
@@ -300,16 +300,20 @@ impl VM {
 
     /// Convert a string error message to a formatted Diagnostic
     fn runtime_error_from_string(&self, message: &str) -> String {
-        use crate::frontend::{diagnostics::ErrorType, position::{Position, Span}};
+        use crate::frontend::{
+            diagnostics::ErrorType,
+            position::{Position, Span},
+        };
 
         let (message, hint) = split_hint(message);
         let (title, details) = split_first_line(message);
 
-        let (file, span) = self.current_location()
-            .unwrap_or_else(|| (
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
                 String::from("<unknown>"),
-                Span::new(Position::default(), Position::default())
-            ));
+                Span::new(Position::default(), Position::default()),
+            )
+        });
 
         // Determine error code based on error message pattern
         let error_code = if title.contains("wrong number of arguments") {
@@ -373,25 +377,17 @@ impl VM {
     }
 
     /// Format a runtime error using the enhanced error registry
-    fn runtime_error_enhanced(
-        &self,
-        error_code: &'static ErrorCode,
-        values: &[&str],
-    ) -> String {
+    fn runtime_error_enhanced(&self, error_code: &'static ErrorCode, values: &[&str]) -> String {
         use crate::frontend::position::{Position, Span};
 
-        let (file, span) = self.current_location()
-            .unwrap_or_else(|| (
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
                 String::from("<unknown>"),
-                Span::new(Position::default(), Position::default())
-            ));
+                Span::new(Position::default(), Position::default()),
+            )
+        });
 
-        let diag = Diagnostic::make_error(
-            error_code,
-            values,
-            file.clone(),
-            span,
-        );
+        let diag = Diagnostic::make_error(error_code, values, file.clone(), span);
 
         // Read source for the diagnostic render
         let source = self
@@ -663,28 +659,37 @@ impl VM {
 
                 // Special handling for String + Int/Float with hint chains
                 if op == OpCode::OpAdd
-                    && ((left.type_name() == "String" && matches!(right, Object::Integer(_) | Object::Float(_)))
-                    || (right.type_name() == "String" && matches!(left, Object::Integer(_) | Object::Float(_))))
+                    && ((left.type_name() == "String"
+                        && matches!(right, Object::Integer(_) | Object::Float(_)))
+                        || (right.type_name() == "String"
+                            && matches!(left, Object::Integer(_) | Object::Float(_))))
                 {
                     use crate::frontend::diagnostics::HintChain;
                     use crate::frontend::position::{Position, Span};
 
-                    let (file, span) = self.current_location()
-                        .unwrap_or_else(|| (
+                    let (file, span) = self.current_location().unwrap_or_else(|| {
+                        (
                             String::from("<unknown>"),
-                            Span::new(Position::default(), Position::default())
-                        ));
+                            Span::new(Position::default(), Position::default()),
+                        )
+                    });
 
                     let chain = HintChain::from_steps(vec![
                         "Convert the number to String using to_string()",
                         "Or parse the String to Int/Float if it contains a number",
                         "Or use string interpolation: \"text ${value}\"",
-                    ]).with_conclusion("Flux requires explicit type conversions for safety");
+                    ])
+                    .with_conclusion("Flux requires explicit type conversions for safety");
 
                     let diag = Diagnostic::error("INVALID OPERATION")
                         .with_code("E1009")
                         .with_error_type(crate::frontend::diagnostics::ErrorType::Runtime)
-                        .with_message(format!("Cannot {} {} and {} values.", op_name, left.type_name(), right.type_name()))
+                        .with_message(format!(
+                            "Cannot {} {} and {} values.",
+                            op_name,
+                            left.type_name(),
+                            right.type_name()
+                        ))
                         .with_file(file.clone())
                         .with_span(span)
                         .with_hint_chain(chain);
@@ -955,16 +960,16 @@ fn strip_ansi(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if let Some('[') = chars.peek().copied() {
-                chars.next();
-                while let Some(seq_ch) = chars.next() {
-                    if ('@'..='~').contains(&seq_ch) {
-                        break;
-                    }
+        if ch == '\u{1b}'
+            && let Some('[') = chars.peek().copied()
+        {
+            chars.next();
+            for seq_ch in chars.by_ref() {
+                if ('@'..='~').contains(&seq_ch) {
+                    break;
                 }
-                continue;
             }
+            continue;
         }
         out.push(ch);
     }

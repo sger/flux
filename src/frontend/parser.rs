@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, ErrorType, EXPECTED_EXPRESSION},
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType},
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
@@ -98,7 +98,7 @@ impl Parser {
                         .with_suggestion_message(
                             self.current_token.span(),
                             "fun",
-                            "Replace 'fn' with 'fun'"
+                            "Replace 'fn' with 'fun'",
                         ),
                 );
                 self.synchronize_after_error();
@@ -808,7 +808,11 @@ impl Parser {
             let body = self.parse_expression(Precedence::Lowest)?;
 
             let span = Span::new(pattern.span().start, body.span().end);
-            arms.push(MatchArm { pattern, body, span });
+            arms.push(MatchArm {
+                pattern,
+                body,
+                span,
+            });
 
             if self.is_peek_token(TokenType::Semicolon) {
                 self.next_token();
@@ -1068,7 +1072,9 @@ impl Parser {
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
                     ))
-                    .with_note("Lambda functions are anonymous functions defined with backslash syntax")
+                    .with_note(
+                        "Lambda functions are anonymous functions defined with backslash syntax",
+                    )
                     .with_help("Use `\\parameter -> expression` for the lambda syntax")
                     .with_example("let double = \\x -> x * 2;\nlet add = \\(a, b) -> a + b;"),
             );

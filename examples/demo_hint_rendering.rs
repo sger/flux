@@ -1,6 +1,5 @@
 /// Direct demonstration of hint positioning feature
 /// Run with: cargo run --example demo_hint_rendering
-
 use flux::frontend::{
     diagnostics::{Diagnostic, ErrorType, Hint, HintChain, InlineSuggestion},
     position::{Position, Span},
@@ -255,7 +254,7 @@ fn example_multi_file_hints() {
 calculate(x, y, z)
 ";
 
-    let lib_source = "\
+    let _lib_source = "\
 // Library file
 fun calculate(a, b) {
     return a + b;
@@ -264,7 +263,7 @@ fun calculate(a, b) {
 
     // Error in main.flx
     let call_span = Span::new(Position::new(1, 0), Position::new(1, 18));
-    
+
     // Function definition in lib.flx
     let def_span = Span::new(Position::new(2, 14), Position::new(2, 20));
 
@@ -348,7 +347,8 @@ let result = name + age;
         "Convert the String to Int using .parse()",
         "Handle the potential parse error with match or ?",
         "Or change the function signature to accept String",
-    ]).with_conclusion("Type checking helps catch these errors at compile time");
+    ])
+    .with_conclusion("Type checking helps catch these errors at compile time");
 
     let diagnostic = Diagnostic::error("Type mismatch")
         .with_code("E020")
