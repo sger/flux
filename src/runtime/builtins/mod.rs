@@ -183,3 +183,16 @@ pub fn get_builtin(name: &str) -> Option<&'static BuiltinFunction> {
 pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
     BUILTINS.get(index)
 }
+
+#[cfg(test)]
+mod array_ops_test;
+#[cfg(test)]
+mod hash_ops_test;
+#[cfg(test)]
+mod helpers_test;
+#[cfg(test)]
+mod numeric_ops_test;
+#[cfg(test)]
+mod string_ops_test;
+#[cfg(test)]
+mod type_check_test;
