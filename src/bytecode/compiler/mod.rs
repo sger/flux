@@ -43,6 +43,9 @@ pub struct Compiler {
     pub(super) module_constants: HashMap<String, Object>,
 }
 
+#[cfg(test)]
+mod compiler_test;
+
 impl Compiler {
     pub fn new() -> Self {
         Self::new_with_file_path("<unknown>")
