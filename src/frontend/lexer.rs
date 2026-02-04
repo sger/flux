@@ -161,6 +161,15 @@ impl Lexer {
     }
 
     fn read_char(&mut self) {
+        // Update column BEFORE moving to the next character
+        // This ensures column represents the position of current_char, not the next char
+        if self.current_char == Some('\n') {
+            self.line += 1;
+            self.column = 0;
+        } else if self.current_char.is_some() {
+            self.column += 1;
+        }
+
         self.current_char = if self.read_position >= self.input.len() {
             None
         } else {
@@ -169,17 +178,6 @@ impl Lexer {
 
         self.position = self.read_position;
         self.read_position += 1;
-
-        match self.current_char {
-            Some('\n') => {
-                self.line += 1;
-                self.column = 0;
-            }
-            Some(_) => {
-                self.column += 1;
-            }
-            None => {}
-        }
     }
 
     fn peek_char(&self) -> Option<char> {

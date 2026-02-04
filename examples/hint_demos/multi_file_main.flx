@@ -1,0 +1,38 @@
+// Multi-File Support Demo - Main File
+//
+// This demonstrates what cross-file error messages would look like
+// once the compiler is updated to use multi-file hints.
+//
+// Currently, this file compiles successfully since module imports
+// aren't fully implemented. Once they are, calling a function with
+// the wrong number of arguments would show:
+//
+// Error in this file (multi_file_main.flx):
+//   -- Compiler error: Function signature mismatch [E050]
+//
+//   Expected 2 arguments, found 3
+//
+//     --> examples/hint_demos/multi_file_main.flx:25:1
+//      |
+//   25 | calculate(x, y, z)
+//      | ^^^^^^^^^^^^^^^^^^
+//
+//   Hint pointing to the other file (multi_file_lib.flx):
+//     = note: defined with 2 parameters
+//     --> examples/hint_demos/multi_file_lib.flx:8:15
+//      |
+//    8 | fun calculate(a, b) {
+//      |               ^^^^^^
+//
+// This would use: Hint::at(...).with_file("multi_file_lib.flx")
+
+// import "multi_file_lib.flx"  // Not yet implemented
+
+let x = 10;
+let y = 20;
+let z = 30;
+
+// This call has 3 arguments but the function expects 2
+// calculate(x, y, z)  // Would trigger multi-file error
+
+x + y

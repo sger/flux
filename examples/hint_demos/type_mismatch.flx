@@ -1,0 +1,15 @@
+// This example demonstrates hint positioning for type mismatches
+// The error will show where variables with incompatible types were defined
+
+let name = "Alice";    // String type
+let age = 25;          // Int type
+let height = 165;      // Int type
+
+// This will work: both are integers
+let sum = age + height;
+
+// This will error: can't add String and Int
+// Hints will point to where 'name' (String) and 'age' (Int) were defined
+let invalid = name + age;
+
+sum

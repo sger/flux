@@ -158,7 +158,7 @@ let x = 5; // inline comment
 
         let tok = lexer.next_token(); // let
         assert_eq!(tok.position.line, 1);
-        assert_eq!(tok.position.column, 1);
+        assert_eq!(tok.position.column, 0); // Columns are 0-indexed
 
         // Skip to second line
         lexer.next_token(); // x
@@ -168,7 +168,7 @@ let x = 5; // inline comment
 
         let tok = lexer.next_token(); // return
         assert_eq!(tok.position.line, 2);
-        assert_eq!(tok.position.column, 1);
+        assert_eq!(tok.position.column, 0); // Columns are 0-indexed
     }
 
     #[test]

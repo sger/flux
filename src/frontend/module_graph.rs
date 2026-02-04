@@ -6,9 +6,8 @@ use std::{
 
 use crate::frontend::{
     diagnostics::{
-        Diagnostic, DUPLICATE_MODULE, IMPORT_CYCLE,
-        IMPORT_NOT_FOUND, IMPORT_READ_FAILED, INVALID_MODULE_ALIAS,
-        INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
+        DUPLICATE_MODULE, Diagnostic, IMPORT_CYCLE, IMPORT_NOT_FOUND, IMPORT_READ_FAILED,
+        INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
         MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     },
     lexer::Lexer,
@@ -308,7 +307,8 @@ fn resolve_import_path(
                 &[name],
                 source_path.display().to_string(),
                 Span::new(position, position),
-            ).with_hint(hint);
+            )
+            .with_hint_text(hint);
             return Err(Box::new(diag));
         }
         1 => matches.remove(0),
@@ -327,7 +327,8 @@ fn resolve_import_path(
                 &[name],
                 source_path.display().to_string(),
                 Span::new(position, position),
-            ).with_hint(hint);
+            )
+            .with_hint_text(hint);
             return Err(Box::new(diag));
         }
     };

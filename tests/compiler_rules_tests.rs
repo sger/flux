@@ -63,7 +63,9 @@ fn compile_err_title(input: &str) -> String {
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");
-    err.first().map(|d| d.title().to_string()).unwrap_or_default()
+    err.first()
+        .map(|d| d.title().to_string())
+        .unwrap_or_default()
 }
 
 #[test]

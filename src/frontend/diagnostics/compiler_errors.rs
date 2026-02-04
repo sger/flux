@@ -498,7 +498,9 @@ pub const ICE_SYMBOL_SCOPE_LET: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected symbol scope for let binding.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_SYMBOL_SCOPE_ASSIGN: ErrorCode = ErrorCode {
@@ -506,7 +508,9 @@ pub const ICE_SYMBOL_SCOPE_ASSIGN: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected symbol scope for assignment.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_MATCH: ErrorCode = ErrorCode {
@@ -514,7 +518,9 @@ pub const ICE_TEMP_SYMBOL_MATCH: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in match scrutinee.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_SOME_PATTERN: ErrorCode = ErrorCode {
@@ -522,7 +528,9 @@ pub const ICE_TEMP_SYMBOL_SOME_PATTERN: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Some pattern.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_SYMBOL_SCOPE_PATTERN: ErrorCode = ErrorCode {
@@ -530,7 +538,9 @@ pub const ICE_SYMBOL_SCOPE_PATTERN: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected symbol scope for pattern binding.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_SOME_BINDING: ErrorCode = ErrorCode {
@@ -538,7 +548,9 @@ pub const ICE_TEMP_SYMBOL_SOME_BINDING: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Some binding.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_LEFT_PATTERN: ErrorCode = ErrorCode {
@@ -546,7 +558,9 @@ pub const ICE_TEMP_SYMBOL_LEFT_PATTERN: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Left pattern.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_RIGHT_PATTERN: ErrorCode = ErrorCode {
@@ -554,7 +568,9 @@ pub const ICE_TEMP_SYMBOL_RIGHT_PATTERN: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Right pattern.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_LEFT_BINDING: ErrorCode = ErrorCode {
@@ -562,7 +578,9 @@ pub const ICE_TEMP_SYMBOL_LEFT_BINDING: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Left binding.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };
 
 pub const ICE_TEMP_SYMBOL_RIGHT_BINDING: ErrorCode = ErrorCode {
@@ -570,5 +588,7 @@ pub const ICE_TEMP_SYMBOL_RIGHT_BINDING: ErrorCode = ErrorCode {
     title: "INTERNAL COMPILER ERROR",
     error_type: ErrorType::Compiler,
     message: "Unexpected temp symbol scope in Right binding.",
-    hint: Some("This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues"),
+    hint: Some(
+        "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
+    ),
 };

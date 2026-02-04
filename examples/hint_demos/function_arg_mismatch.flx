@@ -1,0 +1,19 @@
+// This example demonstrates hint positioning for function argument mismatches
+// The error will show where the function was defined with its parameter count
+
+fun add(a, b) {
+    a + b
+}
+
+fun multiply(x, y, z) {
+    x * y * z
+}
+
+let result1 = add(5, 10);          // OK: 2 arguments
+let result2 = multiply(2, 3, 4);   // OK: 3 arguments
+
+// This will error: add expects 2 arguments, but 3 were provided
+// The hint will point back to line 4 where add was defined with 2 parameters
+let result3 = add(1, 2, 3);
+
+result1 + result2 + result3

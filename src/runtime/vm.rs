@@ -7,8 +7,8 @@ use crate::{
     },
     frontend::{
         diagnostics::{
-            ErrorCode, Diagnostic, DIVISION_BY_ZERO_RUNTIME, INVALID_OPERATION,
-            NOT_A_FUNCTION,
+            DIVISION_BY_ZERO_RUNTIME, Diagnostic, DiagnosticsAggregator, ErrorCode,
+            INVALID_OPERATION, NOT_A_FUNCTION, render_display_path,
         },
         position::Span,
     },
@@ -57,12 +57,14 @@ impl VM {
             Ok(()) => Ok(()),
             Err(err) => {
                 let normalized = strip_ansi(&err);
-                // Check if error is already formatted (from runtime_error_enhanced)
-                // Formatted errors start with "-- " and contain error code "[EXXX]"
-                // Check for both uppercase and lowercase error codes
-                if normalized.starts_with("-- ")
-                    && (normalized.contains("[E") || normalized.contains("[e"))
-                {
+                // Check if error is already formatted (from runtime_error_enhanced / aggregator)
+                // Formatted errors may start with "-- " or a file header "-->" and include an error code.
+                let has_code = normalized.contains("[E") || normalized.contains("[e");
+                let looks_formatted = has_code
+                    && (normalized.starts_with("-- ")
+                        || normalized.starts_with("--> ")
+                        || normalized.contains("\n-- "));
+                if looks_formatted {
                     Err(err)
                 } else {
                     // Format unmigrated errors through Diagnostic system
@@ -298,16 +300,20 @@ impl VM {
 
     /// Convert a string error message to a formatted Diagnostic
     fn runtime_error_from_string(&self, message: &str) -> String {
-        use crate::frontend::{diagnostics::ErrorType, position::{Position, Span}};
+        use crate::frontend::{
+            diagnostics::ErrorType,
+            position::{Position, Span},
+        };
 
         let (message, hint) = split_hint(message);
         let (title, details) = split_first_line(message);
 
-        let (file, span) = self.current_location()
-            .unwrap_or_else(|| (
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
                 String::from("<unknown>"),
-                Span::new(Position::default(), Position::default())
-            ));
+                Span::new(Position::default(), Position::default()),
+            )
+        });
 
         // Determine error code based on error message pattern
         let error_code = if title.contains("wrong number of arguments") {
@@ -332,14 +338,29 @@ impl VM {
         );
 
         // Read source for the diagnostic render
-        let source = self.current_location()
+        let source = self
+            .current_location()
             .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
 
-        let mut rendered = diag.render(source.as_deref(), None);
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
 
         // Add stack trace if available
         if !self.frames.is_empty() {
-            rendered.push_str("\n\nStack trace:");
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
                 rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
@@ -356,36 +377,42 @@ impl VM {
     }
 
     /// Format a runtime error using the enhanced error registry
-    fn runtime_error_enhanced(
-        &self,
-        error_code: &'static ErrorCode,
-        values: &[&str],
-    ) -> String {
+    fn runtime_error_enhanced(&self, error_code: &'static ErrorCode, values: &[&str]) -> String {
         use crate::frontend::position::{Position, Span};
 
-        let (file, span) = self.current_location()
-            .unwrap_or_else(|| (
+        let (file, span) = self.current_location().unwrap_or_else(|| {
+            (
                 String::from("<unknown>"),
-                Span::new(Position::default(), Position::default())
-            ));
+                Span::new(Position::default(), Position::default()),
+            )
+        });
 
-        let diag = Diagnostic::make_error(
-            error_code,
-            values,
-            file,
-            span,
-        );
+        let diag = Diagnostic::make_error(error_code, values, file.clone(), span);
 
         // Read source for the diagnostic render
         let source = self
             .current_location()
             .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
 
-        let mut rendered = diag.render(source.as_deref(), None);
+        let mut rendered = if let Some(src) = source {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .with_source(file.clone(), src)
+                .report()
+                .rendered
+        } else {
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                .report()
+                .rendered
+        };
 
         // Add stack trace if available
         if !self.frames.is_empty() {
-            rendered.push_str("\n\nStack trace:");
+            if rendered.ends_with('\n') {
+                rendered.push('\n');
+            } else {
+                rendered.push_str("\n\n");
+            }
+            rendered.push_str("Stack trace:");
             for frame in self.frames[..=self.frame_index].iter().rev() {
                 rendered.push_str("\n  at ");
                 let (name, location) = self.format_frame(frame);
@@ -418,7 +445,7 @@ impl VM {
                 info.file_for(loc.file_id).map(|file| {
                     format!(
                         "{}:{}:{}",
-                        file,
+                        render_display_path(file),
                         loc.span.start.line,
                         loc.span.start.column
                     )
@@ -629,6 +656,77 @@ impl VM {
                     OpCode::OpMod => "modulo",
                     _ => "operate on",
                 };
+
+                // Special handling for String + Int/Float with hint chains
+                if op == OpCode::OpAdd
+                    && ((left.type_name() == "String"
+                        && matches!(right, Object::Integer(_) | Object::Float(_)))
+                        || (right.type_name() == "String"
+                            && matches!(left, Object::Integer(_) | Object::Float(_))))
+                {
+                    use crate::frontend::diagnostics::HintChain;
+                    use crate::frontend::position::{Position, Span};
+
+                    let (file, span) = self.current_location().unwrap_or_else(|| {
+                        (
+                            String::from("<unknown>"),
+                            Span::new(Position::default(), Position::default()),
+                        )
+                    });
+
+                    let chain = HintChain::from_steps(vec![
+                        "Convert the number to String using to_string()",
+                        "Or parse the String to Int/Float if it contains a number",
+                        "Or use string interpolation: \"text ${value}\"",
+                    ])
+                    .with_conclusion("Flux requires explicit type conversions for safety");
+
+                    let diag = Diagnostic::error("INVALID OPERATION")
+                        .with_code("E1009")
+                        .with_error_type(crate::frontend::diagnostics::ErrorType::Runtime)
+                        .with_message(format!(
+                            "Cannot {} {} and {} values.",
+                            op_name,
+                            left.type_name(),
+                            right.type_name()
+                        ))
+                        .with_file(file.clone())
+                        .with_span(span)
+                        .with_hint_chain(chain);
+
+                    let source = std::fs::read_to_string(&file).ok();
+                    let mut rendered = if let Some(src) = source.as_deref() {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .with_source(file.clone(), src)
+                            .report()
+                            .rendered
+                    } else {
+                        DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .report()
+                            .rendered
+                    };
+
+                    // Add stack trace
+                    if !self.frames.is_empty() {
+                        if rendered.ends_with('\n') {
+                            rendered.push('\n');
+                        } else {
+                            rendered.push_str("\n\n");
+                        }
+                        rendered.push_str("Stack trace:");
+                        for frame in self.frames[..=self.frame_index].iter().rev() {
+                            rendered.push_str("\n  at ");
+                            let (name, location) = self.format_frame(frame);
+                            rendered.push_str(&name);
+                            if let Some(loc) = location {
+                                rendered.push_str(&format!(" ({})", loc));
+                            }
+                        }
+                    }
+
+                    return Err(rendered);
+                }
+
                 Err(self.runtime_error_enhanced(
                     &INVALID_OPERATION,
                     &[op_name, left.type_name(), right.type_name()],
@@ -862,16 +960,16 @@ fn strip_ansi(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if let Some('[') = chars.peek().copied() {
-                chars.next();
-                while let Some(seq_ch) = chars.next() {
-                    if ('@'..='~').contains(&seq_ch) {
-                        break;
-                    }
+        if ch == '\u{1b}'
+            && let Some('[') = chars.peek().copied()
+        {
+            chars.next();
+            for seq_ch in chars.by_ref() {
+                if ('@'..='~').contains(&seq_ch) {
+                    break;
                 }
-                continue;
             }
+            continue;
         }
         out.push(ch);
     }

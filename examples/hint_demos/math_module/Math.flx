@@ -1,0 +1,19 @@
+// Module: Math
+// Provides mathematical utility functions
+
+module Math {
+    // Add two numbers
+    fun add(a, b) {
+        return a + b;
+    }
+
+    // Multiply two numbers
+    fun multiply(x, y) {
+        return x * y;
+    }
+
+    // Calculate average of two numbers
+    fun average(num1, num2) {
+        return (num1 + num2) / 2;
+    }
+}

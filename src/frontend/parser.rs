@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, ErrorType, EXPECTED_EXPRESSION},
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType},
     expression::{Expression, MatchArm, Pattern, StringPart},
     lexer::Lexer,
     position::Span,
@@ -95,7 +95,11 @@ impl Parser {
                         .with_error_type(ErrorType::Compiler)
                         .with_span(self.current_token.span())
                         .with_message("Flux uses `fun` for function declarations.")
-                        .with_hint("Replace it with `fun`."),
+                        .with_suggestion_message(
+                            self.current_token.span(),
+                            "fun",
+                            "Replace 'fn' with 'fun'",
+                        ),
                 );
                 self.synchronize_after_error();
                 None
@@ -114,7 +118,7 @@ impl Parser {
                             "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
                             self.current_token.literal
                         ))
-                        .with_hint("Did you mean `fun`?"),
+                        .with_hint_text("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
                 None
@@ -489,7 +493,7 @@ impl Parser {
                         .with_error_type(ErrorType::Compiler)
                         .with_span(self.current_token.span())
                         .with_message("Pipe operator expects a function or function call.")
-                        .with_hint("Use `value |> func` or `value |> func(arg)`"),
+                        .with_hint_text("Use `value |> func` or `value |> func(arg)`"),
                 );
                 None
             }
@@ -804,7 +808,11 @@ impl Parser {
             let body = self.parse_expression(Precedence::Lowest)?;
 
             let span = Span::new(pattern.span().start, body.span().end);
-            arms.push(MatchArm { pattern, body, span });
+            arms.push(MatchArm {
+                pattern,
+                body,
+                span,
+            });
 
             if self.is_peek_token(TokenType::Semicolon) {
                 self.next_token();
@@ -1048,7 +1056,7 @@ impl Parser {
                     .with_error_type(ErrorType::Compiler)
                     .with_span(self.current_token.span())
                     .with_message("Expected parameter or `(` after `\\`.")
-                    .with_hint("Use `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`."),
             );
             return None;
         };
@@ -1064,7 +1072,11 @@ impl Parser {
                         "Expected `->` after lambda parameters, found `{}`.",
                         self.current_token.token_type
                     ))
-                    .with_hint("Lambda syntax: `\\x -> expr` or `\\(x, y) -> expr`."),
+                    .with_note(
+                        "Lambda functions are anonymous functions defined with backslash syntax",
+                    )
+                    .with_help("Use `\\parameter -> expression` for the lambda syntax")
+                    .with_example("let double = \\x -> x * 2;\nlet add = \\(a, b) -> a + b;"),
             );
             return None;
         }
