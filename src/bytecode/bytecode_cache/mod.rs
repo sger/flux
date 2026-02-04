@@ -206,3 +206,8 @@ fn to_hex(bytes: &[u8; 32]) -> String {
     }
     out
 }
+
+#[cfg(test)]
+mod cache_serialization_test;
+#[cfg(test)]
+mod cache_validation_test;
