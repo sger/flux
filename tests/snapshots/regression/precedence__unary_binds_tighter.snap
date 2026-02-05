@@ -1,0 +1,8 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/precedence/unary_binds_tighter.flx
+exit_code: 0
+
+-2
+false

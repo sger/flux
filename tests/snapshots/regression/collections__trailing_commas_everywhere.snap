@@ -1,0 +1,21 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/collections/trailing_commas_everywhere.flx
+exit_code: 1
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `f`.
+
+  --> tests/fixtures/collections/trailing_commas_everywhere.flx:2:1
+  |
+2 | f(1,2,);
+  | ^
+
+Hint:
+  Define it first: let f = ...;
+
+
+Help:
+  Did you mean one of: `first`, `g`?

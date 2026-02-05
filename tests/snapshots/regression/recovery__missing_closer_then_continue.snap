@@ -1,0 +1,24 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/missing_closer_then_continue.flx
+exit_code: 1
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `,` or `]` after list item, got ;.
+
+  --> tests/fixtures/recovery/missing_closer_then_continue.flx:1:17
+  |
+1 | let a = [1, 2, 3;
+  |                 ^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `]` before end of file.
+
+  --> tests/fixtures/recovery/missing_closer_then_continue.flx:4:1
+  |
+
+Found 2 errors.

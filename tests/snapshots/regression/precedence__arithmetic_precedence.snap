@@ -1,0 +1,10 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/precedence/arithmetic_precedence.flx
+exit_code: 0
+
+7
+5
+6
+-4
