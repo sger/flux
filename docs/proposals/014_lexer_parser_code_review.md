@@ -94,13 +94,20 @@ if self.current_char == Some('.') && self.peek_char().is_some_and(|c| c.is_ascii
 
 ### 3. **Missing Edge Cases**
 
-**Issue:** No handling for:
-- Scientific notation (`1e10`, `1.5e-3`)
-- Hex literals (`0x1F`)
-- Binary literals (`0b1010`)
-- Underscores in numbers (`1_000_000`)
+**Status**: ✅ **IMPLEMENTED** (2026-02-05)
 
-**Recommendation:** Add if needed for language spec
+All recommended number formats are now supported:
+- ✅ Scientific notation (`1e10`, `1.5e-3`, `2.5E+5`)
+- ✅ Hex literals (`0xFF`, `0x1A_BC`)
+- ✅ Binary literals (`0b1010`, `0b1111_0000`)
+- ✅ Underscores in numbers (`1_000_000`, `3.14_159`)
+
+**Implementation Details:**
+- [numbers.rs](../src/frontend/lexer/numbers.rs) now includes specialized parsing for hex and binary literals
+- Scientific notation supports both lowercase `e` and uppercase `E`, with optional `+/-` signs
+- Underscores can be placed anywhere in numbers for readability (preserved in literal)
+- All formats tested with 10 comprehensive test cases
+- Backward compatible: All existing number parsing behavior preserved
 
 ### 4. **Comment Handling is Limited**
 

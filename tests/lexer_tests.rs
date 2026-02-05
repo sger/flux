@@ -836,4 +836,174 @@ fun fib(n) {
         assert_eq!(lexer.next_token().token_type, TokenType::Asterisk);
         assert_eq!(lexer.next_token().token_type, TokenType::Int);
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Enhanced Number Parsing Tests
+    // ════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn numbers_with_underscores() {
+        let tests = vec![
+            ("1_000", TokenType::Int, "1_000"),
+            ("1_000_000", TokenType::Int, "1_000_000"),
+            ("123_456_789", TokenType::Int, "123_456_789"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn floats_with_underscores() {
+        let tests = vec![
+            ("3.14_159", TokenType::Float, "3.14_159"),
+            ("1_000.5", TokenType::Float, "1_000.5"),
+            ("1_234.567_89", TokenType::Float, "1_234.567_89"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn scientific_notation_lowercase() {
+        let tests = vec![
+            ("1e10", TokenType::Float, "1e10"),
+            ("2.5e5", TokenType::Float, "2.5e5"),
+            ("1.5e-3", TokenType::Float, "1.5e-3"),
+            ("3e+2", TokenType::Float, "3e+2"),
+            ("6.022e23", TokenType::Float, "6.022e23"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn scientific_notation_uppercase() {
+        let tests = vec![
+            ("1E10", TokenType::Float, "1E10"),
+            ("2.5E5", TokenType::Float, "2.5E5"),
+            ("1.5E-3", TokenType::Float, "1.5E-3"),
+            ("3E+2", TokenType::Float, "3E+2"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn scientific_notation_with_underscores() {
+        let tests = vec![
+            ("1_000e10", TokenType::Float, "1_000e10"),
+            ("3.14_159e-2", TokenType::Float, "3.14_159e-2"),
+            ("2_500E+3", TokenType::Float, "2_500E+3"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn hexadecimal_literals() {
+        let tests = vec![
+            ("0xFF", TokenType::Int, "0xFF"),
+            ("0x1F", TokenType::Int, "0x1F"),
+            ("0x0", TokenType::Int, "0x0"),
+            ("0xDEADBEEF", TokenType::Int, "0xDEADBEEF"),
+            ("0Xff", TokenType::Int, "0Xff"),
+            ("0XFF", TokenType::Int, "0XFF"), // Uppercase X
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn hexadecimal_with_underscores() {
+        let tests = vec![
+            ("0xFF_00", TokenType::Int, "0xFF_00"),
+            ("0x1_A_B_C", TokenType::Int, "0x1_A_B_C"),
+            ("0xDEAD_BEEF", TokenType::Int, "0xDEAD_BEEF"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn binary_literals() {
+        let tests = vec![
+            ("0b1010", TokenType::Int, "0b1010"),
+            ("0b0", TokenType::Int, "0b0"),
+            ("0b1", TokenType::Int, "0b1"),
+            ("0b11111111", TokenType::Int, "0b11111111"),
+            ("0B1010", TokenType::Int, "0B1010"), // Uppercase B
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn binary_with_underscores() {
+        let tests = vec![
+            ("0b1111_0000", TokenType::Int, "0b1111_0000"),
+            ("0b1010_1010", TokenType::Int, "0b1010_1010"),
+            ("0b1010_1010_1010", TokenType::Int, "0b1010_1010_1010"),
+        ];
+
+        for (input, expected_type, expected_literal) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
+            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+        }
+    }
+
+    #[test]
+    fn mixed_number_formats_in_expression() {
+        let input = "0xFF + 42 + 0b1010 + 3.14e-2";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Int); // 0xFF
+        assert_eq!(lexer.next_token().token_type, TokenType::Plus);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int); // 42
+        assert_eq!(lexer.next_token().token_type, TokenType::Plus);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int); // 0b1010
+        assert_eq!(lexer.next_token().token_type, TokenType::Plus);
+        assert_eq!(lexer.next_token().token_type, TokenType::Float); // 3.14e-2
+    }
 }
