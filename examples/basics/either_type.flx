@@ -12,9 +12,9 @@ print(failure);
 // Pattern matching on Either
 fun describe(result) {
     match result {
-        Left(err) -> "Error: " + err;
-        Right(val) -> "Success: " + to_string(val);
-        _ -> "unknown";
+        Left(err) -> "Error: " + err,
+        Right(val) -> "Success: " + to_string(val),
+        _ -> "unknown",
     }
 }
 
@@ -38,29 +38,29 @@ print(result2);
 
 // Handle the results
 match result1 {
-    Left(err) -> print("Failed: " + err);
-    Right(val) -> print("Result: " + to_string(val));
-    _ -> print("unknown");
+    Left(err) -> print("Failed: " + err),
+    Right(val) -> print("Result: " + to_string(val)),
+    _ -> print("unknown"),
 }
 
 match result2 {
-    Left(err) -> print("Failed: " + err);
-    Right(val) -> print("Result: " + to_string(val));
-    _ -> print("unknown");
+    Left(err) -> print("Failed: " + err),
+    Right(val) -> print("Result: " + to_string(val)),
+    _ -> print("unknown"),
 }
 
 // Using wildcard pattern
 fun isRight(either) {
     match either {
-        Right(_) -> true;
-        _ -> false;
+        Right(_) -> true,
+        _ -> false,
     }
 }
 
 fun isLeft(either) {
     match either {
-        Left(_) -> true;
-        _ -> false;
+        Left(_) -> true,
+        _ -> false,
     }
 }
 
@@ -72,8 +72,8 @@ print(isLeft(Right(1)));
 // Get value or default
 fun getOrElse(either, defaultVal) {
     match either {
-        Right(x) -> x;
-        _ -> defaultVal;
+        Right(x) -> x,
+        _ -> defaultVal,
     }
 }
 
