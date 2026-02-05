@@ -239,6 +239,7 @@ pub fn render_suggestions(
 /// - `hint_chains`: List of hint chains to render
 /// - `sources_by_file`: Optional map of file paths to source code
 /// - `use_color`: Whether to use ANSI color codes
+#[allow(clippy::too_many_arguments)]
 pub fn render_hints(
     out: &mut String,
     source: Option<&str>,

@@ -14,7 +14,9 @@ enum LexerState {
     Normal,
     /// Active interpolated-string context.
     /// Top depth entry tracks the current interpolation expression.
-    InInterpolatedString { depth_stack: Vec<usize> },
+    InInterpolatedString {
+        depth_stack: Vec<usize>,
+    },
 }
 
 /// The Flux lexer
@@ -371,26 +373,26 @@ impl Lexer {
     }
 
     fn increment_current_interpolation_depth(&mut self) {
-        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
-            if let Some(depth) = depth_stack.last_mut() {
-                *depth += 1;
-            }
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state
+            && let Some(depth) = depth_stack.last_mut()
+        {
+            *depth += 1;
         }
     }
 
     fn decrement_current_interpolation_depth(&mut self) {
-        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
-            if let Some(depth) = depth_stack.last_mut() {
-                *depth = depth.saturating_sub(1);
-            }
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state
+            && let Some(depth) = depth_stack.last_mut()
+        {
+            *depth = depth.saturating_sub(1);
         }
     }
 
     fn reset_current_interpolation_depth(&mut self) {
-        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
-            if let Some(depth) = depth_stack.last_mut() {
-                *depth = 1;
-            }
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state
+            && let Some(depth) = depth_stack.last_mut()
+        {
+            *depth = 1;
         }
     }
 
@@ -581,8 +583,11 @@ impl Lexer {
         let mut content = String::new();
 
         // Read until newline or EOF
-        while self.current_char.is_some() && self.current_char != Some('\n') {
-            content.push(self.current_char.unwrap());
+        while let Some(ch) = self.current_char {
+            if ch == '\n' {
+                break;
+            }
+            content.push(ch);
             self.read_char();
         }
 
@@ -613,8 +618,8 @@ impl Lexer {
         // Track nesting for /** ... */ comments
         let mut nesting_depth = 1;
 
-        while self.current_char.is_some() {
-            if self.current_char == Some('*') && self.peek_char() == Some('/') {
+        while let Some(ch) = self.current_char {
+            if ch == '*' && self.peek_char() == Some('/') {
                 // Found closing */
                 self.read_char(); // consume '*'
                 self.read_char(); // consume '/'
@@ -630,13 +635,13 @@ impl Lexer {
                     );
                 }
                 // Nested closing delimiter intentionally omitted from doc content.
-            } else if self.current_char == Some('/') && self.peek_char() == Some('*') {
+            } else if ch == '/' && self.peek_char() == Some('*') {
                 // Found opening /* - treat as nested for depth, but omit delimiters from content.
                 self.read_char(); // consume '/'
                 self.read_char(); // consume '*'
                 nesting_depth += 1;
             } else {
-                content.push(self.current_char.unwrap());
+                content.push(ch);
                 self.read_char();
             }
         }

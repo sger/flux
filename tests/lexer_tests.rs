@@ -557,7 +557,11 @@ fun fib(n) {
         lexer.next_token();
 
         let warnings = lexer.warnings();
-        assert_eq!(warnings.len(), 0, "Valid escapes should not produce warnings");
+        assert_eq!(
+            warnings.len(),
+            0,
+            "Valid escapes should not produce warnings"
+        );
     }
 
     #[test]
