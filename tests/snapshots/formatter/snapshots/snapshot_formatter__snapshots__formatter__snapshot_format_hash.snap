@@ -1,0 +1,5 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+{name:"Alice",age:30,city:"NYC"}

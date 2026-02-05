@@ -1,0 +1,15 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Constants:
+  0: 1
+  1: 2
+  2: 3
+
+Instructions:
+0000 OpConstant 0
+0003 OpConstant 1
+0006 OpConstant 2
+0009 OpArray 3
+0012 OpSetGlobal 0

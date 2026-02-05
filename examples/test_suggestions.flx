@@ -1,8 +1,0 @@
-// Test "did you mean?" suggestions
-
-let count = 10;
-let counter = 20;
-let discount = 5;
-
-// Typo: should be "count"
-print(coun);

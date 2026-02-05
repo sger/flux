@@ -1,0 +1,8 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  1:0   import          "import"
+  1:7   IDENT           "utils"
+  1:12  ;               ";"
+  1:13  EOF             ""

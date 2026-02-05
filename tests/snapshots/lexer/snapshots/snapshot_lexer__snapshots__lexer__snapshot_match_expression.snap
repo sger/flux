@@ -1,0 +1,21 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  2:0   match           "match"
+  2:6   IDENT           "value"
+  2:12  {               "{"
+  3:4   Some            "Some"
+  3:8   (               "("
+  3:9   IDENT           "x"
+  3:10  )               ")"
+  3:12  =               "="
+  3:13  >               ">"
+  3:15  IDENT           "x"
+  3:16  ,               ","
+  4:4   None            "None"
+  4:9   =               "="
+  4:10  >               ">"
+  4:12  INT             "0"
+  5:0   }               "}"
+  6:0   EOF             ""

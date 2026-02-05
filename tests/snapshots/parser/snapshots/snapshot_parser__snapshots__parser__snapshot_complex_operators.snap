@@ -1,0 +1,174 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Let {
+            name: "result",
+            value: Infix {
+                left: Infix {
+                    left: Infix {
+                        left: Infix {
+                            left: Identifier {
+                                name: "a",
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 14,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 15,
+                                    },
+                                },
+                            },
+                            operator: "+",
+                            right: Identifier {
+                                name: "b",
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 18,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 19,
+                                    },
+                                },
+                            },
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 14,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 19,
+                                },
+                            },
+                        },
+                        operator: "*",
+                        right: Identifier {
+                            name: "c",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 23,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 24,
+                                },
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 14,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 24,
+                            },
+                        },
+                    },
+                    operator: "/",
+                    right: Identifier {
+                        name: "d",
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 27,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 28,
+                            },
+                        },
+                    },
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 14,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 28,
+                        },
+                    },
+                },
+                operator: "-",
+                right: Infix {
+                    left: Identifier {
+                        name: "e",
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 31,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 32,
+                            },
+                        },
+                    },
+                    operator: "%",
+                    right: Identifier {
+                        name: "f",
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 35,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 36,
+                            },
+                        },
+                    },
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 31,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 36,
+                        },
+                    },
+                },
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 14,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 36,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 37,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 37,
+        },
+    },
+}

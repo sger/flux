@@ -1,0 +1,9 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+
+if(x>10){
+    if(x>20){print("big");}
+    else{print("medium");}
+}else{print("small");}

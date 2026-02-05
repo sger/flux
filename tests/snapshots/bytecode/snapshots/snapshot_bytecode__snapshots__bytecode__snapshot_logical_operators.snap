@@ -1,0 +1,15 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Constants:
+
+Instructions:
+0000 OpTrue 
+0001 OpJumpNotTruthy 5
+0004 OpFalse 
+0005 OpPop 
+0006 OpTrue 
+0007 OpJumpTruthy 11
+0010 OpFalse 
+0011 OpPop

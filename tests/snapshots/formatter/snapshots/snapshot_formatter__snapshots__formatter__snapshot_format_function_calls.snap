@@ -1,0 +1,5 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+foo(  1  ,  2  ,  3  )

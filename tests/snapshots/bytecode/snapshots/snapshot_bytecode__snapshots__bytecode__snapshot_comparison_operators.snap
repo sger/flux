@@ -1,0 +1,25 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Constants:
+  0: 5
+  1: 3
+  2: 10
+  3: 10
+  4: 7
+  5: 8
+
+Instructions:
+0000 OpConstant 0
+0003 OpConstant 1
+0006 OpGreaterThan 
+0007 OpPop 
+0008 OpConstant 2
+0011 OpConstant 3
+0014 OpEqual 
+0015 OpPop 
+0016 OpConstant 4
+0019 OpConstant 5
+0022 OpNotEqual 
+0023 OpPop

@@ -1,0 +1,14 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  1:0   let             "let"
+  1:4   IDENT           "result"
+  1:11  =               "="
+  1:13  INT             "10"
+  1:16  +               "+"
+  1:18  INT             "20"
+  1:21  *               "*"
+  1:23  INT             "5"
+  1:24  ;               ";"
+  1:25  EOF             ""
