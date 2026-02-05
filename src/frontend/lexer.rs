@@ -11,10 +11,10 @@ pub struct Lexer {
     current_char: Option<char>,
     line: usize,
     column: usize,
-    /// Are we in the middle of an interpolated string (after processing #{)?
-    in_string: bool,
-    /// Brace nesting depth within an interpolation expression
-    interpolation_depth: usize,
+    /// Stack of active interpolated strings.
+    /// Top value is brace depth for the currently active interpolation expression.
+    /// `0` means we are between interpolation expressions and should continue string content.
+    interpolation_stack: Vec<usize>,
 }
 
 impl Lexer {
@@ -26,8 +26,7 @@ impl Lexer {
             current_char: None,
             line: 1,
             column: 0,
-            in_string: false,
-            interpolation_depth: 0,
+            interpolation_stack: Vec::new(),
         };
         lexer.read_char();
         lexer
@@ -36,7 +35,7 @@ impl Lexer {
     /// Get the next token from the input
     pub fn next_token(&mut self) -> Token {
         // If we're in the middle of an interpolated string, continue reading it
-        if self.in_string && self.interpolation_depth == 0 {
+        if self.in_interpolated_string_context() && !self.is_in_interpolation() {
             return self.continue_string();
         }
 
@@ -94,14 +93,18 @@ impl Lexer {
             Some('(') => Token::new(TokenType::LParen, "(", line, col),
             Some(')') => Token::new(TokenType::RParen, ")", line, col),
             Some('{') => {
-                if self.in_string {
-                    self.interpolation_depth += 1;
+                if self.is_in_interpolation() {
+                    if let Some(depth) = self.interpolation_stack.last_mut() {
+                        *depth += 1;
+                    }
                 }
                 Token::new(TokenType::LBrace, "{", line, col)
             }
             Some('}') => {
-                if self.in_string && self.interpolation_depth > 0 {
-                    self.interpolation_depth -= 1;
+                if self.is_in_interpolation() {
+                    if let Some(depth) = self.interpolation_stack.last_mut() {
+                        *depth = depth.saturating_sub(1);
+                    }
                 }
                 Token::new(TokenType::RBrace, "}", line, col)
             }
@@ -119,7 +122,12 @@ impl Lexer {
             }
 
             // End of file
-            None => Token::new(TokenType::Eof, "", line, col),
+            None => {
+                // Future improvement: if this is non-empty at EOF, emit a dedicated
+                // unterminated interpolation/string diagnostic from the lexer.
+                self.interpolation_stack.clear();
+                Token::new(TokenType::Eof, "", line, col)
+            }
 
             // Identifiers and keywords
             Some(ch) if is_letter(ch) => {
@@ -232,6 +240,58 @@ impl Lexer {
         (literal, is_float)
     }
 
+    fn string_token_with_cursor_end(
+        &self,
+        token_type: TokenType,
+        content: String,
+        line: usize,
+        col: usize,
+    ) -> Token {
+        // String-family tokens use source cursor end (raw span), not cooked literal length.
+        Token::new_with_end(
+            token_type,
+            content,
+            line,
+            col,
+            Position::new(self.line, self.column),
+        )
+    }
+
+    fn in_interpolated_string_context(&self) -> bool {
+        !self.interpolation_stack.is_empty()
+    }
+
+    fn current_interpolation_depth(&self) -> usize {
+        self.interpolation_stack.last().copied().unwrap_or(0)
+    }
+
+    /// Compute expected closing quote position for an unterminated string that
+    /// started with an opening quote at `start_col`.
+    fn unterminated_string_end_position(
+        &self,
+        start_line: usize,
+        start_col: usize,
+        content: &str,
+    ) -> Position {
+        let content_len = content.chars().count();
+        Position::new(
+            start_line,
+            start_col.saturating_add(1).saturating_add(content_len),
+        )
+    }
+
+    /// Compute end position for an unterminated continuation segment after
+    /// interpolation where there is no opening quote at `start_col`.
+    fn unterminated_segment_end_position(
+        &self,
+        start_line: usize,
+        start_col: usize,
+        content: &str,
+    ) -> Position {
+        let content_len = content.chars().count();
+        Position::new(start_line, start_col.saturating_add(content_len))
+    }
+
     /// Read the start of a string (called when we see opening ")
     fn read_string_start(&mut self) -> Token {
         let line = self.line;
@@ -242,52 +302,47 @@ impl Lexer {
 
         if has_interpolation {
             // String has interpolation - mark that we're in a string
-            // depth = 1 because we already consumed the opening { of #{
-            self.in_string = true;
-            self.interpolation_depth = 1;
+            // Invariant: depth = 1 because we consumed the '{' of '#{' internally.
+            self.interpolation_stack.push(1);
             // Return InterpolationStart instead of String to signal interpolation
-            Token::new(TokenType::InterpolationStart, content, line, col)
+            self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, col)
         } else if !ended {
-            // Hit EOF without closing quote
-            Token::new_with_end(
-                TokenType::UnterminatedString,
-                content,
-                line,
-                col,
-                Position::new(self.line, self.column),
-            )
+            // Hit newline or EOF without closing quote
+            let end = self.unterminated_string_end_position(line, col, &content);
+            Token::new_with_end(TokenType::UnterminatedString, content, line, col, end)
         } else {
             // Simple string with no interpolation
-            Token::new(TokenType::String, content, line, col)
+            self.string_token_with_cursor_end(TokenType::String, content, line, col)
         }
     }
 
     /// Continue reading a string after an interpolation expression
     fn continue_string(&mut self) -> Token {
+        debug_assert!(self.in_interpolated_string_context());
+        debug_assert!(!self.is_in_interpolation());
+
         let line = self.line;
         let col = self.column;
 
         let (content, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
-            // More interpolations to come - reset depth since we consumed #{
-            self.interpolation_depth = 1;
+            // More interpolations to come - reset depth since we consumed the '{' of '#{'
+            if let Some(depth) = self.interpolation_stack.last_mut() {
+                // Invariant: reset to 1 because '#{' consumed the '{' already.
+                *depth = 1;
+            }
             // Return InterpolationStart to signal another interpolation
-            Token::new(TokenType::InterpolationStart, content, line, col)
+            self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, col)
         } else if !ended {
-            // Hit EOF without closing quote
-            self.in_string = false;
-            Token::new_with_end(
-                TokenType::UnterminatedString,
-                content,
-                line,
-                col,
-                Position::new(self.line, self.column),
-            )
+            // Hit newline or EOF without closing quote
+            self.interpolation_stack.pop();
+            let end = self.unterminated_segment_end_position(line, col, &content);
+            Token::new_with_end(TokenType::UnterminatedString, content, line, col, end)
         } else {
             // End of interpolated string
-            self.in_string = false;
-            Token::new(TokenType::StringEnd, content, line, col)
+            self.interpolation_stack.pop();
+            self.string_token_with_cursor_end(TokenType::StringEnd, content, line, col)
         }
     }
 
@@ -352,7 +407,7 @@ impl Lexer {
 
     /// Check if we're currently inside an interpolation expression
     pub fn is_in_interpolation(&self) -> bool {
-        self.in_string && self.interpolation_depth == 0
+        self.in_interpolated_string_context() && self.current_interpolation_depth() > 0
     }
 }
 
