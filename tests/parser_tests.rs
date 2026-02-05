@@ -995,6 +995,66 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_assignment_is_not_valid_in_expression_position() {
+        let lexer = Lexer::new("let x = 1;\nlet y = 2;\nif x = y { x; }\nlet after = 3;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected parser to reject assignment in expression position"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "after")),
+            "expected parser recovery to continue after invalid assignment expression"
+        );
+    }
+
+    #[test]
+    fn test_bad_assignment_statement_recovers_to_following_statement() {
+        let lexer = Lexer::new("let x = 1;\nx = ;\nlet after = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E031")),
+            "expected missing-expression diagnostic for malformed assignment"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "after")),
+            "expected parser recovery to continue after malformed assignment statement"
+        );
+    }
+
+    #[test]
+    fn test_assignment_parses_as_statement_top_level_and_in_block() {
+        let program = parse("x = 2;\nfun f() { y = 3; }");
+
+        assert!(
+            matches!(&program.statements[0], Statement::Assign { name, .. } if name == "x"),
+            "expected top-level assignment to parse as Statement::Assign"
+        );
+
+        match &program.statements[1] {
+            Statement::Function { body, .. } => {
+                assert!(
+                    body.statements
+                        .iter()
+                        .any(|stmt| matches!(stmt, Statement::Assign { name, .. } if name == "y")),
+                    "expected block assignment to parse as Statement::Assign"
+                );
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
     fn test_call_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
         let input = format!(
             "print({});\nlet ok = \"still parsed\";\nprint(ok);",

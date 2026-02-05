@@ -127,8 +127,8 @@ Flux emits human-friendly diagnostics with stable error codes.
 | Code | Title | Example | Example file |
 | --- | --- | --- | --- |
 | E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/functions/function_redeclaration_error.flx` |
-| E003 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
-| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
+| E002 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
+| E003 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
 | E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
 | E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
 | E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
@@ -177,6 +177,32 @@ fun sum_of_squares(a, b) {
 
 All bindings are immutable. Use `let` to bind values.
 Closures cannot assign to outer bindings; use `let` to shadow instead.
+
+### Assignment and Rebinding
+
+Flux does not currently support mutable rebinding.
+
+- `x = value` is parsed as an assignment statement shape, but the compiler rejects it.
+- Assignment is a statement form only, not an expression.
+- `let mut` is not supported syntax in Flux today.
+
+```flux
+let x = 1;
+x = 2;              // error (E002): immutable binding
+
+let mut y = 1;      // syntax error (`mut` is not a keyword)
+y = 2;              // invalid assignment
+
+// Supported style: immutable update with a new binding name
+let y = 1;
+let next_y = y + 1;
+```
+
+```flux
+if x = y {          // parse error: assignment is not an expression
+  1;
+}
+```
 
 ### Top-Level Bindings (Planned)
 

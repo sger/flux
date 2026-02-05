@@ -8,7 +8,7 @@ This directory contains examples demonstrating enhanced error messages in Flux. 
 
 **File:** `immutable_binding.flx`
 **Error:** E002 - IMMUTABLE BINDING
-**What it shows:** Enhanced explanation of Flux's immutability, with suggestions for using `let mut` or shadowing.
+**What it shows:** Enhanced explanation of Flux's immutability, with suggestions for rebinding via `let`.
 
 ```bash
 cargo run -- examples/error_messages/immutable_binding.flx
@@ -82,14 +82,13 @@ All enhanced errors now include:
 
 **Before (E002 - IMMUTABLE_BINDING):**
 ```
-hint: Variables are immutable by default. Use `let mut x` if you need to reassign.
+hint: Variables are immutable by default. Use `let x = ...` to rebind instead.
 ```
 
 **After:**
 ```
-hint: In Flux, variables are immutable by default for safety. To allow reassignment,
-      declare with `let mut x` instead. Alternatively, create a new binding with
-      `let` to shadow the previous value.
+hint: In Flux, bindings are immutable. Compute a new value with a new
+      binding name (for example: `let next_x = ...`).
 ```
 
 The enhanced messages provide more context, explain the reasoning, and offer multiple solutions.

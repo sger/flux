@@ -2,8 +2,6 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-Found 2 warnings.
-
 --> a.flx
 --> warning[E100]: TEST A
 
@@ -24,3 +22,5 @@ message b
   |
 1 | let y = 2;
   |     ^
+
+Found 2 warnings.
