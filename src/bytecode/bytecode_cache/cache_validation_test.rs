@@ -26,6 +26,7 @@ fn temp_path(name: &str) -> PathBuf {
 fn create_rw_file(path: &PathBuf) -> File {
     OpenOptions::new()
         .create(true)
+        .truncate(true)
         .read(true)
         .write(true)
         .open(path)

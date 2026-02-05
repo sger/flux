@@ -573,7 +573,7 @@ fun fib(n) {
         assert_eq!(tok.literal, "hello x world");
 
         let warnings = lexer.warnings();
-        assert!(warnings.len() > 0, "Should warn about unknown escape");
+        assert!(!warnings.is_empty(), "Should warn about unknown escape");
         assert!(warnings[0].message.contains("\\x"));
     }
 
