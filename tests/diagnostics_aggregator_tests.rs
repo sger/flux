@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi},
+    diagnostics::{Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi},
     position::{Position, Span},
 };
 

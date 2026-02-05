@@ -1,7 +1,7 @@
 /// Direct demonstration of hint positioning feature
 /// Run with: cargo run --example demo_hint_rendering
 use flux::frontend::{
-    diagnostics::{Diagnostic, ErrorType, Hint, HintChain, InlineSuggestion},
+    diagnostics::{Diagnostic, DiagnosticBuilder, ErrorType, Hint, HintChain, InlineSuggestion},
     position::{Position, Span},
 };
 

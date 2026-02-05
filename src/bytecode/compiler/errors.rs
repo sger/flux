@@ -1,7 +1,7 @@
 use crate::frontend::{
     diagnostics::{
-        DUPLICATE_NAME, Diagnostic, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION, OUTER_ASSIGNMENT,
-        PRIVATE_MEMBER, UNDEFINED_VARIABLE,
+        DUPLICATE_NAME, Diagnostic, DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
+        OUTER_ASSIGNMENT, PRIVATE_MEMBER, UNDEFINED_VARIABLE,
     },
     position::Span,
 };

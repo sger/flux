@@ -1,3 +1,4 @@
+use super::builders::DiagnosticBuilder;
 use super::types::*;
 use super::{ErrorCode, ErrorType, format_message};
 use super::rendering;
@@ -143,45 +144,49 @@ impl Diagnostic {
     pub fn set_file(&mut self, file: impl Into<String>) {
         self.file = Some(file.into());
     }
+}
 
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
+// ===== Builder Pattern Implementation =====
+// All builder methods (with_*) are implemented via the DiagnosticBuilder trait
+impl DiagnosticBuilder for Diagnostic {
+    fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
         self
     }
 
-    pub fn with_error_type(mut self, error_type: ErrorType) -> Self {
+    fn with_error_type(mut self, error_type: ErrorType) -> Self {
         self.error_type = Some(error_type);
         self
     }
 
-    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+    fn with_message(mut self, message: impl Into<String>) -> Self {
         self.message = Some(message.into());
         self
     }
 
-    pub fn with_file(mut self, file: impl Into<String>) -> Self {
+    fn with_file(mut self, file: impl Into<String>) -> Self {
         self.file = Some(file.into());
         self
     }
 
-    pub fn with_position(mut self, position: Position) -> Self {
+    fn with_position(mut self, position: Position) -> Self {
         self.span = Some(Span::new(position, position));
         self
     }
 
-    pub fn with_span(mut self, span: Span) -> Self {
+    fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
     }
 
     /// Add a hint to the diagnostic
-    pub fn with_hint(mut self, hint: Hint) -> Self {
+    fn with_hint(mut self, hint: Hint) -> Self {
         self.hints.push(hint);
         self
     }
 
     /// Add a text-only hint (convenience method for backward compatibility)
-    pub fn with_hint_text(mut self, text: impl Into<String>) -> Self {
+    fn with_hint_text(mut self, text: impl Into<String>) -> Self {
         let text = text.into();
         let cleaned = text
             .strip_prefix("Hint:\n")
@@ -193,13 +198,13 @@ impl Diagnostic {
     }
 
     /// Add a hint with a source location (convenience method)
-    pub fn with_hint_at(mut self, text: impl Into<String>, span: Span) -> Self {
+    fn with_hint_at(mut self, text: impl Into<String>, span: Span) -> Self {
         self.hints.push(Hint::at(text, span));
         self
     }
 
     /// Add a hint with a source location and label (convenience method)
-    pub fn with_hint_labeled(
+    fn with_hint_labeled(
         mut self,
         text: impl Into<String>,
         span: Span,
@@ -210,62 +215,62 @@ impl Diagnostic {
     }
 
     /// Add a note hint (additional context or information)
-    pub fn with_note(mut self, text: impl Into<String>) -> Self {
+    fn with_note(mut self, text: impl Into<String>) -> Self {
         self.hints.push(Hint::note(text));
         self
     }
 
     /// Add a help hint (explicit instructions on how to fix)
-    pub fn with_help(mut self, text: impl Into<String>) -> Self {
+    fn with_help(mut self, text: impl Into<String>) -> Self {
         self.hints.push(Hint::help(text));
         self
     }
 
     /// Add an example hint (code example demonstrating the solution)
-    pub fn with_example(mut self, text: impl Into<String>) -> Self {
+    fn with_example(mut self, text: impl Into<String>) -> Self {
         self.hints.push(Hint::example(text));
         self
     }
 
     /// Add a primary label to the diagnostic (main error location)
-    pub fn with_primary_label(mut self, span: Span, text: impl Into<String>) -> Self {
+    fn with_primary_label(mut self, span: Span, text: impl Into<String>) -> Self {
         self.labels.push(Label::primary(span, text));
         self
     }
 
     /// Add a secondary label to the diagnostic (additional context)
-    pub fn with_secondary_label(mut self, span: Span, text: impl Into<String>) -> Self {
+    fn with_secondary_label(mut self, span: Span, text: impl Into<String>) -> Self {
         self.labels.push(Label::secondary(span, text));
         self
     }
 
     /// Add a note label to the diagnostic (informational)
-    pub fn with_note_label(mut self, span: Span, text: impl Into<String>) -> Self {
+    fn with_note_label(mut self, span: Span, text: impl Into<String>) -> Self {
         self.labels.push(Label::note(span, text));
         self
     }
 
     /// Add a label with explicit style
-    pub fn with_label(mut self, label: Label) -> Self {
+    fn with_label(mut self, label: Label) -> Self {
         self.labels.push(label);
         self
     }
 
     /// Add an inline code suggestion
-    pub fn with_suggestion(mut self, suggestion: InlineSuggestion) -> Self {
+    fn with_suggestion(mut self, suggestion: InlineSuggestion) -> Self {
         self.suggestions.push(suggestion);
         self
     }
 
     /// Add an inline suggestion with replacement text (convenience method)
-    pub fn with_suggestion_replace(mut self, span: Span, replacement: impl Into<String>) -> Self {
+    fn with_suggestion_replace(mut self, span: Span, replacement: impl Into<String>) -> Self {
         self.suggestions
             .push(InlineSuggestion::new(span, replacement));
         self
     }
 
     /// Add an inline suggestion with message (convenience method)
-    pub fn with_suggestion_message(
+    fn with_suggestion_message(
         mut self,
         span: Span,
         replacement: impl Into<String>,
@@ -277,25 +282,25 @@ impl Diagnostic {
     }
 
     /// Add a hint chain for step-by-step guidance
-    pub fn with_hint_chain(mut self, chain: HintChain) -> Self {
+    fn with_hint_chain(mut self, chain: HintChain) -> Self {
         self.hint_chains.push(chain);
         self
     }
 
     /// Add a related diagnostic entry (note/help/related)
-    pub fn with_related(mut self, related: RelatedDiagnostic) -> Self {
+    fn with_related(mut self, related: RelatedDiagnostic) -> Self {
         self.related.push(related);
         self
     }
 
     /// Add a hint chain from a list of steps (convenience method)
-    pub fn with_steps<S: Into<String>>(mut self, steps: impl IntoIterator<Item = S>) -> Self {
+    fn with_steps<S: Into<String>>(mut self, steps: impl IntoIterator<Item = S>) -> Self {
         self.hint_chains.push(HintChain::from_steps(steps));
         self
     }
 
     /// Add a hint chain with steps and conclusion (convenience method)
-    pub fn with_steps_and_conclusion<S: Into<String>>(
+    fn with_steps_and_conclusion<S: Into<String>>(
         mut self,
         steps: impl IntoIterator<Item = S>,
         conclusion: impl Into<String>,
@@ -304,7 +309,10 @@ impl Diagnostic {
             .push(HintChain::from_steps(steps).with_conclusion(conclusion));
         self
     }
+}
 
+// ===== Factory Methods and Rendering =====
+impl Diagnostic {
     /// Generic error builder using ErrorCode specification
     #[allow(deprecated)]
     pub fn make_error(

@@ -2,8 +2,8 @@ use crate::{
     bytecode::op_code::OpCode,
     frontend::{
         diagnostics::{
-            runtime_errors::invalid_operation, DIVISION_BY_ZERO_RUNTIME, DiagnosticsAggregator,
-            HintChain, INVALID_OPERATION,
+            runtime_errors::invalid_operation, DIVISION_BY_ZERO_RUNTIME, DiagnosticBuilder,
+            DiagnosticsAggregator, HintChain, INVALID_OPERATION,
         },
         position::{Position, Span},
     },

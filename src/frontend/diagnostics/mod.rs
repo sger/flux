@@ -4,6 +4,7 @@
 //! and rendering helpers for consistent compiler/runtime output.
 
 pub mod aggregator;
+pub mod builders;
 pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
@@ -16,6 +17,7 @@ pub use aggregator::{
     DEFAULT_MAX_ERRORS, DiagnosticCounts, DiagnosticsAggregator, DiagnosticsReport,
     render_diagnostics_multi,
 };
+pub use builders::DiagnosticBuilder;
 pub use diagnostic::Diagnostic;
 pub use format::{format_message, format_message_named};
 pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};

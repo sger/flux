@@ -1,3 +1,4 @@
+use super::builders::DiagnosticBuilder;
 use super::types::{ErrorCode, ErrorType};
 
 pub const DUPLICATE_NAME: ErrorCode = ErrorCode {
