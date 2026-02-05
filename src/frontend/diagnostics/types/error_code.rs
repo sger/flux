@@ -1,3 +1,5 @@
+//! Error code types for the diagnostics system
+
 /// Distinguishes between compile-time and runtime errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorType {
