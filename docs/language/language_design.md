@@ -208,42 +208,22 @@ let x = 5;  // Inline comment
 
 ### Semicolons
 
-Semicolons are **optional** for top-level statements on separate lines, but **required** inside function bodies (except the last expression).
+Current parser behavior: semicolons are accepted but optional in the common statement forms we test (top-level calls, top-level lets, and their semicolon-terminated variants).
 
-**Quick Rules:**
-- ✓ **OPTIONAL**: Top-level statements on separate lines
-- ✗ **REQUIRED**: Multiple statements on same line
-- ✗ **REQUIRED**: Inside function bodies (except last expression)
-
-**Top-level (semicolons optional):**
 ```flux
-let x = 42
-let y = 10
-print(x + y)
+print("hi")
+print("hi");
+
+let test = "this compiles"
+let test2 = "this compiles";
 ```
 
-**Top-level (semicolons also work):**
-```flux
-let x = 42;
-let y = 10;
-print(x + y);
-```
-
-**Inside functions (semicolons required except last):**
-```flux
-fun calculate(n) {
-    let doubled = n * 2;     // REQUIRED
-    let squared = n * n;     // REQUIRED
-    doubled + squared        // OPTIONAL (last expression)
-}
-```
-
-**Recommendation:** Skip semicolons at top level, use them inside functions.
+Flux does not lex newline tokens. Statement boundaries come from parser progression and expression terminators, so these forms parse without requiring explicit semicolons.
 
 **See also:**
 - Complete reference: [docs/language/semicolon_rules.md](semicolon_rules.md)
 - Examples: [examples/basics/semicolons.flx](../../examples/basics/semicolons.flx)
-- Tests: `tests/parser_tests.rs` (search for `optional_semicolons`)
+- Tests: `tests/parser_tests.rs` (search for `semicolon_verification`)
 
 ---
 

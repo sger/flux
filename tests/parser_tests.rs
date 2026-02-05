@@ -5,6 +5,25 @@ mod tests {
         statement::Statement,
     };
 
+    const SEMICOLON_VERIFICATION_PROGRAM: &str = r#"fun f(a, b, c, d) {
+    print(a);
+    print(b);
+    print(c);
+    print(d);
+}
+
+print(1 2 3);         // missing commas between call arguments
+[true false true];    // missing commas between array items
+f(10, 20 30, 40);     // missing comma in the middle argument gap
+
+let parsed_after_errors = "parser should still reach this statement";
+print(parsed_after_errors);
+
+print(1 2 3)          // also test without semicolon
+let test = "this compiles"
+let test2 = "this compiles";
+"#;
+
     fn parse(input: &str) -> Program {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
@@ -99,7 +118,7 @@ mod tests {
     fn test_missing_commas_in_numeric_call_args_emit_e073_without_cascade() {
         let lexer = Lexer::new("print(1 2 3)");
         let mut parser = Parser::new(lexer);
-        let _ = parser.parse_program();
+        let program = parser.parse_program();
 
         let missing_comma_count = parser
             .errors
@@ -113,6 +132,11 @@ mod tests {
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
             "missing-comma recovery should avoid generic cascade diagnostics"
+        );
+        assert_eq!(
+            program.statements.len(),
+            1,
+            "top-level call without semicolon should still parse as one statement"
         );
     }
 
@@ -401,6 +425,32 @@ mod tests {
     }
 
     #[test]
+    fn test_lambda_single_param_sugar_and_parenthesized_have_same_ast_shape() {
+        let sugar = parse(r"\x -> x");
+        let parenthesized = parse(r"\(x) -> x");
+
+        let sugar_params = match &sugar.statements[0] {
+            Statement::Expression {
+                expression: Expression::Function { parameters, .. },
+                ..
+            } => parameters.clone(),
+            _ => panic!("expected lambda function expression"),
+        };
+        let paren_params = match &parenthesized.statements[0] {
+            Statement::Expression {
+                expression: Expression::Function { parameters, .. },
+                ..
+            } => parameters.clone(),
+            _ => panic!("expected lambda function expression"),
+        };
+
+        assert_eq!(sugar_params.len(), 1);
+        assert_eq!(paren_params.len(), 1);
+        assert_eq!(sugar_params, paren_params);
+        assert_eq!(sugar_params[0], "x");
+    }
+
+    #[test]
     fn test_lambda_multi_param() {
         let program = parse(r"\(x, y) -> x + y;");
         assert_eq!(program.statements.len(), 1);
@@ -451,11 +501,10 @@ mod tests {
             .find(|d| d.code() == Some("E036"))
             .expect("expected E036 diagnostic for missing lambda arrow");
         assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
-        assert!(
-            diag.hints()
-                .iter()
-                .any(|h| h.text.contains(r"\x -> expr") || h.text.contains(r"\(x, y) -> expr"))
-        );
+        assert!(diag
+            .hints()
+            .iter()
+            .any(|h| h.text.contains(r"\x -> expr") || h.text.contains(r"\(x, y) -> expr")));
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start.line, 1);
         assert_eq!(span.start.column, 3);
@@ -481,10 +530,9 @@ mod tests {
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier function parameter");
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
-        );
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter")));
     }
 
     #[test]
@@ -498,10 +546,80 @@ mod tests {
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier lambda parameter");
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter")));
+    }
+
+    #[test]
+    fn test_single_param_keyword_lambda_matches_parenthesized_diagnostic() {
+        let mut single_parser = Parser::new(Lexer::new(r"\if -> 1"));
+        let _ = single_parser.parse_program();
+
+        let mut paren_parser = Parser::new(Lexer::new(r"\(if) -> 1"));
+        let _ = paren_parser.parse_program();
+
+        let single_diag = single_parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for single-param keyword lambda");
+        let paren_diag = paren_parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for parenthesized keyword lambda");
+
+        assert!(single_diag
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter, got if")));
+        assert_eq!(single_diag.message(), paren_diag.message());
+        assert_eq!(single_parser.errors.len(), 1);
+        assert_eq!(paren_parser.errors.len(), 1);
         assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+            single_parser
+                .errors
+                .iter()
+                .all(|d| d.code() != Some("E036")),
+            "single-param keyword lambda should use parameter validation, not syntax error"
         );
+
+        let single_span = single_diag.span().expect("expected single-param span");
+        let paren_span = paren_diag.span().expect("expected parenthesized span");
+        assert_eq!(single_span.start, Position::new(1, 1));
+        assert_eq!(paren_span.start, Position::new(1, 2));
+    }
+
+    #[test]
+    fn test_single_param_illegal_token_lambda_matches_parenthesized_diagnostic() {
+        let mut single_parser = Parser::new(Lexer::new(r"\1 -> 1"));
+        let _ = single_parser.parse_program();
+
+        let mut paren_parser = Parser::new(Lexer::new(r"\(1) -> 1"));
+        let _ = paren_parser.parse_program();
+
+        let single_diag = single_parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for single-param illegal token lambda");
+        let paren_diag = paren_parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for parenthesized illegal token lambda");
+
+        assert!(single_diag
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter, got INT")));
+        assert_eq!(single_diag.message(), paren_diag.message());
+        assert_eq!(single_parser.errors.len(), 1);
+        assert_eq!(paren_parser.errors.len(), 1);
+
+        let single_span = single_diag.span().expect("expected single-param span");
+        let paren_span = paren_diag.span().expect("expected parenthesized span");
+        assert_eq!(single_span.start, Position::new(1, 1));
+        assert_eq!(paren_span.start, Position::new(1, 2));
     }
 
     #[test]
@@ -562,10 +680,9 @@ mod tests {
             .expect("expected E034 for missing comma between parameters");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 8));
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
-        );
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected `,` or `)` after parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -593,11 +710,9 @@ mod tests {
         );
         let span = e105_diags[0].span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 8));
-        assert!(
-            e105_diags[0]
-                .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
-        );
+        assert!(e105_diags[0]
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -619,11 +734,9 @@ mod tests {
             .filter(|d| d.code() == Some("E034"))
             .collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for extra comma");
-        assert!(
-            e105_diags[0]
-                .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
-        );
+        assert!(e105_diags[0]
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -645,11 +758,9 @@ mod tests {
             .filter(|d| d.code() == Some("E034"))
             .collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for leading comma");
-        assert!(
-            e105_diags[0]
-                .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
-        );
+        assert!(e105_diags[0]
+            .message()
+            .is_some_and(|m| m.contains("Expected identifier as parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -672,10 +783,9 @@ mod tests {
             .expect("expected E034 for trailing comma in call args");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected expression after `,`, got )"))
-        );
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected expression after `,`, got )")));
     }
 
     #[test]
@@ -691,10 +801,9 @@ mod tests {
             .expect("expected E034 for trailing comma in array literal");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 3));
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected expression after `,`, got ]"))
-        );
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected expression after `,`, got ]")));
     }
 
     #[test]
@@ -710,10 +819,9 @@ mod tests {
             .expect("expected E034 for double comma in call args");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
-        );
+        assert!(diag
+            .message()
+            .is_some_and(|m| m.contains("Expected expression after `,`, got `,`")));
     }
 
     #[test]
@@ -727,7 +835,10 @@ mod tests {
             .iter()
             .filter(|d| d.code() == Some("E073"))
             .count();
-        assert_eq!(missing_comma_count, 1, "expected one missing comma diagnostic");
+        assert_eq!(
+            missing_comma_count, 1,
+            "expected one missing comma diagnostic"
+        );
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
             "missing-comma recovery should avoid generic cascade diagnostics"
@@ -738,7 +849,11 @@ mod tests {
                 expression: Expression::Call { arguments, .. },
                 ..
             } => {
-                assert_eq!(arguments.len(), 4, "expected trailing argument to be preserved");
+                assert_eq!(
+                    arguments.len(),
+                    4,
+                    "expected trailing argument to be preserved"
+                );
                 assert!(
                     matches!(&arguments[3], Expression::Identifier { name, .. } if name == "d"),
                     "expected final argument `d` to be parsed after recovery"
@@ -751,9 +866,10 @@ mod tests {
     // ========================================================================
     // Regression tests for optional semicolons
     // ========================================================================
-    // Rule: Semicolons are OPTIONAL for top-level statements on separate lines
-    // Rule: Semicolons are REQUIRED for multiple statements on the same line
-    // Rule: Semicolons are REQUIRED inside blocks (except last statement)
+    // Current parser behavior:
+    // - Semicolons are optional for top-level statements.
+    // - Statements are separated by parser progress; semicolons are accepted but
+    //   not required for the cases covered below.
     // See: examples/basics/semicolons.flx for comprehensive examples
     // ========================================================================
 
@@ -782,6 +898,89 @@ mod tests {
     fn test_optional_semicolons_function_calls() {
         let program = parse("print(\"Hello\")\nprint(\"World\")");
         assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_top_level_call_with_and_without_semicolon_both_parse() {
+        let program = parse("print(\"hi\")\nprint(\"there\");");
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_top_level_let_with_and_without_semicolon_both_parse() {
+        let program = parse("let test = \"this compiles\"\nlet test2 = \"this compiles\";");
+        assert_eq!(program.statements.len(), 2);
+        match &program.statements[0] {
+            Statement::Let { name, .. } => assert_eq!(name, "test"),
+            _ => panic!("expected Let statement"),
+        }
+        match &program.statements[1] {
+            Statement::Let { name, .. } => assert_eq!(name, "test2"),
+            _ => panic!("expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_semicolon_verification_program_recovers_and_parses_late_statements() {
+        let lexer = Lexer::new(SEMICOLON_VERIFICATION_PROGRAM);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(
+            missing_comma_count, 7,
+            "expected missing-comma diagnostics at all intended gaps"
+        );
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "verification program should avoid generic cascade diagnostics"
+        );
+        assert!(
+            !parser.errors.iter().any(|d| {
+                d.message()
+                    .is_some_and(|m| m.to_ascii_lowercase().contains("semicolon"))
+            }),
+            "expected no missing-semicolon diagnostics"
+        );
+
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if name == "parsed_after_errors")
+            ),
+            "expected recovery to keep parsing `parsed_after_errors` binding"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "test")),
+            "expected recovery to keep parsing `test` binding without semicolon"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "test2")),
+            "expected recovery to keep parsing `test2` binding with semicolon"
+        );
+        assert!(
+            program.statements.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Statement::Expression {
+                        expression: Expression::Call { function, arguments, .. },
+                        ..
+                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                        && arguments.len() == 1
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "parsed_after_errors")
+                )
+            }),
+            "expected recovery to keep parsing `print(parsed_after_errors)` call"
+        );
     }
 
     #[test]

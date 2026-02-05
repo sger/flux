@@ -484,15 +484,21 @@ impl Parser {
         let parameters = if self.is_current_token(TokenType::LParen) {
             // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
             self.parse_function_parameters()?
-        } else if self.is_current_token(TokenType::Ident) {
-            // Single unparenthesized parameter: \x ->
-            vec![self.current_token.literal.clone()]
-        } else {
+        } else if self.is_current_token(TokenType::Arrow) {
             self.errors.push(lambda_syntax_error(
                 self.current_token.span(),
                 "Expected parameter or `(` after `\\`.",
             ));
             return None;
+        } else {
+            // Single unparenthesized parameter: \x ->
+            // Validate using the same identifier checks used by parenthesized
+            // parameter lists to keep diagnostics consistent.
+            let mut params = Vec::new();
+            if let Some(param) = self.validate_parameter_identifier() {
+                params.push(param);
+            }
+            params
         };
 
         // Expect ->

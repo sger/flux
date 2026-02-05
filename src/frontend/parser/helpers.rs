@@ -412,18 +412,25 @@ impl Parser {
         ));
     }
 
-    fn parse_parameter_identifier_or_recover(&mut self) -> Option<String> {
+    pub(super) fn validate_parameter_identifier(&mut self) -> Option<String> {
         if self.current_token.token_type == TokenType::Ident {
-            return Some(self.current_token.literal.clone());
+            Some(self.current_token.literal.clone())
+        } else {
+            self.errors.push(unexpected_token(
+                self.current_token.span(),
+                format!(
+                    "Expected identifier as parameter, got {}.",
+                    self.current_token.token_type
+                ),
+            ));
+            None
         }
+    }
 
-        self.errors.push(unexpected_token(
-            self.current_token.span(),
-            format!(
-                "Expected identifier as parameter, got {}.",
-                self.current_token.token_type
-            ),
-        ));
+    fn parse_parameter_identifier_or_recover(&mut self) -> Option<String> {
+        if let Some(identifier) = self.validate_parameter_identifier() {
+            return Some(identifier);
+        }
 
         while !matches!(
             self.current_token.token_type,

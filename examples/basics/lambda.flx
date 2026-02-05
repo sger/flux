@@ -1,6 +1,7 @@
 // Test: Lambda shorthand syntax
 // Expected output:
 // 10
+// 10
 // 7
 // 42
 // 11
@@ -17,6 +18,10 @@
 // Single parameter (no parens required)
 let double = \x -> x * 2;
 print(double(5));  // 10
+
+// Single parameter (parenthesized form is equivalent)
+let plusOne = \(x) -> x + 1;
+print(plusOne(9));  // 10
 
 // Multiple parameters (parens required)
 let add = \(x, y) -> x + y;
@@ -59,3 +64,8 @@ let tripled = myMap(nums, \x -> x * 3);
 print(first(tripled));                    // 3
 print(first(rest(tripled)));              // 6
 print(first(rest(rest(tripled))));        // 9
+
+// Validation parity note:
+// Both forms now use the same parameter validation path:
+//   \x -> expr
+//   \(x) -> expr
