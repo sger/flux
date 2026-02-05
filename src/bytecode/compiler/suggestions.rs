@@ -33,9 +33,9 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
         for (j, &b_char) in b_chars.iter().enumerate() {
             let cost = if a_char == b_char { 0 } else { 1 };
             matrix[i + 1][j + 1] = *[
-                matrix[i][j + 1] + 1,     // deletion
-                matrix[i + 1][j] + 1,     // insertion
-                matrix[i][j] + cost,      // substitution
+                matrix[i][j + 1] + 1, // deletion
+                matrix[i + 1][j] + 1, // insertion
+                matrix[i][j] + cost,  // substitution
             ]
             .iter()
             .min()
@@ -56,7 +56,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 /// - Very close match (1-2 char difference): included
 /// - Moderate match (≤30% of length): included if short enough
 /// - Prefix match: bonus points
-pub fn find_similar_names(target: &str, candidates: &[String], max_suggestions: usize) -> Vec<String> {
+pub fn find_similar_names(
+    target: &str,
+    candidates: &[String],
+    max_suggestions: usize,
+) -> Vec<String> {
     if candidates.is_empty() {
         return Vec::new();
     }
@@ -77,7 +81,7 @@ pub fn find_similar_names(target: &str, candidates: &[String], max_suggestions: 
 
             let distance = levenshtein_distance(&target_lower, &candidate_lower);
             let is_prefix = candidate_lower.starts_with(&target_lower)
-                         || target_lower.starts_with(&candidate_lower);
+                || target_lower.starts_with(&candidate_lower);
 
             // Filter out very different strings
             let max_distance = if target_len <= 3 {
@@ -129,7 +133,11 @@ mod tests {
 
     #[test]
     fn test_find_similar_names_typo() {
-        let candidates = vec!["count".to_string(), "amount".to_string(), "discount".to_string()];
+        let candidates = vec![
+            "count".to_string(),
+            "amount".to_string(),
+            "discount".to_string(),
+        ];
         let suggestions = find_similar_names("cound", &candidates, 3);
 
         assert!(!suggestions.is_empty());
@@ -138,12 +146,19 @@ mod tests {
 
     #[test]
     fn test_find_similar_names_prefix() {
-        let candidates = vec!["variable".to_string(), "value".to_string(), "var".to_string()];
+        let candidates = vec![
+            "variable".to_string(),
+            "value".to_string(),
+            "var".to_string(),
+        ];
         let suggestions = find_similar_names("val", &candidates, 3);
 
         assert!(!suggestions.is_empty());
         // Should prioritize prefix matches
-        assert!(suggestions.contains(&"value".to_string()) || suggestions.contains(&"variable".to_string()));
+        assert!(
+            suggestions.contains(&"value".to_string())
+                || suggestions.contains(&"variable".to_string())
+        );
     }
 
     #[test]

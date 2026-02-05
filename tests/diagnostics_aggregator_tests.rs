@@ -1,7 +1,10 @@
 mod diagnostics_env;
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi},
+    diagnostics::{
+        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic,
+        render_diagnostics_multi,
+    },
     position::{Position, Span},
 };
 
@@ -34,7 +37,9 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let b_idx = output.find("--> b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
-    let err_idx = output.find("--> warning[E000]: ERR").expect("missing err warning");
+    let err_idx = output
+        .find("--> warning[E000]: ERR")
+        .expect("missing err warning");
     let warn_idx = output
         .find("--> warning[E000]: WARN")
         .expect("missing warn warning");

@@ -96,6 +96,39 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_comma_in_call_args_reports_single_root_diagnostic_and_recovers() {
+        let lexer = Lexer::new("f(\"a\" \"b\")\nlet x = 1;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let missing_comma: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .collect();
+        assert_eq!(
+            missing_comma.len(),
+            1,
+            "expected exactly one missing-comma diagnostic"
+        );
+        let span = missing_comma[0]
+            .span()
+            .expect("expected missing-comma span");
+        assert_eq!(span.start, Position::new(1, 6));
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "missing comma should avoid generic cascade diagnostics"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            "expected parser recovery to continue after call argument error"
+        );
+    }
+
+    #[test]
     fn test_string_literal() {
         let program = parse(r#""hello world";"#);
         assert_eq!(program.statements.len(), 1);
@@ -179,10 +212,76 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_comma_in_array_reports_single_root_diagnostic_and_recovers() {
+        let lexer = Lexer::new("[\"a\" \"b\"]\nlet x = 1;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let missing_comma: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .collect();
+        assert_eq!(
+            missing_comma.len(),
+            1,
+            "expected exactly one missing-comma diagnostic"
+        );
+        let span = missing_comma[0]
+            .span()
+            .expect("expected missing-comma span");
+        assert_eq!(span.start, Position::new(1, 5));
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "missing comma should avoid generic cascade diagnostics"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            "expected parser recovery to continue after array item error"
+        );
+    }
+
+    #[test]
     fn test_index_expression() {
         let program = parse("arr[1 + 1];");
         assert_eq!(program.statements.len(), 1);
         assert_eq!(program.to_string(), "(arr[(1 + 1)])");
+    }
+
+    #[test]
+    fn test_missing_comma_in_parenthesized_tuple_like_input_reports_single_diagnostic() {
+        let lexer = Lexer::new("(\"a\" \"b\")\nlet x = 1;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let missing_comma: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .collect();
+        assert_eq!(
+            missing_comma.len(),
+            1,
+            "expected exactly one missing-comma diagnostic"
+        );
+        let span = missing_comma[0]
+            .span()
+            .expect("expected missing-comma span");
+        assert_eq!(span.start, Position::new(1, 5));
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "tuple-like missing comma should avoid generic cascade diagnostics"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            "expected parser recovery to continue after parenthesized error"
+        );
     }
 
     #[test]

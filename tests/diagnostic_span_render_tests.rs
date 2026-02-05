@@ -2,8 +2,8 @@ mod diagnostics_env;
 
 use flux::frontend::{
     diagnostics::{
-        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind, InlineSuggestion,
-        Label, LabelStyle,
+        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind,
+        InlineSuggestion, Label, LabelStyle,
     },
     position::{Position, Span},
 };

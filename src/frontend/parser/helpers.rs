@@ -1,7 +1,8 @@
 use crate::frontend::{
     block::Block,
     diagnostics::{
-        compiler_errors::unexpected_token, Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING,
+        Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING,
+        compiler_errors::{missing_comma, unexpected_token},
     },
     expression::Expression,
     position::{Position, Span},
@@ -55,6 +56,33 @@ impl Parser {
                 | TokenType::Colon
                 | TokenType::Arrow
                 | TokenType::Eof
+        )
+    }
+
+    pub(super) fn token_starts_expression(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Ident
+                | TokenType::Int
+                | TokenType::Float
+                | TokenType::String
+                | TokenType::UnterminatedString
+                | TokenType::InterpolationStart
+                | TokenType::True
+                | TokenType::False
+                | TokenType::None
+                | TokenType::Some
+                | TokenType::Left
+                | TokenType::Right
+                | TokenType::Bang
+                | TokenType::Minus
+                | TokenType::LParen
+                | TokenType::LBracket
+                | TokenType::LBrace
+                | TokenType::If
+                | TokenType::Fun
+                | TokenType::Match
+                | TokenType::Backslash
         )
     }
 
@@ -214,6 +242,20 @@ impl Parser {
             if self.is_peek_token(end) {
                 self.next_token();
                 return Some(list);
+            }
+
+            // Adjacent expression-starting token inside a delimited list strongly
+            // indicates a missing comma: f(a b), [a b], etc.
+            if self.token_starts_expression(self.peek_token.token_type) {
+                let (context, example) = match end {
+                    TokenType::RParen => ("arguments", "`f(a, b)`"),
+                    TokenType::RBracket => ("items", "`[a, b]`"),
+                    _ => ("items", "`a, b`"),
+                };
+                self.errors
+                    .push(missing_comma(self.peek_token.span(), context, example));
+                // Pretend a comma existed and continue parsing the next list item.
+                continue;
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {

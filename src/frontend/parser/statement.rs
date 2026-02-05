@@ -1,8 +1,5 @@
 use crate::frontend::{
-    diagnostics::{
-        DiagnosticBuilder,
-        compiler_errors::unknown_keyword,
-    },
+    diagnostics::{DiagnosticBuilder, compiler_errors::unknown_keyword},
     precedence::Precedence,
     statement::Statement,
     token_type::TokenType,
@@ -38,16 +35,12 @@ impl Parser {
                     && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(
-                    unknown_keyword(
-                        self.current_token.span(),
-                        &self.current_token.literal,
-                        None,
-                    )
-                    .with_message(format!(
-                        "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
-                        self.current_token.literal
-                    ))
-                    .with_hint_text("Did you mean `fun`?"),
+                    unknown_keyword(self.current_token.span(), &self.current_token.literal, None)
+                        .with_message(format!(
+                            "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
+                            self.current_token.literal
+                        ))
+                        .with_hint_text("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
                 None

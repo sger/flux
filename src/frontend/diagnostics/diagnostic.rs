@@ -1,7 +1,7 @@
 use super::builders::DiagnosticBuilder;
+use super::rendering;
 use super::types::*;
 use super::{ErrorCode, ErrorType, format_message};
-use super::rendering;
 use crate::frontend::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -37,9 +37,12 @@ macro_rules! ice {
             file: None,
             span: None,
             labels: Vec::new(),
-            hints: vec![$crate::frontend::diagnostics::Hint::text(
-                format!("{}:{} ({})", file!(), line!(), module_path!())
-            )],
+            hints: vec![$crate::frontend::diagnostics::Hint::text(format!(
+                "{}:{} ({})",
+                file!(),
+                line!(),
+                module_path!()
+            ))],
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
@@ -444,12 +447,6 @@ impl Diagnostic {
         }
     }
 
-
-
-
-
-
-
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         self.render_with_context(source, default_file, None)
     }
@@ -514,7 +511,13 @@ impl Diagnostic {
         rendering::render_message(&mut out, self.message.as_deref());
 
         // Render location
-        rendering::render_location(&mut out, source, file.as_ref(), self.span, self.message.as_deref());
+        rendering::render_location(
+            &mut out,
+            source,
+            file.as_ref(),
+            self.span,
+            self.message.as_deref(),
+        );
 
         // Render source snippet with primary span and labels
         if let Some(span) = self.span {
@@ -554,4 +557,3 @@ impl Diagnostic {
         out
     }
 }
-
