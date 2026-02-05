@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::frontend::{
-    diagnostics::Diagnostic,
+    diagnostics::{Diagnostic, DiagnosticBuilder},
     expression::{Expression, Pattern, StringPart},
     module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
     position::{Position, Span},

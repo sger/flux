@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
 use flux::frontend::{
-    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType, Severity},
+    diagnostics::{Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, ErrorType, Severity},
     position::{Position, Span},
 };
 

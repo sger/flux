@@ -1,6 +1,9 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::compiler_errors::{invalid_pattern, lambda_syntax_error, pipe_target_error},
+    diagnostics::{
+        DiagnosticBuilder,
+        compiler_errors::{invalid_pattern, lambda_syntax_error, pipe_target_error},
+    },
     expression::{Expression, MatchArm, Pattern},
     position::Span,
     precedence::Precedence,

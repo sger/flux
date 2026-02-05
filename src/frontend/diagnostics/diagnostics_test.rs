@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::frontend::diagnostics::{
-    Diagnostic, DiagnosticsAggregator, ErrorType, NOT_A_FUNCTION, Severity, diag_enhanced,
+    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, NOT_A_FUNCTION, Severity, diag_enhanced,
     format_message, format_message_named, lookup_error_code,
 };
 use crate::frontend::position::{Position, Span};

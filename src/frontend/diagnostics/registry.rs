@@ -1,3 +1,4 @@
+use super::builders::DiagnosticBuilder;
 use super::compiler_errors::*;
 use super::diagnostic::Diagnostic;
 use super::runtime_errors::*;
