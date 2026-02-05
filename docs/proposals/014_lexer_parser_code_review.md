@@ -80,17 +80,30 @@ fn read_escape_sequence(&mut self) -> Option<char> {
 
 ### 2. **Number Parsing Could Be More Strict**
 
-**Issue:** Float parsing only checks for digits after `.`
-```rust
-// Line 223: What about "1.2.3"?
-if self.current_char == Some('.') && self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
-    is_float = true;
-    // ...
-}
+**Status**: ✅ **LEXER BEHAVIOR IS CORRECT**
+
+**Analysis:** The concern about parsing malformed numbers like `1.2.3` is not actually a lexer issue.
+
+**Current Behavior (Correct):**
+```
+Input: "1.2.3"
+Tokens: Float "1.2", Dot ".", Int "3"
 ```
 
-**Problem:** Could parse malformed numbers
-**Recommendation:** Add validation in parser
+**Why This Is Correct:**
+- The lexer's job is to tokenize, not validate semantic meaning
+- `1.2.3` correctly tokenizes as three separate tokens
+- If this appears in an invalid context (e.g., `let x = 1.2.3;`), the **parser** should reject it as a syntax error
+- This separation of concerns is standard practice in language design
+
+**Recommendation:** ✅ Add validation in parser (not lexer) - This is the correct approach and aligns with standard compiler design principles.
+
+**Enhanced Number Support:**
+The lexer now supports additional number formats:
+- Scientific notation: `1e10`, `2.5e-3`
+- Hexadecimal: `0xFF`, `0xDEAD_BEEF`
+- Binary: `0b1010`, `0b1111_0000`
+- Underscores: `1_000_000`, `3.14_159`
 
 ### 3. **Missing Edge Cases**
 
@@ -111,36 +124,51 @@ All recommended number formats are now supported:
 
 ### 4. **Comment Handling is Limited**
 
-**Issue:** Only single-line comments (`//`)
-```rust
-// Line 195: Only // comments
-if self.current_char == Some('/') && self.peek_char() == Some('/') {
-    // ...
-}
-```
+**Status**: ✅ **ALREADY IMPLEMENTED**
 
-**Missing:**
-- Block comments (`/* */`)
-- Nested block comments
-- Doc comments (`///`, `/**`)
+All recommended comment features are already fully implemented:
+- ✅ Single-line comments (`//`)
+- ✅ Block comments (`/* */`)
+- ✅ Nested block comments (with depth tracking)
+- ✅ Line doc comments (`///`)
+- ✅ Block doc comments (`/** */`)
+- ✅ Unterminated comment detection
+- ✅ Empty doc comment handling (`/**/`)
 
-**Recommendation:** Add block comments for better code documentation
+**Implementation:**
+- Regular comments are skipped during lexing (not emitted as tokens)
+- Doc comments (`///` and `/** */`) are tokenized as `DocComment` tokens
+- Nested block comments are properly handled with depth tracking
+- Comprehensive test coverage with 19+ comment-related tests
+
+**Location:** [comments.rs](../src/frontend/lexer/comments.rs)
 
 ### 5. **Interpolation State Could Be Clearer**
 
-**Issue:** Complex state management
-```rust
-in_string: bool,
-interpolation_depth: usize,
-```
+**Status**: ✅ **IMPLEMENTED WITH ENHANCEMENT**
 
-**Better approach:**
+The recommended enum-based approach is implemented with additional improvements:
+
 ```rust
-enum LexerState {
+#[derive(Debug, Clone)]
+pub(super) enum LexerState {
     Normal,
-    InString { depth: usize },
+    InInterpolatedString {
+        depth_stack: Vec<usize>,  // Supports nested interpolations!
+    },
 }
 ```
+
+**Enhancements over proposal:**
+- Uses `Vec<usize>` instead of single `usize` for depth tracking
+- Enables **nested interpolated strings**: `"#{ "#{x}" }"` works correctly
+- Each nesting level maintains its own depth counter on the stack
+- Clear state transitions with dedicated methods in [state.rs](../src/frontend/lexer/state.rs)
+
+**Test Coverage:**
+- 10 comprehensive interpolation tests
+- Includes nested interpolation test: `nested_interpolated_strings_keep_outer_state`
+- All edge cases covered: EOF in interpolation, escaped interpolation markers, etc.
 
 ### 6. **Error Recovery is Minimal**
 
@@ -185,9 +213,21 @@ src/frontend/lexer/
 
 ### Implementation
 
+> **Implementation Note:** The actual refactoring (completed 2026-02-05) took a simpler, more pragmatic approach than originally proposed. Character reading was kept as methods on the Lexer struct rather than extracted into a separate CharReader. See "Implementation Summary" in Part B for details on what was actually built.
+
 #### 1. Extract Character Reader
 
-**Create `lexer/char_reader.rs`:**
+**Status:** ❌ **NOT IMPLEMENTED** (Intentional Decision)
+
+**Rationale:** Character reading was kept as methods on the Lexer struct for the following reasons:
+- Avoids borrow checker complexity (Lexer needing mutable access to CharReader)
+- Character reading is core to Lexer operation, tight coupling is appropriate
+- Simpler implementation without loss of functionality
+- Can be extracted later if needed (YAGNI principle)
+
+**Current Implementation:** Character reading methods (`read_char()`, `peek_char()`, `peek_n()`, `skip_ignorable()`) are private methods in [mod.rs](../src/frontend/lexer/mod.rs)
+
+**Original Proposal:** `lexer/char_reader.rs`:
 ```rust
 /// Low-level character reading with position tracking
 pub struct CharReader {
