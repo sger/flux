@@ -15,13 +15,18 @@ use crate::frontend::position::{Position, Span};
 /// while organizing the builder pattern in a dedicated module.
 ///
 /// # Example
-/// ```ignore
-/// use crate::frontend::diagnostics::{Diagnostic, DiagnosticBuilder};
+/// ```
+/// use flux::frontend::diagnostics::{diag_enhanced, UNEXPECTED_TOKEN, DiagnosticBuilder};
+/// # use flux::frontend::position::{Position, Span};
+/// # let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 ///
-/// let diag = Diagnostic::error("Parse error")
+/// let diag = diag_enhanced(&UNEXPECTED_TOKEN)
 ///     .with_span(span)
 ///     .with_message("Expected ';' after statement")
 ///     .with_hint_text("Add a semicolon here");
+/// #
+/// # // Verify the diagnostic was built correctly
+/// # assert_eq!(diag.code(), Some("E034"));
 /// ```
 pub trait DiagnosticBuilder: Sized {
     // ===== Core Field Setters =====

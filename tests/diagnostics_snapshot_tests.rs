@@ -19,7 +19,7 @@ fn snapshot_aggregated_output() {
     let source_a = "let x = 1;\n";
     let source_b = "let y = 2;\n";
 
-    let diag_a = Diagnostic::error("TEST A")
+    let diag_a = Diagnostic::warning("TEST A")
         .with_code("E100")
         .with_error_type(ErrorType::Compiler)
         .with_message("message a")
@@ -38,10 +38,10 @@ fn snapshot_aggregated_output() {
         .rendered;
 
     let expected = "\
-Found 1 error and 1 warning.
+Found 2 warnings.
 
 --> a.flx
---> compiler error[E100]: TEST A
+--> warning[E100]: TEST A
 
 message a
 
@@ -70,7 +70,7 @@ fn snapshot_multi_line_span_output() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source = "let x = 1;\nlet y = 2;\n";
-    let diag = Diagnostic::error("MULTI")
+    let diag = Diagnostic::warning("MULTI")
         .with_code("E123")
         .with_error_type(ErrorType::Compiler)
         .with_message("multi")
@@ -84,7 +84,7 @@ fn snapshot_multi_line_span_output() {
 
     let expected = "\
 --> multi.flx
---> compiler error[E123]: MULTI
+--> warning[E123]: MULTI
 
 multi
 
@@ -104,7 +104,7 @@ fn snapshot_colorized_output() {
     let (_lock, _guard) = diagnostics_env::with_no_color(None);
 
     let source = "let x = 1;\n";
-    let diag = Diagnostic::error("COLOR")
+    let diag = Diagnostic::warning("COLOR")
         .with_code("E123")
         .with_error_type(ErrorType::Compiler)
         .with_message("message")
@@ -114,7 +114,7 @@ fn snapshot_colorized_output() {
     let output = diag.render(Some(source), None);
 
     let expected = "\
-\u{1b}[33m--> compiler error[E123]: COLOR\u{1b}[0m
+\u{1b}[33m--> warning[E123]: COLOR\u{1b}[0m
 
 message
 

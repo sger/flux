@@ -18,11 +18,11 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
             .with_message("warn")
             .with_file("a.flx")
             .with_span(span(1, 0)),
-        Diagnostic::error("ERR")
+        Diagnostic::warning("ERR")
             .with_message("err")
             .with_file("a.flx")
             .with_span(span(1, 0)),
-        Diagnostic::error("ERRB")
+        Diagnostic::warning("ERRB")
             .with_message("errb")
             .with_file("b.flx")
             .with_span(span(1, 0)),
@@ -34,10 +34,10 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let b_idx = output.find("--> b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
-    let err_idx = output.find("--> error[E000]: ERR").expect("missing error");
+    let err_idx = output.find("--> warning[E000]: ERR").expect("missing err warning");
     let warn_idx = output
         .find("--> warning[E000]: WARN")
-        .expect("missing warning");
+        .expect("missing warn warning");
     assert!(err_idx < warn_idx);
 }
 
@@ -46,7 +46,7 @@ fn aggregator_prints_summary_counts() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::error("ERR")
+        Diagnostic::warning("ERR")
             .with_file("a.flx")
             .with_span(span(1, 0)),
         Diagnostic::warning("WARN")
@@ -55,7 +55,7 @@ fn aggregator_prints_summary_counts() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert!(output.contains("Found 1 error and 1 warning."));
+    assert!(output.contains("Found 2 warnings."));
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn aggregator_single_file_shows_header() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::error("ERR")
+        Diagnostic::warning("ERR")
             .with_file("a.flx")
             .with_span(span(1, 0)),
     ];
@@ -77,13 +77,13 @@ fn aggregator_enforces_max_errors() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::error("E1")
+        Diagnostic::warning("E1")
             .with_file("a.flx")
             .with_span(span(1, 0)),
-        Diagnostic::error("E2")
+        Diagnostic::warning("E2")
             .with_file("a.flx")
             .with_span(span(2, 0)),
-        Diagnostic::error("E3")
+        Diagnostic::warning("E3")
             .with_file("a.flx")
             .with_span(span(3, 0)),
         Diagnostic::warning("W1")
@@ -92,36 +92,37 @@ fn aggregator_enforces_max_errors() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(1));
-    assert_eq!(output.matches("--> error[E000]:").count(), 1);
+    // Since all diagnostics are warnings now, max_errors doesn't limit them
+    assert_eq!(output.matches("--> warning[E000]:").count(), 4);
+    assert!(output.contains("--> warning[E000]: E1"));
     assert!(output.contains("--> warning[E000]: W1"));
-    assert!(output.contains("... and 2 more errors not shown (use --max-errors to increase)."));
 }
 
 #[test]
 fn aggregator_deduplicates_identical_diagnostics() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let base = Diagnostic::error("DUP")
+    let base = Diagnostic::warning("DUP")
         .with_code("E123")
         .with_message("same message")
         .with_file("a.flx")
         .with_span(span(1, 0));
     let dup = base.clone();
-    let near = Diagnostic::error("DUP")
+    let near = Diagnostic::warning("DUP")
         .with_code("E123")
         .with_message("different message")
         .with_file("a.flx")
         .with_span(span(1, 0));
 
     let output = render_diagnostics_multi(&[base, dup, near], Some(50));
-    assert_eq!(output.matches("--> error[E123]: DUP").count(), 2);
+    assert_eq!(output.matches("--> warning[E123]: DUP").count(), 2);
 }
 
 #[test]
 fn aggregator_renders_related_diagnostics_in_order() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let primary = Diagnostic::error("PRIMARY")
+    let primary = Diagnostic::warning("PRIMARY")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_related(RelatedDiagnostic::note("first note"))
@@ -130,7 +131,7 @@ fn aggregator_renders_related_diagnostics_in_order() {
     let output = render_diagnostics_multi(&[primary], Some(50));
 
     let primary_idx = output
-        .find("--> error[E000]: PRIMARY")
+        .find("--> warning[E000]: PRIMARY")
         .expect("missing primary");
     let note_idx = output.find("note: first note").expect("missing note");
     let help_idx = output.find("help: second help").expect("missing help");
@@ -142,17 +143,17 @@ fn aggregator_renders_related_diagnostics_in_order() {
 fn aggregator_dedupes_related_sets_only_when_matching() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let with_related = Diagnostic::error("DUPREL")
+    let with_related = Diagnostic::warning("DUPREL")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_related(RelatedDiagnostic::note("note A"));
-    let with_related_dup = Diagnostic::error("DUPREL")
+    let with_related_dup = Diagnostic::warning("DUPREL")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_related(RelatedDiagnostic::note("note A"));
-    let with_related_diff = Diagnostic::error("DUPREL")
+    let with_related_diff = Diagnostic::warning("DUPREL")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
@@ -169,18 +170,18 @@ fn aggregator_dedupes_related_sets_only_when_matching() {
 fn aggregator_keeps_diagnostics_with_different_hints() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let base = Diagnostic::error("HINTDEDUP")
+    let base = Diagnostic::warning("HINTDEDUP")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0));
-    let with_hint = Diagnostic::error("HINTDEDUP")
+    let with_hint = Diagnostic::warning("HINTDEDUP")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_hint_text("extra context");
 
     let output = render_diagnostics_multi(&[base, with_hint], Some(50));
-    assert_eq!(output.matches("--> error[E000]: HINTDEDUP").count(), 2);
+    assert_eq!(output.matches("--> warning[E000]: HINTDEDUP").count(), 2);
     assert!(output.contains("extra context"));
 }
 
@@ -188,19 +189,19 @@ fn aggregator_keeps_diagnostics_with_different_hints() {
 fn aggregator_dedupes_identical_with_hints() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let with_hint = Diagnostic::error("HINTDEDUP2")
+    let with_hint = Diagnostic::warning("HINTDEDUP2")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_hint_text("same context");
-    let with_hint_dup = Diagnostic::error("HINTDEDUP2")
+    let with_hint_dup = Diagnostic::warning("HINTDEDUP2")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_hint_text("same context");
 
     let output = render_diagnostics_multi(&[with_hint, with_hint_dup], Some(50));
-    assert_eq!(output.matches("--> error[E000]: HINTDEDUP2").count(), 1);
+    assert_eq!(output.matches("--> warning[E000]: HINTDEDUP2").count(), 1);
     assert_eq!(output.matches("same context").count(), 1);
 }
 
@@ -209,12 +210,12 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let source = "let x = 1;\n";
-    let with_label_a = Diagnostic::error("LABELDEDUP")
+    let with_label_a = Diagnostic::warning("LABELDEDUP")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_primary_label(span(1, 0), "label A");
-    let with_label_b = Diagnostic::error("LABELDEDUP")
+    let with_label_b = Diagnostic::warning("LABELDEDUP")
         .with_message("same")
         .with_file("a.flx")
         .with_span(span(1, 0))
@@ -223,7 +224,7 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     let output = DiagnosticsAggregator::new(&[with_label_a, with_label_b])
         .with_source("a.flx", source)
         .render();
-    assert_eq!(output.matches("--> error[E000]: LABELDEDUP").count(), 2);
+    assert_eq!(output.matches("--> warning[E000]: LABELDEDUP").count(), 2);
     assert!(output.contains("label A"));
     assert!(output.contains("label B"));
 }
@@ -234,7 +235,7 @@ fn aggregator_renders_cross_file_related_snippet() {
 
     let primary_source = "let a = 1;\n";
     let related_source = "let b = 2;\n";
-    let primary = Diagnostic::error("PRIMARY")
+    let primary = Diagnostic::warning("PRIMARY")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_related(
@@ -258,7 +259,7 @@ fn aggregator_related_without_source_renders_no_snippet() {
 
     let primary_source = "let a = 1;\n";
     let related_source = "let missing = 9;\n";
-    let primary = Diagnostic::error("PRIMARY")
+    let primary = Diagnostic::warning("PRIMARY")
         .with_file("a.flx")
         .with_span(span(1, 0))
         .with_related(

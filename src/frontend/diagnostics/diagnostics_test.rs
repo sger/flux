@@ -34,20 +34,20 @@ fn lookup_error_code_and_diag_enhanced() {
 #[test]
 fn diagnostic_position_uses_span_start() {
     let span = Span::new(Position::new(2, 4), Position::new(2, 8));
-    let diag = Diagnostic::error("TEST").with_span(span);
+    let diag = Diagnostic::warning("TEST").with_span(span);
 
     assert_eq!(diag.position(), Some(Position::new(2, 4)));
 }
 
 #[test]
 fn aggregator_deduplicates_identical_diagnostics() {
-    let diag = Diagnostic::error("OOPS")
+    let diag = Diagnostic::warning("OOPS")
         .with_message("boom")
         .with_error_type(ErrorType::Compiler);
     let diagnostics = vec![diag.clone(), diag];
 
     let report = DiagnosticsAggregator::new(&diagnostics).report();
-    assert_eq!(report.counts.errors, 1);
+    assert_eq!(report.counts.warnings, 1);
     assert_eq!(report.counts.total(), 1);
 }
 
@@ -66,7 +66,7 @@ fn render_display_path_strips_cwd_prefix() {
 
 #[test]
 fn severity_ordering_is_stable() {
-    let error = Diagnostic::error("ERR");
+    let error = diag_enhanced(&NOT_A_FUNCTION);
     let warning = Diagnostic::warning("WARN");
 
     assert_eq!(error.severity(), Severity::Error);

@@ -39,7 +39,7 @@ fn make_error_sets_expected_fields() {
 #[test]
 fn empty_span_renders_single_caret() {
     let source = "let x = 1;\n";
-    let diag = Diagnostic::error("EMPTY SPAN")
+    let diag = Diagnostic::warning("EMPTY SPAN")
         .with_file("test.flx")
         .with_span(span(1, 4, 1, 4));
 
@@ -51,12 +51,12 @@ fn empty_span_renders_single_caret() {
 #[test]
 fn missing_span_renders_without_location() {
     let source = "let x = 1;\n";
-    let diag = Diagnostic::error("NO SPAN")
+    let diag = Diagnostic::warning("NO SPAN")
         .with_file("test.flx")
         .with_message("no span message");
 
     let out = render_with_color(&diag, source, "test.flx", false);
-    assert!(out.contains("--> error[E000]: NO SPAN"));
+    assert!(out.contains("--> warning[E000]: NO SPAN"));
     assert!(out.contains("no span message"));
     assert!(!out.contains("  --> test.flx:"));
 }
@@ -65,14 +65,14 @@ fn missing_span_renders_without_location() {
 fn span_at_beginning_and_end_of_file() {
     let source = "first\nlast";
 
-    let begin = Diagnostic::error("BEGIN")
+    let begin = Diagnostic::warning("BEGIN")
         .with_file("test.flx")
         .with_span(span(1, 0, 1, 1));
     let out_begin = render_with_color(&begin, source, "test.flx", false);
     assert!(out_begin.contains("1 | first"));
     assert!(out_begin.contains("^"));
 
-    let end = Diagnostic::error("END")
+    let end = Diagnostic::warning("END")
         .with_file("test.flx")
         .with_span(span(2, 4, 2, 4));
     let out_end = render_with_color(&end, source, "test.flx", false);
@@ -83,7 +83,7 @@ fn span_at_beginning_and_end_of_file() {
 #[test]
 fn span_on_blank_line_renders() {
     let source = "line1\n   \nline3\n";
-    let diag = Diagnostic::error("BLANK")
+    let diag = Diagnostic::warning("BLANK")
         .with_file("test.flx")
         .with_span(span(2, 1, 2, 2));
 
@@ -95,7 +95,7 @@ fn span_on_blank_line_renders() {
 #[test]
 fn multi_line_span_renders_multiple_lines() {
     let source = "let x = 1;\nlet y = 2;\nlet z = 3;\n";
-    let diag = Diagnostic::error("MULTI")
+    let diag = Diagnostic::warning("MULTI")
         .with_file("test.flx")
         .with_span(span(1, 4, 2, 5));
 
@@ -108,7 +108,7 @@ fn multi_line_span_renders_multiple_lines() {
 #[test]
 fn multi_line_labels_render_on_each_line() {
     let source = "let x = 1;\nlet y = 2;\n";
-    let diag = Diagnostic::error("LABELS")
+    let diag = Diagnostic::warning("LABELS")
         .with_file("test.flx")
         .with_span(span(1, 4, 1, 5))
         .with_primary_label(span(1, 4, 1, 5), "first label")
@@ -122,7 +122,7 @@ fn multi_line_labels_render_on_each_line() {
 #[test]
 fn color_output_toggle() {
     let source = "let x = 1;\n";
-    let diag = Diagnostic::error("COLOR")
+    let diag = Diagnostic::warning("COLOR")
         .with_file("test.flx")
         .with_span(span(1, 0, 1, 1));
 
