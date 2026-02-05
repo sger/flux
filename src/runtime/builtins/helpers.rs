@@ -16,7 +16,13 @@ pub(super) fn arity_error(name: &str, expected: &str, got: usize, signature: &st
     )
 }
 
-pub(super) fn type_error(name: &str, label: &str, expected: &str, got: &str, signature: &str) -> String {
+pub(super) fn type_error(
+    name: &str,
+    label: &str,
+    expected: &str,
+    got: &str,
+    signature: &str,
+) -> String {
     format!(
         "{} expected {} to be {}, got {}{}",
         name,

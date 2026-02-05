@@ -14,8 +14,8 @@ use array_ops::{
 use hash_ops::{builtin_has_key, builtin_keys, builtin_merge, builtin_values};
 use numeric_ops::{builtin_abs, builtin_max, builtin_min};
 use string_ops::{
-    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring, builtin_to_string,
-    builtin_trim, builtin_upper,
+    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring,
+    builtin_to_string, builtin_trim, builtin_upper,
 };
 use type_check::{
     builtin_is_array, builtin_is_bool, builtin_is_float, builtin_is_hash, builtin_is_int,

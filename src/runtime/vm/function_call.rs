@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use crate::runtime::{closure::Closure, frame::Frame, object::Object};
 use crate::frontend::diagnostics::NOT_A_FUNCTION;
+use crate::runtime::{closure::Closure, frame::Frame, object::Object};
 
 use super::VM;
 
@@ -37,7 +37,11 @@ impl VM {
         Ok(())
     }
 
-    pub(super) fn push_closure(&mut self, const_index: usize, num_free: usize) -> Result<(), String> {
+    pub(super) fn push_closure(
+        &mut self,
+        const_index: usize,
+        num_free: usize,
+    ) -> Result<(), String> {
         match &self.constants[const_index] {
             Object::Function(func) => {
                 let mut free = Vec::with_capacity(num_free);

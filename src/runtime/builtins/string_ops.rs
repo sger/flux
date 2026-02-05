@@ -91,7 +91,11 @@ pub(super) fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
-    let end = if end > len { len as usize } else { end as usize };
+    let end = if end > len {
+        len as usize
+    } else {
+        end as usize
+    };
     if start >= end || start >= chars.len() {
         Ok(Object::String(String::new()))
     } else {

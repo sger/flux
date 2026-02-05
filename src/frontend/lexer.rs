@@ -1,3 +1,4 @@
+use crate::frontend::position::Position;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::{TokenType, lookup_ident};
 
@@ -248,7 +249,13 @@ impl Lexer {
             Token::new(TokenType::InterpolationStart, content, line, col)
         } else if !ended {
             // Hit EOF without closing quote
-            Token::new(TokenType::UnterminatedString, content, line, col)
+            Token::new_with_end(
+                TokenType::UnterminatedString,
+                content,
+                line,
+                col,
+                Position::new(self.line, self.column),
+            )
         } else {
             // Simple string with no interpolation
             Token::new(TokenType::String, content, line, col)
@@ -270,7 +277,13 @@ impl Lexer {
         } else if !ended {
             // Hit EOF without closing quote
             self.in_string = false;
-            Token::new(TokenType::UnterminatedString, content, line, col)
+            Token::new_with_end(
+                TokenType::UnterminatedString,
+                content,
+                line,
+                col,
+                Position::new(self.line, self.column),
+            )
         } else {
             // End of interpolated string
             self.in_string = false;

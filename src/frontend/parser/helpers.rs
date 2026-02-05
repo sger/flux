@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING, ErrorType},
+    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType, UNTERMINATED_STRING},
     expression::Expression,
     position::{Position, Span},
     precedence::{Precedence, token_precedence},
@@ -152,35 +152,15 @@ impl Parser {
     }
 
     pub(super) fn unterminated_string_error(&mut self) {
-        // Get the string literal content
-        let literal = &self.current_token.literal;
-
-        // The literal includes everything from opening quote to end of line
-        // Find where to end the highlighting (before any "//" comment)
-        let mut content_len = literal.len();
-        if let Some(comment_pos) = literal.find("//") {
-            // Trim whitespace before the comment
-            let before_comment = &literal[..comment_pos];
-            content_len = before_comment.trim_end().len();
-        }
-
-        // Ensure we point to at least one position after the opening quote
-        if content_len == 0 {
-            content_len = 1;
-        }
-
-        // Start position is where the token begins (the opening quote)
-        let start_pos = self.current_token.position;
-
-        // Point to where the closing quote should be: after the opening quote + content
-        // +1 accounts for the opening quote character
-        let error_column = start_pos.column + 1 + content_len;
-        let error_pos = Position::new(start_pos.line, error_column);
+        // Unterminated strings are a lexical error; use the lexer-provided end position
+        // where the closing quote should have appeared.
+        let token_span = self.current_token.span();
+        let error_pos = token_span.end;
 
         let error_spec = &UNTERMINATED_STRING;
         let diag = Diagnostic::make_error(
             error_spec,
-            &[], // No message formatting args needed
+            &[],           // No message formatting args needed
             String::new(), // No file context in parser
             Span::new(error_pos, error_pos),
         );

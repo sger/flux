@@ -15,7 +15,9 @@ impl Parser {
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
         if super::is_pascal_case_ident(&self.current_token) {
-            while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
+            while self.is_peek_token(TokenType::Dot)
+                && super::is_pascal_case_ident(&self.peek2_token)
+            {
                 self.next_token(); // consume '.'
                 if !self.expect_peek(TokenType::Ident) {
                     return None;

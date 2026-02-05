@@ -1,7 +1,9 @@
 use crate::{
-    bytecode::op_code::{operand_widths, read_u8, read_u16, OpCode},
+    bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16},
     frontend::{
-        diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType, render_display_path},
+        diagnostics::{
+            Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType, render_display_path,
+        },
         position::{Position, Span},
     },
     runtime::frame::Frame,

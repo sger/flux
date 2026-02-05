@@ -4,8 +4,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::{env, fs};
 
-// Error code constants for special rendering cases
-const UNTERMINATED_STRING_ERROR_CODE: &str = "E071";
 // Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
@@ -804,55 +802,30 @@ impl Diagnostic {
 
                     // Render primary caret if this line is in the primary span
                     if render_primary {
-                        let mut caret_start;
-                        let mut caret_end;
-                        if line_no == start_line && line_no == end_line {
-                            // Handle end-of-line sentinel value
-                            let start = if span.start.column >= END_OF_LINE_SENTINEL {
-                                line_len
+                        let (caret_start, caret_end) =
+                            if line_no == start_line && line_no == end_line {
+                                // Handle end-of-line sentinel value
+                                let start = if span.start.column >= END_OF_LINE_SENTINEL {
+                                    line_len
+                                } else {
+                                    span.start.column.min(line_len)
+                                };
+                                let end = if span.end.column >= END_OF_LINE_SENTINEL {
+                                    line_len
+                                } else {
+                                    span.end.column.min(line_len)
+                                };
+                                let end = end.max(start + 1);
+                                (start, end)
+                            } else if line_no == start_line {
+                                let start = span.start.column.min(line_len);
+                                (start, line_len.max(start + 1))
+                            } else if line_no == end_line {
+                                let end = span.end.column.min(line_len);
+                                (0, end.max(1))
                             } else {
-                                span.start.column.min(line_len)
+                                (0, line_len.max(1))
                             };
-                            let end = if span.end.column >= END_OF_LINE_SENTINEL {
-                                line_len
-                            } else {
-                                span.end.column.min(line_len)
-                            };
-                            let end = end.max(start + 1);
-                            caret_start = start;
-                            caret_end = end;
-                        } else if line_no == start_line {
-                            let start = span.start.column.min(line_len);
-                            caret_start = start;
-                            caret_end = line_len.max(start + 1);
-                        } else if line_no == end_line {
-                            let end = span.end.column.min(line_len);
-                            caret_start = 0;
-                            caret_end = end.max(1);
-                        } else {
-                            caret_start = 0;
-                            caret_end = line_len.max(1);
-                        }
-
-                        // Special handling for unterminated string literals
-                        // Highlight the opening quote instead of EOF position
-                        if line_no == start_line
-                            && line_no == end_line
-                            && self.code.as_deref() == Some(UNTERMINATED_STRING_ERROR_CODE)
-                            && self
-                                .message
-                                .as_deref()
-                                .is_some_and(|msg| msg.contains("unterminated string"))
-                        {
-                            let start_col = span.start.column.min(line_len);
-                            if let Some((quote_idx, _)) = line_text
-                                .char_indices()
-                                .find(|(idx, ch)| *idx >= start_col && *ch == '"')
-                            {
-                                caret_start = quote_idx;
-                                caret_end = (quote_idx + 1).min(line_len.max(1));
-                            }
-                        }
 
                         out.push_str(&format!(
                             "{:>width$} | {}",

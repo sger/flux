@@ -97,6 +97,30 @@ mod tests {
     }
 
     #[test]
+    fn unterminated_string_uses_lexer_end_position() {
+        let input = "\"abc";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedString);
+        assert_eq!(tok.position.line, 1);
+        assert_eq!(tok.position.column, 0);
+        assert_eq!(tok.span().end.line, 1);
+        assert_eq!(tok.span().end.column, input.chars().count());
+    }
+
+    #[test]
+    fn unterminated_string_with_comment_like_text_keeps_full_length() {
+        let input = "\"http://example.com";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedString);
+        assert_eq!(tok.literal, "http://example.com");
+        assert_eq!(tok.span().end.column, input.chars().count());
+    }
+
+    #[test]
     fn string_interpolation_tokens_simple() {
         let input = r#""Hello #{name}""#;
         let mut lexer = Lexer::new(input);

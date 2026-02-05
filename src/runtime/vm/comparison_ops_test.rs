@@ -1,7 +1,5 @@
 use crate::{
-    bytecode::bytecode::Bytecode,
-    bytecode::op_code::OpCode,
-    runtime::object::Object,
+    bytecode::bytecode::Bytecode, bytecode::op_code::OpCode, runtime::object::Object,
     runtime::vm::VM,
 };
 
@@ -65,7 +63,8 @@ fn compare_none() {
 fn compare_left_right_not_equal() {
     let mut vm = new_vm();
     vm.push(Object::Left(Box::new(Object::Integer(1)))).unwrap();
-    vm.push(Object::Right(Box::new(Object::Integer(1)))).unwrap();
+    vm.push(Object::Right(Box::new(Object::Integer(1))))
+        .unwrap();
 
     vm.execute_comparison(OpCode::OpEqual).unwrap();
 

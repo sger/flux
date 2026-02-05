@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     bytecode::module_constants::{
-        analyze_module_constants, eval_const_expr, topological_sort_constants, ConstEvalError,
+        ConstEvalError, analyze_module_constants, eval_const_expr, topological_sort_constants,
     },
     frontend::{
         block::Block,

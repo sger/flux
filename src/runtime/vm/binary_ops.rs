@@ -2,7 +2,7 @@ use crate::{
     bytecode::op_code::OpCode,
     frontend::{
         diagnostics::{
-            Diagnostic, DiagnosticsAggregator, ErrorType, HintChain, DIVISION_BY_ZERO_RUNTIME,
+            DIVISION_BY_ZERO_RUNTIME, Diagnostic, DiagnosticsAggregator, ErrorType, HintChain,
             INVALID_OPERATION,
         },
         position::{Position, Span},

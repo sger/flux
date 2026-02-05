@@ -3,11 +3,8 @@ use std::rc::Rc;
 use crate::{
     bytecode::bytecode::Bytecode,
     runtime::{
-        builtins::get_builtin,
-        closure::Closure,
-        compiled_function::CompiledFunction,
-        object::Object,
-        vm::VM,
+        builtins::get_builtin, closure::Closure, compiled_function::CompiledFunction,
+        object::Object, vm::VM,
     },
 };
 

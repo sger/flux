@@ -1,7 +1,5 @@
 use crate::{
-    bytecode::bytecode::Bytecode,
-    bytecode::op_code::OpCode,
-    runtime::object::Object,
+    bytecode::bytecode::Bytecode, bytecode::op_code::OpCode, runtime::object::Object,
     runtime::vm::VM,
 };
 
