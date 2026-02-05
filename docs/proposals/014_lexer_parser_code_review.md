@@ -137,17 +137,26 @@ enum LexerState {
 
 ### 6. **Error Recovery is Minimal**
 
-**Issue:** No synchronization after errors
-- Unterminated string just returns token and continues
-- Could lead to cascading errors
+**Update:** Partial recovery is now implemented.
+- Unterminated strings and unterminated block comments are promoted to diagnostics
+  and the parser synchronizes to a statement boundary.
 
-**Recommendation:** Add error recovery/synchronization
+**Remaining Gap:**
+- Other lexical/parser errors still have limited recovery and can cascade.
+
+**Recommendation:** Expand recovery to additional error cases as needed.
 
 ---
 
 ## Part B: Lexer Refactoring Proposal
 
-### Proposed Module Structure
+**Status**: ✅ **COMPLETED** (2026-02-05)
+
+The lexer has been successfully refactored from a monolithic 675-line file into a modular structure with 8 focused modules. All 52 tests pass, the public API is unchanged, and code quality checks (clippy, fmt) are clean.
+
+### Implemented Module Structure
+
+The following module structure was implemented:
 
 ```
 src/frontend/lexer/
