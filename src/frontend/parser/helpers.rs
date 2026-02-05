@@ -44,6 +44,15 @@ impl Parser {
         }
     }
 
+    pub(super) fn consume_if_peek(&mut self, token_type: TokenType) -> bool {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            false
+        }
+    }
+
     // Span/position utilities
     pub(super) fn span_from(&self, start: Position) -> Span {
         Span::new(start, self.current_token.end_position)
@@ -118,14 +127,18 @@ impl Parser {
         let mut identifiers = Vec::new();
 
         // Empty list: ()
-        if self.is_peek_token(TokenType::RParen) {
-            self.next_token(); // consume ')'
+        if self.consume_if_peek(TokenType::RParen) {
             return Some(identifiers);
         }
 
         loop {
             // Move to parameter candidate token
             self.next_token();
+
+            // Allow trailing comma: fun f(a, ) { ... }
+            if self.is_current_token(TokenType::RParen) {
+                return Some(identifiers);
+            }
 
             // Parse identifier or recover (recovery stops on Comma/RParen/Eof)
             if let Some(param) = self.parse_parameter_identifier_or_recover() {
@@ -136,13 +149,8 @@ impl Parser {
 
             match self.current_token.token_type {
                 TokenType::Comma => {
-                    // Reject trailing comma: f(a,)
-                    if self.is_peek_token(TokenType::RParen) {
-                        self.next_token(); // consume ')', so error points at ')'
-                        self.errors.push(unexpected_token(
-                            self.current_token.span(),
-                            "Expected identifier as parameter, got `)`.",
-                        ));
+                    // Allow trailing comma in parameter lists.
+                    if self.consume_if_peek(TokenType::RParen) {
                         return Some(identifiers);
                     }
 
@@ -202,23 +210,16 @@ impl Parser {
         let mut list = Vec::new();
         let mut last_missing_comma_at = None;
 
-        if self.is_peek_token(end) {
-            self.next_token();
+        if self.consume_if_peek(end) {
             return Some(list);
         }
 
         loop {
             self.next_token();
 
+            // Allow trailing comma in list contexts: f(a, ), [a, ], ...
             if self.is_current_token(end) {
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    format!(
-                        "Expected expression after `,`, got {}.",
-                        self.current_token.token_type
-                    ),
-                ));
-                return None;
+                return Some(list);
             }
 
             if self.is_current_token(TokenType::Comma) {
@@ -241,11 +242,15 @@ impl Parser {
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume comma
+
+                if self.consume_if_peek(end) {
+                    return Some(list);
+                }
+
                 continue;
             }
 
-            if self.is_peek_token(end) {
-                self.next_token();
+            if self.consume_if_peek(end) {
                 return Some(list);
             }
 
@@ -281,11 +286,15 @@ impl Parser {
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
+
+                if self.consume_if_peek(end) {
+                    return Some(list);
+                }
+
                 continue;
             }
 
-            if self.is_peek_token(end) {
-                self.next_token();
+            if self.consume_if_peek(end) {
                 return Some(list);
             }
 

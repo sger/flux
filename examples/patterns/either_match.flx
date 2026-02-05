@@ -107,3 +107,12 @@ fun swap(result) {
 
 print(swap(Left(1)));
 print(swap(Right(2)));
+
+// Trailing comma behavior (now consistent across list syntaxes)
+fun withTrailingParams(a, b,) {
+    [Left(a), Right(b),]
+}
+
+let trailing = withTrailingParams("left value", 99,);
+print(trailing);
+print(handleResult(Right(123),));
