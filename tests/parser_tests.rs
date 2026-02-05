@@ -36,6 +36,28 @@ let test2 = "this compiles";
         program
     }
 
+    fn spaced_ints(count: usize) -> String {
+        let mut out = String::new();
+        for i in 1..=count {
+            if i > 1 {
+                out.push(' ');
+            }
+            out.push_str(&i.to_string());
+        }
+        out
+    }
+
+    fn semicolon_separated_match_arms(count: usize) -> String {
+        let mut out = String::new();
+        for i in 0..count {
+            if i > 0 {
+                out.push_str("; ");
+            }
+            out.push_str(&format!("{i} -> {i}"));
+        }
+        out
+    }
+
     #[test]
     fn let_statements() {
         let program = parse("let x = 5; let y = 10;");
@@ -970,6 +992,164 @@ let test2 = "this compiles";
             }
             _ => panic!("expected call expression statement"),
         }
+    }
+
+    #[test]
+    fn test_call_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
+        let input = format!(
+            "print({});\nlet ok = \"still parsed\";\nprint(ok);",
+            spaced_ints(200)
+        );
+        let lexer = Lexer::new(&input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let summary_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| {
+                d.message()
+                    .is_some_and(|m| m.contains("Too many errors in this list"))
+            })
+            .collect();
+        assert_eq!(
+            summary_diags.len(),
+            1,
+            "expected exactly one list error-limit summary diagnostic"
+        );
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(
+            missing_comma_count, 50,
+            "expected missing-comma diagnostics to stop at the list limit"
+        );
+        assert!(
+            parser.errors.len() <= 51,
+            "expected list diagnostics to be capped at 50 plus one summary"
+        );
+
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+            "expected parser to continue and parse trailing let statement"
+        );
+        assert!(
+            program.statements.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Statement::Expression {
+                        expression: Expression::Call { function, arguments, .. },
+                        ..
+                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                        && arguments.len() == 1
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "ok")
+                )
+            }),
+            "expected parser to continue and parse trailing print(ok) call"
+        );
+    }
+
+    #[test]
+    fn test_array_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
+        let input = format!(
+            "[{}];\nlet ok = \"still parsed\";\nprint(ok);",
+            spaced_ints(200)
+        );
+        let lexer = Lexer::new(&input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let summary_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| {
+                d.message()
+                    .is_some_and(|m| m.contains("Too many errors in this list"))
+            })
+            .collect();
+        assert_eq!(
+            summary_diags.len(),
+            1,
+            "expected exactly one list error-limit summary diagnostic"
+        );
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(
+            missing_comma_count, 50,
+            "expected missing-comma diagnostics to stop at the list limit"
+        );
+        assert!(
+            parser.errors.len() <= 51,
+            "expected list diagnostics to be capped at 50 plus one summary"
+        );
+
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+            "expected parser to continue and parse trailing let statement"
+        );
+        assert!(
+            program.statements.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Statement::Expression {
+                        expression: Expression::Call { function, arguments, .. },
+                        ..
+                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                        && arguments.len() == 1
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "ok")
+                )
+            }),
+            "expected parser to continue and parse trailing print(ok) call"
+        );
+    }
+
+    #[test]
+    fn test_match_arm_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
+        let input = format!(
+            "match x {{ {} }}\nlet ok = 1;",
+            semicolon_separated_match_arms(200)
+        );
+        let lexer = Lexer::new(&input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let summary_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| {
+                d.message()
+                    .is_some_and(|m| m.contains("Too many errors in this match arm list"))
+            })
+            .collect();
+        assert_eq!(
+            summary_diags.len(),
+            1,
+            "expected exactly one match arm error-limit summary diagnostic"
+        );
+        assert!(
+            parser.errors.len() <= 51,
+            "expected match-arm diagnostics to be capped at 50 plus one summary"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+            "expected parser to continue and parse trailing let statement after match recovery"
+        );
     }
 
     // ========================================================================
