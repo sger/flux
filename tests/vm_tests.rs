@@ -114,6 +114,20 @@ fn test_global_variables() {
 }
 
 #[test]
+fn test_function_parameter_shadows_global_binding() {
+    assert_eq!(
+        run(
+            r#"
+let x = 3;
+fun t(x) { x; }
+t(9) + x;
+"#
+        ),
+        Object::Integer(12)
+    );
+}
+
+#[test]
 fn test_functions() {
     assert_eq!(run("let f = fun() { 5 + 10; }; f();"), Object::Integer(15));
     assert_eq!(

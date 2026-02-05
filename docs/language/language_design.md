@@ -176,7 +176,31 @@ fun sum_of_squares(a, b) {
 ### Variables
 
 All bindings are immutable. Use `let` to bind values.
-Closures cannot assign to outer bindings; use `let` to shadow instead.
+Closures cannot assign to outer bindings.
+
+### Bindings and Shadowing
+
+Flux uses scope-based shadowing, but does not allow duplicate `let` names in the same scope.
+
+- Top-level `let` works with or without semicolons.
+- Function parameters create a new scope and can shadow outer bindings.
+- `let` is non-recursive and same-scope duplicate names are rejected (`E001`).
+
+```flux
+let x = 3
+
+fun t(x) {
+  x;        // parameter `x` shadows global `x`
+}
+```
+
+```flux
+let x = 3
+
+fun t(x) {
+  let x = x;   // error (E001): duplicate binding in same scope
+}
+```
 
 ### Assignment and Rebinding
 

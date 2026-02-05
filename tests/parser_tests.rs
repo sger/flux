@@ -222,6 +222,50 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_binding_shadowing_sample_program_parses_without_semicolons_and_keeps_ast_shape() {
+        let program = parse(
+            r#"
+let x = 3
+
+fun t(x) {
+    let x = x;
+}
+"#,
+        );
+
+        assert_eq!(program.statements.len(), 2);
+
+        match &program.statements[0] {
+            Statement::Let { name, .. } => assert_eq!(name, "x"),
+            _ => panic!("expected top-level let statement"),
+        }
+
+        match &program.statements[1] {
+            Statement::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } => {
+                assert_eq!(name, "t");
+                assert_eq!(parameters, &vec!["x".to_string()]);
+                assert_eq!(body.statements.len(), 1);
+                match &body.statements[0] {
+                    Statement::Let { name, value, .. } => {
+                        assert_eq!(name, "x");
+                        assert!(
+                            matches!(value, Expression::Identifier { name, .. } if name == "x"),
+                            "expected RHS of inner let to parse as identifier `x`"
+                        );
+                    }
+                    _ => panic!("expected inner let statement"),
+                }
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
     fn test_missing_commas_in_numeric_call_args_emit_e073_without_cascade() {
         let lexer = Lexer::new("print(1 2 3)");
         let mut parser = Parser::new(lexer);
