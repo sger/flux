@@ -57,7 +57,7 @@ x + y
     let error_span = Span::new(Position::new(6, 4), Position::new(6, 5));
     let first_def_span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
-    let diagnostic = Diagnostic::error("Duplicate variable")
+    let diagnostic = Diagnostic::warning("Duplicate variable")
         .with_code("E001")
         .with_error_type(ErrorType::Compiler)
         .with_message("Variable 'x' is already defined in this scope")
@@ -87,7 +87,7 @@ fn calculate(x) {
 
     let error_span = Span::new(Position::new(2, 0), Position::new(2, 2));
 
-    let diagnostic = Diagnostic::error("Unknown keyword")
+    let diagnostic = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_error_type(ErrorType::Compiler)
         .with_message("Flux uses `fun` for function declarations")
@@ -119,7 +119,7 @@ let result = name + age;
     let name_span = Span::new(Position::new(1, 4), Position::new(1, 8));
     let age_span = Span::new(Position::new(2, 4), Position::new(2, 7));
 
-    let diagnostic = Diagnostic::error("Type mismatch")
+    let diagnostic = Diagnostic::warning("Type mismatch")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_message("Cannot add String and Int")
@@ -153,7 +153,7 @@ add(name, age)
     // Label for second argument
     let arg2_span = Span::new(Position::new(1, 10), Position::new(1, 13));
 
-    let diagnostic = Diagnostic::error("Type mismatch in function call")
+    let diagnostic = Diagnostic::warning("Type mismatch in function call")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_message("Function `add` expects (Int, Int) but got (String, Int)")
@@ -191,7 +191,7 @@ let result = x ~ y;
     // Label for right operand
     let right_span = Span::new(Position::new(1, 17), Position::new(1, 18));
 
-    let diagnostic = Diagnostic::error("Unknown infix operator")
+    let diagnostic = Diagnostic::warning("Unknown infix operator")
         .with_code("E006")
         .with_error_type(ErrorType::Compiler)
         .with_message("The operator '~' is not recognized")
@@ -221,7 +221,7 @@ let MyOtherVariable = 20;
 
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 19));
 
-    let diagnostic = Diagnostic::error("Invalid variable name")
+    let diagnostic = Diagnostic::warning("Invalid variable name")
         .with_code("E015")
         .with_error_type(ErrorType::Compiler)
         .with_message("Variable names must start with a lowercase letter")
@@ -272,7 +272,7 @@ fun calculate(a, b) {
         .with_label("defined with 2 parameters")
         .with_file("src/lib.flx");
 
-    let diagnostic = Diagnostic::error("Function signature mismatch")
+    let diagnostic = Diagnostic::warning("Function signature mismatch")
         .with_code("E050")
         .with_error_type(ErrorType::Compiler)
         .with_message("Expected 2 arguments, found 3")
@@ -308,7 +308,7 @@ fn calculate(x, y) {
     let suggestion = InlineSuggestion::new(error_span, "fun")
         .with_message("Use 'fun' for function declarations");
 
-    let diagnostic = Diagnostic::error("Unknown keyword")
+    let diagnostic = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_error_type(ErrorType::Compiler)
         .with_message("Flux uses 'fun' for function declarations")
@@ -350,7 +350,7 @@ let result = name + age;
     ])
     .with_conclusion("Type checking helps catch these errors at compile time");
 
-    let diagnostic = Diagnostic::error("Type mismatch")
+    let diagnostic = Diagnostic::warning("Type mismatch")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_message("Cannot add String and Int")

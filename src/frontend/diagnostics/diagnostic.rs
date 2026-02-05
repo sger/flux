@@ -10,64 +10,44 @@ use std::{env, fs};
 /// The core diagnostic struct representing an error, warning, or note
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    severity: Severity,
-    title: String,
-    code: Option<String>,
-    error_type: Option<ErrorType>,
-    message: Option<String>,
-    file: Option<String>,
-    span: Option<Span>,
-    labels: Vec<Label>,
-    hints: Vec<Hint>,
-    suggestions: Vec<InlineSuggestion>,
-    hint_chains: Vec<HintChain>,
-    related: Vec<RelatedDiagnostic>,
+    pub(crate) severity: Severity,
+    pub(crate) title: String,
+    pub(crate) code: Option<String>,
+    pub(crate) error_type: Option<ErrorType>,
+    pub(crate) message: Option<String>,
+    pub(crate) file: Option<String>,
+    pub(crate) span: Option<Span>,
+    pub(crate) labels: Vec<Label>,
+    pub(crate) hints: Vec<Hint>,
+    pub(crate) suggestions: Vec<InlineSuggestion>,
+    pub(crate) hint_chains: Vec<HintChain>,
+    pub(crate) related: Vec<RelatedDiagnostic>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
 #[macro_export]
 macro_rules! ice {
     ($msg:expr) => {{
-        #[allow(deprecated)]
-        let diag = $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
-            .with_message($msg)
-            .with_error_type($crate::frontend::diagnostics::ErrorType::Compiler)
-            .with_hint_text(format!("{}:{} ({})", file!(), line!(), module_path!()));
-        diag
-    }};
-}
-
-impl Diagnostic {
-    /// Create a new error diagnostic with the given title.
-    ///
-    /// # Deprecation Notice
-    /// This method is deprecated for production code. Use error constructor functions instead:
-    /// - Parser errors: `compiler_errors::unknown_keyword()`, `compiler_errors::unexpected_token()`, etc.
-    /// - Runtime errors: `runtime_errors::invalid_operation()`, etc.
-    ///
-    /// This ensures consistent error codes and messages from a single source of truth.
-    /// Only use this method in tests or internal diagnostics system code.
-    #[deprecated(
-        since = "0.2.0",
-        note = "Use error constructor functions from compiler_errors or runtime_errors instead"
-    )]
-    pub fn error(title: impl Into<String>) -> Self {
-        Self {
-            severity: Severity::Error,
-            title: title.into(),
+        $crate::frontend::diagnostics::Diagnostic {
+            severity: $crate::frontend::diagnostics::Severity::Error,
+            title: "INTERNAL COMPILER ERROR".to_string(),
             code: None,
-            error_type: None,
-            message: None,
+            error_type: Some($crate::frontend::diagnostics::ErrorType::Compiler),
+            message: Some($msg.to_string()),
             file: None,
             span: None,
             labels: Vec::new(),
-            hints: Vec::new(),
+            hints: vec![$crate::frontend::diagnostics::Hint::text(
+                format!("{}:{} ({})", file!(), line!(), module_path!())
+            )],
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
         }
-    }
+    }};
+}
 
+impl Diagnostic {
     /// Create a new warning diagnostic with the given title.
     pub fn warning(title: impl Into<String>) -> Self {
         Self {
@@ -314,7 +294,6 @@ impl DiagnosticBuilder for Diagnostic {
 // ===== Factory Methods and Rendering =====
 impl Diagnostic {
     /// Generic error builder using ErrorCode specification
-    #[allow(deprecated)]
     pub fn make_error(
         err_spec: &'static ErrorCode,
         values: &[&str],
@@ -324,18 +303,26 @@ impl Diagnostic {
         let message = format_message(err_spec.message, values);
         let hint = err_spec.hint.map(|h| format_message(h, values));
 
-        let mut diag = Diagnostic::error(err_spec.title)
-            .with_code(err_spec.code)
-            .with_error_type(err_spec.error_type)
-            .with_file(file)
-            .with_span(span)
-            .with_message(message);
+        let hints = if let Some(hint_text) = hint {
+            vec![Hint::text(hint_text)]
+        } else {
+            Vec::new()
+        };
 
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint_text(hint_text);
+        Self {
+            severity: Severity::Error,
+            title: err_spec.title.to_string(),
+            code: Some(err_spec.code.to_string()),
+            error_type: Some(err_spec.error_type),
+            message: Some(message),
+            file: Some(file.into()),
+            span: Some(span),
+            labels: Vec::new(),
+            hints,
+            suggestions: Vec::new(),
+            hint_chains: Vec::new(),
+            related: Vec::new(),
         }
-
-        diag
     }
 
     /// Generic warning builder using ErrorCode specification
@@ -365,7 +352,6 @@ impl Diagnostic {
 
     /// Dynamic error builder for runtime-generated error information
     /// Use this when error details come from runtime values rather than static ErrorCode
-    #[allow(deprecated)]
     pub fn make_error_dynamic(
         code: impl Into<String>,
         title: impl Into<String>,
@@ -375,18 +361,26 @@ impl Diagnostic {
         file: impl Into<String>,
         span: Span,
     ) -> Self {
-        let mut diag = Diagnostic::error(title)
-            .with_code(code)
-            .with_error_type(error_type)
-            .with_file(file)
-            .with_span(span)
-            .with_message(message);
+        let hints = if let Some(hint_text) = hint {
+            vec![Hint::text(hint_text)]
+        } else {
+            Vec::new()
+        };
 
-        if let Some(hint_text) = hint {
-            diag = diag.with_hint_text(hint_text);
+        Self {
+            severity: Severity::Error,
+            title: title.into(),
+            code: Some(code.into()),
+            error_type: Some(error_type),
+            message: Some(message.into()),
+            file: Some(file.into()),
+            span: Some(span),
+            labels: Vec::new(),
+            hints,
+            suggestions: Vec::new(),
+            hint_chains: Vec::new(),
+            related: Vec::new(),
         }
-
-        diag
     }
 
     /// Warning builder for linter and non-fatal issues
