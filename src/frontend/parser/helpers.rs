@@ -288,14 +288,13 @@ impl Parser {
         // Unterminated strings are a lexical error; use the lexer-provided end position
         // where the closing quote should have appeared.
         let token_span = self.current_token.span();
-        let error_pos = token_span.end;
 
         let error_spec = &UNTERMINATED_STRING;
         let diag = Diagnostic::make_error(
             error_spec,
             &[],           // No message formatting args needed
             String::new(), // No file context in parser
-            Span::new(error_pos, error_pos),
+            token_span,
         );
         self.errors.push(diag);
         self.synchronize_after_error();

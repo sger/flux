@@ -2,6 +2,14 @@ use crate::frontend::position::Position;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::{TokenType, lookup_ident};
 
+#[derive(Debug, Clone)]
+enum LexerState {
+    Normal,
+    /// Active interpolated-string context.
+    /// Top depth entry tracks the current interpolation expression.
+    InInterpolatedString { depth_stack: Vec<usize> },
+}
+
 /// The Flux lexer
 #[derive(Debug, Clone)]
 pub struct Lexer {
@@ -11,10 +19,7 @@ pub struct Lexer {
     current_char: Option<char>,
     line: usize,
     column: usize,
-    /// Stack of active interpolated strings.
-    /// Top value is brace depth for the currently active interpolation expression.
-    /// `0` means we are between interpolation expressions and should continue string content.
-    interpolation_stack: Vec<usize>,
+    state: LexerState,
 }
 
 impl Lexer {
@@ -26,7 +31,7 @@ impl Lexer {
             current_char: None,
             line: 1,
             column: 0,
-            interpolation_stack: Vec::new(),
+            state: LexerState::Normal,
         };
         lexer.read_char();
         lexer
@@ -94,17 +99,13 @@ impl Lexer {
             Some(')') => Token::new(TokenType::RParen, ")", line, col),
             Some('{') => {
                 if self.is_in_interpolation() {
-                    if let Some(depth) = self.interpolation_stack.last_mut() {
-                        *depth += 1;
-                    }
+                    self.increment_current_interpolation_depth();
                 }
                 Token::new(TokenType::LBrace, "{", line, col)
             }
             Some('}') => {
                 if self.is_in_interpolation() {
-                    if let Some(depth) = self.interpolation_stack.last_mut() {
-                        *depth = depth.saturating_sub(1);
-                    }
+                    self.decrement_current_interpolation_depth();
                 }
                 Token::new(TokenType::RBrace, "}", line, col)
             }
@@ -125,7 +126,7 @@ impl Lexer {
             None => {
                 // Future improvement: if this is non-empty at EOF, emit a dedicated
                 // unterminated interpolation/string diagnostic from the lexer.
-                self.interpolation_stack.clear();
+                self.clear_interpolation_state();
                 Token::new(TokenType::Eof, "", line, col)
             }
 
@@ -258,38 +259,69 @@ impl Lexer {
     }
 
     fn in_interpolated_string_context(&self) -> bool {
-        !self.interpolation_stack.is_empty()
-    }
-
-    fn current_interpolation_depth(&self) -> usize {
-        self.interpolation_stack.last().copied().unwrap_or(0)
-    }
-
-    /// Compute expected closing quote position for an unterminated string that
-    /// started with an opening quote at `start_col`.
-    fn unterminated_string_end_position(
-        &self,
-        start_line: usize,
-        start_col: usize,
-        content: &str,
-    ) -> Position {
-        let content_len = content.chars().count();
-        Position::new(
-            start_line,
-            start_col.saturating_add(1).saturating_add(content_len),
+        matches!(
+            &self.state,
+            LexerState::InInterpolatedString { depth_stack } if !depth_stack.is_empty()
         )
     }
 
-    /// Compute end position for an unterminated continuation segment after
-    /// interpolation where there is no opening quote at `start_col`.
-    fn unterminated_segment_end_position(
-        &self,
-        start_line: usize,
-        start_col: usize,
-        content: &str,
-    ) -> Position {
-        let content_len = content.chars().count();
-        Position::new(start_line, start_col.saturating_add(content_len))
+    fn current_interpolation_depth(&self) -> usize {
+        match &self.state {
+            LexerState::InInterpolatedString { depth_stack } => {
+                depth_stack.last().copied().unwrap_or(0)
+            }
+            LexerState::Normal => 0,
+        }
+    }
+
+    fn clear_interpolation_state(&mut self) {
+        self.state = LexerState::Normal;
+    }
+
+    fn enter_interpolated_string(&mut self) {
+        match &mut self.state {
+            LexerState::Normal => {
+                self.state = LexerState::InInterpolatedString {
+                    depth_stack: vec![1],
+                };
+            }
+            LexerState::InInterpolatedString { depth_stack } => depth_stack.push(1),
+        }
+    }
+
+    fn exit_interpolated_string(&mut self) {
+        let mut should_reset = false;
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
+            depth_stack.pop();
+            should_reset = depth_stack.is_empty();
+        }
+        if should_reset {
+            self.clear_interpolation_state();
+        }
+    }
+
+    fn increment_current_interpolation_depth(&mut self) {
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
+            if let Some(depth) = depth_stack.last_mut() {
+                *depth += 1;
+            }
+        }
+    }
+
+    fn decrement_current_interpolation_depth(&mut self) {
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
+            if let Some(depth) = depth_stack.last_mut() {
+                *depth = depth.saturating_sub(1);
+            }
+        }
+    }
+
+    fn reset_current_interpolation_depth(&mut self) {
+        if let LexerState::InInterpolatedString { depth_stack } = &mut self.state {
+            if let Some(depth) = depth_stack.last_mut() {
+                *depth = 1;
+            }
+        }
     }
 
     /// Read the start of a string (called when we see opening ")
@@ -303,13 +335,12 @@ impl Lexer {
         if has_interpolation {
             // String has interpolation - mark that we're in a string
             // Invariant: depth = 1 because we consumed the '{' of '#{' internally.
-            self.interpolation_stack.push(1);
+            self.enter_interpolated_string();
             // Return InterpolationStart instead of String to signal interpolation
             self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, col)
         } else if !ended {
             // Hit newline or EOF without closing quote
-            let end = self.unterminated_string_end_position(line, col, &content);
-            Token::new_with_end(TokenType::UnterminatedString, content, line, col, end)
+            self.string_token_with_cursor_end(TokenType::UnterminatedString, content, line, col)
         } else {
             // Simple string with no interpolation
             self.string_token_with_cursor_end(TokenType::String, content, line, col)
@@ -328,20 +359,17 @@ impl Lexer {
 
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed the '{' of '#{'
-            if let Some(depth) = self.interpolation_stack.last_mut() {
-                // Invariant: reset to 1 because '#{' consumed the '{' already.
-                *depth = 1;
-            }
+            // Invariant: reset to 1 because '#{' consumed the '{' already.
+            self.reset_current_interpolation_depth();
             // Return InterpolationStart to signal another interpolation
             self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, col)
         } else if !ended {
             // Hit newline or EOF without closing quote
-            self.interpolation_stack.pop();
-            let end = self.unterminated_segment_end_position(line, col, &content);
-            Token::new_with_end(TokenType::UnterminatedString, content, line, col, end)
+            self.exit_interpolated_string();
+            self.string_token_with_cursor_end(TokenType::UnterminatedString, content, line, col)
         } else {
             // End of interpolated string
-            self.interpolation_stack.pop();
+            self.exit_interpolated_string();
             self.string_token_with_cursor_end(TokenType::StringEnd, content, line, col)
         }
     }
@@ -371,8 +399,14 @@ impl Lexer {
                 '\\' => {
                     // Escape sequence
                     self.read_char(); // consume backslash
-                    if let Some(escaped) = self.read_escape_sequence() {
-                        result.push(escaped);
+                    match self.read_escape_sequence() {
+                        Some(escaped) => result.push(escaped),
+                        None => {
+                            // EOF right after backslash inside a string.
+                            // Keep the raw backslash in the token literal and terminate.
+                            result.push('\\');
+                            return (result, false, false);
+                        }
                     }
                 }
                 _ => {
@@ -401,7 +435,9 @@ impl Lexer {
             }
             None => None,
         };
-        self.read_char();
+        if self.current_char.is_some() {
+            self.read_char();
+        }
         result
     }
 
