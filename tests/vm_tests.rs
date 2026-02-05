@@ -54,6 +54,11 @@ outer();"#;
     let err = run_error(input);
     assert!(err.contains("Stack trace:"));
     assert!(
+        !err.lines().any(|line| line == "--> test.flx"),
+        "runtime diagnostics should not include file grouping headers, got:\n{}",
+        err
+    );
+    assert!(
         err.contains("test.flx:2:1"),
         "expected 1-based column in stack trace, got:\n{}",
         err

@@ -113,11 +113,13 @@ impl VM {
                     let source = std::fs::read_to_string(&file).ok();
                     let mut rendered = if let Some(src) = source.as_deref() {
                         DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .with_file_headers(false)
                             .with_source(file.clone(), src)
                             .report()
                             .rendered
                     } else {
                         DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+                            .with_file_headers(false)
                             .report()
                             .rendered
                     };
