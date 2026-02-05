@@ -31,10 +31,14 @@ impl Parser {
             errors: Vec::new(),
             suppress_unterminated_string_error_at: None,
         };
-        parser.next_token();
-        parser.next_token();
-        parser.next_token();
+        parser.prime();
         parser
+    }
+
+    fn prime(&mut self) {
+        self.current_token = self.lexer.next_token();
+        self.peek_token = self.lexer.next_token();
+        self.peek2_token = self.lexer.next_token();
     }
 
     pub fn parse_program(&mut self) -> Program {
@@ -52,7 +56,7 @@ impl Parser {
             self.next_token();
         }
 
-        program.span = Span::new(start, self.current_token.position);
+        program.span = Span::new(start, self.current_token.end_position);
         program
     }
 }

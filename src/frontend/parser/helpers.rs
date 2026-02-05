@@ -12,9 +12,11 @@ use super::Parser;
 impl Parser {
     // Token navigation
     pub(super) fn next_token(&mut self) {
-        self.current_token = self.peek_token.clone();
-        self.peek_token = self.peek2_token.clone();
-        self.peek2_token = self.lexer.next_token();
+        let next = self.lexer.next_token();
+        self.current_token = std::mem::replace(
+            &mut self.peek_token,
+            std::mem::replace(&mut self.peek2_token, next),
+        );
     }
 
     pub(super) fn is_current_token(&self, token_type: TokenType) -> bool {
@@ -37,7 +39,21 @@ impl Parser {
 
     // Span/position utilities
     pub(super) fn span_from(&self, start: Position) -> Span {
-        Span::new(start, self.current_token.position)
+        Span::new(start, self.current_token.end_position)
+    }
+
+    pub(super) fn is_expression_terminator(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Semicolon
+                | TokenType::Comma
+                | TokenType::RParen
+                | TokenType::RBracket
+                | TokenType::RBrace
+                | TokenType::Colon
+                | TokenType::Arrow
+                | TokenType::Eof
+        )
     }
 
     // Precedence helpers
@@ -64,27 +80,76 @@ impl Parser {
     }
 
     pub(super) fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
+        debug_assert!(self.is_current_token(TokenType::LParen));
         let mut identifiers = Vec::new();
 
+        // Empty list: ()
         if self.is_peek_token(TokenType::RParen) {
-            self.next_token();
+            self.next_token(); // consume ')'
             return Some(identifiers);
         }
 
-        self.next_token();
-        identifiers.push(self.current_token.literal.clone());
-
-        while self.is_peek_token(TokenType::Comma) {
+        loop {
+            // Move to parameter candidate token
             self.next_token();
-            self.next_token();
-            identifiers.push(self.current_token.literal.clone());
-        }
 
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
-        }
+            // Parse identifier or recover (recovery stops on Comma/RParen/Eof)
+            if let Some(param) = self.parse_parameter_identifier_or_recover() {
+                identifiers.push(param);
+                self.next_token(); // move to delimiter after a valid parameter
+            }
+            // else: current_token is already at delimiter due to recovery
 
-        Some(identifiers)
+            match self.current_token.token_type {
+                TokenType::Comma => {
+                    // Reject trailing comma: f(a,)
+                    if self.is_peek_token(TokenType::RParen) {
+                        self.next_token(); // consume ')', so error points at ')'
+                        self.errors.push(
+                            Diagnostic::error("UNEXPECTED TOKEN")
+                                .with_code("E105")
+                                .with_error_type(ErrorType::Compiler)
+                                .with_span(self.current_token.span())
+                                .with_message("Expected identifier as parameter, got `)`."),
+                        );
+                        return Some(identifiers);
+                    }
+
+                    // Continue with next parameter (comma is current delimiter; next loop consumes next token)
+                    continue;
+                }
+
+                TokenType::RParen | TokenType::Eof => return Some(identifiers),
+
+                _ => {
+                    self.errors.push(
+                        Diagnostic::error("UNEXPECTED TOKEN")
+                            .with_code("E105")
+                            .with_error_type(ErrorType::Compiler)
+                            .with_span(self.current_token.span())
+                            .with_message(format!(
+                                "Expected `,` or `)` after parameter, got {}.",
+                                self.current_token.token_type
+                            )),
+                    );
+
+                    // Recover to a safe delimiter
+                    while !matches!(
+                        self.current_token.token_type,
+                        TokenType::Comma | TokenType::RParen | TokenType::Eof
+                    ) {
+                        self.next_token();
+                    }
+
+                    // If we recovered to comma, attempt to continue parsing more params.
+                    if self.current_token.token_type == TokenType::Comma {
+                        continue;
+                    }
+
+                    return Some(identifiers);
+                }
+            }
+        }
     }
 
     pub(super) fn parse_block(&mut self) -> Block {
@@ -101,7 +166,7 @@ impl Parser {
 
         Block {
             statements,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         }
     }
 
@@ -113,30 +178,74 @@ impl Parser {
             return Some(list);
         }
 
-        self.next_token();
-        list.push(self.parse_expression(Precedence::Lowest)?);
+        loop {
+            self.next_token();
 
-        while self.is_peek_token(TokenType::Comma) {
-            self.next_token();
-            self.next_token();
+            if self.is_current_token(end) {
+                self.errors.push(
+                    Diagnostic::error("UNEXPECTED TOKEN")
+                        .with_code("E105")
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
+                        .with_message(format!(
+                            "Expected expression after `,`, got {}.",
+                            self.current_token.token_type
+                        )),
+                );
+                return None;
+            }
+
+            if self.is_current_token(TokenType::Comma) {
+                self.errors.push(
+                    Diagnostic::error("UNEXPECTED TOKEN")
+                        .with_code("E105")
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
+                        .with_message("Expected expression after `,`, got `,`."),
+                );
+                continue;
+            }
+
+            if self.is_current_token(TokenType::Eof) {
+                self.errors.push(
+                    Diagnostic::error("UNEXPECTED TOKEN")
+                        .with_code("E105")
+                        .with_error_type(ErrorType::Compiler)
+                        .with_span(self.current_token.span())
+                        .with_message(format!("Expected `{}` before end of file.", end)),
+                );
+                return None;
+            }
+
             list.push(self.parse_expression(Precedence::Lowest)?);
-        }
 
-        if !self.is_peek_token(end) {
-            let line = self.current_token.position.line;
-            let eof_pos = Position::new(line, usize::MAX - 1);
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+                continue;
+            }
+
+            if self.is_peek_token(end) {
+                self.next_token();
+                return Some(list);
+            }
+
+            let message = if self.peek_token.token_type == TokenType::Eof {
+                format!("Expected `{}` before end of file.", end)
+            } else {
+                format!(
+                    "Expected `{}` after list item, got {}.",
+                    end, self.peek_token.token_type
+                )
+            };
             self.errors.push(
                 Diagnostic::error("UNEXPECTED TOKEN")
                     .with_code("E105")
                     .with_error_type(ErrorType::Compiler)
-                    .with_span(Span::new(eof_pos, eof_pos))
-                    .with_message(format!("Missing {} before end of line.", end)),
+                    .with_span(self.peek_token.span())
+                    .with_message(message),
             );
             return None;
         }
-        self.next_token();
-
-        Some(list)
     }
 
     // Error handling
@@ -146,7 +255,7 @@ impl Parser {
             error_spec,
             &[&self.current_token.token_type.to_string()],
             String::new(), // No file context in parser
-            Span::new(self.current_token.position, self.current_token.position),
+            self.current_token.span(),
         );
         self.errors.push(diag);
     }
@@ -193,5 +302,31 @@ impl Parser {
                     expected, self.peek_token.token_type
                 )),
         );
+    }
+
+    fn parse_parameter_identifier_or_recover(&mut self) -> Option<String> {
+        if self.current_token.token_type == TokenType::Ident {
+            return Some(self.current_token.literal.clone());
+        }
+
+        self.errors.push(
+            Diagnostic::error("UNEXPECTED TOKEN")
+                .with_code("E105")
+                .with_error_type(ErrorType::Compiler)
+                .with_span(self.current_token.span())
+                .with_message(format!(
+                    "Expected identifier as parameter, got {}.",
+                    self.current_token.token_type
+                )),
+        );
+
+        while !matches!(
+            self.current_token.token_type,
+            TokenType::Comma | TokenType::RParen | TokenType::Eof
+        ) {
+            self.next_token();
+        }
+
+        None
     }
 }

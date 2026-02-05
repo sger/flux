@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use flux::frontend::{lexer::Lexer, parser::Parser, program::Program, statement::Statement};
+    use flux::frontend::{
+        expression::Expression, lexer::Lexer, parser::Parser, position::Position, program::Program,
+        statement::Statement,
+    };
 
     fn parse(input: &str) -> Program {
         let lexer = Lexer::new(input);
@@ -157,6 +160,12 @@ mod tests {
     }
 
     #[test]
+    fn test_string_interpolation_nested_hash_expression_terminates() {
+        let program = parse("\"#{ {1: 2} }\"");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
     fn test_boolean_literals() {
         let program = parse("true; false;");
         assert_eq!(program.statements.len(), 2);
@@ -194,6 +203,38 @@ mod tests {
     fn test_lambda_single_param() {
         let program = parse(r"\x -> x * 2;");
         assert_eq!(program.statements.len(), 1);
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Function { span, .. },
+                ..
+            } => {
+                assert_eq!(span.start, Position::new(1, 0));
+                assert_eq!(span.end, Position::new(1, 11));
+            }
+            _ => panic!("expected lambda function expression"),
+        }
+    }
+
+    #[test]
+    fn test_lambda_single_ident_param_span_and_arity() {
+        let program = parse(r"\x -> x");
+        assert_eq!(program.statements.len(), 1);
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression:
+                    Expression::Function {
+                        parameters, span, ..
+                    },
+                ..
+            } => {
+                assert_eq!(parameters, &vec!["x".to_string()]);
+                assert_eq!(span.start, Position::new(1, 0));
+                assert_eq!(span.end, Position::new(1, 7));
+            }
+            _ => panic!("expected lambda function expression"),
+        }
     }
 
     #[test]
@@ -228,6 +269,288 @@ mod tests {
     fn test_lambda_as_argument() {
         let program = parse(r"map(arr, \x -> x * 2);");
         assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_lambda_missing_arrow_reports_expected_token_error() {
+        let lexer = Lexer::new(r"\x x");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        assert_eq!(
+            parser.errors.len(),
+            1,
+            "expected exactly one diagnostic for missing arrow"
+        );
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E107"))
+            .expect("expected E107 diagnostic for missing lambda arrow");
+        assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
+        assert!(
+            diag.hints()
+                .iter()
+                .any(|h| h.text.contains(r"\x -> expr") || h.text.contains(r"\(x, y) -> expr"))
+        );
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, 3);
+        assert_eq!(
+            parser
+                .errors
+                .iter()
+                .filter(|d| d.code() == Some("E105"))
+                .count(),
+            0,
+            "missing-arrow lambda should not emit generic E105"
+        );
+    }
+
+    #[test]
+    fn test_non_identifier_function_parameter_reports_diagnostic() {
+        let lexer = Lexer::new("fun add(x, 1) { x }");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for non-identifier function parameter");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
+    }
+
+    #[test]
+    fn test_non_identifier_lambda_parameter_reports_diagnostic() {
+        let lexer = Lexer::new(r"\(x, 1) -> x");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for non-identifier lambda parameter");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
+    }
+
+    #[test]
+    fn test_invalid_function_parameter_recovers_and_continues() {
+        let lexer = Lexer::new("fun f(1) { 1 }\nlet x = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for non-identifier function parameter");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 6));
+
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            "expected parser to continue and parse trailing let statement"
+        );
+    }
+
+    #[test]
+    fn test_function_parameter_recovery_keeps_later_valid_parameter() {
+        let lexer = Lexer::new("fun f(1, x) { x }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for non-identifier function parameter");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 6));
+
+        match &program.statements[0] {
+            Statement::Function { parameters, .. } => {
+                assert_eq!(parameters, &vec!["x".to_string()]);
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_function_parameter_missing_comma_reports_at_offending_token() {
+        let lexer = Lexer::new("fun f(a b) { }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for missing comma between parameters");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 8));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
+        );
+
+        match &program.statements[0] {
+            Statement::Function { parameters, .. } => {
+                assert_eq!(parameters, &vec!["a".to_string()]);
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_function_parameter_trailing_comma_is_rejected_with_one_clear_error() {
+        let lexer = Lexer::new("fun f(a,) { }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let e105_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E105"))
+            .collect();
+        assert_eq!(
+            e105_diags.len(),
+            1,
+            "expected one E105 diagnostic for trailing comma"
+        );
+        let span = e105_diags[0].span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 8));
+        assert!(
+            e105_diags[0]
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
+
+        match &program.statements[0] {
+            Statement::Function { parameters, .. } => {
+                assert_eq!(parameters, &vec!["a".to_string()]);
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_function_parameter_double_comma_recovers_and_keeps_later_parameter() {
+        let lexer = Lexer::new("fun f(a,,b) { b }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let e105_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E105"))
+            .collect();
+        assert_eq!(e105_diags.len(), 1, "expected one E105 for extra comma");
+        assert!(
+            e105_diags[0]
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
+
+        match &program.statements[0] {
+            Statement::Function { parameters, .. } => {
+                assert_eq!(parameters, &vec!["a".to_string(), "b".to_string()]);
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_function_parameter_leading_comma_recovers_and_keeps_parameter() {
+        let lexer = Lexer::new("fun f(,x) { x }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let e105_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E105"))
+            .collect();
+        assert_eq!(e105_diags.len(), 1, "expected one E105 for leading comma");
+        assert!(
+            e105_diags[0]
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
+
+        match &program.statements[0] {
+            Statement::Function { parameters, .. } => {
+                assert_eq!(parameters, &vec!["x".to_string()]);
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_call_expression_trailing_comma_reports_missing_expression_at_rparen() {
+        let lexer = Lexer::new("f(1,)");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for trailing comma in call args");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 4));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected expression after `,`, got )"))
+        );
+    }
+
+    #[test]
+    fn test_array_literal_trailing_comma_reports_missing_expression_at_rbracket() {
+        let lexer = Lexer::new("[1,]");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for trailing comma in array literal");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 3));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected expression after `,`, got ]"))
+        );
+    }
+
+    #[test]
+    fn test_call_expression_double_comma_reports_at_second_comma() {
+        let lexer = Lexer::new("f(1,,2)");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E105"))
+            .expect("expected E105 for double comma in call args");
+        let span = diag.span().expect("expected diagnostic span");
+        assert_eq!(span.start, Position::new(1, 4));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
+        );
     }
 
     // ========================================================================
