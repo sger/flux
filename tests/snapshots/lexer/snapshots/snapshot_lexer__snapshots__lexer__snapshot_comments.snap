@@ -1,0 +1,23 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  3:0   let             "let"
+  3:4   IDENT           "x"
+  3:6   =               "="
+  3:8   INT             "5"
+  3:9   ;               ";"
+  4:0   /               "/"
+  4:1   *               "*"
+  4:3   IDENT           "Multi"
+  4:8   -               "-"
+  4:9   IDENT           "line"
+  5:3   IDENT           "comment"
+  5:11  *               "*"
+  5:12  /               "/"
+  6:0   let             "let"
+  6:4   IDENT           "y"
+  6:6   =               "="
+  6:8   INT             "10"
+  6:10  ;               ";"
+  7:0   EOF             ""

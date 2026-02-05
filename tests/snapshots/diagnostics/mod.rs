@@ -4,6 +4,7 @@ use flux::frontend::{
     diagnostics::{Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType},
     position::{Position, Span},
 };
+use insta::assert_snapshot;
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
     Span::new(
@@ -37,32 +38,7 @@ fn snapshot_aggregated_output() {
         .report()
         .rendered;
 
-    let expected = "\
-Found 2 warnings.
-
---> a.flx
---> warning[E100]: TEST A
-
-message a
-
-  --> a.flx:1:5
-  |
-1 | let x = 1;
-  |     ^
-
-
---> b.flx
---> warning[W200]: TEST B
-
-message b
-
-  --> b.flx:1:5
-  |
-1 | let y = 2;
-  |     ^
-";
-
-    assert_eq!(output, expected);
+    assert_snapshot!(output);
 }
 
 #[test]
@@ -82,21 +58,7 @@ fn snapshot_multi_line_span_output() {
         .report()
         .rendered;
 
-    let expected = "\
---> multi.flx
---> warning[E123]: MULTI
-
-multi
-
-  --> multi.flx:1:5
-  |
-1 | let x = 1;
-  |     ^^^^^^
-2 | let y = 2;
-  | ^^^^^
-";
-
-    assert_eq!(output, expected);
+    assert_snapshot!(output);
 }
 
 #[test]
@@ -113,16 +75,5 @@ fn snapshot_colorized_output() {
 
     let output = diag.render(Some(source), None);
 
-    let expected = "\
-\u{1b}[33m--> warning[E123]: COLOR\u{1b}[0m
-
-message
-
-  --> test.flx:1:5
-  |
-1 | let x = 1;
-  |     \u{1b}[31m^\u{1b}[0m
-";
-
-    assert_eq!(output, expected);
+    assert_snapshot!(output);
 }

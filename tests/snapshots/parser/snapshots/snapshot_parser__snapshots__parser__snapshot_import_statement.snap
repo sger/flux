@@ -1,0 +1,7 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Parse Errors:
+  - Diagnostic { severity: Error, title: "EXPECTED EXPRESSION", code: Some("E031"), error_type: Some(Compiler), message: Some("Expected expression, found ;."), file: Some(""), span: Some(Span { start: Position { line: 1, column: 11 }, end: Position { line: 1, column: 12 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "EXPECTED EXPRESSION", code: Some("E031"), error_type: Some(Compiler), message: Some("Expected expression, found ;."), file: Some(""), span: Some(Span { start: Position { line: 1, column: 25 }, end: Position { line: 1, column: 26 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }

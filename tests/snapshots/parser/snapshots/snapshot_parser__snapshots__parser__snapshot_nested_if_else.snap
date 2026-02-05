@@ -1,0 +1,360 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Expression {
+            expression: If {
+                condition: Infix {
+                    left: Identifier {
+                        name: "x",
+                        span: Span {
+                            start: Position {
+                                line: 2,
+                                column: 4,
+                            },
+                            end: Position {
+                                line: 2,
+                                column: 5,
+                            },
+                        },
+                    },
+                    operator: ">",
+                    right: Integer {
+                        value: 10,
+                        span: Span {
+                            start: Position {
+                                line: 2,
+                                column: 8,
+                            },
+                            end: Position {
+                                line: 2,
+                                column: 10,
+                            },
+                        },
+                    },
+                    span: Span {
+                        start: Position {
+                            line: 2,
+                            column: 4,
+                        },
+                        end: Position {
+                            line: 2,
+                            column: 10,
+                        },
+                    },
+                },
+                consequence: Block {
+                    statements: [
+                        Expression {
+                            expression: If {
+                                condition: Infix {
+                                    left: Identifier {
+                                        name: "x",
+                                        span: Span {
+                                            start: Position {
+                                                line: 3,
+                                                column: 8,
+                                            },
+                                            end: Position {
+                                                line: 3,
+                                                column: 9,
+                                            },
+                                        },
+                                    },
+                                    operator: ">",
+                                    right: Integer {
+                                        value: 20,
+                                        span: Span {
+                                            start: Position {
+                                                line: 3,
+                                                column: 12,
+                                            },
+                                            end: Position {
+                                                line: 3,
+                                                column: 14,
+                                            },
+                                        },
+                                    },
+                                    span: Span {
+                                        start: Position {
+                                            line: 3,
+                                            column: 8,
+                                        },
+                                        end: Position {
+                                            line: 3,
+                                            column: 14,
+                                        },
+                                    },
+                                },
+                                consequence: Block {
+                                    statements: [
+                                        Expression {
+                                            expression: Call {
+                                                function: Identifier {
+                                                    name: "print",
+                                                    span: Span {
+                                                        start: Position {
+                                                            line: 4,
+                                                            column: 8,
+                                                        },
+                                                        end: Position {
+                                                            line: 4,
+                                                            column: 13,
+                                                        },
+                                                    },
+                                                },
+                                                arguments: [
+                                                    String {
+                                                        value: "very large",
+                                                        span: Span {
+                                                            start: Position {
+                                                                line: 4,
+                                                                column: 14,
+                                                            },
+                                                            end: Position {
+                                                                line: 4,
+                                                                column: 26,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                span: Span {
+                                                    start: Position {
+                                                        line: 4,
+                                                        column: 8,
+                                                    },
+                                                    end: Position {
+                                                        line: 4,
+                                                        column: 27,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start: Position {
+                                                    line: 4,
+                                                    column: 8,
+                                                },
+                                                end: Position {
+                                                    line: 4,
+                                                    column: 28,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            line: 3,
+                                            column: 16,
+                                        },
+                                        end: Position {
+                                            line: 5,
+                                            column: 5,
+                                        },
+                                    },
+                                },
+                                alternative: Some(
+                                    Block {
+                                        statements: [
+                                            Expression {
+                                                expression: Call {
+                                                    function: Identifier {
+                                                        name: "print",
+                                                        span: Span {
+                                                            start: Position {
+                                                                line: 6,
+                                                                column: 8,
+                                                            },
+                                                            end: Position {
+                                                                line: 6,
+                                                                column: 13,
+                                                            },
+                                                        },
+                                                    },
+                                                    arguments: [
+                                                        String {
+                                                            value: "large",
+                                                            span: Span {
+                                                                start: Position {
+                                                                    line: 6,
+                                                                    column: 14,
+                                                                },
+                                                                end: Position {
+                                                                    line: 6,
+                                                                    column: 21,
+                                                                },
+                                                            },
+                                                        },
+                                                    ],
+                                                    span: Span {
+                                                        start: Position {
+                                                            line: 6,
+                                                            column: 8,
+                                                        },
+                                                        end: Position {
+                                                            line: 6,
+                                                            column: 22,
+                                                        },
+                                                    },
+                                                },
+                                                span: Span {
+                                                    start: Position {
+                                                        line: 6,
+                                                        column: 8,
+                                                    },
+                                                    end: Position {
+                                                        line: 6,
+                                                        column: 23,
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                        span: Span {
+                                            start: Position {
+                                                line: 5,
+                                                column: 11,
+                                            },
+                                            end: Position {
+                                                line: 7,
+                                                column: 5,
+                                            },
+                                        },
+                                    },
+                                ),
+                                span: Span {
+                                    start: Position {
+                                        line: 3,
+                                        column: 4,
+                                    },
+                                    end: Position {
+                                        line: 7,
+                                        column: 5,
+                                    },
+                                },
+                            },
+                            span: Span {
+                                start: Position {
+                                    line: 3,
+                                    column: 4,
+                                },
+                                end: Position {
+                                    line: 7,
+                                    column: 5,
+                                },
+                            },
+                        },
+                    ],
+                    span: Span {
+                        start: Position {
+                            line: 2,
+                            column: 12,
+                        },
+                        end: Position {
+                            line: 8,
+                            column: 1,
+                        },
+                    },
+                },
+                alternative: Some(
+                    Block {
+                        statements: [
+                            Expression {
+                                expression: Call {
+                                    function: Identifier {
+                                        name: "print",
+                                        span: Span {
+                                            start: Position {
+                                                line: 9,
+                                                column: 4,
+                                            },
+                                            end: Position {
+                                                line: 9,
+                                                column: 9,
+                                            },
+                                        },
+                                    },
+                                    arguments: [
+                                        String {
+                                            value: "small",
+                                            span: Span {
+                                                start: Position {
+                                                    line: 9,
+                                                    column: 10,
+                                                },
+                                                end: Position {
+                                                    line: 9,
+                                                    column: 17,
+                                                },
+                                            },
+                                        },
+                                    ],
+                                    span: Span {
+                                        start: Position {
+                                            line: 9,
+                                            column: 4,
+                                        },
+                                        end: Position {
+                                            line: 9,
+                                            column: 18,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start: Position {
+                                        line: 9,
+                                        column: 4,
+                                    },
+                                    end: Position {
+                                        line: 9,
+                                        column: 19,
+                                    },
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: Position {
+                                line: 8,
+                                column: 7,
+                            },
+                            end: Position {
+                                line: 10,
+                                column: 1,
+                            },
+                        },
+                    },
+                ),
+                span: Span {
+                    start: Position {
+                        line: 2,
+                        column: 0,
+                    },
+                    end: Position {
+                        line: 10,
+                        column: 1,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 2,
+                    column: 0,
+                },
+                end: Position {
+                    line: 10,
+                    column: 1,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 2,
+            column: 0,
+        },
+        end: Position {
+            line: 11,
+            column: 0,
+        },
+    },
+}

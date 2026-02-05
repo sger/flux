@@ -1,0 +1,177 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Let {
+            name: "arr",
+            value: Array {
+                elements: [
+                    Integer {
+                        value: 1,
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 11,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 12,
+                            },
+                        },
+                    },
+                    Infix {
+                        left: Integer {
+                            value: 2,
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 14,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 15,
+                                },
+                            },
+                        },
+                        operator: "+",
+                        right: Integer {
+                            value: 3,
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 18,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 19,
+                                },
+                            },
+                        },
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 14,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 19,
+                            },
+                        },
+                    },
+                    Call {
+                        function: Identifier {
+                            name: "foo",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 21,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 24,
+                                },
+                            },
+                        },
+                        arguments: [
+                            Integer {
+                                value: 4,
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 25,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 26,
+                                    },
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 21,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 27,
+                            },
+                        },
+                    },
+                    Array {
+                        elements: [
+                            Integer {
+                                value: 5,
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 30,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 31,
+                                    },
+                                },
+                            },
+                            Integer {
+                                value: 6,
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 33,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 34,
+                                    },
+                                },
+                            },
+                        ],
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 29,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 35,
+                            },
+                        },
+                    },
+                ],
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 10,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 36,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 37,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 37,
+        },
+    },
+}

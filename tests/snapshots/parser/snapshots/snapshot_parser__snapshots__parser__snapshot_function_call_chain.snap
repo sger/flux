@@ -1,0 +1,135 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Expression {
+            expression: Call {
+                function: MemberAccess {
+                    object: Call {
+                        function: MemberAccess {
+                            object: Call {
+                                function: Identifier {
+                                    name: "foo",
+                                    span: Span {
+                                        start: Position {
+                                            line: 1,
+                                            column: 0,
+                                        },
+                                        end: Position {
+                                            line: 1,
+                                            column: 3,
+                                        },
+                                    },
+                                },
+                                arguments: [],
+                                span: Span {
+                                    start: Position {
+                                        line: 1,
+                                        column: 0,
+                                    },
+                                    end: Position {
+                                        line: 1,
+                                        column: 5,
+                                    },
+                                },
+                            },
+                            member: "bar",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 0,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 9,
+                                },
+                            },
+                        },
+                        arguments: [],
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 0,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 11,
+                            },
+                        },
+                    },
+                    member: "baz",
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 0,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 15,
+                        },
+                    },
+                },
+                arguments: [
+                    Integer {
+                        value: 1,
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 16,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 17,
+                            },
+                        },
+                    },
+                    Integer {
+                        value: 2,
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 19,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 20,
+                            },
+                        },
+                    },
+                ],
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 21,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 22,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 22,
+        },
+    },
+}

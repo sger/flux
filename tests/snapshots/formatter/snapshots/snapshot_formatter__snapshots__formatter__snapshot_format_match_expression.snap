@@ -1,0 +1,9 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+
+match value{
+    Some(x)=>x*2,
+    None=>0
+}

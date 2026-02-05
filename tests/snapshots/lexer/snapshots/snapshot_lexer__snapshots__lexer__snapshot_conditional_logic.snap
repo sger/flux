@@ -1,0 +1,26 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  2:0   if              "if"
+  2:3   (               "("
+  2:4   IDENT           "x"
+  2:6   >               ">"
+  2:8   INT             "10"
+  2:10  )               ")"
+  2:12  {               "{"
+  3:4   IDENT           "print"
+  3:9   (               "("
+  3:10  STRING          "large"
+  3:17  )               ")"
+  3:18  ;               ";"
+  4:0   }               "}"
+  4:2   else            "else"
+  4:7   {               "{"
+  5:4   IDENT           "print"
+  5:9   (               "("
+  5:10  STRING          "small"
+  5:17  )               ")"
+  5:18  ;               ";"
+  6:0   }               "}"
+  7:0   EOF             ""

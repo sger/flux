@@ -1,0 +1,26 @@
+---
+source: tests/snapshots/diagnostics/mod.rs
+expression: output
+---
+Found 2 warnings.
+
+--> a.flx
+--> warning[E100]: TEST A
+
+message a
+
+  --> a.flx:1:5
+  |
+1 | let x = 1;
+  |     ^
+
+
+--> b.flx
+--> warning[W200]: TEST B
+
+message b
+
+  --> b.flx:1:5
+  |
+1 | let y = 2;
+  |     ^

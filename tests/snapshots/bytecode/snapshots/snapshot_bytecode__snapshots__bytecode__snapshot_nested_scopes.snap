@@ -1,0 +1,7 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Parse Errors:
+  - Diagnostic { severity: Error, title: "EXPECTED EXPRESSION", code: Some("E031"), error_type: Some(Compiler), message: Some("Expected expression, found let."), file: Some(""), span: Some(Span { start: Position { line: 4, column: 4 }, end: Position { line: 4, column: 7 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "EXPECTED EXPRESSION", code: Some("E031"), error_type: Some(Compiler), message: Some("Expected expression, found let."), file: Some(""), span: Some(Span { start: Position { line: 6, column: 8 }, end: Position { line: 6, column: 11 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }

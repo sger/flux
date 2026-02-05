@@ -1,0 +1,15 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  1:0   let             "let"
+  1:4   IDENT           "double"
+  1:11  =               "="
+  1:13  ILLEGAL         "|"
+  1:14  IDENT           "x"
+  1:15  ILLEGAL         "|"
+  1:17  IDENT           "x"
+  1:19  *               "*"
+  1:21  INT             "2"
+  1:22  ;               ";"
+  1:23  EOF             ""
