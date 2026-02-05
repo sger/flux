@@ -2,8 +2,8 @@ use crate::{
     bytecode::op_code::OpCode,
     frontend::{
         diagnostics::{
-            DIVISION_BY_ZERO_RUNTIME, Diagnostic, DiagnosticsAggregator, ErrorType, HintChain,
-            INVALID_OPERATION,
+            runtime_errors::invalid_operation, DIVISION_BY_ZERO_RUNTIME, DiagnosticsAggregator,
+            HintChain, INVALID_OPERATION,
         },
         position::{Position, Span},
     },
@@ -101,18 +101,14 @@ impl VM {
                     ])
                     .with_conclusion("Flux requires explicit type conversions for safety");
 
-                    let diag = Diagnostic::error("INVALID OPERATION")
-                        .with_code("E1009")
-                        .with_error_type(ErrorType::Runtime)
-                        .with_message(format!(
-                            "Cannot {} {} and {} values.",
-                            op_name,
-                            left.type_name(),
-                            right.type_name()
-                        ))
-                        .with_file(file.clone())
-                        .with_span(span)
-                        .with_hint_chain(chain);
+                    let diag = invalid_operation(
+                        op_name,
+                        left.type_name(),
+                        right.type_name(),
+                        file.clone(),
+                        span,
+                    )
+                    .with_hint_chain(chain);
 
                     let source = std::fs::read_to_string(&file).ok();
                     let mut rendered = if let Some(src) = source.as_deref() {

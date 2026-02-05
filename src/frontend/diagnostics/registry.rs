@@ -122,6 +122,7 @@ pub fn lookup_error_code(code: &str) -> Option<&'static ErrorCode> {
 }
 
 /// Create a diagnostic from an error code (without message formatting)
+#[allow(deprecated)]
 pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
     Diagnostic::error(code.title)
         .with_code(code.code)
