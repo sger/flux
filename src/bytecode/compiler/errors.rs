@@ -6,7 +6,7 @@ use crate::frontend::{
     position::Span,
 };
 
-use super::{suggestions::find_similar_names, CompileResult, Compiler};
+use super::{CompileResult, Compiler, suggestions::find_similar_names};
 
 impl Compiler {
     pub(super) fn make_immutability_error(&self, name: &str, span: Span) -> Diagnostic {

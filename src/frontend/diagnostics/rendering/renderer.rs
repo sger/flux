@@ -260,8 +260,7 @@ pub fn render_hints(
     };
 
     // Separate hints into those with and without spans
-    let (text_hints, span_hints): (Vec<_>, Vec<_>) =
-        hints.iter().partition(|h| h.span.is_none());
+    let (text_hints, span_hints): (Vec<_>, Vec<_>) = hints.iter().partition(|h| h.span.is_none());
 
     let has_text_hints = !text_hints.is_empty();
 

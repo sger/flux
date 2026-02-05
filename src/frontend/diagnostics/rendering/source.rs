@@ -3,9 +3,9 @@
 //! This module provides functions for rendering source code snippets with error highlighting,
 //! including carets, labels, and inline suggestions.
 
+use super::colors::Colors;
 use crate::frontend::diagnostics::types::{Label, LabelStyle};
 use crate::frontend::position::Span;
-use super::colors::Colors;
 
 /// Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
@@ -91,30 +91,29 @@ pub fn render_source_snippet(
 
             // Render primary caret if this line is in the primary span
             if render_primary {
-                let (caret_start, caret_end) =
-                    if line_no == start_line && line_no == end_line {
-                        // Handle end-of-line sentinel value
-                        let start = if span.start.column >= END_OF_LINE_SENTINEL {
-                            line_len
-                        } else {
-                            span.start.column.min(line_len)
-                        };
-                        let end = if span.end.column >= END_OF_LINE_SENTINEL {
-                            line_len
-                        } else {
-                            span.end.column.min(line_len)
-                        };
-                        let end = end.max(start + 1);
-                        (start, end)
-                    } else if line_no == start_line {
-                        let start = span.start.column.min(line_len);
-                        (start, line_len.max(start + 1))
-                    } else if line_no == end_line {
-                        let end = span.end.column.min(line_len);
-                        (0, end.max(1))
+                let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
+                    // Handle end-of-line sentinel value
+                    let start = if span.start.column >= END_OF_LINE_SENTINEL {
+                        line_len
                     } else {
-                        (0, line_len.max(1))
+                        span.start.column.min(line_len)
                     };
+                    let end = if span.end.column >= END_OF_LINE_SENTINEL {
+                        line_len
+                    } else {
+                        span.end.column.min(line_len)
+                    };
+                    let end = end.max(start + 1);
+                    (start, end)
+                } else if line_no == start_line {
+                    let start = span.start.column.min(line_len);
+                    (start, line_len.max(start + 1))
+                } else if line_no == end_line {
+                    let end = span.end.column.min(line_len);
+                    (0, end.max(1))
+                } else {
+                    (0, line_len.max(1))
+                };
 
                 out.push_str(&format!(
                     "{:>width$} | {}",
@@ -137,8 +136,7 @@ pub fn render_source_snippet(
                 // Only render labels that are on this specific line
                 if label.span.start.line == line_no && label.span.end.line == line_no {
                     let label_start = label.span.start.column.min(line_len);
-                    let label_end =
-                        label.span.end.column.min(line_len).max(label_start + 1);
+                    let label_end = label.span.end.column.min(line_len).max(label_start + 1);
                     let label_len = label_end.saturating_sub(label_start);
 
                     // Choose color based on label style
@@ -183,12 +181,7 @@ pub fn render_source_snippet(
 /// - `source`: Optional source code text
 /// - `span`: The span to highlight
 /// - `use_color`: Whether to use ANSI color codes
-pub fn render_hint_snippet(
-    out: &mut String,
-    source: Option<&str>,
-    span: Span,
-    use_color: bool,
-) {
+pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, use_color: bool) {
     let colors = if use_color {
         Colors::with_color()
     } else {

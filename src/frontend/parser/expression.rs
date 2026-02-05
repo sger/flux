@@ -2,7 +2,7 @@ use crate::frontend::{
     block::Block,
     diagnostics::{
         DiagnosticBuilder,
-        compiler_errors::{invalid_pattern, lambda_syntax_error, pipe_target_error},
+        compiler_errors::{invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error},
     },
     expression::{Expression, MatchArm, Pattern},
     position::Span,
@@ -214,6 +214,34 @@ impl Parser {
     pub(super) fn parse_grouped_expression(&mut self) -> Option<Expression> {
         self.next_token();
         let expression = self.parse_expression(Precedence::Lowest)?;
+
+        // Tuple-like input "(a b)" is a common missing-comma error. Flux currently
+        // treats parenthesized forms as grouped expressions; recover to ')' to avoid
+        // cascading diagnostics and keep parsing subsequent statements.
+        if self.token_starts_expression(self.peek_token.token_type) {
+            self.errors
+                .push(missing_comma(self.peek_token.span(), "items", "`(a, b)`"));
+
+            // Recover to the matching ')' of this group.
+            let mut nested_parens = 0usize;
+            while self.peek_token.token_type != TokenType::Eof {
+                match self.peek_token.token_type {
+                    TokenType::LParen => {
+                        nested_parens += 1;
+                        self.next_token();
+                    }
+                    TokenType::RParen => {
+                        if nested_parens == 0 {
+                            break;
+                        }
+                        nested_parens -= 1;
+                        self.next_token();
+                    }
+                    _ => self.next_token(),
+                }
+            }
+        }
+
         if !self.expect_peek(TokenType::RParen) {
             return None;
         }
