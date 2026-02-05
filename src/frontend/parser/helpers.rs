@@ -12,6 +12,8 @@ use crate::frontend::{
 
 use super::Parser;
 
+const LIST_ERROR_LIMIT: usize = 50;
+
 impl Parser {
     // Token navigation
     pub(super) fn next_token(&mut self) {
@@ -51,6 +53,41 @@ impl Parser {
         } else {
             false
         }
+    }
+
+    pub(super) fn list_error_limit(&self) -> usize {
+        LIST_ERROR_LIMIT
+    }
+
+    pub(super) fn list_diag_count_since(&self, diag_start: usize) -> usize {
+        self.errors.len().saturating_sub(diag_start)
+    }
+
+    pub(super) fn check_list_error_limit(
+        &mut self,
+        diag_start: usize,
+        end: TokenType,
+        partial_reason: &str,
+    ) -> bool {
+        if self.list_diag_count_since(diag_start) < LIST_ERROR_LIMIT {
+            return false;
+        }
+
+        let span = if self.peek_token.token_type != TokenType::Eof {
+            self.peek_token.span()
+        } else {
+            self.current_token.span()
+        };
+
+        self.errors.push(unexpected_token(
+            span,
+            format!(
+                "Too many errors in this {}; stopping after {} errors.",
+                partial_reason, LIST_ERROR_LIMIT
+            ),
+        ));
+        self.sync_to_list_end(end);
+        true
     }
 
     // Span/position utilities
@@ -125,6 +162,7 @@ impl Parser {
     pub(super) fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
         debug_assert!(self.is_current_token(TokenType::LParen));
         let mut identifiers = Vec::new();
+        let diag_start = self.errors.len();
 
         // Empty list: ()
         if self.consume_if_peek(TokenType::RParen) {
@@ -144,6 +182,9 @@ impl Parser {
             if let Some(param) = self.parse_parameter_identifier_or_recover() {
                 identifiers.push(param);
                 self.next_token(); // move to delimiter after a valid parameter
+            }
+            if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list") {
+                return Some(identifiers);
             }
             // else: current_token is already at delimiter due to recovery
 
@@ -168,6 +209,10 @@ impl Parser {
                             self.current_token.token_type
                         ),
                     ));
+                    if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
+                    {
+                        return Some(identifiers);
+                    }
 
                     // Recover to a safe delimiter
                     while !matches!(
@@ -209,6 +254,7 @@ impl Parser {
     pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
         let mut list = Vec::new();
         let mut last_missing_comma_at = None;
+        let diag_start = self.errors.len();
 
         if self.consume_if_peek(end) {
             return Some(list);
@@ -227,6 +273,9 @@ impl Parser {
                     self.current_token.span(),
                     "Expected expression after `,`, got `,`.",
                 ));
+                if self.check_list_error_limit(diag_start, end, "list") {
+                    return Some(list);
+                }
                 continue;
             }
 
@@ -235,6 +284,9 @@ impl Parser {
                     self.current_token.span(),
                     format!("Expected `{}` before end of file.", end),
                 ));
+                if self.check_list_error_limit(diag_start, end, "list") {
+                    return Some(list);
+                }
                 return None;
             }
 
@@ -269,6 +321,9 @@ impl Parser {
                     self.errors
                         .push(missing_comma(self.peek_token.span(), context, example));
                     last_missing_comma_at = Some(missing_comma_at);
+                    if self.check_list_error_limit(diag_start, end, "list") {
+                        return Some(list);
+                    }
                 }
                 // Pretend a comma existed and continue parsing the next list item.
                 continue;
@@ -281,6 +336,9 @@ impl Parser {
                     end, self.peek_token.token_type
                 ),
             ));
+            if self.check_list_error_limit(diag_start, end, "list") {
+                return Some(list);
+            }
 
             self.recover_expression_list_to_delimiter(end);
 
@@ -305,6 +363,9 @@ impl Parser {
             };
             self.errors
                 .push(unexpected_token(self.peek_token.span(), message));
+            if self.check_list_error_limit(diag_start, end, "list") {
+                return Some(list);
+            }
             return None;
         }
     }
@@ -343,6 +404,34 @@ impl Parser {
 
             if at_top_level && (token_type == TokenType::Comma || token_type == end) {
                 break;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
+        }
+    }
+
+    pub(super) fn sync_to_list_end(&mut self, end: TokenType) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+
+        while self.peek_token.token_type != TokenType::Eof {
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+            let token_type = self.peek_token.token_type;
+
+            if at_top_level && token_type == end {
+                self.next_token(); // consume end delimiter
+                return;
             }
 
             match token_type {

@@ -339,6 +339,7 @@ impl Parser {
         }
 
         let mut arms = Vec::new();
+        let diag_start = self.errors.len();
 
         while !self.is_peek_token(TokenType::RBrace) {
             self.next_token();
@@ -368,6 +369,14 @@ impl Parser {
                         self.peek_token.span(),
                         "Match arms must be separated by `,`, not `;`.",
                     ));
+                    if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+                    {
+                        return Some(Expression::Match {
+                            scrutinee: Box::new(scrutinee),
+                            arms,
+                            span: Span::new(start, self.current_token.end_position),
+                        });
+                    }
                     // Recover by treating `;` as a comma separator.
                     self.next_token();
                 }
@@ -376,7 +385,19 @@ impl Parser {
                         self.peek_token.span(),
                         "Expected `}` to close match expression before end of file.",
                     ));
-                    return None;
+                    if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+                    {
+                        return Some(Expression::Match {
+                            scrutinee: Box::new(scrutinee),
+                            arms,
+                            span: Span::new(start, self.current_token.end_position),
+                        });
+                    }
+                    return Some(Expression::Match {
+                        scrutinee: Box::new(scrutinee),
+                        arms,
+                        span: Span::new(start, self.current_token.end_position),
+                    });
                 }
                 _ => {
                     self.errors.push(unexpected_token(
@@ -386,6 +407,14 @@ impl Parser {
                             self.peek_token.token_type
                         ),
                     ));
+                    if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+                    {
+                        return Some(Expression::Match {
+                            scrutinee: Box::new(scrutinee),
+                            arms,
+                            span: Span::new(start, self.current_token.end_position),
+                        });
+                    }
 
                     while !matches!(
                         self.peek_token.token_type,
@@ -406,6 +435,17 @@ impl Parser {
                                 self.peek_token.span(),
                                 "Match arms must be separated by `,`, not `;`.",
                             ));
+                            if self.check_list_error_limit(
+                                diag_start,
+                                TokenType::RBrace,
+                                "match arm list",
+                            ) {
+                                return Some(Expression::Match {
+                                    scrutinee: Box::new(scrutinee),
+                                    arms,
+                                    span: Span::new(start, self.current_token.end_position),
+                                });
+                            }
                             self.next_token();
                         }
                         TokenType::RBrace => {}
@@ -414,7 +454,22 @@ impl Parser {
                                 self.peek_token.span(),
                                 "Expected `}` to close match expression before end of file.",
                             ));
-                            return None;
+                            if self.check_list_error_limit(
+                                diag_start,
+                                TokenType::RBrace,
+                                "match arm list",
+                            ) {
+                                return Some(Expression::Match {
+                                    scrutinee: Box::new(scrutinee),
+                                    arms,
+                                    span: Span::new(start, self.current_token.end_position),
+                                });
+                            }
+                            return Some(Expression::Match {
+                                scrutinee: Box::new(scrutinee),
+                                arms,
+                                span: Span::new(start, self.current_token.end_position),
+                            });
                         }
                         _ => {}
                     }
