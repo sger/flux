@@ -30,13 +30,14 @@ impl Parser {
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
             TokenType::UnterminatedString => {
-                if self.suppress_unterminated_string_error {
-                    self.suppress_unterminated_string_error = false;
-                    None
-                } else {
+                let should_suppress = self
+                    .suppress_unterminated_string_error_at
+                    .take()
+                    .is_some_and(|pos| pos == self.current_token.position);
+                if !should_suppress {
                     self.unterminated_string_error();
-                    None
                 }
+                None
             }
             TokenType::InterpolationStart => self.parse_interpolation_start(),
             TokenType::True | TokenType::False => self.parse_boolean(),
