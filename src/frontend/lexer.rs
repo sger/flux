@@ -2,6 +2,13 @@ use crate::frontend::position::Position;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::{TokenType, lookup_ident};
 
+/// Warning emitted during lexing
+#[derive(Debug, Clone)]
+pub struct LexerWarning {
+    pub message: String,
+    pub position: Position,
+}
+
 #[derive(Debug, Clone)]
 enum LexerState {
     Normal,
@@ -20,6 +27,7 @@ pub struct Lexer {
     line: usize,
     column: usize,
     state: LexerState,
+    warnings: Vec<LexerWarning>,
 }
 
 impl Lexer {
@@ -32,9 +40,15 @@ impl Lexer {
             line: 1,
             column: 0,
             state: LexerState::Normal,
+            warnings: Vec::new(),
         };
         lexer.read_char();
         lexer
+    }
+
+    /// Get warnings collected during lexing
+    pub fn warnings(&self) -> &[LexerWarning] {
+        &self.warnings
     }
 
     /// Get the next token from the input
@@ -430,7 +444,14 @@ impl Lexer {
             Some('"') => Some('"'),
             Some('#') => Some('#'), // \# for literal #
             Some(c) => {
-                // Unknown escape - just return the character as-is
+                // Unknown escape - emit warning and return the character as-is
+                self.warnings.push(LexerWarning {
+                    message: format!(
+                        "Unknown escape sequence '\\{}'. Valid escapes are: \\n \\t \\r \\\\ \\\" \\#",
+                        c
+                    ),
+                    position: Position::new(self.line, self.column),
+                });
                 Some(c)
             }
             None => None,

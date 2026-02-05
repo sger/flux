@@ -479,4 +479,97 @@ fun fib(n) {
             assert_eq!(lexer.next_token().token_type, expected_type);
         }
     }
+
+    #[test]
+    fn unknown_escape_sequences_pass_through() {
+        // Document lexer behavior: unknown escapes are accepted and pass through
+        // The linter will warn about these (W011), but the lexer is permissive
+        let tests = vec![
+            (r#""\x""#, "x"),
+            (r#""\q""#, "q"),
+            (r#""\s""#, "s"),
+            (r#""\a\b\c""#, "abc"),
+        ];
+
+        for (input, expected) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(
+                tok.token_type,
+                TokenType::String,
+                "Should tokenize as String for input: {}",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected,
+                "Unknown escapes should pass through for input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn valid_escape_sequences_work_correctly() {
+        // Verify that all valid escape sequences are handled correctly
+        let tests = vec![
+            (r#""\n""#, "\n"),
+            (r#""\t""#, "\t"),
+            (r#""\r""#, "\r"),
+            (r#""\\""#, "\\"),
+            (r#""\"""#, "\""),
+            (r#""\#""#, "#"),
+            (r#""\n\t\r""#, "\n\t\r"),
+        ];
+
+        for (input, expected) in tests {
+            let mut lexer = Lexer::new(input);
+            let tok = lexer.next_token();
+            assert_eq!(tok.token_type, TokenType::String);
+            assert_eq!(
+                tok.literal, expected,
+                "Escape sequence should be processed correctly for input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn lexer_warns_on_unknown_escape_sequences() {
+        let mut lexer = Lexer::new(r#""\x\q\s""#);
+        let tok = lexer.next_token();
+
+        assert_eq!(tok.token_type, TokenType::String);
+        assert_eq!(tok.literal, "xqs"); // Escapes pass through
+
+        let warnings = lexer.warnings();
+        assert_eq!(
+            warnings.len(),
+            3,
+            "Should emit warning for each unknown escape"
+        );
+        assert!(warnings[0].message.contains("Unknown escape sequence"));
+        assert!(warnings[0].message.contains("\\x"));
+    }
+
+    #[test]
+    fn lexer_no_warnings_for_valid_escapes() {
+        let mut lexer = Lexer::new(r#""\n\t\r\\\"\#""#);
+        lexer.next_token();
+
+        let warnings = lexer.warnings();
+        assert_eq!(warnings.len(), 0, "Valid escapes should not produce warnings");
+    }
+
+    #[test]
+    fn lexer_warns_in_interpolated_strings() {
+        let mut lexer = Lexer::new(r#""hello \x world""#);
+        let tok = lexer.next_token();
+
+        assert_eq!(tok.token_type, TokenType::String);
+        assert_eq!(tok.literal, "hello x world");
+
+        let warnings = lexer.warnings();
+        assert!(warnings.len() > 0, "Should warn about unknown escape");
+        assert!(warnings[0].message.contains("\\x"));
+    }
 }
