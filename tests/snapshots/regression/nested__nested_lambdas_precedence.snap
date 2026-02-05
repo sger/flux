@@ -1,0 +1,7 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/nested/nested_lambdas_precedence.flx
+exit_code: 0
+
+5

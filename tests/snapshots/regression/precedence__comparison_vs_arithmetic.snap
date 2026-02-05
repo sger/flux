@@ -1,0 +1,8 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/precedence/comparison_vs_arithmetic.flx
+exit_code: 0
+
+true
+true

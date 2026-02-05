@@ -1,0 +1,32 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/missing_commas_then_continue.flx
+exit_code: 1
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> tests/fixtures/recovery/missing_commas_then_continue.flx:1:9
+  |
+1 | print(1 2 3);
+  |         ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> tests/fixtures/recovery/missing_commas_then_continue.flx:1:11
+  |
+1 | print(1 2 3);
+  |           ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Found 2 errors.

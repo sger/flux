@@ -1,0 +1,17 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/unterminated_string_then_continue.flx
+exit_code: 1
+
+--> compiler error[E071]: UNTERMINATED STRING
+
+String literal is missing closing quote.
+
+  --> tests/fixtures/recovery/unterminated_string_then_continue.flx:1:9
+  |
+1 | let s = "oops
+  |         ^^^^^
+
+Hint:
+  Add a closing " at the end of the string.

@@ -1,0 +1,3 @@
+f([1 2 3], g(4 5), [true false]);
+let ok = 1;
+print(ok);
