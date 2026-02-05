@@ -15,7 +15,9 @@ impl Parser {
     pub(super) fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left = self.parse_prefix()?;
 
-        while !self.is_peek_token(TokenType::Semicolon) && precedence < self.peek_precedence() {
+        while !self.is_expression_terminator(self.peek_token.token_type)
+            && precedence < self.peek_precedence()
+        {
             self.next_token();
             left = self.parse_infix(left)?;
         }
@@ -163,7 +165,7 @@ impl Parser {
         Some(Expression::Call {
             function: Box::new(function),
             arguments,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -179,7 +181,7 @@ impl Parser {
         Some(Expression::Index {
             left: Box::new(left),
             index: Box::new(index),
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -194,7 +196,7 @@ impl Parser {
         Some(Expression::MemberAccess {
             object: Box::new(object),
             member,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -227,7 +229,7 @@ impl Parser {
         let elements = self.parse_expression_list(TokenType::RBracket)?;
         Some(Expression::Array {
             elements,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -260,7 +262,7 @@ impl Parser {
 
         Some(Expression::Hash {
             pairs,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -291,7 +293,7 @@ impl Parser {
             condition: Box::new(condition),
             consequence,
             alternative,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -340,7 +342,7 @@ impl Parser {
         Some(Expression::Match {
             scrutinee: Box::new(scrutinee),
             arms,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -348,14 +350,14 @@ impl Parser {
         let start = self.current_token.position;
         match &self.current_token.token_type {
             TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard {
-                span: Span::new(start, self.current_token.position),
+                span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Ident => Some(Pattern::Identifier {
                 name: self.current_token.literal.clone(),
-                span: Span::new(start, self.current_token.position),
+                span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::None => Some(Pattern::None {
-                span: Span::new(start, self.current_token.position),
+                span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Some => {
                 if !self.expect_peek(TokenType::LParen) {
@@ -368,7 +370,7 @@ impl Parser {
                 }
                 Some(Pattern::Some {
                     pattern: Box::new(inner_pattern),
-                    span: Span::new(start, self.current_token.position),
+                    span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Left => {
@@ -382,7 +384,7 @@ impl Parser {
                 }
                 Some(Pattern::Left {
                     pattern: Box::new(inner_pattern),
-                    span: Span::new(start, self.current_token.position),
+                    span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Right => {
@@ -396,7 +398,7 @@ impl Parser {
                 }
                 Some(Pattern::Right {
                     pattern: Box::new(inner_pattern),
-                    span: Span::new(start, self.current_token.position),
+                    span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Int
@@ -443,28 +445,25 @@ impl Parser {
         Some(Expression::Function {
             parameters,
             body,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
     /// Parse a lambda expression: \x -> expr, \(x, y) -> expr, \() -> expr
     pub(super) fn parse_lambda(&mut self) -> Option<Expression> {
+        debug_assert!(self.is_current_token(TokenType::Backslash));
         let start = self.current_token.position;
 
-        // Move past the backslash
+        // Consume `\` and position on the first parameter token or `(`.
         self.next_token();
 
         // Parse parameters
         let parameters = if self.is_current_token(TokenType::LParen) {
             // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
-            let params = self.parse_function_parameters()?;
-            self.next_token(); // move past )
-            params
+            self.parse_function_parameters()?
         } else if self.is_current_token(TokenType::Ident) {
             // Single unparenthesized parameter: \x ->
-            let param = self.current_token.literal.clone();
-            self.next_token();
-            vec![param]
+            vec![self.current_token.literal.clone()]
         } else {
             self.errors.push(
                 Diagnostic::error("INVALID LAMBDA")
@@ -478,25 +477,23 @@ impl Parser {
         };
 
         // Expect ->
-        if !self.is_current_token(TokenType::Arrow) {
+        if !self.is_peek_token(TokenType::Arrow) {
             self.errors.push(
                 Diagnostic::error("EXPECTED ARROW")
                     .with_code("E107")
                     .with_error_type(ErrorType::Compiler)
-                    .with_span(self.current_token.span())
+                    .with_span(self.peek_token.span())
                     .with_message(format!(
-                        "Expected `->` after lambda parameters, found `{}`.",
-                        self.current_token.token_type
+                        "Expected `->` after lambda parameters, got `{}`.",
+                        self.peek_token.token_type
                     ))
-                    .with_note(
-                        "Lambda functions are anonymous functions defined with backslash syntax",
-                    )
-                    .with_help("Use `\\parameter -> expression` for the lambda syntax")
-                    .with_example("let double = \\x -> x * 2;\nlet add = \\(a, b) -> a + b;"),
+                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
+                    .with_example("let add = \\(a, b) -> a + b;"),
             );
             return None;
         }
-        self.next_token(); // consume ->
+        self.next_token(); // consume `->`
+        self.next_token(); // move to lambda body
 
         // Parse body
         let body = if self.is_current_token(TokenType::LBrace) {
@@ -510,7 +507,7 @@ impl Parser {
             Block {
                 statements: vec![Statement::Expression {
                     expression: expr,
-                    span: Span::new(expr_start, self.current_token.position),
+                    span: Span::new(expr_start, self.current_token.end_position),
                 }],
                 span: expr_span,
             }
@@ -519,7 +516,7 @@ impl Parser {
         Some(Expression::Function {
             parameters,
             body,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -527,7 +524,7 @@ impl Parser {
     pub(super) fn parse_none(&self) -> Option<Expression> {
         let start = self.current_token.position;
         Some(Expression::None {
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -543,7 +540,7 @@ impl Parser {
         }
         Some(Expression::Some {
             value: Box::new(value),
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -563,7 +560,7 @@ impl Parser {
 
         Some(Expression::Left {
             value: Box::new(value),
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -583,7 +580,7 @@ impl Parser {
 
         Some(Expression::Right {
             value: Box::new(value),
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 }

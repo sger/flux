@@ -11,24 +11,27 @@ use super::Parser;
 impl Parser {
     pub(super) fn parse_identifier(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+        if !super::is_pascal_case_ident(&self.current_token) {
+            return Some(Expression::Identifier {
+                name: self.current_token.literal.clone(),
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
         let mut name = self.current_token.literal.clone();
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
-        if super::is_pascal_case_ident(&self.current_token) {
-            while self.is_peek_token(TokenType::Dot)
-                && super::is_pascal_case_ident(&self.peek2_token)
-            {
-                self.next_token(); // consume '.'
-                if !self.expect_peek(TokenType::Ident) {
-                    return None;
-                }
-                name.push('.');
-                name.push_str(&self.current_token.literal);
+        while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
+            self.next_token(); // consume '.'
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
             }
+            name.push('.');
+            name.push_str(&self.current_token.literal);
         }
         Some(Expression::Identifier {
             name,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -37,7 +40,7 @@ impl Parser {
         match self.current_token.literal.parse::<i64>() {
             Ok(value) => Some(Expression::Integer {
                 value,
-                span: Span::new(start, self.current_token.position),
+                span: Span::new(start, self.current_token.end_position),
             }),
             Err(_) => {
                 self.errors.push(
@@ -60,7 +63,7 @@ impl Parser {
         match self.current_token.literal.parse::<f64>() {
             Ok(value) => Some(Expression::Float {
                 value,
-                span: Span::new(start, self.current_token.position),
+                span: Span::new(start, self.current_token.end_position),
             }),
             Err(_) => {
                 self.errors.push(
@@ -85,7 +88,7 @@ impl Parser {
         // Simple string - no interpolation
         Some(Expression::String {
             value: first_part,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -184,7 +187,7 @@ impl Parser {
 
         Some(Expression::InterpolatedString {
             parts,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 
@@ -192,7 +195,7 @@ impl Parser {
         let start = self.current_token.position;
         Some(Expression::Boolean {
             value: self.current_token.token_type == TokenType::True,
-            span: Span::new(start, self.current_token.position),
+            span: Span::new(start, self.current_token.end_position),
         })
     }
 }
