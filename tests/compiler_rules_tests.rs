@@ -68,6 +68,24 @@ fn compile_err_title(input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_err_message(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let mut compiler = Compiler::new();
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first()
+        .and_then(|d| d.message().map(ToOwned::to_owned))
+        .unwrap_or_default()
+}
+
 #[test]
 fn import_top_level_ok() {
     compile_ok_in(
@@ -141,9 +159,58 @@ fn immutable_reassign_error() {
 }
 
 #[test]
+fn binding_shadowing_sample_program_reports_duplicate_name_for_inner_let() {
+    let code = compile_err(
+        r#"
+let x = 3
+
+fun t(x) {
+    let x = x;
+}
+"#,
+    );
+    assert_eq!(code, "E001");
+}
+
+#[test]
+fn binding_shadowing_sample_program_duplicate_message_is_clear() {
+    let message = compile_err_message(
+        r#"
+let x = 3
+
+fun t(x) {
+    let x = x;
+}
+"#,
+    );
+    assert!(
+        message.contains("Duplicate binding: `x`"),
+        "expected duplicate-name message, got: {message}"
+    );
+}
+
+#[test]
+fn parameter_shadowing_outer_binding_without_inner_duplicate_is_allowed() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+let x = 3
+fun t(x) { x; }
+t(9);
+"#,
+    );
+}
+
+#[test]
 fn assignment_in_block_reassign_error() {
     let code = compile_err("fun f() { let x = 1; x = 2; }");
     assert_eq!(code, "E002");
+}
+
+#[test]
+fn duplicate_let_in_same_scope_errors() {
+    let code = compile_err("fun bad() { let x = 1; let x = 2; }");
+    assert_eq!(code, "E001");
 }
 
 #[test]
