@@ -1,8 +1,11 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::frontend::{
     diagnostics::{
-        Diagnostic, DUPLICATE_MODULE, IMPORT_NOT_FOUND, IMPORT_READ_FAILED, INVALID_MODULE_ALIAS,
+        DUPLICATE_MODULE, Diagnostic, IMPORT_NOT_FOUND, IMPORT_READ_FAILED, INVALID_MODULE_ALIAS,
         INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH, MULTIPLE_MODULES,
         SCRIPT_NOT_IMPORTABLE,
     },
@@ -14,8 +17,8 @@ use crate::frontend::{
 };
 
 use super::{
-    module_binding::{is_valid_module_alias, is_valid_module_name},
     ImportEdge, ModuleId,
+    module_binding::{is_valid_module_alias, is_valid_module_name},
 };
 
 pub(super) fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {

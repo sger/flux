@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::cache_serialization::{
-    read_function_debug_info, read_object, read_string, read_u16, read_u32, write_function_debug_info,
-    write_object, write_string, write_u16, write_u32,
+    read_function_debug_info, read_object, read_string, read_u16, read_u32,
+    write_function_debug_info, write_object, write_string, write_u16, write_u32,
 };
 
 fn temp_path(name: &str) -> PathBuf {

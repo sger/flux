@@ -10,8 +10,11 @@ fn len_works_for_string_and_array() {
     let result = builtin_len(vec![Object::String("abc".to_string())]).unwrap();
     assert_eq!(result, Object::Integer(3));
 
-    let result = builtin_len(vec![Object::Array(vec![Object::Integer(1), Object::Integer(2)])])
-        .unwrap();
+    let result = builtin_len(vec![Object::Array(vec![
+        Object::Integer(1),
+        Object::Integer(2),
+    ])])
+    .unwrap();
     assert_eq!(result, Object::Integer(2));
 }
 
@@ -35,17 +38,29 @@ fn push_concat_reverse_contains_slice() {
     let pushed = builtin_push(vec![arr.clone(), Object::Integer(3)]).unwrap();
     assert_eq!(
         pushed,
-        Object::Array(vec![Object::Integer(1), Object::Integer(2), Object::Integer(3)])
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(2),
+            Object::Integer(3)
+        ])
     );
 
-    let concat = builtin_concat(vec![arr.clone(), Object::Array(vec![Object::Integer(3)])]).unwrap();
+    let concat =
+        builtin_concat(vec![arr.clone(), Object::Array(vec![Object::Integer(3)])]).unwrap();
     assert_eq!(
         concat,
-        Object::Array(vec![Object::Integer(1), Object::Integer(2), Object::Integer(3)])
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(2),
+            Object::Integer(3)
+        ])
     );
 
     let reversed = builtin_reverse(vec![arr.clone()]).unwrap();
-    assert_eq!(reversed, Object::Array(vec![Object::Integer(2), Object::Integer(1)]));
+    assert_eq!(
+        reversed,
+        Object::Array(vec![Object::Integer(2), Object::Integer(1)])
+    );
 
     let contains = builtin_contains(vec![arr.clone(), Object::Integer(2)]).unwrap();
     assert_eq!(contains, Object::Boolean(true));
@@ -56,17 +71,29 @@ fn push_concat_reverse_contains_slice() {
 
 #[test]
 fn sort_default_and_desc() {
-    let arr = Object::Array(vec![Object::Integer(3), Object::Integer(1), Object::Integer(2)]);
+    let arr = Object::Array(vec![
+        Object::Integer(3),
+        Object::Integer(1),
+        Object::Integer(2),
+    ]);
     let sorted = builtin_sort(vec![arr.clone()]).unwrap();
     assert_eq!(
         sorted,
-        Object::Array(vec![Object::Integer(1), Object::Integer(2), Object::Integer(3)])
+        Object::Array(vec![
+            Object::Integer(1),
+            Object::Integer(2),
+            Object::Integer(3)
+        ])
     );
 
     let sorted_desc = builtin_sort(vec![arr, Object::String("desc".to_string())]).unwrap();
     assert_eq!(
         sorted_desc,
-        Object::Array(vec![Object::Integer(3), Object::Integer(2), Object::Integer(1)])
+        Object::Array(vec![
+            Object::Integer(3),
+            Object::Integer(2),
+            Object::Integer(1)
+        ])
     );
 }
 

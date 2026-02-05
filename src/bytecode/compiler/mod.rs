@@ -9,9 +9,7 @@ use crate::{
         symbol_table::SymbolTable,
     },
     frontend::{
-        diagnostics::{
-            CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code,
-        },
+        diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
         position::{Position, Span},
         program::Program,
         statement::Statement,
@@ -19,9 +17,9 @@ use crate::{
     runtime::object::Object,
 };
 
-mod expression;
-mod errors;
 mod builder;
+mod errors;
+mod expression;
 mod statement;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;

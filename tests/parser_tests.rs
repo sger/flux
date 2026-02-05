@@ -99,6 +99,25 @@ mod tests {
     }
 
     #[test]
+    fn test_unterminated_string_error_uses_lexer_end_position() {
+        let input = "\"http://example.com";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E071"))
+            .expect("expected E071 unterminated string diagnostic");
+        let span = diag.span().expect("expected diagnostic span");
+
+        assert_eq!(span.start, span.end);
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, input.chars().count());
+    }
+
+    #[test]
     fn test_string_interpolation_simple() {
         let program = parse(r#""Hello #{name}""#);
         assert_eq!(program.statements.len(), 1);

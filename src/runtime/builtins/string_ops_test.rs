@@ -1,8 +1,8 @@
 use crate::runtime::object::Object;
 
 use super::string_ops::{
-    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring, builtin_to_string,
-    builtin_trim, builtin_upper,
+    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring,
+    builtin_to_string, builtin_trim, builtin_upper,
 };
 
 #[test]
@@ -21,7 +21,10 @@ fn split_empty_delim_splits_chars() {
 
     assert_eq!(
         result,
-        Object::Array(vec![Object::String("a".to_string()), Object::String("b".to_string())])
+        Object::Array(vec![
+            Object::String("a".to_string()),
+            Object::String("b".to_string())
+        ])
     );
 }
 
@@ -49,7 +52,10 @@ fn trim_upper_lower_chars() {
     let chars = builtin_chars(vec![Object::String("ab".to_string())]).unwrap();
     assert_eq!(
         chars,
-        Object::Array(vec![Object::String("a".to_string()), Object::String("b".to_string())])
+        Object::Array(vec![
+            Object::String("a".to_string()),
+            Object::String("b".to_string())
+        ])
     );
 }
 

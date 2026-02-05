@@ -1,9 +1,5 @@
 use crate::frontend::{
-    diagnostics::Diagnostic,
-    lexer::Lexer,
-    position::Span,
-    program::Program,
-    token::Token,
+    diagnostics::Diagnostic, lexer::Lexer, position::Span, program::Program, token::Token,
     token_type::TokenType,
 };
 

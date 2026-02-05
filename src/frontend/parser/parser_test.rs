@@ -60,7 +60,7 @@ fn parses_import_without_alias() {
 
 #[test]
 fn invalid_keyword_reports_error() {
-    let lexer = Lexer::new("fn add() { }" );
+    let lexer = Lexer::new("fn add() { }");
     let mut parser = Parser::new(lexer);
     let _ = parser.parse_program();
     assert!(!parser.errors.is_empty());

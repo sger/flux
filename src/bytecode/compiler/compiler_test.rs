@@ -36,9 +36,11 @@ fn compile_string_literal_emits_constant() {
 
     let bytecode = compiler.bytecode();
 
-    assert!(bytecode
-        .constants
-        .contains(&Object::String("hello".to_string())));
+    assert!(
+        bytecode
+            .constants
+            .contains(&Object::String("hello".to_string()))
+    );
 }
 
 #[test]
@@ -49,8 +51,10 @@ fn compile_function_decl_emits_function_constant() {
 
     let bytecode = compiler.bytecode();
 
-    assert!(bytecode
-        .constants
-        .iter()
-        .any(|obj| matches!(obj, Object::Function(_))));
+    assert!(
+        bytecode
+            .constants
+            .iter()
+            .any(|obj| matches!(obj, Object::Function(_)))
+    );
 }

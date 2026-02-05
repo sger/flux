@@ -1,8 +1,6 @@
 use crate::runtime::object::Object;
 
-use super::helpers::{
-    arg_string, check_arity, check_arity_range, format_hint, type_error,
-};
+use super::helpers::{arg_string, check_arity, check_arity_range, format_hint, type_error};
 
 #[test]
 fn format_hint_includes_label() {

@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    io::Read,
-    path::Path,
-};
+use std::{fs, io::Read, path::Path};
 
 use sha2::{Digest, Sha256};
 
@@ -11,17 +7,10 @@ use super::cache_serialization::{read_string, read_u16};
 pub(super) fn validate_magic(reader: &mut std::fs::File, magic: &[u8; 4]) -> Option<()> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).ok()?;
-    if &buf == magic {
-        Some(())
-    } else {
-        None
-    }
+    if &buf == magic { Some(()) } else { None }
 }
 
-pub(super) fn validate_format_version(
-    reader: &mut std::fs::File,
-    expected: u16,
-) -> Option<u16> {
+pub(super) fn validate_format_version(reader: &mut std::fs::File, expected: u16) -> Option<u16> {
     let version = read_u16(reader)?;
     if version == expected {
         Some(version)
@@ -43,10 +32,7 @@ pub(super) fn validate_cache_key(
     }
 }
 
-pub(super) fn read_deps_and_validate(
-    reader: &mut std::fs::File,
-    deps_count: usize,
-) -> Option<()> {
+pub(super) fn read_deps_and_validate(reader: &mut std::fs::File, deps_count: usize) -> Option<()> {
     for _ in 0..deps_count {
         let dep_path = read_string(reader)?;
         let mut dep_hash = [0u8; 32];
