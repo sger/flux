@@ -18,9 +18,9 @@ let db = [
 
 fun opt_eq(opt, value) {
     match opt {
-        Some(v) -> v == value;
-        None -> false;
-        _ -> false;
+        Some(v) -> v == value,
+        None -> false,
+        _ -> false,
     };
 }
 

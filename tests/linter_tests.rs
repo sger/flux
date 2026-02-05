@@ -64,21 +64,21 @@ fn no_warn_on_used_function() {
 #[test]
 fn tracks_pattern_bindings() {
     // Pattern binding should be tracked as used
-    let output = lint("match Some(5) { Some(x) -> x; None -> 0; _ -> 0; }");
+    let output = lint("match Some(5) { Some(x) -> x, None -> 0, _ -> 0 }");
     assert!(!output.contains("W001"), "x should be tracked as used");
 }
 
 #[test]
 fn warns_on_unused_pattern_binding() {
     // Pattern binding defined but not used
-    let output = lint("match Some(5) { Some(x) -> 10; None -> 0; _ -> 0; }");
+    let output = lint("match Some(5) { Some(x) -> 10, None -> 0, _ -> 0 }");
     assert!(output.contains("W001:UNUSED VARIABLE"));
 }
 
 #[test]
 fn tracks_nested_pattern_bindings() {
     // Nested pattern (Some inside Some)
-    let output = lint("match Some(Some(5)) { Some(Some(y)) -> y; _ -> 0; }");
+    let output = lint("match Some(Some(5)) { Some(Some(y)) -> y, _ -> 0 }");
     assert!(!output.contains("W001"), "y should be tracked as used");
 }
 

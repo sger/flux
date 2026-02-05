@@ -87,6 +87,91 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_match_arms_comma_separated_is_valid() {
+        let program = parse("match x { 0 -> 1, 1 -> 2 };");
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_match_arms_trailing_comma_is_valid() {
+        let program = parse(
+            r#"
+            match x {
+                0 -> 1,
+                1 -> 2,
+            };
+        "#,
+        );
+        assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_match_arms_semicolon_separator_reports_clear_diagnostic_and_recovers() {
+        let lexer = Lexer::new("match x { 0 -> 1; 1 -> 2 }\nlet y = 3;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let sep_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| {
+                d.message()
+                    .is_some_and(|m| m.contains("Match arms must be separated by `,`, not `;`"))
+            })
+            .collect();
+        assert_eq!(sep_diags.len(), 1, "expected one separator diagnostic");
+        assert_eq!(
+            parser
+                .errors
+                .iter()
+                .filter(|d| d.code() == Some("E031"))
+                .count(),
+            0,
+            "semicolon separator recovery should avoid EXPECTED_EXPRESSION cascades"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            "expected parser to continue after invalid match separator"
+        );
+    }
+
+    #[test]
+    fn test_match_arms_mixed_separators_reports_semicolon_and_recovers() {
+        let lexer = Lexer::new("match x { 0 -> 1, 1 -> 2; _ -> 3 }\nlet y = 3;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let sep_diags: Vec<_> = parser
+            .errors
+            .iter()
+            .filter(|d| {
+                d.message()
+                    .is_some_and(|m| m.contains("Match arms must be separated by `,`, not `;`"))
+            })
+            .collect();
+        assert_eq!(sep_diags.len(), 1, "expected one separator diagnostic");
+        assert_eq!(
+            parser
+                .errors
+                .iter()
+                .filter(|d| d.code() == Some("E031"))
+                .count(),
+            0,
+            "mixed separator recovery should avoid EXPECTED_EXPRESSION cascades"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            "expected parser to continue after mixed match separators"
+        );
+    }
+
+    #[test]
     fn function_literal() {
         let program = parse("fun(x, y) { x + y; };");
         assert_eq!(program.statements.len(), 1);
@@ -837,7 +922,9 @@ let test2 = "this compiles";
                 ..
             } => {
                 assert_eq!(arguments.len(), 2);
-                assert!(matches!(&arguments[0], Expression::Array { elements, .. } if elements.len() == 2));
+                assert!(
+                    matches!(&arguments[0], Expression::Array { elements, .. } if elements.len() == 2)
+                );
                 assert!(
                     matches!(&arguments[1], Expression::Call { arguments, .. } if arguments.len() == 2)
                 );

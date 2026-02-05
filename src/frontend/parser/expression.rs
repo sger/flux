@@ -1,8 +1,11 @@
 use crate::frontend::{
     block::Block,
     diagnostics::{
+        compiler_errors::{
+            invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
+            unexpected_token,
+        },
         DiagnosticBuilder,
-        compiler_errors::{invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error},
     },
     expression::{Expression, MatchArm, Pattern},
     position::Span,
@@ -355,12 +358,67 @@ impl Parser {
                 span,
             });
 
-            if self.is_peek_token(TokenType::Semicolon) {
-                self.next_token();
-            }
+            match self.peek_token.token_type {
+                TokenType::Comma => {
+                    self.next_token();
+                }
+                TokenType::RBrace => {}
+                TokenType::Semicolon => {
+                    self.errors.push(unexpected_token(
+                        self.peek_token.span(),
+                        "Match arms must be separated by `,`, not `;`.",
+                    ));
+                    // Recover by treating `;` as a comma separator.
+                    self.next_token();
+                }
+                TokenType::Eof => {
+                    self.errors.push(unexpected_token(
+                        self.peek_token.span(),
+                        "Expected `}` to close match expression before end of file.",
+                    ));
+                    return None;
+                }
+                _ => {
+                    self.errors.push(unexpected_token(
+                        self.peek_token.span(),
+                        format!(
+                            "Expected `,` or `}}` after match arm, got {}.",
+                            self.peek_token.token_type
+                        ),
+                    ));
 
-            if self.is_peek_token(TokenType::Comma) {
-                self.next_token();
+                    while !matches!(
+                        self.peek_token.token_type,
+                        TokenType::Comma
+                            | TokenType::Semicolon
+                            | TokenType::RBrace
+                            | TokenType::Eof
+                    ) {
+                        self.next_token();
+                    }
+
+                    match self.peek_token.token_type {
+                        TokenType::Comma => {
+                            self.next_token();
+                        }
+                        TokenType::Semicolon => {
+                            self.errors.push(unexpected_token(
+                                self.peek_token.span(),
+                                "Match arms must be separated by `,`, not `;`.",
+                            ));
+                            self.next_token();
+                        }
+                        TokenType::RBrace => {}
+                        TokenType::Eof => {
+                            self.errors.push(unexpected_token(
+                                self.peek_token.span(),
+                                "Expected `}` to close match expression before end of file.",
+                            ));
+                            return None;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 

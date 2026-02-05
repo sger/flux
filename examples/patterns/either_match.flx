@@ -4,9 +4,9 @@
 // Basic Left/Right matching
 fun handleResult(result) {
     match result {
-        Left(err) -> "Error: " + err;
-        Right(val) -> "Value: " + to_string(val);
-        _ -> "Unknown";
+        Left(err) -> "Error: " + err,
+        Right(val) -> "Value: " + to_string(val),
+        _ -> "Unknown",
     }
 }
 
@@ -16,15 +16,15 @@ print(handleResult(Right(42)));
 // Matching with simple actions
 fun isSuccess(result) {
     match result {
-        Right(_) -> true;
-        _ -> false;
+        Right(_) -> true,
+        _ -> false,
     }
 }
 
 fun isFailure(result) {
     match result {
-        Left(_) -> true;
-        _ -> false;
+        Left(_) -> true,
+        _ -> false,
     }
 }
 
@@ -44,17 +44,17 @@ fun divide(a, b) {
 
 fun addTen(result) {
     match result {
-        Right(v) -> Right(v + 10);
-        Left(e) -> Left(e);
-        _ -> Left("unknown error");
+        Right(v) -> Right(v + 10),
+        Left(e) -> Left(e),
+        _ -> Left("unknown error"),
     }
 }
 
 fun multiplyByTwo(result) {
     match result {
-        Right(v) -> Right(v * 2);
-        Left(e) -> Left(e);
-        _ -> Left("unknown error");
+        Right(v) -> Right(v * 2),
+        Left(e) -> Left(e),
+        _ -> Left("unknown error"),
     }
 }
 
@@ -73,8 +73,8 @@ print(e3);
 // Get value or default
 fun getOr(result, default) {
     match result {
-        Right(v) -> v;
-        _ -> default;
+        Right(v) -> v,
+        _ -> default,
     }
 }
 
@@ -84,9 +84,9 @@ print(getOr(Left("error"), 0));
 // Map over Right values
 fun mapRight(result, f) {
     match result {
-        Right(v) -> Right(f(v));
-        Left(e) -> Left(e);
-        _ -> result;
+        Right(v) -> Right(f(v)),
+        Left(e) -> Left(e),
+        _ -> result,
     }
 }
 
@@ -99,9 +99,9 @@ print(failed);
 // Swap Left and Right
 fun swap(result) {
     match result {
-        Left(v) -> Right(v);
-        Right(v) -> Left(v);
-        _ -> result;
+        Left(v) -> Right(v),
+        Right(v) -> Left(v),
+        _ -> result,
     }
 }
 

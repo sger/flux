@@ -1,7 +1,7 @@
 use flux::bytecode::{
     bytecode::Bytecode,
     compiler::Compiler,
-    op_code::{OpCode, make},
+    op_code::{make, OpCode},
 };
 use flux::frontend::diagnostics::render_diagnostics;
 use flux::frontend::lexer::Lexer;
@@ -408,8 +408,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(1);
             match x {
-                Left(_) -> true;
-                _ -> false;
+                Left(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(true)
@@ -420,8 +420,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(1);
             match x {
-                Right(_) -> true;
-                _ -> false;
+                Right(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(true)
@@ -432,8 +432,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(1);
             match x {
-                Right(_) -> true;
-                _ -> false;
+                Right(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(false)
@@ -444,8 +444,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(1);
             match x {
-                Left(_) -> true;
-                _ -> false;
+                Left(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(false)
@@ -456,8 +456,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(42);
             match x {
-                Left(v) -> v;
-                _ -> 0;
+                Left(v) -> v,
+                _ -> 0,
             };
         "#),
         Object::Integer(42)
@@ -468,8 +468,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(42);
             match x {
-                Right(v) -> v;
-                _ -> 0;
+                Right(v) -> v,
+                _ -> 0,
             };
         "#),
         Object::Integer(42)

@@ -16,10 +16,10 @@ fn compile_ok(input: &str) {
 
 #[test]
 fn match_some_literal_ok() {
-    compile_ok("let x = Some(1); match x { Some(1) -> 1; None -> 0; _ -> 0; }");
+    compile_ok("let x = Some(1); match x { Some(1) -> 1, None -> 0, _ -> 0 }");
 }
 
 #[test]
 fn match_some_binding_ok() {
-    compile_ok("let x = Some(1); match x { Some(v) -> v; None -> 0; _ -> 0; }");
+    compile_ok("let x = Some(1); match x { Some(v) -> v, None -> 0, _ -> 0 }");
 }

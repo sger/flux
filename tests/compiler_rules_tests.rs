@@ -148,19 +148,19 @@ fn outer_assignment_error() {
 
 #[test]
 fn match_non_exhaustive_error() {
-    let code = compile_err("let x = 2; match x { 1 -> 10; }");
+    let code = compile_err("let x = 2; match x { 1 -> 10 }");
     assert_eq!(code, "E015");
 }
 
 #[test]
 fn match_identifier_non_last_error() {
-    let code = compile_err("let x = 2; match x { y -> 1; _ -> 2; }");
+    let code = compile_err("let x = 2; match x { y -> 1, _ -> 2 }");
     assert_eq!(code, "E016");
 }
 
 #[test]
 fn match_wildcard_non_last_error() {
-    let code = compile_err("let x = 2; match x { _ -> 1; 2 -> 2; }");
+    let code = compile_err("let x = 2; match x { _ -> 1, 2 -> 2 }");
     assert_eq!(code, "E016");
 }
 
