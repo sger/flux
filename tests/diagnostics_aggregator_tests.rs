@@ -60,7 +60,16 @@ fn aggregator_prints_summary_counts() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert!(output.contains("Found 2 warnings."));
+    let summary_idx = output
+        .find("Found 2 warnings.")
+        .expect("missing summary line");
+    let last_diag_idx = output
+        .rfind("--> warning[E000]:")
+        .expect("missing warning diagnostics");
+    assert!(
+        summary_idx > last_diag_idx,
+        "summary should be rendered after diagnostics"
+    );
 }
 
 #[test]
