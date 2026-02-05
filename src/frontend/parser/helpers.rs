@@ -1,6 +1,8 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, EXPECTED_EXPRESSION, ErrorType, UNTERMINATED_STRING},
+    diagnostics::{
+        compiler_errors::unexpected_token, Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING,
+    },
     expression::Expression,
     position::{Position, Span},
     precedence::{Precedence, token_precedence},
@@ -105,13 +107,10 @@ impl Parser {
                     // Reject trailing comma: f(a,)
                     if self.is_peek_token(TokenType::RParen) {
                         self.next_token(); // consume ')', so error points at ')'
-                        self.errors.push(
-                            Diagnostic::error("UNEXPECTED TOKEN")
-                                .with_code("E105")
-                                .with_error_type(ErrorType::Compiler)
-                                .with_span(self.current_token.span())
-                                .with_message("Expected identifier as parameter, got `)`."),
-                        );
+                        self.errors.push(unexpected_token(
+                            self.current_token.span(),
+                            "Expected identifier as parameter, got `)`.",
+                        ));
                         return Some(identifiers);
                     }
 
@@ -122,16 +121,13 @@ impl Parser {
                 TokenType::RParen | TokenType::Eof => return Some(identifiers),
 
                 _ => {
-                    self.errors.push(
-                        Diagnostic::error("UNEXPECTED TOKEN")
-                            .with_code("E105")
-                            .with_error_type(ErrorType::Compiler)
-                            .with_span(self.current_token.span())
-                            .with_message(format!(
-                                "Expected `,` or `)` after parameter, got {}.",
-                                self.current_token.token_type
-                            )),
-                    );
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!(
+                            "Expected `,` or `)` after parameter, got {}.",
+                            self.current_token.token_type
+                        ),
+                    ));
 
                     // Recover to a safe delimiter
                     while !matches!(
@@ -182,38 +178,29 @@ impl Parser {
             self.next_token();
 
             if self.is_current_token(end) {
-                self.errors.push(
-                    Diagnostic::error("UNEXPECTED TOKEN")
-                        .with_code("E105")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!(
-                            "Expected expression after `,`, got {}.",
-                            self.current_token.token_type
-                        )),
-                );
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    format!(
+                        "Expected expression after `,`, got {}.",
+                        self.current_token.token_type
+                    ),
+                ));
                 return None;
             }
 
             if self.is_current_token(TokenType::Comma) {
-                self.errors.push(
-                    Diagnostic::error("UNEXPECTED TOKEN")
-                        .with_code("E105")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message("Expected expression after `,`, got `,`."),
-                );
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "Expected expression after `,`, got `,`.",
+                ));
                 continue;
             }
 
             if self.is_current_token(TokenType::Eof) {
-                self.errors.push(
-                    Diagnostic::error("UNEXPECTED TOKEN")
-                        .with_code("E105")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!("Expected `{}` before end of file.", end)),
-                );
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    format!("Expected `{}` before end of file.", end),
+                ));
                 return None;
             }
 
@@ -237,13 +224,8 @@ impl Parser {
                     end, self.peek_token.token_type
                 )
             };
-            self.errors.push(
-                Diagnostic::error("UNEXPECTED TOKEN")
-                    .with_code("E105")
-                    .with_error_type(ErrorType::Compiler)
-                    .with_span(self.peek_token.span())
-                    .with_message(message),
-            );
+            self.errors
+                .push(unexpected_token(self.peek_token.span(), message));
             return None;
         }
     }
@@ -292,16 +274,10 @@ impl Parser {
     }
 
     pub(super) fn peek_error(&mut self, expected: TokenType) {
-        self.errors.push(
-            Diagnostic::error("UNEXPECTED TOKEN")
-                .with_code("E105")
-                .with_error_type(ErrorType::Compiler)
-                .with_span(self.peek_token.span())
-                .with_message(format!(
-                    "Expected {}, got {}.",
-                    expected, self.peek_token.token_type
-                )),
-        );
+        self.errors.push(unexpected_token(
+            self.peek_token.span(),
+            format!("Expected {}, got {}.", expected, self.peek_token.token_type),
+        ));
     }
 
     fn parse_parameter_identifier_or_recover(&mut self) -> Option<String> {
@@ -309,16 +285,13 @@ impl Parser {
             return Some(self.current_token.literal.clone());
         }
 
-        self.errors.push(
-            Diagnostic::error("UNEXPECTED TOKEN")
-                .with_code("E105")
-                .with_error_type(ErrorType::Compiler)
-                .with_span(self.current_token.span())
-                .with_message(format!(
-                    "Expected identifier as parameter, got {}.",
-                    self.current_token.token_type
-                )),
-        );
+        self.errors.push(unexpected_token(
+            self.current_token.span(),
+            format!(
+                "Expected identifier as parameter, got {}.",
+                self.current_token.token_type
+            ),
+        ));
 
         while !matches!(
             self.current_token.token_type,

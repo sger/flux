@@ -127,10 +127,10 @@ mod tests {
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
-        let e107_count = parser
+        let e072_count = parser
             .errors
             .iter()
-            .filter(|d| d.code() == Some("E107"))
+            .filter(|d| d.code() == Some("E072"))
             .count();
         let e071_count = parser
             .errors
@@ -138,7 +138,7 @@ mod tests {
             .filter(|d| d.code() == Some("E071"))
             .count();
 
-        assert_eq!(e107_count, 1, "expected one interpolation error");
+        assert_eq!(e072_count, 1, "expected one interpolation error");
         assert_eq!(
             e071_count, 1,
             "expected one unterminated string error after recovery"
@@ -285,8 +285,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E107"))
-            .expect("expected E107 diagnostic for missing lambda arrow");
+            .find(|d| d.code() == Some("E036"))
+            .expect("expected E036 diagnostic for missing lambda arrow");
         assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
         assert!(
             diag.hints()
@@ -300,10 +300,10 @@ mod tests {
             parser
                 .errors
                 .iter()
-                .filter(|d| d.code() == Some("E105"))
+                .filter(|d| d.code() == Some("E034"))
                 .count(),
             0,
-            "missing-arrow lambda should not emit generic E105"
+            "missing-arrow lambda should not emit generic E034"
         );
     }
 
@@ -316,8 +316,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for non-identifier function parameter");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for non-identifier function parameter");
         assert!(
             diag.message()
                 .is_some_and(|m| m.contains("Expected identifier as parameter"))
@@ -333,8 +333,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for non-identifier lambda parameter");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for non-identifier lambda parameter");
         assert!(
             diag.message()
                 .is_some_and(|m| m.contains("Expected identifier as parameter"))
@@ -350,8 +350,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for non-identifier function parameter");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for non-identifier function parameter");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 6));
 
@@ -373,8 +373,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for non-identifier function parameter");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for non-identifier function parameter");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 6));
 
@@ -395,8 +395,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for missing comma between parameters");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for missing comma between parameters");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 8));
         assert!(
@@ -421,12 +421,12 @@ mod tests {
         let e105_diags: Vec<_> = parser
             .errors
             .iter()
-            .filter(|d| d.code() == Some("E105"))
+            .filter(|d| d.code() == Some("E034"))
             .collect();
         assert_eq!(
             e105_diags.len(),
             1,
-            "expected one E105 diagnostic for trailing comma"
+            "expected one E034 diagnostic for trailing comma"
         );
         let span = e105_diags[0].span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 8));
@@ -453,9 +453,9 @@ mod tests {
         let e105_diags: Vec<_> = parser
             .errors
             .iter()
-            .filter(|d| d.code() == Some("E105"))
+            .filter(|d| d.code() == Some("E034"))
             .collect();
-        assert_eq!(e105_diags.len(), 1, "expected one E105 for extra comma");
+        assert_eq!(e105_diags.len(), 1, "expected one E034 for extra comma");
         assert!(
             e105_diags[0]
                 .message()
@@ -479,9 +479,9 @@ mod tests {
         let e105_diags: Vec<_> = parser
             .errors
             .iter()
-            .filter(|d| d.code() == Some("E105"))
+            .filter(|d| d.code() == Some("E034"))
             .collect();
-        assert_eq!(e105_diags.len(), 1, "expected one E105 for leading comma");
+        assert_eq!(e105_diags.len(), 1, "expected one E034 for leading comma");
         assert!(
             e105_diags[0]
                 .message()
@@ -505,8 +505,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for trailing comma in call args");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for trailing comma in call args");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
         assert!(
@@ -524,8 +524,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for trailing comma in array literal");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for trailing comma in array literal");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 3));
         assert!(
@@ -543,8 +543,8 @@ mod tests {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E105"))
-            .expect("expected E105 for double comma in call args");
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 for double comma in call args");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
         assert!(

@@ -1,6 +1,6 @@
 use crate::frontend::{
     block::Block,
-    diagnostics::{Diagnostic, ErrorType},
+    diagnostics::compiler_errors::{invalid_pattern, lambda_syntax_error, pipe_target_error},
     expression::{Expression, MatchArm, Pattern},
     position::Span,
     precedence::Precedence,
@@ -146,14 +146,8 @@ impl Parser {
                 })
             }
             _ => {
-                self.errors.push(
-                    Diagnostic::error("INVALID PIPE TARGET")
-                        .with_code("E103")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message("Pipe operator expects a function or function call.")
-                        .with_hint_text("Use `value |> func` or `value |> func(arg)`"),
-                );
+                self.errors
+                    .push(pipe_target_error(self.current_token.span()));
                 None
             }
         }
@@ -414,16 +408,10 @@ impl Parser {
                 })
             }
             _ => {
-                self.errors.push(
-                    Diagnostic::error("INVALID PATTERN")
-                        .with_code("E106")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!(
-                            "Expected a pattern, found `{}`.",
-                            self.current_token.token_type
-                        )),
-                );
+                self.errors.push(invalid_pattern(
+                    self.current_token.span(),
+                    &self.current_token.token_type.to_string(),
+                ));
                 None
             }
         }
@@ -465,30 +453,24 @@ impl Parser {
             // Single unparenthesized parameter: \x ->
             vec![self.current_token.literal.clone()]
         } else {
-            self.errors.push(
-                Diagnostic::error("INVALID LAMBDA")
-                    .with_code("E106")
-                    .with_error_type(ErrorType::Compiler)
-                    .with_span(self.current_token.span())
-                    .with_message("Expected parameter or `(` after `\\`.")
-                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`."),
-            );
+            self.errors.push(lambda_syntax_error(
+                self.current_token.span(),
+                "Expected parameter or `(` after `\\`.",
+            ));
             return None;
         };
 
         // Expect ->
         if !self.is_peek_token(TokenType::Arrow) {
             self.errors.push(
-                Diagnostic::error("EXPECTED ARROW")
-                    .with_code("E107")
-                    .with_error_type(ErrorType::Compiler)
-                    .with_span(self.peek_token.span())
-                    .with_message(format!(
+                lambda_syntax_error(
+                    self.peek_token.span(),
+                    format!(
                         "Expected `->` after lambda parameters, got `{}`.",
                         self.peek_token.token_type
-                    ))
-                    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
-                    .with_example("let add = \\(a, b) -> a + b;"),
+                    ),
+                )
+                .with_example("let add = \\(a, b) -> a + b;"),
             );
             return None;
         }

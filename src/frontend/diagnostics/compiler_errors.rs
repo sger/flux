@@ -600,3 +600,87 @@ pub const UNTERMINATED_STRING: ErrorCode = ErrorCode {
     message: "String literal is missing closing quote.",
     hint: Some("Add a closing \" at the end of the string."),
 };
+
+pub const UNTERMINATED_INTERPOLATION: ErrorCode = ErrorCode {
+    code: "E072",
+    title: "UNTERMINATED INTERPOLATION",
+    error_type: ErrorType::Compiler,
+    message: "Expected string continuation or end after interpolation.",
+    hint: Some("String interpolation must be followed by more string content or the closing quote."),
+};
+
+// ============================================================================
+// Error Constructor Functions
+// ============================================================================
+// These functions provide a clean API for creating diagnostics with proper
+// error codes. Use these instead of Diagnostic::error() in production code.
+
+use super::diagnostic::Diagnostic;
+use super::registry::diag_enhanced;
+use crate::frontend::position::Span;
+
+// Parser Errors
+
+/// Create an "unknown keyword" error for unrecognized keywords
+pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str)>) -> Diagnostic {
+    let mut diag = diag_enhanced(&UNKNOWN_KEYWORD)
+        .with_span(span)
+        .with_message(format!("Unknown keyword: `{}`.", keyword));
+
+    if let Some((correct_keyword, description)) = suggestion {
+        diag = diag.with_suggestion_message(span, correct_keyword, description);
+    }
+
+    diag
+}
+
+/// Create an "unexpected token" error
+pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
+    diag_enhanced(&UNEXPECTED_TOKEN)
+        .with_span(span)
+        .with_message(message.into())
+}
+
+/// Create an "invalid integer" error
+pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_INTEGER)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as an integer.", literal))
+}
+
+/// Create an "invalid float" error
+pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_FLOAT)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as a float.", literal))
+}
+
+/// Create a "pipe target error"
+pub fn pipe_target_error(span: Span) -> Diagnostic {
+    diag_enhanced(&PIPE_TARGET_ERROR)
+        .with_span(span)
+        .with_message("Pipe operator expects a function or function call.")
+        .with_hint_text("Use `value |> func` or `value |> func(arg)`")
+}
+
+/// Create an "invalid pattern" error
+pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_PATTERN)
+        .with_span(span)
+        .with_message(format!("Expected a pattern, found `{}`.", found))
+}
+
+/// Create a "lambda syntax error"
+pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic {
+    diag_enhanced(&LAMBDA_SYNTAX_ERROR)
+        .with_span(span)
+        .with_message(message.into())
+        .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
+}
+
+/// Create an "unterminated interpolation" error
+pub fn unterminated_interpolation(span: Span) -> Diagnostic {
+    diag_enhanced(&UNTERMINATED_INTERPOLATION)
+        .with_span(span)
+        .with_message("Expected string continuation or end after interpolation.")
+}

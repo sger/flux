@@ -1,5 +1,5 @@
 use crate::frontend::{
-    diagnostics::{Diagnostic, ErrorType},
+    diagnostics::compiler_errors::{invalid_float, invalid_integer, unterminated_interpolation},
     expression::{Expression, StringPart},
     position::{Position, Span},
     precedence::Precedence,
@@ -43,16 +43,10 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             Err(_) => {
-                self.errors.push(
-                    Diagnostic::error("INVALID INTEGER")
-                        .with_code("E103")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!(
-                            "Could not parse `{}` as an integer.",
-                            self.current_token.literal
-                        )),
-                );
+                self.errors.push(invalid_integer(
+                    self.current_token.span(),
+                    &self.current_token.literal,
+                ));
                 None
             }
         }
@@ -66,16 +60,10 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             Err(_) => {
-                self.errors.push(
-                    Diagnostic::error("INVALID FLOAT")
-                        .with_code("E104")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!(
-                            "Could not parse `{}` as a float.",
-                            self.current_token.literal
-                        )),
-                );
+                self.errors.push(invalid_float(
+                    self.current_token.span(),
+                    &self.current_token.literal,
+                ));
                 None
             }
         }
@@ -168,13 +156,8 @@ impl Parser {
                 break;
             } else {
                 // Unexpected token - report error
-                self.errors.push(
-                    Diagnostic::error("UNTERMINATED INTERPOLATION")
-                        .with_code("E107")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.peek_token.span())
-                        .with_message("Expected string continuation or end after interpolation."),
-                );
+                self.errors
+                    .push(unterminated_interpolation(self.peek_token.span()));
                 if self.peek_token.token_type == TokenType::UnterminatedString {
                     self.suppress_unterminated_string_error_at = Some(self.peek_token.position);
                 } else {
