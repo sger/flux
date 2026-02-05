@@ -8,6 +8,7 @@ pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
 pub mod registry;
+pub mod rendering;
 pub mod runtime_errors;
 pub mod types;
 
@@ -15,9 +16,10 @@ pub use aggregator::{
     DEFAULT_MAX_ERRORS, DiagnosticCounts, DiagnosticsAggregator, DiagnosticsReport,
     render_diagnostics_multi,
 };
-pub use diagnostic::{Diagnostic, render_diagnostics, render_display_path};
+pub use diagnostic::Diagnostic;
 pub use format::{format_message, format_message_named};
 pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
+pub use rendering::{render_diagnostics, render_display_path};
 pub use types::{
     ErrorCode, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle,
     RelatedDiagnostic, RelatedKind, Severity,
