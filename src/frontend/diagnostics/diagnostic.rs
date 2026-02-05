@@ -295,16 +295,30 @@ pub struct Diagnostic {
 // ICE = Internal Compiler Error (a compiler bug, not user code).
 #[macro_export]
 macro_rules! ice {
-    ($msg:expr) => {
-        $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
+    ($msg:expr) => {{
+        #[allow(deprecated)]
+        let diag = $crate::frontend::diagnostics::Diagnostic::error("INTERNAL COMPILER ERROR")
             .with_message($msg)
             .with_error_type($crate::frontend::diagnostics::ErrorType::Compiler)
-            .with_hint_text(format!("{}:{} ({})", file!(), line!(), module_path!()))
-    };
+            .with_hint_text(format!("{}:{} ({})", file!(), line!(), module_path!()));
+        diag
+    }};
 }
 
 impl Diagnostic {
     /// Create a new error diagnostic with the given title.
+    ///
+    /// # Deprecation Notice
+    /// This method is deprecated for production code. Use error constructor functions instead:
+    /// - Parser errors: `compiler_errors::unknown_keyword()`, `compiler_errors::unexpected_token()`, etc.
+    /// - Runtime errors: `runtime_errors::invalid_operation()`, etc.
+    ///
+    /// This ensures consistent error codes and messages from a single source of truth.
+    /// Only use this method in tests or internal diagnostics system code.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use error constructor functions from compiler_errors or runtime_errors instead"
+    )]
     pub fn error(title: impl Into<String>) -> Self {
         Self {
             severity: Severity::Error,
@@ -561,6 +575,7 @@ impl Diagnostic {
     }
 
     /// Generic error builder using ErrorCode specification
+    #[allow(deprecated)]
     pub fn make_error(
         err_spec: &'static ErrorCode,
         values: &[&str],
@@ -611,6 +626,7 @@ impl Diagnostic {
 
     /// Dynamic error builder for runtime-generated error information
     /// Use this when error details come from runtime values rather than static ErrorCode
+    #[allow(deprecated)]
     pub fn make_error_dynamic(
         code: impl Into<String>,
         title: impl Into<String>,
