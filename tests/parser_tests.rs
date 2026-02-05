@@ -118,6 +118,31 @@ mod tests {
     }
 
     #[test]
+    fn test_unterminated_string_suppression_does_not_leak() {
+        let input = "\"#{x}oops\n;\n\"later";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let e107_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E107"))
+            .count();
+        let e071_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E071"))
+            .count();
+
+        assert_eq!(e107_count, 1, "expected one interpolation error");
+        assert_eq!(
+            e071_count, 1,
+            "expected one unterminated string error after recovery"
+        );
+    }
+
+    #[test]
     fn test_string_interpolation_simple() {
         let program = parse(r#""Hello #{name}""#);
         assert_eq!(program.statements.len(), 1);

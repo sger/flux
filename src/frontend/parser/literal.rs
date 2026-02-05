@@ -172,7 +172,11 @@ impl Parser {
                         .with_span(self.peek_token.span())
                         .with_message("Expected string continuation or end after interpolation."),
                 );
-                self.suppress_unterminated_string_error = true;
+                if self.peek_token.token_type == TokenType::UnterminatedString {
+                    self.suppress_unterminated_string_error_at = Some(self.peek_token.position);
+                } else {
+                    self.suppress_unterminated_string_error_at = None;
+                }
                 self.synchronize_after_error();
                 return None;
             }

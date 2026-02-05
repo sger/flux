@@ -1,5 +1,9 @@
 use crate::frontend::{
-    diagnostics::Diagnostic, lexer::Lexer, position::Span, program::Program, token::Token,
+    diagnostics::Diagnostic,
+    lexer::Lexer,
+    position::{Position, Span},
+    program::Program,
+    token::Token,
     token_type::TokenType,
 };
 
@@ -14,7 +18,7 @@ pub struct Parser {
     pub(super) peek_token: Token,
     pub(super) peek2_token: Token,
     pub errors: Vec<Diagnostic>,
-    pub(super) suppress_unterminated_string_error: bool,
+    pub(super) suppress_unterminated_string_error_at: Option<Position>,
 }
 
 impl Parser {
@@ -25,7 +29,7 @@ impl Parser {
             peek_token: Token::new(TokenType::Eof, "", 0, 0),
             peek2_token: Token::new(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
-            suppress_unterminated_string_error: false,
+            suppress_unterminated_string_error_at: None,
         };
         parser.next_token();
         parser.next_token();
