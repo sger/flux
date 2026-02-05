@@ -1,0 +1,17 @@
+// Example: IMMUTABLE_BINDING (E002)
+// This demonstrates the enhanced error message for trying to reassign
+// an immutable variable.
+
+let count = 0;
+
+// This will error with the enhanced message explaining
+// immutability and suggesting `let mut` or shadowing
+count = count + 1;
+
+// FIX 1: Use mutable binding
+// let mut count = 0;
+// count = count + 1;
+
+// FIX 2: Create a new binding (shadowing)
+// let count = 0;
+// let count = count + 1;

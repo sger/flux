@@ -1,0 +1,36 @@
+// Example: OUTER_ASSIGNMENT (E003)
+// This demonstrates the enhanced error message for trying to assign
+// to a variable from an outer scope within a closure.
+
+fun main() {
+    let x = 0;
+
+    let increment = fun() {
+        // This will error: cannot assign to variable captured by closure
+        x = x + 1;
+    };
+
+    increment();
+}
+
+// FIX 1: Make the outer variable mutable (Flux doesn't support mut yet)
+
+// FIX 2: Create a new local binding (shadowing)
+// fun main() {
+//     let x = 0;
+//     let increment = fun() {
+//         let x = x + 1;  // New local binding
+//         print(x);
+//     };
+//     increment();
+// }
+
+// FIX 3: Return the new value instead
+// fun main() {
+//     let x = 0;
+//     let increment = fun(n) {
+//         n + 1
+//     };
+//     let x = increment(x);
+//     print(x);
+// }

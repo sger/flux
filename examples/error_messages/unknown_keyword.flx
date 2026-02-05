@@ -1,0 +1,18 @@
+// Example: UNKNOWN_KEYWORD (E030)
+// This demonstrates the enhanced error message for using keywords
+// from other languages that don't exist in Flux.
+
+// Common mistake: using 'function' instead of 'fun'
+function add(a, b) {
+    a + b
+}
+
+// FIX: Use 'fun' keyword
+// fun add(a, b) {
+//     a + b
+// }
+
+// Other common mistakes:
+// - Using 'var' or 'const' instead of 'let'
+// - Using 'def' (Python) instead of 'fun'
+// - Using 'fn' alone instead of 'let x = fn() ...'

@@ -14,7 +14,7 @@ pub const IMMUTABLE_BINDING: ErrorCode = ErrorCode {
     title: "IMMUTABLE BINDING",
     error_type: ErrorType::Compiler,
     message: "Cannot reassign to immutable variable `{}`.",
-    hint: Some("Variables are immutable by default. Use `let mut {}` if you need to reassign."),
+    hint: Some("In Flux, variables are immutable by default for safety. To allow reassignment, declare with `let mut {}` instead. Alternatively, create a new binding with `let` to shadow the previous value."),
 };
 
 pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
@@ -22,7 +22,7 @@ pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
     title: "OUTER ASSIGNMENT",
     error_type: ErrorType::Compiler,
     message: "Cannot assign to variable `{}` from outer scope.",
-    hint: Some("Create a new binding with `let` or make the outer variable mutable."),
+    hint: Some("Variables captured by closures cannot be reassigned. Options: 1) Create a new local binding with `let {}`, 2) Make the outer variable mutable with `let mut`, or 3) Return the new value from the function instead."),
 };
 
 pub const UNDEFINED_VARIABLE: ErrorCode = ErrorCode {
@@ -106,7 +106,7 @@ pub const MODULE_NOT_IMPORTED: ErrorCode = ErrorCode {
     title: "MODULE NOT IMPORTED",
     error_type: ErrorType::Compiler,
     message: "Module `{}` is not imported.",
-    hint: Some("Add: import {}"),
+    hint: Some("Add an import statement at the top of your file: `import {}`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code."),
 };
 
 pub const EMPTY_MATCH: ErrorCode = ErrorCode {
@@ -146,7 +146,7 @@ pub const IMPORT_NOT_FOUND: ErrorCode = ErrorCode {
     title: "IMPORT NOT FOUND",
     error_type: ErrorType::Compiler,
     message: "Cannot find module `{}` to import.",
-    hint: Some("Check that the module file exists and the path is correct."),
+    hint: Some("Check that: 1) The module file exists (e.g., `{}.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths."),
 };
 
 pub const IMPORT_READ_FAILED: ErrorCode = ErrorCode {
@@ -243,7 +243,7 @@ pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
     title: "UNKNOWN KEYWORD",
     error_type: ErrorType::Compiler,
     message: "Unknown keyword: `{}`.",
-    hint: Some("Check for typos or use a different identifier."),
+    hint: Some("Flux keywords are: let, fun, if, else, match, import, module, return, true, false, None. Common mistakes: use `fun` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword."),
 };
 
 pub const EXPECTED_EXPRESSION: ErrorCode = ErrorCode {
@@ -275,7 +275,7 @@ pub const UNEXPECTED_TOKEN: ErrorCode = ErrorCode {
     title: "UNEXPECTED TOKEN",
     error_type: ErrorType::Compiler,
     message: "Unexpected token: {} (expected {}).",
-    hint: None,
+    hint: Some("Common causes: missing semicolon, unclosed parenthesis/bracket, or misplaced operator. Check the line above for syntax errors."),
 };
 
 pub const INVALID_PATTERN_LEGACY: ErrorCode = ErrorCode {
