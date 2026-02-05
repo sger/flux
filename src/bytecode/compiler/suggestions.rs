@@ -18,11 +18,11 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
 
     // Initialize first column and row
-    for i in 0..=a_len {
-        matrix[i][0] = i;
+    for (i, row) in matrix.iter_mut().enumerate() {
+        row[0] = i;
     }
-    for j in 0..=b_len {
-        matrix[0][j] = j;
+    for (j, cell) in matrix[0].iter_mut().enumerate() {
+        *cell = j;
     }
 
     let a_chars: Vec<char> = a.chars().collect();
