@@ -1,5 +1,5 @@
 use crate::frontend::{
-    diagnostics::{Diagnostic, ErrorType},
+    diagnostics::compiler_errors::unknown_keyword,
     precedence::Precedence,
     statement::Statement,
     token_type::TokenType,
@@ -19,16 +19,12 @@ impl Parser {
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 self.errors.push(
-                    Diagnostic::error("UNKNOWN KEYWORD")
-                        .with_code("E101")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message("Flux uses `fun` for function declarations.")
-                        .with_suggestion_message(
-                            self.current_token.span(),
-                            "fun",
-                            "Replace 'fn' with 'fun'",
-                        ),
+                    unknown_keyword(
+                        self.current_token.span(),
+                        "fn",
+                        Some(("fun", "Replace 'fn' with 'fun'")),
+                    )
+                    .with_message("Flux uses `fun` for function declarations."),
                 );
                 self.synchronize_after_error();
                 None
@@ -39,15 +35,16 @@ impl Parser {
                     && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(
-                    Diagnostic::error("UNKNOWN KEYWORD")
-                        .with_code("E101")
-                        .with_error_type(ErrorType::Compiler)
-                        .with_span(self.current_token.span())
-                        .with_message(format!(
-                            "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
-                            self.current_token.literal
-                        ))
-                        .with_hint_text("Did you mean `fun`?"),
+                    unknown_keyword(
+                        self.current_token.span(),
+                        &self.current_token.literal,
+                        None,
+                    )
+                    .with_message(format!(
+                        "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
+                        self.current_token.literal
+                    ))
+                    .with_hint_text("Did you mean `fun`?"),
                 );
                 self.synchronize_after_error();
                 None
