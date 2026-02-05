@@ -1,0 +1,19 @@
+// Example: UNEXPECTED_TOKEN (E034)
+// This demonstrates the enhanced error message for syntax errors
+
+let x = 5  // Missing semicolon here - will cause error on next line
+let y = 10;
+
+// FIX: Add semicolon after each statement
+// let x = 5;
+// let y = 10;
+
+// Other common causes:
+// 1. Unclosed parenthesis
+// let result = (5 + 3;  // Missing closing )
+
+// 2. Unclosed bracket
+// let arr = [1, 2, 3;   // Missing closing ]
+
+// 3. Misplaced operator
+// let z = + 5;          // Operator in wrong position

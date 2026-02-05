@@ -1,0 +1,21 @@
+// Example: IMPORT_NOT_FOUND (E018)
+// This demonstrates the enhanced error message for importing
+// a module that doesn't exist or can't be found.
+
+// This will error because NonExistent.flx doesn't exist
+import NonExistent
+
+let x = NonExistent.something();
+
+// The enhanced error message will explain:
+// 1. Check that the module file exists (e.g., NonExistent.flx)
+// 2. The file must be in a module root directory (current dir or ./src)
+// 3. The module path must match the file structure
+//
+// Examples:
+// - `import Foo` looks for Foo.flx
+// - `import Foo.Bar` looks for Foo/Bar.flx
+// - `import Foo.Bar.Baz` looks for Foo/Bar/Baz.flx
+//
+// If your modules are in a different location, use:
+// flux run --root /path/to/modules yourfile.flx
