@@ -1,0 +1,11 @@
+// Diagnostic comment-trimming demo
+//
+// This file intentionally contains an error to demonstrate how
+// diagnostics strip trailing comments from source-line display,
+// keeping the output clean and focused on the real problem.
+//
+// Run with:  cargo run -- run examples/basics/diagnostic_comment_trim.flx
+
+let arr = [1, 2, 3];
+print(len(arr))      // 3
+prnt(arr)             // <-- typo: should trigger an error

@@ -14,4 +14,6 @@ pub use renderer::{
     render_header, render_hints, render_location, render_message, render_related,
     render_suggestions,
 };
-pub use source::{get_source_line, render_hint_snippet, render_source_snippet};
+pub use source::{
+    get_source_line, render_diagnostic_line, render_hint_snippet, render_source_snippet,
+};
