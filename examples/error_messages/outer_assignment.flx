@@ -13,9 +13,7 @@ fun main() {
     increment();
 }
 
-// FIX 1: Make the outer variable mutable (Flux doesn't support mut yet)
-
-// FIX 2: Create a new local binding (shadowing)
+// FIX 1: Create a new local binding (shadowing)
 // fun main() {
 //     let x = 0;
 //     let increment = fun() {
@@ -25,7 +23,7 @@ fun main() {
 //     increment();
 // }
 
-// FIX 3: Return the new value instead
+// FIX 2: Return the new value instead
 // fun main() {
 //     let x = 0;
 //     let increment = fun(n) {

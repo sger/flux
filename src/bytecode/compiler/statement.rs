@@ -8,9 +8,8 @@ use crate::{
     frontend::{
         block::Block,
         diagnostics::{
-            DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_ASSIGN, ICE_SYMBOL_SCOPE_LET,
-            IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH,
-            MODULE_SCOPE,
+            DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
+            INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
         },
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         position::{Position, Span},
@@ -69,7 +68,7 @@ impl Compiler {
                         self.file_scope_symbols.insert(name.clone());
                     }
                 }
-                Statement::Assign { name, value, span } => {
+                Statement::Assign { name, span, .. } => {
                     // Check if variable exists
                     let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
                         Self::boxed(self.make_undefined_variable_error(name, *span))
@@ -79,28 +78,9 @@ impl Compiler {
                         return Err(Self::boxed(self.make_outer_assignment_error(name, *span)));
                     }
 
-                    // Check if variable is already assigned (immutability check)
-                    if symbol.is_assigned {
-                        return Err(Self::boxed(self.make_immutability_error(name, *span)));
-                    }
-
-                    self.compile_expression(value)?;
-
-                    match symbol.symbol_scope {
-                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
-                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
-                        _ => {
-                            return Err(Self::boxed(Diagnostic::make_error(
-                                &ICE_SYMBOL_SCOPE_ASSIGN,
-                                &[],
-                                self.file_path.clone(),
-                                Span::new(Position::default(), Position::default()),
-                            )));
-                        }
-                    };
-
-                    // Mark as assigned
-                    self.symbol_table.mark_assigned(name).ok();
+                    // Flux bindings are immutable today: assignment syntax is parsed so we can
+                    // emit a targeted diagnostic, but reassignment is not allowed.
+                    return Err(Self::boxed(self.make_immutability_error(name, *span)));
                 }
                 Statement::Return { value, .. } => match value {
                     Some(expr) => {

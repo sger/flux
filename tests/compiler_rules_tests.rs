@@ -141,6 +141,18 @@ fn immutable_reassign_error() {
 }
 
 #[test]
+fn assignment_in_block_reassign_error() {
+    let code = compile_err("fun f() { let x = 1; x = 2; }");
+    assert_eq!(code, "E002");
+}
+
+#[test]
+fn assignment_to_parameter_reassign_error() {
+    let code = compile_err("fun f(x) { x = 2; }");
+    assert_eq!(code, "E002");
+}
+
+#[test]
 fn outer_assignment_error() {
     let code = compile_err("fun outer() { let x = 1; let f = fun() { x = 2; }; }");
     assert_eq!(code, "E003");

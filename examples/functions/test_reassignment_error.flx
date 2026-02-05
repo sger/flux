@@ -1,7 +1,7 @@
-// Test: Immutability error on reassignment
+// Error demo: reassignment is rejected (E002 IMMUTABLE BINDING)
 let a = 5;
 a = 10;
 
-
-let this_is_my_variable = 5;
-this_is_my_variable = 10;
+// Flux update style (valid):
+// let a = 5;
+// let next_a = 10;

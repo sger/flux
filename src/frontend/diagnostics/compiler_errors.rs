@@ -15,7 +15,7 @@ pub const IMMUTABLE_BINDING: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Cannot reassign to immutable variable `{}`.",
     hint: Some(
-        "In Flux, variables are immutable by default for safety. To allow reassignment, declare with `let mut {}` instead. Alternatively, create a new binding with `let` to shadow the previous value.",
+        "In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_{} = ...`).",
     ),
 };
 
@@ -25,7 +25,7 @@ pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Cannot assign to variable `{}` from outer scope.",
     hint: Some(
-        "Variables captured by closures cannot be reassigned. Options: 1) Create a new local binding with `let {}`, 2) Make the outer variable mutable with `let mut`, or 3) Return the new value from the function instead.",
+        "Variables captured by closures cannot be reassigned. Return the updated value from the function or bind it to a new name.",
     ),
 };
 

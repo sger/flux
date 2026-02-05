@@ -5,6 +5,7 @@
 // 15
 // hello
 // true
+// 12
 
 // Note: This example uses semicolons (traditional style)
 // Semicolons are optional at top level - both styles work!
@@ -24,4 +25,7 @@ print(name);
 let flag = true;
 print(flag);
 
-let MyOtherVariable = 20;
+// Immutable update style in Flux: create a new binding name.
+let score = 10;
+let next_score = score + 2;
+print(next_score);
