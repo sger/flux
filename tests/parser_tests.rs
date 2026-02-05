@@ -148,9 +148,10 @@ mod tests {
             .expect("expected E071 unterminated string diagnostic");
         let span = diag.span().expect("expected diagnostic span");
 
-        assert_eq!(span.start, span.end);
         assert_eq!(span.start.line, 1);
-        assert_eq!(span.start.column, input.chars().count());
+        assert_eq!(span.start.column, 0);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, input.chars().count());
     }
 
     #[test]

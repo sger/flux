@@ -145,6 +145,30 @@ mod tests {
     }
 
     #[test]
+    fn unterminated_string_with_escape_uses_raw_cursor_end() {
+        let input = "\"a\\n";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedString);
+        assert_eq!(tok.literal, "a\n");
+        assert_eq!(tok.position.column, 0);
+        assert_eq!(tok.span().end.column, input.chars().count());
+    }
+
+    #[test]
+    fn unterminated_string_eof_after_backslash_keeps_backslash_and_end() {
+        let input = "\"a\\";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedString);
+        assert_eq!(tok.literal, "a\\");
+        assert_eq!(tok.position.column, 0);
+        assert_eq!(tok.span().end.column, input.chars().count());
+    }
+
+    #[test]
     fn string_interpolation_tokens_simple() {
         let input = r#""Hello #{name}""#;
         let mut lexer = Lexer::new(input);
