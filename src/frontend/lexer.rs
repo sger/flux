@@ -615,6 +615,18 @@ impl Lexer {
 
         let mut content = String::new();
 
+        // Handle the empty doc comment `/**/` (overlaps opener/closer).
+        if self.current_char == Some('/') {
+            self.read_char(); // consume '/'
+            return Token::new_with_end(
+                TokenType::DocComment,
+                content,
+                line,
+                col,
+                Position::new(self.line, self.column),
+            );
+        }
+
         // Track nesting for /** ... */ comments
         let mut nesting_depth = 1;
 
