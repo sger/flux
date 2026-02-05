@@ -21,6 +21,7 @@ mod builder;
 mod errors;
 mod expression;
 mod statement;
+mod suggestions;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 

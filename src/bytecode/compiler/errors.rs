@@ -6,7 +6,7 @@ use crate::frontend::{
     position::Span,
 };
 
-use super::{CompileResult, Compiler};
+use super::{suggestions::find_similar_names, CompileResult, Compiler};
 
 impl Compiler {
     pub(super) fn make_immutability_error(&self, name: &str, span: Span) -> Diagnostic {
@@ -32,7 +32,36 @@ impl Compiler {
     }
 
     pub(super) fn make_undefined_variable_error(&self, name: &str, span: Span) -> Diagnostic {
-        Diagnostic::make_error(&UNDEFINED_VARIABLE, &[name], self.file_path.clone(), span)
+        let mut diagnostic =
+            Diagnostic::make_error(&UNDEFINED_VARIABLE, &[name], self.file_path.clone(), span);
+
+        // Get all available symbol names from the symbol table
+        let available_names: Vec<String> = self
+            .symbol_table
+            .all_symbol_names()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Find similar names using fuzzy matching
+        let suggestions = find_similar_names(name, &available_names, 3);
+
+        // Add suggestions as hints
+        if !suggestions.is_empty() {
+            let suggestion_text = if suggestions.len() == 1 {
+                format!("Did you mean `{}`?", suggestions[0])
+            } else {
+                let names = suggestions
+                    .iter()
+                    .map(|s| format!("`{}`", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("Did you mean one of: {}?", names)
+            };
+            diagnostic = diagnostic.with_help(suggestion_text);
+        }
+
+        diagnostic
     }
 
     pub(super) fn make_import_collision_error(&self, name: &str, span: Span) -> Diagnostic {
