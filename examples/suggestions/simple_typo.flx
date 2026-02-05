@@ -1,0 +1,7 @@
+// Test Case 1: Simple typo (1 character difference)
+
+let message = "Hello, World!";
+let counter = 42;
+
+// Typo: "messge" instead of "message"
+print(messge);
