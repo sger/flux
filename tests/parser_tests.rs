@@ -693,26 +693,15 @@ let test2 = "this compiles";
     }
 
     #[test]
-    fn test_function_parameter_trailing_comma_is_rejected_with_one_clear_error() {
+    fn test_function_parameter_trailing_comma_is_accepted() {
         let lexer = Lexer::new("fun f(a,) { }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
 
-        let e105_diags: Vec<_> = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E034"))
-            .collect();
-        assert_eq!(
-            e105_diags.len(),
-            1,
-            "expected one E034 diagnostic for trailing comma"
+        assert!(
+            parser.errors.is_empty(),
+            "expected no diagnostics for trailing comma in function parameters"
         );
-        let span = e105_diags[0].span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 8));
-        assert!(e105_diags[0]
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -771,39 +760,45 @@ let test2 = "this compiles";
     }
 
     #[test]
-    fn test_call_expression_trailing_comma_reports_missing_expression_at_rparen() {
+    fn test_call_expression_trailing_comma_is_accepted() {
         let lexer = Lexer::new("f(1,)");
         let mut parser = Parser::new(lexer);
-        let _ = parser.parse_program();
+        let program = parser.parse_program();
 
-        let diag = parser
-            .errors
-            .iter()
-            .find(|d| d.code() == Some("E034"))
-            .expect("expected E034 for trailing comma in call args");
-        let span = diag.span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 4));
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected expression after `,`, got )")));
+        assert!(
+            parser.errors.is_empty(),
+            "expected no diagnostics for trailing comma in call arguments"
+        );
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Call { arguments, .. },
+                ..
+            } => {
+                assert_eq!(arguments.len(), 1);
+            }
+            _ => panic!("expected call expression statement"),
+        }
     }
 
     #[test]
-    fn test_array_literal_trailing_comma_reports_missing_expression_at_rbracket() {
+    fn test_array_literal_trailing_comma_is_accepted() {
         let lexer = Lexer::new("[1,]");
         let mut parser = Parser::new(lexer);
-        let _ = parser.parse_program();
+        let program = parser.parse_program();
 
-        let diag = parser
-            .errors
-            .iter()
-            .find(|d| d.code() == Some("E034"))
-            .expect("expected E034 for trailing comma in array literal");
-        let span = diag.span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 3));
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected expression after `,`, got ]")));
+        assert!(
+            parser.errors.is_empty(),
+            "expected no diagnostics for trailing comma in array literal"
+        );
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Array { elements, .. },
+                ..
+            } => {
+                assert_eq!(elements.len(), 1);
+            }
+            _ => panic!("expected array expression statement"),
+        }
     }
 
     #[test]
@@ -822,6 +817,33 @@ let test2 = "this compiles";
         assert!(diag
             .message()
             .is_some_and(|m| m.contains("Expected expression after `,`, got `,`")));
+    }
+
+    #[test]
+    fn test_hash_literal_trailing_comma_is_accepted() {
+        let program = parse(r#"{"one": 1,}"#);
+        assert_eq!(program.statements.len(), 1);
+        assert_eq!(program.to_string(), "{\"one\": 1}");
+    }
+
+    #[test]
+    fn test_nested_trailing_commas_are_accepted() {
+        let program = parse("f([1,2,], g(3,4,),)");
+        assert_eq!(program.statements.len(), 1);
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Call { arguments, .. },
+                ..
+            } => {
+                assert_eq!(arguments.len(), 2);
+                assert!(matches!(&arguments[0], Expression::Array { elements, .. } if elements.len() == 2));
+                assert!(
+                    matches!(&arguments[1], Expression::Call { arguments, .. } if arguments.len() == 2)
+                );
+            }
+            _ => panic!("expected nested call expression statement"),
+        }
     }
 
     #[test]
