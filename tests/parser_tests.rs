@@ -96,6 +96,27 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_commas_in_numeric_call_args_emit_e073_without_cascade() {
+        let lexer = Lexer::new("print(1 2 3)");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(
+            missing_comma_count, 2,
+            "expected one E073 per missing comma gap"
+        );
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "missing-comma recovery should avoid generic cascade diagnostics"
+        );
+    }
+
+    #[test]
     fn test_missing_comma_in_call_args_reports_single_root_diagnostic_and_recovers() {
         let lexer = Lexer::new("f(\"a\" \"b\")\nlet x = 1;");
         let mut parser = Parser::new(lexer);
@@ -231,6 +252,27 @@ mod tests {
         let program = parse("[1, 2 * 2, 3 + 3];");
         assert_eq!(program.statements.len(), 1);
         assert_eq!(program.to_string(), "[1, (2 * 2), (3 + 3)]");
+    }
+
+    #[test]
+    fn test_missing_commas_in_boolean_array_emit_e073_without_cascade() {
+        let lexer = Lexer::new("[true false true]");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(
+            missing_comma_count, 2,
+            "expected one E073 per missing comma gap"
+        );
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "missing-comma recovery should avoid generic cascade diagnostics"
+        );
     }
 
     #[test]
@@ -672,6 +714,38 @@ mod tests {
             diag.message()
                 .is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
         );
+    }
+
+    #[test]
+    fn test_missing_comma_call_arg_recovery_keeps_later_argument() {
+        let lexer = Lexer::new("f(a, b c, d)");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        let missing_comma_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E073"))
+            .count();
+        assert_eq!(missing_comma_count, 1, "expected one missing comma diagnostic");
+        assert!(
+            parser.errors.iter().all(|d| d.code() == Some("E073")),
+            "missing-comma recovery should avoid generic cascade diagnostics"
+        );
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Call { arguments, .. },
+                ..
+            } => {
+                assert_eq!(arguments.len(), 4, "expected trailing argument to be preserved");
+                assert!(
+                    matches!(&arguments[3], Expression::Identifier { name, .. } if name == "d"),
+                    "expected final argument `d` to be parsed after recovery"
+                );
+            }
+            _ => panic!("expected call expression statement"),
+        }
     }
 
     // ========================================================================

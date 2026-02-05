@@ -200,6 +200,7 @@ impl Parser {
 
     pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
         let mut list = Vec::new();
+        let mut last_missing_comma_at = None;
 
         if self.is_peek_token(end) {
             self.next_token();
@@ -250,29 +251,102 @@ impl Parser {
 
             // Adjacent expression-starting token inside a delimited list strongly
             // indicates a missing comma: f(a b), [a b], etc.
-            if self.token_starts_expression(self.peek_token.token_type) {
+            if self.token_starts_expression(self.peek_token.token_type)
+                && !self.token_can_continue_expression(self.peek_token.token_type)
+            {
                 let (context, example) = match end {
                     TokenType::RParen => ("arguments", "`f(a, b)`"),
                     TokenType::RBracket => ("items", "`[a, b]`"),
                     _ => ("items", "`a, b`"),
                 };
-                self.errors
-                    .push(missing_comma(self.peek_token.span(), context, example));
+                let missing_comma_at = self.peek_token.position;
+                if last_missing_comma_at != Some(missing_comma_at) {
+                    self.errors
+                        .push(missing_comma(self.peek_token.span(), context, example));
+                    last_missing_comma_at = Some(missing_comma_at);
+                }
                 // Pretend a comma existed and continue parsing the next list item.
                 continue;
+            }
+
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                format!(
+                    "Expected `,` or `{}` after list item, got {}.",
+                    end, self.peek_token.token_type
+                ),
+            ));
+
+            self.recover_expression_list_to_delimiter(end);
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+                continue;
+            }
+
+            if self.is_peek_token(end) {
+                self.next_token();
+                return Some(list);
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {
                 format!("Expected `{}` before end of file.", end)
             } else {
-                format!(
-                    "Expected `{}` after list item, got {}.",
-                    end, self.peek_token.token_type
-                )
+                format!("Expected `,` or `{}` in expression list.", end)
             };
             self.errors
                 .push(unexpected_token(self.peek_token.span(), message));
             return None;
+        }
+    }
+
+    fn token_can_continue_expression(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::LParen
+                | TokenType::LBracket
+                | TokenType::Dot
+                | TokenType::Pipe
+                | TokenType::Or
+                | TokenType::And
+                | TokenType::Eq
+                | TokenType::NotEq
+                | TokenType::Lt
+                | TokenType::Gt
+                | TokenType::Lte
+                | TokenType::Gte
+                | TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Asterisk
+                | TokenType::Slash
+                | TokenType::Percent
+        )
+    }
+
+    fn recover_expression_list_to_delimiter(&mut self, end: TokenType) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+
+        while self.peek_token.token_type != TokenType::Eof {
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+            let token_type = self.peek_token.token_type;
+
+            if at_top_level && (token_type == TokenType::Comma || token_type == end) {
+                break;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
         }
     }
 
