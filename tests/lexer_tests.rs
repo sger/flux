@@ -572,4 +572,264 @@ fun fib(n) {
         assert!(warnings.len() > 0, "Should warn about unknown escape");
         assert!(warnings[0].message.contains("\\x"));
     }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Comment Tests
+    // ════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn empty_block_comment_is_skipped() {
+        let input = "let x = /* */ 5;";
+        let mut lexer = Lexer::new(input);
+
+        let expected = vec![
+            TokenType::Let,
+            TokenType::Ident,
+            TokenType::Assign,
+            TokenType::Int,
+            TokenType::Semicolon,
+            TokenType::Eof,
+        ];
+
+        for expected_type in expected {
+            assert_eq!(lexer.next_token().token_type, expected_type);
+        }
+    }
+
+    #[test]
+    fn four_slashes_doc_comment_includes_fourth() {
+        let input = "//// hi\nlet x = 1;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, "/ hi");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn skip_single_line_comments() {
+        let input = "let x = 5; // this is a comment\nlet y = 10;";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+        assert_eq!(lexer.next_token().token_type, TokenType::Ident);
+        assert_eq!(lexer.next_token().token_type, TokenType::Assign);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Semicolon);
+        // Comment is skipped
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn skip_block_comments() {
+        let input = "let x = /* comment */ 5;";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+        assert_eq!(lexer.next_token().token_type, TokenType::Ident);
+        assert_eq!(lexer.next_token().token_type, TokenType::Assign);
+        // Block comment is skipped
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Semicolon);
+    }
+
+    #[test]
+    fn skip_multiline_block_comments() {
+        let input = "let x = /* this is\n   a multiline\n   comment */ 5;";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+        assert_eq!(lexer.next_token().token_type, TokenType::Ident);
+        assert_eq!(lexer.next_token().token_type, TokenType::Assign);
+        // Multiline block comment is skipped
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+    }
+
+    #[test]
+    fn skip_nested_block_comments() {
+        let input = "let x = /* outer /* inner */ still outer */ 5;";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+        assert_eq!(lexer.next_token().token_type, TokenType::Ident);
+        assert_eq!(lexer.next_token().token_type, TokenType::Assign);
+        // Nested block comment is skipped entirely
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Semicolon);
+    }
+
+    #[test]
+    fn deeply_nested_block_comments() {
+        let input = "/* level 1 /* level 2 /* level 3 */ back to 2 */ back to 1 */ let";
+        let mut lexer = Lexer::new(input);
+
+        // All nested comments should be skipped
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn line_doc_comment() {
+        let input = "/// This is a doc comment\nlet x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, "This is a doc comment");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn line_doc_comment_without_space() {
+        let input = "///No space after slashes\nlet x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, "No space after slashes");
+    }
+
+    #[test]
+    fn multiple_line_doc_comments() {
+        let input = "/// First line\n/// Second line\nlet x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok1 = lexer.next_token();
+        assert_eq!(tok1.token_type, TokenType::DocComment);
+        assert_eq!(tok1.literal, "First line");
+
+        let tok2 = lexer.next_token();
+        assert_eq!(tok2.token_type, TokenType::DocComment);
+        assert_eq!(tok2.literal, "Second line");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn block_doc_comment() {
+        let input = "/** This is a block doc comment */ let x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, " This is a block doc comment ");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn multiline_block_doc_comment() {
+        let input = "/**\n * This is a multiline\n * doc comment\n */\nlet x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, "\n * This is a multiline\n * doc comment\n ");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn nested_block_doc_comment() {
+        let input = "/** outer /* nested */ still outer */ let x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert!(tok.literal.contains("outer"));
+        assert!(tok.literal.contains("nested"));
+        assert!(
+            !tok.literal.contains("/*") && !tok.literal.contains("*/"),
+            "doc comment content omits nested delimiters"
+        );
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn empty_doc_block_comment_emits_doc_token() {
+        let input = "/**/let x = 1;";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::DocComment);
+        assert_eq!(tok.literal, "");
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn unterminated_block_comment_error() {
+        let input = "let x = 5; /* unterminated comment";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+        assert_eq!(lexer.next_token().token_type, TokenType::Ident);
+        assert_eq!(lexer.next_token().token_type, TokenType::Assign);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Semicolon);
+
+        // Should emit error for unterminated comment
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedBlockComment);
+    }
+
+    #[test]
+    fn unterminated_block_doc_comment_error() {
+        let input = "/** unterminated doc comment";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedBlockComment);
+        assert_eq!(tok.literal, "");
+    }
+
+    #[test]
+    fn unterminated_nested_block_comment() {
+        let input = "/* outer /* inner */ missing close";
+        let mut lexer = Lexer::new(input);
+
+        let tok = lexer.next_token();
+        assert_eq!(tok.token_type, TokenType::UnterminatedBlockComment);
+    }
+
+    #[test]
+    fn comment_types_dont_interfere() {
+        let input = "// line comment\n/* block */ /** doc block */ /// doc line\nlet x = 5;";
+        let mut lexer = Lexer::new(input);
+
+        // Line comment is skipped
+        // Block comment is skipped
+        // Doc block comment is emitted
+        let tok1 = lexer.next_token();
+        assert_eq!(tok1.token_type, TokenType::DocComment);
+
+        // Doc line comment is emitted
+        let tok2 = lexer.next_token();
+        assert_eq!(tok2.token_type, TokenType::DocComment);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Let);
+    }
+
+    #[test]
+    fn slash_operator_still_works() {
+        let input = "10 / 2";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Slash);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+    }
+
+    #[test]
+    fn asterisk_operator_still_works() {
+        let input = "10 * 2";
+        let mut lexer = Lexer::new(input);
+
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+        assert_eq!(lexer.next_token().token_type, TokenType::Asterisk);
+        assert_eq!(lexer.next_token().token_type, TokenType::Int);
+    }
 }

@@ -44,6 +44,10 @@ impl Parser {
                 }
                 None
             }
+            TokenType::UnterminatedBlockComment => {
+                self.unterminated_block_comment_error();
+                None
+            }
             TokenType::InterpolationStart => self.parse_interpolation_start(),
             TokenType::True | TokenType::False => self.parse_boolean(),
             TokenType::None => self.parse_none(),

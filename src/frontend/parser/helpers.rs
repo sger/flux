@@ -1,7 +1,7 @@
 use crate::frontend::{
     block::Block,
     diagnostics::{
-        Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_STRING,
+        Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
         compiler_errors::{missing_comma, unexpected_token},
     },
     expression::Expression,
@@ -15,7 +15,11 @@ use super::Parser;
 impl Parser {
     // Token navigation
     pub(super) fn next_token(&mut self) {
-        let next = self.lexer.next_token();
+        let mut next = self.lexer.next_token();
+        // Skip doc comments - they're lexed but not parsed
+        while next.token_type == TokenType::DocComment {
+            next = self.lexer.next_token();
+        }
         self.current_token = std::mem::replace(
             &mut self.peek_token,
             std::mem::replace(&mut self.peek2_token, next),
@@ -290,6 +294,19 @@ impl Parser {
         let token_span = self.current_token.span();
 
         let error_spec = &UNTERMINATED_STRING;
+        let diag = Diagnostic::make_error(
+            error_spec,
+            &[],           // No message formatting args needed
+            String::new(), // No file context in parser
+            token_span,
+        );
+        self.errors.push(diag);
+        self.synchronize_after_error();
+    }
+
+    pub(super) fn unterminated_block_comment_error(&mut self) {
+        let token_span = self.current_token.span();
+        let error_spec = &UNTERMINATED_BLOCK_COMMENT;
         let diag = Diagnostic::make_error(
             error_spec,
             &[],           // No message formatting args needed

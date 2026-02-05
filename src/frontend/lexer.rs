@@ -28,6 +28,8 @@ pub struct Lexer {
     column: usize,
     state: LexerState,
     warnings: Vec<LexerWarning>,
+    /// Track unterminated block comment error (position where /* started)
+    unterminated_block_comment_pos: Option<Position>,
 }
 
 impl Lexer {
@@ -41,6 +43,7 @@ impl Lexer {
             column: 0,
             state: LexerState::Normal,
             warnings: Vec::new(),
+            unterminated_block_comment_pos: None,
         };
         lexer.read_char();
         lexer
@@ -59,6 +62,17 @@ impl Lexer {
         }
 
         self.skip_ignorable();
+
+        // Check if we encountered an unterminated block comment
+        if let Some(error_pos) = self.unterminated_block_comment_pos.take() {
+            return Token::new_with_end(
+                TokenType::UnterminatedBlockComment,
+                "",
+                error_pos.line,
+                error_pos.column,
+                Position::new(self.line, self.column),
+            );
+        }
 
         let line = self.line;
         let col = self.column;
@@ -105,7 +119,17 @@ impl Lexer {
             Some('+') => Token::new(TokenType::Plus, "+", line, col),
             Some('-') => Token::new(TokenType::Minus, "-", line, col),
             Some('*') => Token::new(TokenType::Asterisk, "*", line, col),
-            Some('/') => Token::new(TokenType::Slash, "/", line, col),
+            Some('/') => {
+                // Doc comments (/// or /**) are tokens; non-doc comments are skipped in
+                // skip_ignorable(), so the fallback here is always Slash.
+                if self.peek_char() == Some('/') && self.peek_n(2) == Some('/') {
+                    return self.read_doc_line_comment();
+                }
+                if self.peek_char() == Some('*') && self.peek_n(2) == Some('*') {
+                    return self.read_doc_block_comment();
+                }
+                Token::new(TokenType::Slash, "/", line, col)
+            }
             Some('%') => Token::new(TokenType::Percent, "%", line, col),
             Some('<') => Token::new(TokenType::Lt, "<", line, col),
             Some('>') => Token::new(TokenType::Gt, ">", line, col),
@@ -208,6 +232,14 @@ impl Lexer {
         self.input.get(self.read_position).copied()
     }
 
+    /// Look ahead n chars without advancing.
+    /// n=1 is equivalent to peek_char() (next char), n=2 is the char after that.
+    /// Returns None when peeking past EOF.
+    fn peek_n(&self, n: usize) -> Option<char> {
+        debug_assert!(n > 0, "peek_n expects n >= 1");
+        self.input.get(self.read_position + (n - 1)).copied()
+    }
+
     fn skip_ignorable(&mut self) {
         loop {
             // Whitespace
@@ -215,12 +247,36 @@ impl Lexer {
                 self.read_char();
             }
 
-            // Single-line comments: //
+            // Single-line comments: // (but not ///)
             if self.current_char == Some('/') && self.peek_char() == Some('/') {
-                while self.current_char.is_some() && self.current_char != Some('\n') {
-                    self.read_char();
+                // Check if it's a doc comment ///
+                if self.peek_n(2) != Some('/') {
+                    // Regular // comment - skip it
+                    while self.current_char.is_some() && self.current_char != Some('\n') {
+                        self.read_char();
+                    }
+                    continue; // there may be whitespace/comments again
                 }
-                continue; // there may be whitespace/comments again
+                // It's a doc comment /// - don't skip, let next_token handle it
+                break;
+            }
+
+            // Block comments: /* (but not /**)
+            if self.current_char == Some('/') && self.peek_char() == Some('*') {
+                // Check if it's a doc comment /**
+                if self.peek_n(2) != Some('*') {
+                    // Regular /* comment - skip it
+                    let comment_start = Position::new(self.line, self.column);
+                    if !self.skip_block_comment() {
+                        // Unterminated block comment - we've hit EOF
+                        // Store the error position
+                        self.unterminated_block_comment_pos = Some(comment_start);
+                        break;
+                    }
+                    continue; // there may be whitespace/comments again
+                }
+                // It's a doc comment /** - don't skip, let next_token handle it
+                break;
             }
 
             break;
@@ -465,6 +521,134 @@ impl Lexer {
     /// Check if we're currently inside an interpolation expression
     pub fn is_in_interpolation(&self) -> bool {
         self.in_interpolated_string_context() && self.current_interpolation_depth() > 0
+    }
+
+    /// Skip a block comment (/* ... */) with support for nesting.
+    /// Entry: current_char is '/' and peek_char is '*' (this function consumes both).
+    /// Returns true if the comment was properly closed, false if EOF was reached.
+    /// The lexer position is left at the character after the closing */.
+    fn skip_block_comment(&mut self) -> bool {
+        debug_assert!(
+            self.current_char == Some('/') && self.peek_char() == Some('*'),
+            "skip_block_comment expects current_char == '/' and peek_char == '*'"
+        );
+        // We need to track nesting depth
+        let mut nesting_depth = 1;
+
+        // Consume the opening /*
+        self.read_char(); // consume '/'
+        self.read_char(); // consume '*'
+
+        while self.current_char.is_some() {
+            if self.current_char == Some('*') && self.peek_char() == Some('/') {
+                // Found closing */
+                self.read_char(); // consume '*'
+                self.read_char(); // consume '/'
+                nesting_depth -= 1;
+                if nesting_depth == 0 {
+                    return true; // Successfully closed
+                }
+            } else if self.current_char == Some('/') && self.peek_char() == Some('*') {
+                // Found opening /* - increment nesting depth
+                self.read_char(); // consume '/'
+                self.read_char(); // consume '*'
+                nesting_depth += 1;
+            } else {
+                self.read_char();
+            }
+        }
+
+        // Reached EOF without closing all comments
+        false
+    }
+
+    /// Read a line doc comment (///)
+    /// Returns a DocComment token containing the documentation text.
+    fn read_doc_line_comment(&mut self) -> Token {
+        let line = self.line;
+        let col = self.column;
+
+        // Skip the three slashes
+        self.read_char(); // first /
+        self.read_char(); // second /
+        self.read_char(); // third /
+
+        // Skip leading space if present (common convention: "/// text")
+        if self.current_char == Some(' ') {
+            self.read_char();
+        }
+
+        let mut content = String::new();
+
+        // Read until newline or EOF
+        while self.current_char.is_some() && self.current_char != Some('\n') {
+            content.push(self.current_char.unwrap());
+            self.read_char();
+        }
+
+        // Use the lexer cursor end to keep spans correct even for multi-line inputs.
+        Token::new_with_end(
+            TokenType::DocComment,
+            content,
+            line,
+            col,
+            Position::new(self.line, self.column),
+        )
+    }
+
+    /// Read a block doc comment (/** ... */)
+    /// Returns a DocComment token or UnterminatedBlockComment on error.
+    /// Preserves newlines and internal formatting.
+    fn read_doc_block_comment(&mut self) -> Token {
+        let line = self.line;
+        let col = self.column;
+
+        // Skip /** opening
+        self.read_char(); // /
+        self.read_char(); // *
+        self.read_char(); // *
+
+        let mut content = String::new();
+
+        // Track nesting for /** ... */ comments
+        let mut nesting_depth = 1;
+
+        while self.current_char.is_some() {
+            if self.current_char == Some('*') && self.peek_char() == Some('/') {
+                // Found closing */
+                self.read_char(); // consume '*'
+                self.read_char(); // consume '/'
+                nesting_depth -= 1;
+                if nesting_depth == 0 {
+                    // Successfully closed - return the doc comment
+                    return Token::new_with_end(
+                        TokenType::DocComment,
+                        content,
+                        line,
+                        col,
+                        Position::new(self.line, self.column),
+                    );
+                }
+                // Nested closing delimiter intentionally omitted from doc content.
+            } else if self.current_char == Some('/') && self.peek_char() == Some('*') {
+                // Found opening /* - treat as nested for depth, but omit delimiters from content.
+                self.read_char(); // consume '/'
+                self.read_char(); // consume '*'
+                nesting_depth += 1;
+            } else {
+                content.push(self.current_char.unwrap());
+                self.read_char();
+            }
+        }
+
+        // Reached EOF without closing the comment
+        Token::new_with_end(
+            TokenType::UnterminatedBlockComment,
+            "", // Use empty literal for all UnterminatedBlockComment tokens (consistency).
+            line,
+            col,
+            Position::new(self.line, self.column),
+        )
     }
 }
 

@@ -624,6 +624,14 @@ pub const UNTERMINATED_INTERPOLATION: ErrorCode = ErrorCode {
     ),
 };
 
+pub const UNTERMINATED_BLOCK_COMMENT: ErrorCode = ErrorCode {
+    code: "E074",
+    title: "UNTERMINATED BLOCK COMMENT",
+    error_type: ErrorType::Compiler,
+    message: "Block comment is missing closing */.",
+    hint: Some("Add a closing */ to end the comment."),
+};
+
 pub const MISSING_COMMA: ErrorCode = ErrorCode {
     code: "E073",
     title: "MISSING COMMA",
@@ -706,6 +714,13 @@ pub fn unterminated_interpolation(span: Span) -> Diagnostic {
     diag_enhanced(&UNTERMINATED_INTERPOLATION)
         .with_span(span)
         .with_message("Expected string continuation or end after interpolation.")
+}
+
+/// Create an "unterminated block comment" error
+pub fn unterminated_block_comment(span: Span) -> Diagnostic {
+    diag_enhanced(&UNTERMINATED_BLOCK_COMMENT)
+        .with_span(span)
+        .with_message("Block comment is missing closing */.")
 }
 
 /// Create a "missing comma" error for adjacent list items/arguments
