@@ -17,6 +17,8 @@ macro_rules! define_tokens {
             Float,
             String,
             UnterminatedString,
+            DocComment,
+            UnterminatedBlockComment,
 
             // Symbols (operators & delimiters)
             $($sym_name,)*
@@ -35,6 +37,8 @@ macro_rules! define_tokens {
                     TokenType::Float => "FLOAT",
                     TokenType::String => "STRING",
                     TokenType::UnterminatedString => "UNTERMINATED_STRING",
+                    TokenType::DocComment => "DOC_COMMENT",
+                    TokenType::UnterminatedBlockComment => "UNTERMINATED_BLOCK_COMMENT",
                     $(TokenType::$sym_name => $sym_str,)*
                     $(TokenType::$kw_name => $kw_str,)*
                 };

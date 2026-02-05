@@ -180,6 +180,27 @@ mod tests {
     }
 
     #[test]
+    fn test_unterminated_block_comment_error_uses_lexer_end_position() {
+        let input = "let x = 1; /* unterminated";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E074"))
+            .expect("expected E074 unterminated block comment diagnostic");
+        let span = diag.span().expect("expected diagnostic span");
+        let start_col = input.find("/*").expect("expected block comment start");
+
+        assert_eq!(span.start.line, 1);
+        assert_eq!(span.start.column, start_col);
+        assert_eq!(span.end.line, 1);
+        assert_eq!(span.end.column, input.chars().count());
+    }
+
+    #[test]
     fn test_string_interpolation_simple() {
         let program = parse(r#""Hello #{name}""#);
         assert_eq!(program.statements.len(), 1);

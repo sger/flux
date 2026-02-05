@@ -36,9 +36,18 @@ impl Parser {
     }
 
     fn prime(&mut self) {
-        self.current_token = self.lexer.next_token();
-        self.peek_token = self.lexer.next_token();
-        self.peek2_token = self.lexer.next_token();
+        // Skip doc comments during initialization
+        self.current_token = self.next_non_doc_token();
+        self.peek_token = self.next_non_doc_token();
+        self.peek2_token = self.next_non_doc_token();
+    }
+
+    fn next_non_doc_token(&mut self) -> Token {
+        let mut token = self.lexer.next_token();
+        while token.token_type == TokenType::DocComment {
+            token = self.lexer.next_token();
+        }
+        token
     }
 
     pub fn parse_program(&mut self) -> Program {
