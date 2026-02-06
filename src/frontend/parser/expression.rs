@@ -1,11 +1,11 @@
 use crate::frontend::{
     block::Block,
     diagnostics::{
+        DiagnosticBuilder,
         compiler_errors::{
             invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
             unexpected_token,
         },
-        DiagnosticBuilder,
     },
     expression::{Expression, MatchArm, Pattern},
     position::Span,

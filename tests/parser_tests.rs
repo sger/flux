@@ -652,10 +652,11 @@ fun t(x) {
             .find(|d| d.code() == Some("E036"))
             .expect("expected E036 diagnostic for missing lambda arrow");
         assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
-        assert!(diag
-            .hints()
-            .iter()
-            .any(|h| h.text.contains(r"\x -> expr") || h.text.contains(r"\(x, y) -> expr")));
+        assert!(
+            diag.hints()
+                .iter()
+                .any(|h| h.text.contains(r"\x -> expr") || h.text.contains(r"\(x, y) -> expr"))
+        );
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start.line, 1);
         assert_eq!(span.start.column, 3);
@@ -681,9 +682,10 @@ fun t(x) {
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier function parameter");
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter")));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
     }
 
     #[test]
@@ -697,9 +699,10 @@ fun t(x) {
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier lambda parameter");
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter")));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
     }
 
     #[test]
@@ -721,9 +724,11 @@ fun t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for parenthesized keyword lambda");
 
-        assert!(single_diag
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter, got if")));
+        assert!(
+            single_diag
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter, got if"))
+        );
         assert_eq!(single_diag.message(), paren_diag.message());
         assert_eq!(single_parser.errors.len(), 1);
         assert_eq!(paren_parser.errors.len(), 1);
@@ -760,9 +765,11 @@ fun t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for parenthesized illegal token lambda");
 
-        assert!(single_diag
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter, got INT")));
+        assert!(
+            single_diag
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter, got INT"))
+        );
         assert_eq!(single_diag.message(), paren_diag.message());
         assert_eq!(single_parser.errors.len(), 1);
         assert_eq!(paren_parser.errors.len(), 1);
@@ -831,9 +838,10 @@ fun t(x) {
             .expect("expected E034 for missing comma between parameters");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 8));
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected `,` or `)` after parameter")));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
+        );
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -874,9 +882,11 @@ fun t(x) {
             .filter(|d| d.code() == Some("E034"))
             .collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for extra comma");
-        assert!(e105_diags[0]
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter")));
+        assert!(
+            e105_diags[0]
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -898,9 +908,11 @@ fun t(x) {
             .filter(|d| d.code() == Some("E034"))
             .collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for leading comma");
-        assert!(e105_diags[0]
-            .message()
-            .is_some_and(|m| m.contains("Expected identifier as parameter")));
+        assert!(
+            e105_diags[0]
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+        );
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -965,9 +977,10 @@ fun t(x) {
             .expect("expected E034 for double comma in call args");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
-        assert!(diag
-            .message()
-            .is_some_and(|m| m.contains("Expected expression after `,`, got `,`")));
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
+        );
     }
 
     #[test]

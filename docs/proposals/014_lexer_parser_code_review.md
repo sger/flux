@@ -1,13 +1,13 @@
 # Proposal 014: Lexer & Parser Code Review and Refactoring
 
-**Status:** Code Review
+**Status:** Partially Implemented (Updated 2026-02-06)
 **Priority:** Medium (Code Quality)
 **Created:** 2026-02-04
 **Related:** Phase 2 Module Split (Proposal 012)
 
 ## Overview
 
-This document provides a comprehensive code review of the lexer and parser, identifying areas for improvement, potential bugs, and proposing a modular architecture for better maintainability.
+This document provides a comprehensive code review of the lexer and parser, identifying areas for improvement, potential bugs, and proposing a modular architecture for better maintainability. It now also records implementation status for completed vs pending items.
 
 ---
 
@@ -15,8 +15,8 @@ This document provides a comprehensive code review of the lexer and parser, iden
 
 ### Current State
 
-**File:** [src/frontend/lexer.rs](../src/frontend/lexer.rs) (348 lines)
-**Status:** Well-organized, but could benefit from modularization
+**Files:** [src/frontend/lexer/mod.rs](../src/frontend/lexer/mod.rs) + lexer submodules
+**Status:** Refactored and modularized (with one intentional omission: no separate char reader type)
 
 ### Code Quality Assessment
 
@@ -955,21 +955,21 @@ mod parser_fuzz_tests {
 
 ---
 
-## Summary of Recommendations
+## Summary of Recommendations and Current Status
 
 ### Lexer
-1. ✅ **Modularize** into scanner, literals, character reader
+1. ⚠️ **Modularize** into scanner/literals/character reader: modularization completed, but dedicated character reader extraction remains intentionally unimplemented.
 2. ✅ **Improve** escape sequence handling (warn on unknown)
 3. ✅ **Add** block comments support
 4. ✅ **Better** state management with enum
 5. ✅ **Optional:** Scientific notation, hex literals
 
 ### Parser
-1. ✅ **Add** error recovery/synchronization
-2. ✅ **Extract** common parsing patterns
-3. ✅ **Add** pattern validation
-4. ✅ **Improve** operator handling (table-driven)
-5. ✅ **Add** comprehensive tests
+1. ✅ **Add** error recovery/synchronization (implemented, including list-specific recovery paths)
+2. ⚠️ **Extract** common parsing patterns (partially implemented; shared list parsing exists, broader extraction still pending)
+3. ❌ **Add** pattern validation (dedicated validation pass not implemented)
+4. ❌ **Improve** operator handling (table-driven/operator registry not implemented; precedence still match-based)
+5. ✅ **Add** comprehensive tests (significantly expanded parser and regression coverage)
 
 ### Estimated Effort
 - Lexer refactoring: **1 week** (5 days)
@@ -982,12 +982,38 @@ mod parser_fuzz_tests {
 - **Medium:** Module refactoring, escape sequence warnings
 - **Low:** Scientific notation, operator registry
 
+### Implementation Checklist (Remaining Work)
+
+- [ ] Add a dedicated parser pattern validation pass (or equivalent centralized validation).
+Acceptance: Invalid/unsupported pattern shapes produce deterministic diagnostics with spans, and valid nested patterns continue to parse correctly.
+
+- [ ] Introduce table-driven operator precedence handling (or an operator registry).
+Acceptance: Precedence and associativity are defined in one data structure and used by parser precedence lookup; existing precedence tests continue to pass.
+
+- [ ] Extract additional shared parser helpers for repeated parse structures beyond current list parsing support.
+Acceptance: Repeated parse flows (e.g., wrapped/similar constructs) call shared helpers and behavior is unchanged in existing parser tests.
+
+- [ ] Expand non-list panic-mode recovery for malformed expressions/statements.
+Acceptance: Parser advances to safe synchronization points without infinite loops and continues parsing later statements after malformed constructs.
+
+- [ ] Add malformed-expression recovery tests that assert no panic and continued parsing.
+Acceptance: A malformed input corpus test (or equivalent) verifies diagnostics are emitted and parse returns a program shape without panicking.
+
+- [ ] Add tests that lock pattern-validation diagnostics.
+Acceptance: Tests assert expected diagnostic code/message and parameterized span locations for representative invalid patterns.
+
+- [ ] Add tests that lock operator behavior after table-driven refactor.
+Acceptance: Arithmetic/comparison/logical precedence and associativity tests remain stable and pass with the new precedence source.
+
+- [ ] (Optional) Extract a dedicated lexer character reader abstraction.
+Acceptance: If chosen, character cursor/position logic is encapsulated in a dedicated type and all lexer tests remain green.
+
 ---
 
 ## References
 
 - [Phase 2 Module Split](012_phase2_module_split_plan.md)
-- [Lexer Implementation](../src/frontend/lexer.rs)
+- [Lexer Implementation](../src/frontend/lexer/mod.rs)
 - [Parser Implementation](../src/frontend/parser/)
 - **Crafting Interpreters:** Chapter on Lexing & Parsing
 
@@ -995,8 +1021,7 @@ mod parser_fuzz_tests {
 
 ## Next Steps
 
-1. Review recommendations
-2. Prioritize improvements
-3. Implement high-priority items first
-4. Add comprehensive test suite
-5. Consider for Phase 2 or Phase 3 implementation
+1. Complete the parser pattern validation task and land its tests first.
+2. Implement table-driven/operator-registry precedence and keep current behavior via tests.
+3. Add malformed-input recovery coverage focused on non-list parse failures.
+4. Reassess whether lexer char-reader extraction is still desirable after parser items are complete.

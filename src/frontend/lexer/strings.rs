@@ -1,6 +1,5 @@
 //! String literal parsing and interpolation handling
 
-use crate::frontend::position::Position;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::TokenType;
 
@@ -16,19 +15,14 @@ impl Lexer {
         col: usize,
     ) -> Token {
         // String-family tokens use source cursor end (raw span), not cooked literal length.
-        Token::new_with_end(
-            token_type,
-            content,
-            line,
-            col,
-            Position::new(self.line, self.column),
-        )
+        Token::new_with_end(token_type, content, line, col, self.cursor_position())
     }
 
     /// Read the start of a string (called when we see opening ")
     pub(super) fn read_string_start(&mut self) -> Token {
-        let line = self.line;
-        let col = self.column;
+        let cursor = self.cursor_position();
+        let line = cursor.line;
+        let col = cursor.column;
         self.read_char(); // skip opening quote
 
         let (content, ended, has_interpolation) = self.read_string_content();
@@ -53,8 +47,9 @@ impl Lexer {
         debug_assert!(self.in_interpolated_string_context());
         debug_assert!(!self.is_in_interpolation());
 
-        let line = self.line;
-        let col = self.column;
+        let cursor = self.cursor_position();
+        let line = cursor.line;
+        let col = cursor.column;
 
         let (content, ended, has_interpolation) = self.read_string_content();
 
@@ -80,7 +75,7 @@ impl Lexer {
     fn read_string_content(&mut self) -> (String, bool, bool) {
         let mut result = String::new();
 
-        while let Some(c) = self.current_char {
+        while let Some(c) = self.current_char() {
             match c {
                 '\n' | '\r' => {
                     // Strings cannot span lines

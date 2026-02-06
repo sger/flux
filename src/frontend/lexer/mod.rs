@@ -6,10 +6,12 @@ mod escape;
 mod helpers;
 mod identifiers;
 mod numbers;
+mod reader;
 mod state;
 mod strings;
 
 // Re-export state for visibility
+use reader::CharReader;
 use state::LexerState;
 
 use crate::frontend::position::Position;
@@ -28,12 +30,7 @@ pub struct LexerWarning {
 /// The Flux lexer
 #[derive(Debug, Clone)]
 pub struct Lexer {
-    input: Vec<char>,
-    position: usize,
-    read_position: usize,
-    current_char: Option<char>,
-    line: usize,
-    column: usize,
+    reader: CharReader,
     state: LexerState,
     warnings: Vec<LexerWarning>,
     /// Track unterminated block comment error (position where /* started)
@@ -42,19 +39,12 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(input: impl Into<String>) -> Self {
-        let mut lexer = Self {
-            input: input.into().chars().collect(),
-            position: 0,
-            read_position: 0,
-            current_char: None,
-            line: 1,
-            column: 0,
+        Self {
+            reader: CharReader::new(input.into()),
             state: LexerState::Normal,
             warnings: Vec::new(),
             unterminated_block_comment_pos: None,
-        };
-        lexer.read_char();
-        lexer
+        }
     }
 
     /// Get warnings collected during lexing
@@ -78,14 +68,15 @@ impl Lexer {
                 "",
                 error_pos.line,
                 error_pos.column,
-                Position::new(self.line, self.column),
+                self.cursor_position(),
             );
         }
 
-        let line = self.line;
-        let col = self.column;
+        let cursor = self.cursor_position();
+        let line = cursor.line;
+        let col = cursor.column;
 
-        let token = match self.current_char {
+        let token = match self.current_char() {
             // Two-character operators
             Some('=') if self.peek_char() == Some('=') => {
                 self.read_char();
@@ -217,50 +208,49 @@ impl Lexer {
     }
 
     fn read_char(&mut self) {
-        // Update column BEFORE moving to the next character
-        // This ensures column represents the position of current_char, not the next char
-        if self.current_char == Some('\n') {
-            self.line += 1;
-            self.column = 0;
-        } else if self.current_char.is_some() {
-            self.column += 1;
-        }
-
-        self.current_char = if self.read_position >= self.input.len() {
-            None
-        } else {
-            Some(self.input[self.read_position])
-        };
-
-        self.position = self.read_position;
-        self.read_position += 1;
+        self.reader.advance();
     }
 
     fn peek_char(&self) -> Option<char> {
-        self.input.get(self.read_position).copied()
+        self.reader.peek()
     }
 
     /// Look ahead n chars without advancing.
     /// n=1 is equivalent to peek_char() (next char), n=2 is the char after that.
     /// Returns None when peeking past EOF.
     fn peek_n(&self, n: usize) -> Option<char> {
-        debug_assert!(n > 0, "peek_n expects n >= 1");
-        self.input.get(self.read_position + (n - 1)).copied()
+        self.reader.peek_n(n)
+    }
+
+    fn current_char(&self) -> Option<char> {
+        self.reader.current()
+    }
+
+    fn current_index(&self) -> usize {
+        self.reader.index()
+    }
+
+    fn cursor_position(&self) -> Position {
+        self.reader.position()
+    }
+
+    fn slice_chars(&self, start: usize, end: usize) -> String {
+        self.reader.slice(start, end)
     }
 
     fn skip_ignorable(&mut self) {
         loop {
             // Whitespace
-            while matches!(self.current_char, Some(' ' | '\t' | '\r' | '\n')) {
+            while matches!(self.current_char(), Some(' ' | '\t' | '\r' | '\n')) {
                 self.read_char();
             }
 
             // Single-line comments: // (but not ///)
-            if self.current_char == Some('/') && self.peek_char() == Some('/') {
+            if self.current_char() == Some('/') && self.peek_char() == Some('/') {
                 // Check if it's a doc comment ///
                 if self.peek_n(2) != Some('/') {
                     // Regular // comment - skip it
-                    while self.current_char.is_some() && self.current_char != Some('\n') {
+                    while self.current_char().is_some() && self.current_char() != Some('\n') {
                         self.read_char();
                     }
                     continue; // there may be whitespace/comments again
@@ -270,11 +260,11 @@ impl Lexer {
             }
 
             // Block comments: /* (but not /**)
-            if self.current_char == Some('/') && self.peek_char() == Some('*') {
+            if self.current_char() == Some('/') && self.peek_char() == Some('*') {
                 // Check if it's a doc comment /**
                 if self.peek_n(2) != Some('*') {
                     // Regular /* comment - skip it
-                    let comment_start = Position::new(self.line, self.column);
+                    let comment_start = self.cursor_position();
                     if !self.skip_block_comment() {
                         // Unterminated block comment - we've hit EOF
                         // Store the error position

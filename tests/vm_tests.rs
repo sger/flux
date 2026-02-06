@@ -1,7 +1,7 @@
 use flux::bytecode::{
     bytecode::Bytecode,
     compiler::Compiler,
-    op_code::{make, OpCode},
+    op_code::{OpCode, make},
 };
 use flux::frontend::diagnostics::render_diagnostics;
 use flux::frontend::lexer::Lexer;
@@ -116,13 +116,11 @@ fn test_global_variables() {
 #[test]
 fn test_function_parameter_shadows_global_binding() {
     assert_eq!(
-        run(
-            r#"
+        run(r#"
 let x = 3;
 fun t(x) { x; }
 t(9) + x;
-"#
-        ),
+"#),
         Object::Integer(12)
     );
 }
