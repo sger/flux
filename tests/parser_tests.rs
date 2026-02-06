@@ -128,6 +128,49 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_match_arm_guard_parses_and_attaches_to_arm() {
+        let program = parse("match x { a if a > 0 -> 1, _ -> 0 };");
+        assert_eq!(program.statements.len(), 1);
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Match { arms, .. },
+                ..
+            } => {
+                assert_eq!(arms.len(), 2);
+                assert!(
+                    matches!(arms[0].guard.as_ref(), Some(Expression::Infix { .. })),
+                    "expected first arm guard to parse as expression"
+                );
+                assert!(
+                    arms[1].guard.is_none(),
+                    "expected second arm to be unguarded"
+                );
+            }
+            _ => panic!("expected match expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_malformed_match_guard_reports_diagnostic_and_recovers() {
+        let lexer = Lexer::new("match x { a if -> 1, _ -> 0 }\nlet y = 3;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E031")),
+            "expected malformed guard to report EXPECTED_EXPRESSION"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            "expected parser to continue after malformed match guard"
+        );
+    }
+
+    #[test]
     fn test_match_arms_semicolon_separator_reports_clear_diagnostic_and_recovers() {
         let lexer = Lexer::new("match x { 0 -> 1; 1 -> 2 }\nlet y = 3;");
         let mut parser = Parser::new(lexer);

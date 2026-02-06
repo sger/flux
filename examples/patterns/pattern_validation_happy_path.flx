@@ -15,3 +15,10 @@ let result2 = match value2 {
     _ -> 0,
 };
 print(result2);
+
+let guarded = match Some(8) {
+    Some(v) if v > 10 -> "big",
+    Some(v) if v > 5 -> "medium",
+    _ -> "small",
+};
+print(guarded);

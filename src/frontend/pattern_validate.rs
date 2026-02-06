@@ -137,6 +137,9 @@ fn validate_expression_patterns(
             validate_expression_patterns(scrutinee, ctx, diagnostics);
             validate_match_arms(arms, *span, ctx, diagnostics);
             for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    validate_expression_patterns(guard, ctx, diagnostics);
+                }
                 validate_expression_patterns(&arm.body, ctx, diagnostics);
             }
         }
@@ -179,7 +182,7 @@ fn validate_match_arms(
 
     if arms.len() > 1 {
         for arm in &arms[..arms.len() - 1] {
-            if is_catchall(&arm.pattern) {
+            if is_unconditional_catchall_arm(arm) {
                 diagnostics.push(Diagnostic::make_error(
                     &CATCHALL_NOT_LAST,
                     &[],
@@ -191,7 +194,7 @@ fn validate_match_arms(
     }
 
     if let Some(last) = arms.last()
-        && !is_catchall(&last.pattern)
+        && !is_unconditional_catchall_arm(last)
     {
         diagnostics.push(Diagnostic::make_error(
             &NON_EXHAUSTIVE_MATCH,
@@ -237,4 +240,8 @@ fn is_catchall(pattern: &Pattern) -> bool {
         pattern,
         Pattern::Wildcard { .. } | Pattern::Identifier { .. }
     )
+}
+
+fn is_unconditional_catchall_arm(arm: &MatchArm) -> bool {
+    arm.guard.is_none() && is_catchall(&arm.pattern)
 }

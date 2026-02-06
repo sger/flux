@@ -447,6 +447,13 @@ impl Parser {
         while !self.is_peek_token(TokenType::RBrace) {
             self.next_token();
             let pattern = self.parse_pattern()?;
+            let mut guard = None;
+
+            if self.is_peek_token(TokenType::If) {
+                self.next_token(); // consume `if`
+                self.next_token(); // move to guard expression start
+                guard = Some(self.parse_expression(Precedence::Lowest)?);
+            }
 
             if !self.expect_peek(TokenType::Arrow) {
                 return None;
@@ -458,6 +465,7 @@ impl Parser {
             let span = Span::new(pattern.span().start, body.span().end);
             arms.push(MatchArm {
                 pattern,
+                guard,
                 body,
                 span,
             });
