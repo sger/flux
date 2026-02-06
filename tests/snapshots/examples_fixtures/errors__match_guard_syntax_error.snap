@@ -1,0 +1,29 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/match_guard_syntax_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ->.
+
+  --> examples/errors/match_guard_syntax_error.flx:5:16
+  |
+5 |     Some(v) if -> v,
+  |                ^^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ;.
+
+  --> examples/errors/match_guard_syntax_error.flx:7:2
+  |
+7 | };
+  |  ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

@@ -1,0 +1,17 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/invalid_integer_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E032]: INVALID INTEGER
+
+Could not parse `99999999999999999999999999999999999999999999999999` as an integer.
+
+  --> examples/errors/invalid_integer_error.flx:2:9
+  |
+2 | let x = 99999999999999999999999999999999999999999999999999;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+== stdout ==
+<not executed>

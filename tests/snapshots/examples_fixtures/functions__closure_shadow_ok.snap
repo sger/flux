@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/functions/closure_shadow_ok.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `x` is already defined.
+
+  --> examples/functions/closure_shadow_ok.flx:5:7
+  |
+5 |       let x = 2;
+  |       ^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/functions/closure_shadow_ok.flx:2:5
+  |
+2 |     let x = 1;
+  |     ^^^^^^^^^^
+== stdout ==
+<not executed>

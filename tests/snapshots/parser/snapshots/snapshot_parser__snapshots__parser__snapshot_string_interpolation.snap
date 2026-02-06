@@ -1,0 +1,44 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Let {
+            name: "msg",
+            value: String {
+                value: "Hello ${name}, you have ${count} items",
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 10,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 50,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 51,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 51,
+        },
+    },
+}

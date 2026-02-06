@@ -2,8 +2,8 @@ mod diagnostics_env;
 
 use flux::frontend::{
     diagnostics::{
-        Diagnostic, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind, InlineSuggestion,
-        Label, LabelStyle,
+        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind,
+        InlineSuggestion, Label, LabelStyle,
     },
     position::{Position, Span},
 };
@@ -11,7 +11,7 @@ use flux::frontend::{
 #[test]
 fn renders_hint_without_double_prefix() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let output = Diagnostic::error("TEST")
+    let output = Diagnostic::warning("TEST")
         .with_hint_text("Hint:\n  foo")
         .render(None, Some("test.flx"));
 
@@ -23,7 +23,7 @@ fn renders_hint_without_double_prefix() {
 fn renders_multi_line_span() {
     let source = "let x = 1;\nlet y = 2;\n";
     let span = Span::new(Position::new(1, 4), Position::new(2, 5));
-    let output = Diagnostic::error("TEST")
+    let output = Diagnostic::warning("TEST")
         .with_span(span)
         .render(Some(source), Some("test.flx"));
 
@@ -37,7 +37,7 @@ fn renders_single_line_snapshot() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\n";
     let span = Span::new(Position::new(1, 4), Position::new(1, 5));
-    let output = Diagnostic::error("TEST")
+    let output = Diagnostic::warning("TEST")
         .with_code("E123")
         .with_error_type(ErrorType::Compiler)
         .with_message("message")
@@ -46,7 +46,7 @@ fn renders_single_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
---> compiler error[E123]: TEST
+--> warning[E123]: TEST
 
 message
 
@@ -64,7 +64,7 @@ fn renders_multi_line_snapshot() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let source = "let x = 1;\nlet y = 2;\n";
     let span = Span::new(Position::new(1, 4), Position::new(2, 5));
-    let output = Diagnostic::error("TEST")
+    let output = Diagnostic::warning("TEST")
         .with_code("E123")
         .with_error_type(ErrorType::Compiler)
         .with_message("message")
@@ -73,7 +73,7 @@ fn renders_multi_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
---> compiler error[E123]: TEST
+--> warning[E123]: TEST
 
 message
 
@@ -95,7 +95,7 @@ fn renders_hint_with_span() {
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
-    let output = Diagnostic::error("Duplicate variable")
+    let output = Diagnostic::warning("Duplicate variable")
         .with_code("E001")
         .with_error_type(ErrorType::Compiler)
         .with_message("Variable 'x' is already defined")
@@ -124,7 +124,7 @@ fn renders_hint_with_span_and_label() {
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
-    let output = Diagnostic::error("Duplicate variable")
+    let output = Diagnostic::warning("Duplicate variable")
         .with_code("E001")
         .with_error_type(ErrorType::Compiler)
         .with_message("Variable 'x' is already defined")
@@ -151,7 +151,7 @@ fn renders_multiple_hints_mixed() {
     let error_span = Span::new(Position::new(2, 4), Position::new(2, 5));
     let hint_span = Span::new(Position::new(1, 4), Position::new(1, 5));
 
-    let output = Diagnostic::error("Duplicate variable")
+    let output = Diagnostic::warning("Duplicate variable")
         .with_code("E001")
         .with_error_type(ErrorType::Compiler)
         .with_message("Variable 'x' is already defined")
@@ -173,7 +173,7 @@ fn renders_multiple_hints_mixed() {
 #[test]
 fn renders_hint_text_only() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let output = Diagnostic::error("TEST")
+    let output = Diagnostic::warning("TEST")
         .with_code("E001")
         .with_file("test.flx")
         .with_hint_text("This is a simple hint")
@@ -216,7 +216,7 @@ fn renders_single_label() {
     let span = Span::new(Position::new(1, 0), Position::new(1, 14));
     let label_span = Span::new(Position::new(1, 4), Position::new(1, 8));
 
-    let output = Diagnostic::error("Type mismatch")
+    let output = Diagnostic::warning("Type mismatch")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_file("test.flx")
@@ -240,7 +240,7 @@ fn renders_multiple_labels_on_same_line() {
     let label1_span = Span::new(Position::new(1, 4), Position::new(1, 8));
     let label2_span = Span::new(Position::new(1, 10), Position::new(1, 13));
 
-    let output = Diagnostic::error("Type mismatch")
+    let output = Diagnostic::warning("Type mismatch")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_file("test.flx")
@@ -292,7 +292,7 @@ fn renders_labels_without_primary_span_on_same_line() {
     let label1_span = Span::new(Position::new(1, 12), Position::new(1, 16));
     let label2_span = Span::new(Position::new(1, 18), Position::new(1, 21));
 
-    let output = Diagnostic::error("Type error in function call")
+    let output = Diagnostic::warning("Type error in function call")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_file("test.flx")
@@ -316,7 +316,7 @@ fn diagnostic_with_label_method() {
     let label_span = Span::new(Position::new(1, 4), Position::new(1, 5));
     let label = Label::secondary(label_span, "wrong type");
 
-    let output = Diagnostic::error("Type error")
+    let output = Diagnostic::warning("Type error")
         .with_code("E020")
         .with_error_type(ErrorType::Compiler)
         .with_file("test.flx")
@@ -330,7 +330,7 @@ fn diagnostic_with_label_method() {
 #[test]
 fn renders_categorized_hints() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let output = Diagnostic::error("Test error")
+    let output = Diagnostic::warning("Test error")
         .with_note("This is a note")
         .with_help("This is help")
         .with_example("let x = 10;")
@@ -372,7 +372,7 @@ fn hint_kind_constructors() {
 fn categorized_hints_ordering() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     // Hints should be rendered in order: Hint, Note, Help, Example
-    let output = Diagnostic::error("Test")
+    let output = Diagnostic::warning("Test")
         .with_example("example")
         .with_hint_text("hint")
         .with_help("help")
@@ -396,7 +396,7 @@ fn categorized_hints_ordering() {
 #[test]
 fn builder_methods_for_categorized_hints() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let output = Diagnostic::error("Variable name error")
+    let output = Diagnostic::warning("Variable name error")
         .with_code("E015")
         .with_note("Variables must follow naming conventions")
         .with_help("Use camelCase or snake_case")
@@ -423,7 +423,7 @@ fn hint_with_different_file() {
         .with_label("defined here")
         .with_file("src/lib.flx");
 
-    let diag = Diagnostic::error("Function signature mismatch")
+    let diag = Diagnostic::warning("Function signature mismatch")
         .with_code("E050")
         .with_file("src/main.flx")
         .with_span(main_span)
@@ -463,7 +463,7 @@ fn hint_falls_back_to_diagnostic_file() {
     // Hint without explicit file should use diagnostic's file
     let hint = Hint::at("variable defined here", span).with_label("first definition");
 
-    let output = Diagnostic::error("Duplicate variable")
+    let output = Diagnostic::warning("Duplicate variable")
         .with_file("test.flx")
         .with_span(span)
         .with_hint(hint)
@@ -481,7 +481,7 @@ fn inline_suggestion_basic() {
 
     let suggestion = InlineSuggestion::new(span, "fun");
 
-    let output = Diagnostic::error("Unknown keyword")
+    let output = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_file("test.flx")
         .with_span(span)
@@ -501,7 +501,7 @@ fn inline_suggestion_with_message() {
     let source = "fn main() {}\n";
     let span = Span::new(Position::new(1, 0), Position::new(1, 2));
 
-    let output = Diagnostic::error("Invalid keyword")
+    let output = Diagnostic::warning("Invalid keyword")
         .with_span(span)
         .with_suggestion_message(span, "fun", "Use 'fun' instead of 'fn'")
         .render(Some(source), None);
@@ -528,7 +528,7 @@ fn multiple_inline_suggestions() {
     let source = "fn add(a, b) { a + b }\n";
     let fn_span = Span::new(Position::new(1, 0), Position::new(1, 2));
 
-    let output = Diagnostic::error("Multiple issues")
+    let output = Diagnostic::warning("Multiple issues")
         .with_span(fn_span)
         .with_suggestion_replace(fn_span, "fun")
         .render(Some(source), None);
@@ -546,7 +546,7 @@ fn hint_chain_basic() {
         "Or change the function signature".to_string(),
     ]);
 
-    let output = Diagnostic::error("Type mismatch")
+    let output = Diagnostic::warning("Type mismatch")
         .with_code("E020")
         .with_hint_chain(chain)
         .render(None, Some("test.flx"));
@@ -567,7 +567,7 @@ fn hint_chain_with_conclusion() {
     ])
     .with_conclusion("Type annotations can help prevent these errors");
 
-    let output = Diagnostic::error("Type error")
+    let output = Diagnostic::warning("Type error")
         .with_hint_chain(chain)
         .render(None, Some("test.flx"));
 
@@ -581,7 +581,7 @@ fn hint_chain_builder_methods() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     // Test with_steps
-    let output1 = Diagnostic::error("Error")
+    let output1 = Diagnostic::warning("Error")
         .with_steps(vec!["Step 1", "Step 2"])
         .render(None, Some("test.flx"));
 
@@ -589,7 +589,7 @@ fn hint_chain_builder_methods() {
     assert!(output1.contains("2. Step 2"));
 
     // Test with_steps_and_conclusion
-    let output2 = Diagnostic::error("Error")
+    let output2 = Diagnostic::warning("Error")
         .with_steps_and_conclusion(
             vec!["Fix step 1", "Fix step 2"],
             "This should resolve the issue",
@@ -607,7 +607,7 @@ fn multiple_hint_chains() {
     let chain1 = HintChain::from_steps(vec!["Option 1 step 1", "Option 1 step 2"]);
     let chain2 = HintChain::from_steps(vec!["Option 2 step 1", "Option 2 step 2"]);
 
-    let output = Diagnostic::error("Multiple solutions")
+    let output = Diagnostic::warning("Multiple solutions")
         .with_hint_chain(chain1)
         .with_hint_chain(chain2)
         .render(None, Some("test.flx"));
@@ -651,8 +651,8 @@ fn all_severity_levels() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     // Test all severity levels can be created
-    let error = Diagnostic::error("Error title").render(None, Some("test.flx"));
-    assert!(error.contains("--> error[E000]: Error title"));
+    let error = Diagnostic::warning("Error title").render(None, Some("test.flx"));
+    assert!(error.contains("--> warning[E000]: Error title"));
 
     let warning = Diagnostic::warning("Warning title").render(None, Some("test.flx"));
     assert!(warning.contains("--> warning[E000]: Warning title"));

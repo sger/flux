@@ -1,0 +1,73 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/pattern_validation_error_path.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match expressions must end with a `_` or identifier arm.
+
+  --> examples/errors/pattern_validation_error_path.flx:9:7
+   |
+ 9 | print(match value {
+   |       ^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^
+
+Hint:
+  Add a catch-all pattern: _ -> default_value
+
+
+--> compiler error[E016]: INVALID PATTERN
+
+Catch-all patterns must be the final match arm.
+
+  --> examples/errors/pattern_validation_error_path.flx:10:5
+   |
+10 |     _ -> "any",
+   |     ^
+
+Hint:
+  Move `_` or the binding pattern to the last arm.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match expressions must end with a `_` or identifier arm.
+
+  --> examples/errors/pattern_validation_error_path.flx:14:7
+   |
+14 | print(match value {
+   |       ^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^
+
+Hint:
+  Add a catch-all pattern: _ -> default_value
+
+
+--> compiler error[E014]: EMPTY MATCH
+
+Match expression must have at least one arm.
+
+  --> examples/errors/pattern_validation_error_path.flx:19:7
+   |
+19 | print(match value { });
+   |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Add at least one pattern match arm: match value { pattern -> expr; }
+
+Found 4 errors.
+== stdout ==
+<not executed>

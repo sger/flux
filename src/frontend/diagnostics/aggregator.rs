@@ -269,11 +269,8 @@ impl<'a> DiagnosticsAggregator<'a> {
         // Default to always showing file headers for consistent output.
         let show_file_headers = self.show_file_headers.unwrap_or(true);
 
+        let summary = format_summary(&counts);
         let mut rendered = String::new();
-        if let Some(summary) = format_summary(&counts) {
-            rendered.push_str(&summary);
-            rendered.push_str("\n\n");
-        }
 
         let mut groups: Vec<String> = Vec::new();
         let mut current_file_key: Option<&str> = None;
@@ -340,6 +337,17 @@ impl<'a> DiagnosticsAggregator<'a> {
                 "... and {} more errors not shown (use --max-errors to increase).\n",
                 errors_truncated
             ));
+        }
+
+        if let Some(summary) = summary {
+            if !rendered.is_empty() {
+                if !rendered.ends_with('\n') {
+                    rendered.push('\n');
+                }
+                rendered.push('\n');
+            }
+            rendered.push_str(&summary);
+            rendered.push('\n');
         }
 
         DiagnosticsReport { counts, rendered }

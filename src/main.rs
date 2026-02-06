@@ -10,9 +10,7 @@ use flux::{
         op_code::disassemble,
     },
     frontend::{
-        diagnostics::{
-            DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, render_diagnostics_multi,
-        },
+        diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
         formatter::format_source,
         lexer::Lexer,
         linter::Linter,
@@ -232,6 +230,7 @@ fn run_file(
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
                     .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
                     .with_max_errors(Some(max_errors))
                     .report();
                 eprintln!("{}", report.rendered);
@@ -245,7 +244,11 @@ fn run_file(
             {
                 Ok(graph) => graph,
                 Err(diags) => {
-                    eprintln!("{}", render_diagnostics_multi(&diags, Some(max_errors)));
+                    let report = DiagnosticsAggregator::new(&diags)
+                        .with_file_headers(false)
+                        .with_max_errors(Some(max_errors))
+                        .report();
+                    eprintln!("{}", report.rendered);
                     std::process::exit(1);
                 }
             };
@@ -265,10 +268,11 @@ fn run_file(
                 }
             }
             if !compile_errors.is_empty() {
-                eprintln!(
-                    "{}",
-                    render_diagnostics_multi(&compile_errors, Some(max_errors))
-                );
+                let report = DiagnosticsAggregator::new(&compile_errors)
+                    .with_file_headers(false)
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
                 std::process::exit(1);
             }
 
@@ -433,6 +437,7 @@ fn show_bytecode(path: &str, max_errors: usize) {
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
                     .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
                     .with_max_errors(Some(max_errors))
                     .report();
                 eprintln!("{}", report.rendered);
@@ -443,6 +448,7 @@ fn show_bytecode(path: &str, max_errors: usize) {
             if let Err(diags) = compiler.compile(&program) {
                 let report = DiagnosticsAggregator::new(&diags)
                     .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
                     .with_max_errors(Some(max_errors))
                     .report();
                 eprintln!("{}", report.rendered);
@@ -473,6 +479,7 @@ fn lint_file(path: &str, max_errors: usize) {
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
                     .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
                     .with_max_errors(Some(max_errors))
                     .report();
                 eprintln!("{}", report.rendered);
@@ -483,6 +490,7 @@ fn lint_file(path: &str, max_errors: usize) {
             if !lints.is_empty() {
                 let report = DiagnosticsAggregator::new(&lints)
                     .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
                     .with_max_errors(Some(max_errors))
                     .report();
                 println!("{}", report.rendered);

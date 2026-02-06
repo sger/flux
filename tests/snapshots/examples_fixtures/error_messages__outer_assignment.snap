@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/error_messages/outer_assignment.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E003]: OUTER ASSIGNMENT
+
+Cannot assign to variable `x` from outer scope.
+
+  --> examples/error_messages/outer_assignment.flx:10:9
+   |
+10 |         x = x + 1;
+   |         ^^^^^^^^^^
+
+Hint:
+  Variables captured by closures cannot be reassigned. Return the updated value from the function or bind it to a new name.
+== stdout ==
+<not executed>

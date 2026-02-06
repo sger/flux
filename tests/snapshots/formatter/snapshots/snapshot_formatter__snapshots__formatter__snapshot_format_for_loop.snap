@@ -1,0 +1,5 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+for(item in items){print(item);}

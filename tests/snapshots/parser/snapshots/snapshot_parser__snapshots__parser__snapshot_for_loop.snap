@@ -1,0 +1,9 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Parse Errors:
+  - Diagnostic { severity: Error, title: "MISSING COMMA", code: Some("E073"), error_type: Some(Compiler), message: Some("Missing comma between arguments."), file: None, span: Some(Span { start: Position { line: 2, column: 10 }, end: Position { line: 2, column: 12 } }), labels: [], hints: [Hint { kind: Hint, text: "Add a comma between items, e.g. `f(a, b)`.", span: None, label: None, file: None }], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "MISSING COMMA", code: Some("E073"), error_type: Some(Compiler), message: Some("Missing comma between arguments."), file: None, span: Some(Span { start: Position { line: 2, column: 13 }, end: Position { line: 2, column: 18 } }), labels: [], hints: [Hint { kind: Hint, text: "Add a comma between items, e.g. `f(a, b)`.", span: None, label: None, file: None }], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "UNEXPECTED TOKEN", code: Some("E034"), error_type: Some(Compiler), message: Some("Expected :, got ;."), file: None, span: Some(Span { start: Position { line: 3, column: 15 }, end: Position { line: 3, column: 16 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "UNEXPECTED TOKEN", code: Some("E034"), error_type: Some(Compiler), message: Some("Unexpected `}` outside of a block."), file: None, span: Some(Span { start: Position { line: 4, column: 0 }, end: Position { line: 4, column: 1 } }), labels: [], hints: [], suggestions: [], hint_chains: [], related: [] }

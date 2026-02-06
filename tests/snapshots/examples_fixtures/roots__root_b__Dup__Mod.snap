@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/roots/root_b/Dup/Mod.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Dup.Mod` doesn't match file path `examples/roots/root_b/Dup/Mod.flx`.
+
+  --> examples/roots/root_b/Dup/Mod.flx:1:1
+  |
+1 | module Dup.Mod {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

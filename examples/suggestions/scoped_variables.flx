@@ -1,0 +1,14 @@
+// Test Case 5: Suggestions across scopes
+
+let globalCount = 100;
+let globalValue = 200;
+
+let test = fn() {
+    let localCount = 10;
+    let localValue = 20;
+
+    // Typo in local scope: "localCoun"
+    print(localCoun);
+};
+
+test();

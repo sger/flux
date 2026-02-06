@@ -1,0 +1,29 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/invalid_pattern_syntax_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E020]: INVALID PATTERN
+
+Expected a pattern, found `+`.
+
+  --> examples/errors/invalid_pattern_syntax_error.flx:3:5
+  |
+3 |     + -> 1,
+  |     ^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ;.
+
+  --> examples/errors/invalid_pattern_syntax_error.flx:4:2
+  |
+4 | };
+  |  ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

@@ -1,0 +1,20 @@
+---
+source: tests/examples_basics_snapshots.rs
+---
+Fixture: examples/basics/strings.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E071]: UNTERMINATED STRING
+
+String literal is missing closing quote.
+
+  --> examples/basics/strings.flx:10:16
+   |
+10 | let greeting = "hello  // No semicolon needed
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+== stdout ==
+<not executed>

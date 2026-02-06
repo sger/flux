@@ -1,0 +1,6 @@
+// Match guards: error-path index.
+// See:
+// - match_guard_syntax_error.flx
+// - match_guard_non_exhaustive_error.flx
+
+print("Run one of the dedicated match-guard error examples in this folder.");

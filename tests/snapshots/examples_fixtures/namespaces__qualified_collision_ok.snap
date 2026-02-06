@@ -1,0 +1,37 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/namespaces/qualified_collision_ok.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.Foo.List` to import.
+
+  --> examples/namespaces/qualified_collision_ok.flx:1:1
+  |
+1 | import Modules.Foo.List
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Foo.List.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Foo.List` under roots: examples/namespaces, src (imported from examples/namespaces/qualified_collision_ok.flx).
+
+
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.Bar.List` to import.
+
+  --> examples/namespaces/qualified_collision_ok.flx:2:1
+  |
+2 | import Modules.Bar.List
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Bar.List.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Bar.List` under roots: examples/namespaces, src (imported from examples/namespaces/qualified_collision_ok.flx).
+
+Found 2 errors.
+== stdout ==
+<not executed>

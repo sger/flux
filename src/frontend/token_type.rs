@@ -5,6 +5,7 @@ macro_rules! define_tokens {
         symbols { $($sym_name:ident => $sym_str:literal),* $(,)? }
         keywords { $($kw_name:ident => $kw_str:literal),* $(,)? }
     ) => {
+        #[repr(u16)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum TokenType {
             // Special
@@ -17,12 +18,25 @@ macro_rules! define_tokens {
             Float,
             String,
             UnterminatedString,
+            DocComment,
+            UnterminatedBlockComment,
 
             // Symbols (operators & delimiters)
             $($sym_name,)*
 
             // Keywords (auto-generated from macro)
             $($kw_name,)*
+
+            // Keep this as the final variant so it always reflects the enum size.
+            __Count,
+        }
+
+        impl TokenType {
+            pub const COUNT: usize = TokenType::__Count as usize;
+
+            pub const fn as_usize(self) -> usize {
+                self as usize
+            }
         }
 
         impl fmt::Display for TokenType {
@@ -35,8 +49,11 @@ macro_rules! define_tokens {
                     TokenType::Float => "FLOAT",
                     TokenType::String => "STRING",
                     TokenType::UnterminatedString => "UNTERMINATED_STRING",
+                    TokenType::DocComment => "DOC_COMMENT",
+                    TokenType::UnterminatedBlockComment => "UNTERMINATED_BLOCK_COMMENT",
                     $(TokenType::$sym_name => $sym_str,)*
                     $(TokenType::$kw_name => $kw_str,)*
+                    TokenType::__Count => "__COUNT",
                 };
                 write!(f, "{}", s)
             }

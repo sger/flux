@@ -1,0 +1,20 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  1:0   IDENT           "a"
+  1:2   ==              "=="
+  1:5   IDENT           "b"
+  1:7   &&              "&&"
+  1:10  IDENT           "c"
+  1:12  !=              "!="
+  1:15  IDENT           "d"
+  1:17  ||              "||"
+  1:20  IDENT           "e"
+  1:22  <=              "<="
+  1:25  IDENT           "f"
+  1:27  &&              "&&"
+  1:30  IDENT           "g"
+  1:32  >=              ">="
+  1:35  IDENT           "h"
+  1:36  EOF             ""

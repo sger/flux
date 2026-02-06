@@ -1,0 +1,17 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/import_semicolon_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ;.
+
+  --> examples/imports/import_semicolon_error.flx:1:20
+  |
+1 | import Modules.Math;
+  |                    ^
+== stdout ==
+<not executed>

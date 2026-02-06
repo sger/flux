@@ -1,0 +1,10 @@
+---
+source: tests/examples_basics_snapshots.rs
+---
+Fixture: examples/basics/complex_expr.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

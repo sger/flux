@@ -1,0 +1,58 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/collections/nested_collections_with_errors.flx
+exit_code: 1
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between items.
+
+  --> tests/fixtures/collections/nested_collections_with_errors.flx:1:6
+  |
+1 | f([1 2 3], g(4 5), [true false]);
+  |      ^
+
+Hint:
+  Add a comma between items, e.g. `[a, b]`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between items.
+
+  --> tests/fixtures/collections/nested_collections_with_errors.flx:1:8
+  |
+1 | f([1 2 3], g(4 5), [true false]);
+  |        ^
+
+Hint:
+  Add a comma between items, e.g. `[a, b]`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> tests/fixtures/collections/nested_collections_with_errors.flx:1:16
+  |
+1 | f([1 2 3], g(4 5), [true false]);
+  |                ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between items.
+
+  --> tests/fixtures/collections/nested_collections_with_errors.flx:1:26
+  |
+1 | f([1 2 3], g(4 5), [true false]);
+  |                          ^^^^^
+
+Hint:
+  Add a comma between items, e.g. `[a, b]`.
+
+Found 4 errors.

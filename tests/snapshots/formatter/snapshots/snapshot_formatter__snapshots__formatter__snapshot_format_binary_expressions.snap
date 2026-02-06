@@ -1,0 +1,5 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+a+b*c/d-e%f

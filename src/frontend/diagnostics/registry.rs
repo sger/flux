@@ -1,7 +1,7 @@
 use super::compiler_errors::*;
 use super::diagnostic::Diagnostic;
 use super::runtime_errors::*;
-use super::types::ErrorCode;
+use super::types::{ErrorCode, Severity};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -78,6 +78,11 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     ICE_TEMP_SYMBOL_RIGHT_PATTERN,
     ICE_TEMP_SYMBOL_LEFT_BINDING,
     ICE_TEMP_SYMBOL_RIGHT_BINDING,
+    UNTERMINATED_STRING,
+    UNTERMINATED_INTERPOLATION,
+    UNTERMINATED_BLOCK_COMMENT,
+    MISSING_COMMA,
+    DUPLICATE_PATTERN_BINDING,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -121,7 +126,18 @@ pub fn lookup_error_code(code: &str) -> Option<&'static ErrorCode> {
 
 /// Create a diagnostic from an error code (without message formatting)
 pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
-    Diagnostic::error(code.title)
-        .with_code(code.code)
-        .with_error_type(code.error_type)
+    Diagnostic {
+        severity: Severity::Error,
+        title: code.title.to_string(),
+        code: Some(code.code.to_string()),
+        error_type: Some(code.error_type),
+        message: None,
+        file: None,
+        span: None,
+        labels: Vec::new(),
+        hints: Vec::new(),
+        suggestions: Vec::new(),
+        hint_chains: Vec::new(),
+        related: Vec::new(),
+    }
 }

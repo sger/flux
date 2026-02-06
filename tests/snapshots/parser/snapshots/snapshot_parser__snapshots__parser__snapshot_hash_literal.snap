@@ -1,0 +1,158 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Let {
+            name: "obj",
+            value: Hash {
+                pairs: [
+                    (
+                        Identifier {
+                            name: "name",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 11,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 15,
+                                },
+                            },
+                        },
+                        String {
+                            value: "Alice",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 17,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 24,
+                                },
+                            },
+                        },
+                    ),
+                    (
+                        Identifier {
+                            name: "age",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 26,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 29,
+                                },
+                            },
+                        },
+                        Integer {
+                            value: 30,
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 31,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 33,
+                                },
+                            },
+                        },
+                    ),
+                    (
+                        Identifier {
+                            name: "nested",
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 35,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 41,
+                                },
+                            },
+                        },
+                        Hash {
+                            pairs: [
+                                (
+                                    Identifier {
+                                        name: "x",
+                                        span: Span {
+                                            start: Position {
+                                                line: 1,
+                                                column: 44,
+                                            },
+                                            end: Position {
+                                                line: 1,
+                                                column: 45,
+                                            },
+                                        },
+                                    },
+                                    Integer {
+                                        value: 1,
+                                        span: Span {
+                                            start: Position {
+                                                line: 1,
+                                                column: 47,
+                                            },
+                                            end: Position {
+                                                line: 1,
+                                                column: 48,
+                                            },
+                                        },
+                                    },
+                                ),
+                            ],
+                            span: Span {
+                                start: Position {
+                                    line: 1,
+                                    column: 43,
+                                },
+                                end: Position {
+                                    line: 1,
+                                    column: 49,
+                                },
+                            },
+                        },
+                    ),
+                ],
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 10,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 50,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 51,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 51,
+        },
+    },
+}

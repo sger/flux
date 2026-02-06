@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
 use flux::frontend::{
-    diagnostics::Diagnostic,
+    diagnostics::{Diagnostic, DiagnosticBuilder},
     position::{Position, Span},
 };
 
@@ -11,7 +11,7 @@ fn render_uses_span_for_caret() {
 
     let source = "let x = 1;\nlet y = x + 2;\n";
     let span = Span::new(Position::new(2, 8), Position::new(2, 9)); // points at 'x'
-    let diag = Diagnostic::error("TEST")
+    let diag = Diagnostic::warning("TEST")
         .with_code("E999")
         .with_file("test.flx")
         .with_span(span)

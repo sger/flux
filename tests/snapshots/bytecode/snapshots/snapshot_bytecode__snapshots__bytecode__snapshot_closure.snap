@@ -1,0 +1,21 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Constants:
+  0: <function>
+  1: <function>
+  2: 2
+  3: 3
+
+Instructions:
+0000 OpClosure 1 0
+0004 OpSetGlobal 0
+0007 OpGetGlobal 0
+0010 OpConstant 2
+0013 OpCall 1
+0015 OpSetGlobal 1
+0018 OpGetGlobal 1
+0021 OpConstant 3
+0024 OpCall 1
+0026 OpPop

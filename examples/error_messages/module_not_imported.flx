@@ -1,0 +1,17 @@
+// Example: MODULE_NOT_IMPORTED (E013)
+// This demonstrates the enhanced error message for trying to use
+// a module that hasn't been imported.
+
+// Trying to use a module without importing it
+let result = MyModule.someFunction();
+
+// FIX 1: Import the module at the top of the file
+// import MyModule
+// let result = MyModule.someFunction();
+
+// FIX 2: Import with an alias for shorter names
+// import MyModule as MM
+// let result = MM.someFunction();
+
+// Remember: All import statements must be at the top of the file,
+// before any other code!

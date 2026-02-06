@@ -123,6 +123,30 @@ impl SymbolTable {
         }
     }
 
+    /// Get all symbol names visible from this scope
+    ///
+    /// Returns all symbols from the current scope and outer scopes,
+    /// filtering out temporary symbols (those starting with '<').
+    /// Used for generating "did you mean?" suggestions.
+    pub fn all_symbol_names(&self) -> Vec<&str> {
+        let mut names = Vec::new();
+
+        // Add symbols from current scope
+        for name in self.store.keys() {
+            // Filter out temporary symbols
+            if !name.starts_with('<') {
+                names.push(name.as_str());
+            }
+        }
+
+        // Add symbols from outer scopes
+        if let Some(outer) = &self.outer {
+            names.extend(outer.all_symbol_names());
+        }
+
+        names
+    }
+
     pub fn define_free(&mut self, original: Symbol) -> Symbol {
         self.free_symbols.push(original.clone());
         let symbol = Symbol::new(

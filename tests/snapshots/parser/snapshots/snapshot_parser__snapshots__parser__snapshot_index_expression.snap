@@ -1,0 +1,193 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Expression {
+            expression: Index {
+                left: Identifier {
+                    name: "arr",
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 0,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 3,
+                        },
+                    },
+                },
+                index: Integer {
+                    value: 0,
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 4,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 5,
+                        },
+                    },
+                },
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 6,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 0,
+                },
+                end: Position {
+                    line: 1,
+                    column: 7,
+                },
+            },
+        },
+        Expression {
+            expression: Index {
+                left: Identifier {
+                    name: "obj",
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 8,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 11,
+                        },
+                    },
+                },
+                index: Identifier {
+                    name: "key",
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 12,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 15,
+                        },
+                    },
+                },
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 8,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 16,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 8,
+                },
+                end: Position {
+                    line: 1,
+                    column: 17,
+                },
+            },
+        },
+        Expression {
+            expression: Index {
+                left: Index {
+                    left: Identifier {
+                        name: "matrix",
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 18,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 24,
+                            },
+                        },
+                    },
+                    index: Identifier {
+                        name: "i",
+                        span: Span {
+                            start: Position {
+                                line: 1,
+                                column: 25,
+                            },
+                            end: Position {
+                                line: 1,
+                                column: 26,
+                            },
+                        },
+                    },
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 18,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 27,
+                        },
+                    },
+                },
+                index: Identifier {
+                    name: "j",
+                    span: Span {
+                        start: Position {
+                            line: 1,
+                            column: 28,
+                        },
+                        end: Position {
+                            line: 1,
+                            column: 29,
+                        },
+                    },
+                },
+                span: Span {
+                    start: Position {
+                        line: 1,
+                        column: 18,
+                    },
+                    end: Position {
+                        line: 1,
+                        column: 30,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 1,
+                    column: 18,
+                },
+                end: Position {
+                    line: 1,
+                    column: 31,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 1,
+            column: 0,
+        },
+        end: Position {
+            line: 1,
+            column: 31,
+        },
+    },
+}

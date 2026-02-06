@@ -1,0 +1,10 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  1:0   let             "let"
+  1:4   IDENT           "message"
+  1:12  =               "="
+  1:14  STRING          "Hello ${name}, you are ${age} years old"
+  1:55  ;               ";"
+  1:56  EOF             ""
