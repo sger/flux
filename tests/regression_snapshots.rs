@@ -41,16 +41,14 @@ fn strip_ansi(input: &str) -> String {
     let mut chars = input.chars().peekable();
 
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                for c in chars.by_ref() {
-                    if ('@'..='~').contains(&c) {
-                        break;
-                    }
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next(); // consume '['
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
                 }
-                continue;
             }
+            continue;
         }
         out.push(ch);
     }
