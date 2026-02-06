@@ -273,9 +273,19 @@ impl Parser {
             self.errors
                 .push(missing_comma(self.peek_token.span(), "items", "`(a, b)`"));
 
-            // Recover to the matching ')' of this group.
+            // Recover to the matching ')' of this group. If this group is malformed
+            // and likely belongs to a larger statement (for example `if (cond { ...`),
+            // stop at top-level statement boundaries to avoid consuming following code.
             let mut nested_parens = 0usize;
             while self.peek_token.token_type != TokenType::Eof {
+                if nested_parens == 0
+                    && matches!(
+                        self.peek_token.token_type,
+                        TokenType::Semicolon | TokenType::RBrace | TokenType::LBrace
+                    )
+                {
+                    break;
+                }
                 match self.peek_token.token_type {
                     TokenType::LParen => {
                         nested_parens += 1;

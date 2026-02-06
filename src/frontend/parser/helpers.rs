@@ -14,6 +14,13 @@ use super::Parser;
 
 const LIST_ERROR_LIMIT: usize = 50;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum SyncMode {
+    Expr,
+    Stmt,
+    Block,
+}
+
 impl Parser {
     // Token navigation
     pub(super) fn next_token(&mut self) {
@@ -134,6 +141,37 @@ impl Parser {
                 | TokenType::Match
                 | TokenType::Backslash
         )
+    }
+
+    pub(super) fn synchronize(&mut self, mode: SyncMode) {
+        while !self.is_current_token(TokenType::Eof) {
+            let token_type = self.current_token.token_type;
+            let at_boundary = match mode {
+                SyncMode::Expr => matches!(
+                    token_type,
+                    TokenType::Comma
+                        | TokenType::Semicolon
+                        | TokenType::RParen
+                        | TokenType::RBracket
+                        | TokenType::RBrace
+                        | TokenType::Arrow
+                        | TokenType::Eof
+                ),
+                SyncMode::Stmt => {
+                    matches!(
+                        token_type,
+                        TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+                    )
+                }
+                SyncMode::Block => matches!(token_type, TokenType::RBrace | TokenType::Eof),
+            };
+
+            if at_boundary {
+                break;
+            }
+
+            self.next_token();
+        }
     }
 
     // Precedence helpers
@@ -490,17 +528,7 @@ impl Parser {
     }
 
     pub(super) fn synchronize_after_error(&mut self) {
-        // Advance to a reasonable boundary to avoid cascading errors.
-        self.next_token();
-        while !matches!(
-            self.current_token.token_type,
-            TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
-        ) {
-            self.next_token();
-        }
-        if self.current_token.token_type == TokenType::RBrace {
-            self.next_token();
-        }
+        self.synchronize(SyncMode::Stmt);
     }
 
     pub(super) fn peek_error(&mut self, expected: TokenType) {
