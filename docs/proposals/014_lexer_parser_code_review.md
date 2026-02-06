@@ -999,7 +999,7 @@ Acceptance: Parser advances to safe synchronization points without infinite loop
 - [x] Add malformed-expression recovery tests that assert no panic and continued parsing.
 Acceptance: A malformed input corpus test (or equivalent) verifies diagnostics are emitted and parse returns a program shape without panicking.
 
-- [ ] Add tests that lock pattern-validation diagnostics.
+- [x] Add tests that lock pattern-validation diagnostics.
 Acceptance: Tests assert expected diagnostic code/message and parameterized span locations for representative invalid patterns.
 
 - [ ] Add tests that lock operator behavior after table-driven refactor.
