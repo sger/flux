@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use crate::frontend::token_type::TokenType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,6 +37,19 @@ pub struct OpInfo {
     pub precedence: Precedence,
     pub associativity: Assoc,
     pub fixity: Fixity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InfixInfo {
+    pub precedence: Precedence,
+    pub associativity: Assoc,
+    pub fixity: Fixity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrefixInfo {
+    pub precedence: Precedence,
+    pub associativity: Assoc,
 }
 
 // Single source of truth for operator precedence + associativity.
@@ -158,34 +173,64 @@ pub const OPERATOR_TABLE: &[OpInfo] = &[
     },
 ];
 
-fn lookup(token_type: TokenType, fixity: Fixity) -> Option<&'static OpInfo> {
-    OPERATOR_TABLE
-        .iter()
-        .find(|info| info.token == token_type && info.fixity == fixity)
+pub static INFIX_TABLE: LazyLock<[Option<InfixInfo>; TokenType::COUNT]> = LazyLock::new(|| {
+    let mut table = [None; TokenType::COUNT];
+    for info in OPERATOR_TABLE {
+        match info.fixity {
+            Fixity::Infix | Fixity::Postfix => {
+                let index = info.token.as_usize();
+                debug_assert!(
+                    table[index].is_none(),
+                    "duplicate infix/postfix operator table entry for token {:?}",
+                    info.token
+                );
+                table[index] = Some(InfixInfo {
+                    precedence: info.precedence,
+                    associativity: info.associativity,
+                    fixity: info.fixity,
+                });
+            }
+            Fixity::Prefix => {}
+        }
+    }
+    table
+});
+
+pub static PREFIX_TABLE: LazyLock<[Option<PrefixInfo>; TokenType::COUNT]> = LazyLock::new(|| {
+    let mut table = [None; TokenType::COUNT];
+    for info in OPERATOR_TABLE {
+        if info.fixity == Fixity::Prefix {
+            let index = info.token.as_usize();
+            debug_assert!(
+                table[index].is_none(),
+                "duplicate prefix operator table entry for token {:?}",
+                info.token
+            );
+            table[index] = Some(PrefixInfo {
+                precedence: info.precedence,
+                associativity: info.associativity,
+            });
+        }
+    }
+    table
+});
+
+pub fn infix_op(token_type: &TokenType) -> Option<InfixInfo> {
+    INFIX_TABLE[token_type.as_usize()]
 }
 
-fn lookup_non_prefix(token_type: TokenType) -> Option<&'static OpInfo> {
-    OPERATOR_TABLE
-        .iter()
-        .find(|info| info.token == token_type && info.fixity != Fixity::Prefix)
-}
-
-pub fn infix_op(token_type: &TokenType) -> Option<&'static OpInfo> {
-    lookup(*token_type, Fixity::Infix).or_else(|| lookup(*token_type, Fixity::Postfix))
-}
-
-pub fn prefix_op(token_type: &TokenType) -> Option<&'static OpInfo> {
-    lookup(*token_type, Fixity::Prefix)
+pub fn prefix_op(token_type: &TokenType) -> Option<PrefixInfo> {
+    PREFIX_TABLE[token_type.as_usize()]
 }
 
 pub fn precedence_of(token_type: &TokenType) -> Precedence {
-    lookup_non_prefix(*token_type)
+    infix_op(token_type)
         .map(|op| op.precedence)
         .unwrap_or(Precedence::Lowest)
 }
 
 pub fn associativity_of(token_type: &TokenType) -> Assoc {
-    lookup_non_prefix(*token_type)
+    infix_op(token_type)
         .map(|op| op.associativity)
         .unwrap_or(Assoc::Left)
 }
