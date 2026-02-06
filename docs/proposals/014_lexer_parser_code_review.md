@@ -1002,7 +1002,7 @@ Acceptance: A malformed input corpus test (or equivalent) verifies diagnostics a
 - [x] Add tests that lock pattern-validation diagnostics.
 Acceptance: Tests assert expected diagnostic code/message and parameterized span locations for representative invalid patterns.
 
-- [ ] Add tests that lock operator behavior after table-driven refactor.
+- [x] Add tests that lock operator behavior after table-driven refactor.
 Acceptance: Arithmetic/comparison/logical precedence and associativity tests remain stable and pass with the new precedence source.
 
 - [x] (Optional) Extract a dedicated lexer character reader abstraction.
