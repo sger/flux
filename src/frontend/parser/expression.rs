@@ -9,7 +9,7 @@ use crate::frontend::{
     },
     expression::{Expression, MatchArm, Pattern},
     position::{Position, Span},
-    precedence::{Fixity, Precedence, infix_op, rhs_precedence_for_infix},
+    precedence::{Fixity, Precedence, infix_op, prefix_op, rhs_precedence_for_infix},
     statement::Statement,
     token_type::TokenType,
 };
@@ -108,13 +108,13 @@ impl Parser {
             TokenType::Left => self.parse_left(),
             TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
-            TokenType::Bang | TokenType::Minus => self.parse_prefix_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
             TokenType::LBracket => self.parse_array(),
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Fun => self.parse_function_literal(),
             TokenType::Backslash => self.parse_lambda(),
+            token if prefix_op(token).is_some() => self.parse_prefix_expression(),
             _ => {
                 self.no_prefix_parse_error();
                 None
@@ -283,8 +283,21 @@ impl Parser {
     pub(super) fn parse_prefix_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         let operator = self.current_token.literal.clone();
+        let token_type = self.current_token.token_type;
+        let precedence = match prefix_op(&token_type) {
+            Some(info) => info.precedence,
+            None => {
+                debug_assert!(
+                    false,
+                    "prefix parse attempted without registry metadata for {:?}",
+                    token_type
+                );
+                return None;
+            }
+        };
+
         self.next_token();
-        let right = self.parse_expression(Precedence::Prefix)?;
+        let right = self.parse_expression(precedence)?;
         let end = right.span().end;
         Some(Expression::Prefix {
             operator,
