@@ -987,7 +987,7 @@ mod parser_fuzz_tests {
 - [x] Add a dedicated parser pattern validation pass (or equivalent centralized validation).
 Acceptance: Invalid/unsupported pattern shapes produce deterministic diagnostics with spans, and valid nested patterns continue to parse correctly.
 
-- [ ] Introduce table-driven operator precedence handling (or an operator registry).
+- [x] Introduce table-driven operator precedence handling (or an operator registry).
 Acceptance: Precedence and associativity are defined in one data structure and used by parser precedence lookup; existing precedence tests continue to pass.
 
 - [x] Extract additional shared parser helpers for repeated parse structures beyond current list parsing support.

@@ -9,7 +9,7 @@ use crate::frontend::{
     },
     expression::{Expression, MatchArm, Pattern},
     position::{Position, Span},
-    precedence::Precedence,
+    precedence::{Precedence, rhs_precedence_for_infix},
     statement::Statement,
     token_type::TokenType,
 };
@@ -142,10 +142,10 @@ impl Parser {
     // Infix expressions
     pub(super) fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
         let operator = self.current_token.literal.clone();
-        let precedence = self.current_precedence();
+        let right_precedence = rhs_precedence_for_infix(&self.current_token.token_type);
         let start = left.span().start;
         self.next_token();
-        let right = self.parse_expression(precedence)?;
+        let right = self.parse_expression(right_precedence)?;
         let end = right.span().end;
         Some(Expression::Infix {
             left: Box::new(left),
@@ -158,11 +158,11 @@ impl Parser {
     // Pipe operator: a |> f(b, c) transforms to f(a, b, c)
     pub(super) fn parse_pipe_expression(&mut self, left: Expression) -> Option<Expression> {
         let start = left.span().start;
-        let precedence = self.current_precedence();
+        let right_precedence = rhs_precedence_for_infix(&self.current_token.token_type);
         self.next_token(); // consume |>
 
         // Parse the right side - could be identifier or call
-        let right = self.parse_expression(precedence)?;
+        let right = self.parse_expression(right_precedence)?;
 
         // Transform based on what we got
         match right {
