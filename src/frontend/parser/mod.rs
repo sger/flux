@@ -1,5 +1,6 @@
 use crate::frontend::{
     diagnostics::Diagnostic,
+    diagnostics::compiler_errors::unexpected_token,
     lexer::Lexer,
     position::{Position, Span},
     program::Program,
@@ -56,6 +57,10 @@ impl Parser {
 
         while self.current_token.token_type != TokenType::Eof {
             if self.current_token.token_type == TokenType::RBrace {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "Unexpected `}` outside of a block.",
+                ));
                 self.next_token();
                 continue;
             }

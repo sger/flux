@@ -1,7 +1,8 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use flux::frontend::{
-    diagnostics::Diagnostic, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
+    diagnostics::Diagnostic, expression::Expression, lexer::Lexer, parser::Parser,
+    program::Program, statement::Statement,
 };
 
 #[derive(Clone, Copy)]
@@ -34,6 +35,19 @@ fn has_let_binding(program: &Program, name: &str) -> bool {
         .statements
         .iter()
         .any(|stmt| matches!(stmt, Statement::Let { name: n, .. } if n == name))
+}
+
+fn has_print_call_with_int_arg(program: &Program, expected: i64) -> bool {
+    program.statements.iter().any(|stmt| {
+        matches!(
+            stmt,
+            Statement::Expression {
+                expression: Expression::Call { function, arguments, .. },
+                ..
+            } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                && matches!(arguments.as_slice(), [Expression::Integer { value, .. }] if *value == expected)
+        )
+    })
 }
 
 #[test]
@@ -77,17 +91,17 @@ fn malformed_expression_corpus_recovers_without_panicking() {
         RecoveryCase {
             name: "stray_closing_paren",
             input: ")\nlet ok = 1;",
-            expect_followup_let: Some("ok"),
+            expect_followup_let: None,
         },
         RecoveryCase {
             name: "stray_arrow_token",
             input: "->\nlet ok = 1;",
-            expect_followup_let: Some("ok"),
+            expect_followup_let: None,
         },
         RecoveryCase {
             name: "stray_comma",
             input: ",\nlet ok = 1;",
-            expect_followup_let: Some("ok"),
+            expect_followup_let: None,
         },
         RecoveryCase {
             name: "unterminated_string_then_valid_statement",
@@ -137,6 +151,70 @@ fn malformed_expression_corpus_recovers_without_panicking() {
                 "expected recovery to keep parsing trailing `let {}` in case `{}`",
                 binding_name,
                 case.name
+            );
+        }
+    }
+}
+
+#[test]
+fn malformed_statements_recover_and_keep_followup_statements() {
+    let cases = [
+        (
+            "missing_let_initializer_then_followup_let",
+            "let x = ;\nlet y = 1;",
+            true,
+            false,
+        ),
+        (
+            "stray_closing_brace_then_followup_let",
+            "}\nlet a = 1;",
+            true,
+            false,
+        ),
+        (
+            "malformed_if_condition_then_followup_print",
+            "if (true { print(1); }\nprint(2);",
+            false,
+            true,
+        ),
+    ];
+
+    for (name, input, expect_let, expect_print) in cases {
+        let parsed = parse_no_panic(input);
+        assert!(
+            parsed.is_ok(),
+            "parser panicked for recovery case `{}`: {:?}",
+            name,
+            parsed.err()
+        );
+
+        let (program, diagnostics) = parsed.expect("already checked panic state");
+        assert!(
+            !diagnostics.is_empty(),
+            "expected diagnostics for recovery case `{}`",
+            name
+        );
+
+        if expect_let {
+            assert!(
+                has_let_binding(
+                    &program,
+                    if name.contains("initializer") {
+                        "y"
+                    } else {
+                        "a"
+                    }
+                ),
+                "expected follow-up let binding to be present in recovery case `{}`",
+                name
+            );
+        }
+
+        if expect_print {
+            assert!(
+                has_print_call_with_int_arg(&program, 2),
+                "expected follow-up print(2) statement in recovery case `{}`",
+                name
             );
         }
     }

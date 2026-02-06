@@ -5,11 +5,11 @@ use crate::frontend::{
     token_type::TokenType,
 };
 
-use super::Parser;
+use super::{Parser, helpers::SyncMode};
 
 impl Parser {
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
-        match self.current_token.token_type {
+        let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Import => self.parse_import_statement(),
             TokenType::Let => self.parse_let_statement(),
@@ -26,7 +26,6 @@ impl Parser {
                     )
                     .with_message("Flux uses `fun` for function declarations."),
                 );
-                self.synchronize_after_error();
                 None
             }
             TokenType::Ident
@@ -42,7 +41,6 @@ impl Parser {
                         ))
                         .with_hint_text("Did you mean `fun`?"),
                 );
-                self.synchronize_after_error();
                 None
             }
 
@@ -51,12 +49,24 @@ impl Parser {
                 self.parse_assignment_statement()
             }
             _ => self.parse_expression_statement(),
+        };
+
+        if statement.is_none() {
+            self.synchronize(SyncMode::Stmt);
         }
+
+        statement
     }
 
     pub(super) fn parse_expression_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
-        let expression = self.parse_expression(Precedence::Lowest)?;
+        let expression = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => expression,
+            None => {
+                self.synchronize(SyncMode::Expr);
+                return None;
+            }
+        };
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
@@ -104,7 +114,13 @@ impl Parser {
         let value = if self.is_current_token(TokenType::Semicolon) {
             None
         } else {
-            Some(self.parse_expression(Precedence::Lowest)?)
+            match self.parse_expression(Precedence::Lowest) {
+                Some(expression) => Some(expression),
+                None => {
+                    self.synchronize(SyncMode::Stmt);
+                    return None;
+                }
+            }
         };
 
         if self.is_peek_token(TokenType::Semicolon) {
@@ -132,7 +148,13 @@ impl Parser {
 
         self.next_token();
 
-        let value = self.parse_expression(Precedence::Lowest)?;
+        let value = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => expression,
+            None => {
+                self.synchronize(SyncMode::Stmt);
+                return None;
+            }
+        };
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
@@ -155,7 +177,13 @@ impl Parser {
 
         self.next_token();
 
-        let value = self.parse_expression(Precedence::Lowest)?;
+        let value = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => expression,
+            None => {
+                self.synchronize(SyncMode::Stmt);
+                return None;
+            }
+        };
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();

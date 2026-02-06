@@ -990,10 +990,10 @@ Acceptance: Invalid/unsupported pattern shapes produce deterministic diagnostics
 - [ ] Introduce table-driven operator precedence handling (or an operator registry).
 Acceptance: Precedence and associativity are defined in one data structure and used by parser precedence lookup; existing precedence tests continue to pass.
 
-- [ ] Extract additional shared parser helpers for repeated parse structures beyond current list parsing support.
+- [x] Extract additional shared parser helpers for repeated parse structures beyond current list parsing support.
 Acceptance: Repeated parse flows (e.g., wrapped/similar constructs) call shared helpers and behavior is unchanged in existing parser tests.
 
-- [ ] Expand non-list panic-mode recovery for malformed expressions/statements.
+- [x] Expand non-list panic-mode recovery for malformed expressions/statements.
 Acceptance: Parser advances to safe synchronization points without infinite loops and continues parsing later statements after malformed constructs.
 
 - [x] Add malformed-expression recovery tests that assert no panic and continued parsing.
