@@ -1,0 +1,33 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/hint_demos/fn_keyword_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Flux uses `fun` for function declarations.
+
+  --> examples/hint_demos/fn_keyword_error.flx:3:1
+  |
+3 | fn add(x, y) {
+  | ^^   |
+help: Replace 'fn' with 'fun'
+   |
+3 | fun add(x, y) {
+  | ~~~
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Unexpected `}` outside of a block.
+
+  --> examples/hint_demos/fn_keyword_error.flx:5:1
+  |
+5 | }
+  | ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

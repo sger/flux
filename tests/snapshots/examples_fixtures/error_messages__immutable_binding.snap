@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/error_messages/immutable_binding.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E002]: IMMUTABLE BINDING
+
+Cannot reassign to immutable variable `count`.
+
+  --> examples/error_messages/immutable_binding.flx:9:1
+  |
+9 | count = count + 1;
+  | ^^^^^^^^^^^^^^^^^^
+
+Hint:
+  In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_count = ...`).
+== stdout ==
+<not executed>

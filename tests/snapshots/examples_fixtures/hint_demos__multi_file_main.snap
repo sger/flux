@@ -1,0 +1,10 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/hint_demos/multi_file_main.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

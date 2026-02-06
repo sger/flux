@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/data_math_test_script.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.Data.Math.Test` to import.
+
+  --> examples/Modules/data_math_test_script.flx:1:1
+  |
+1 | import Modules.Data.Math.Test
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Data.Math.Test.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Data.Math.Test` under roots: examples/Modules, src (imported from examples/Modules/data_math_test_script.flx).
+== stdout ==
+<not executed>

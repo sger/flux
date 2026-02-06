@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/UserUtils.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Modules.UserUtils` doesn't match file path `examples/Modules/UserUtils.flx`.
+
+  --> examples/Modules/UserUtils.flx:1:1
+  |
+1 | module Modules.UserUtils {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

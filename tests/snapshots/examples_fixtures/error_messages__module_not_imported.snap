@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/error_messages/module_not_imported.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E013]: MODULE NOT IMPORTED
+
+Module `MyModule` is not imported.
+
+  --> examples/error_messages/module_not_imported.flx:6:14
+  |
+6 | let result = MyModule.someFunction();
+  |              ^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import MyModule`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+== stdout ==
+<not executed>
