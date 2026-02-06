@@ -1,0 +1,17 @@
+// Happy path: valid nested patterns with catch-all last arm.
+
+let value = Some(Left(21));
+let result = match value {
+    Some(Left(v)) -> v + 1,
+    Some(Right(v)) -> v,
+    _ -> 0,
+};
+print(result);
+
+let value2 = Some(Right(5));
+let result2 = match value2 {
+    Some(Left(v)) -> v,
+    Some(Right(v)) -> v * 2,
+    _ -> 0,
+};
+print(result2);

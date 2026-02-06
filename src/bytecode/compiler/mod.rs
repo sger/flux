@@ -10,6 +10,7 @@ use crate::{
     },
     frontend::{
         diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
+        pattern_validate::validate_program_patterns,
         position::{Position, Span},
         program::Program,
         statement::Statement,
@@ -166,6 +167,8 @@ impl Compiler {
 
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
+        self.errors
+            .extend(validate_program_patterns(program, &self.file_path));
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
