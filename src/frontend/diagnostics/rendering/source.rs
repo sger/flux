@@ -107,9 +107,7 @@ fn max_span_col_on_line(line_no: usize, span: Span, labels: &[Label]) -> usize {
     let mut max_col: usize = 0;
 
     if line_no >= start_line && line_no <= end_line {
-        if line_no == start_line && line_no == end_line {
-            max_col = max_col.max(span.end.column);
-        } else if line_no == end_line {
+        if line_no == end_line {
             max_col = max_col.max(span.end.column);
         } else {
             // Start line or intermediate line of a multi-line span:
