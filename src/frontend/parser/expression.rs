@@ -9,7 +9,7 @@ use crate::frontend::{
     },
     expression::{Expression, MatchArm, Pattern},
     position::{Position, Span},
-    precedence::{Fixity, Precedence, infix_op, prefix_op, rhs_precedence_for_infix},
+    precedence::{Fixity, Precedence, infix_op, postfix_op, prefix_op, rhs_precedence_for_infix},
     statement::Statement,
     token_type::TokenType,
 };
@@ -66,11 +66,15 @@ impl Parser {
         let mut left = self.parse_prefix()?;
 
         while !self.is_expression_terminator(self.peek_token.token_type) {
-            let Some(peek_info) = infix_op(&self.peek_token.token_type) else {
+            let peek_precedence = if let Some(peek_info) = postfix_op(&self.peek_token.token_type) {
+                peek_info.precedence
+            } else if let Some(peek_info) = infix_op(&self.peek_token.token_type) {
+                peek_info.precedence
+            } else {
                 break;
             };
 
-            if precedence >= peek_info.precedence {
+            if precedence >= peek_precedence {
                 break;
             }
 
@@ -124,6 +128,7 @@ impl Parser {
 
     pub(super) fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
         match self.current_token.token_type {
+            // These are parsed as postfix/special forms rather than generic infix nodes.
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),

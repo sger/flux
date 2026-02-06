@@ -50,6 +50,13 @@ pub struct InfixInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PostfixInfo {
+    pub precedence: Precedence,
+    pub associativity: Assoc,
+    pub fixity: Fixity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PrefixInfo {
     pub precedence: Precedence,
     pub associativity: Assoc,
@@ -179,21 +186,38 @@ pub const OPERATOR_TABLE: &[OpInfo] = &[
 pub static INFIX_TABLE: LazyLock<[Option<InfixInfo>; TokenType::COUNT]> = LazyLock::new(|| {
     let mut table = [None; TokenType::COUNT];
     for info in OPERATOR_TABLE {
-        match info.fixity {
-            Fixity::Infix | Fixity::Postfix => {
-                let index = info.token.as_usize();
-                debug_assert!(
-                    table[index].is_none(),
-                    "duplicate infix/postfix operator table entry for token {:?}",
-                    info.token
-                );
-                table[index] = Some(InfixInfo {
-                    precedence: info.precedence,
-                    associativity: info.associativity,
-                    fixity: info.fixity,
-                });
-            }
-            Fixity::Prefix => {}
+        if info.fixity == Fixity::Infix {
+            let index = info.token.as_usize();
+            debug_assert!(
+                table[index].is_none(),
+                "duplicate infix operator table entry for token {:?}",
+                info.token
+            );
+            table[index] = Some(InfixInfo {
+                precedence: info.precedence,
+                associativity: info.associativity,
+                fixity: info.fixity,
+            });
+        }
+    }
+    table
+});
+
+pub static POSTFIX_TABLE: LazyLock<[Option<PostfixInfo>; TokenType::COUNT]> = LazyLock::new(|| {
+    let mut table = [None; TokenType::COUNT];
+    for info in OPERATOR_TABLE {
+        if info.fixity == Fixity::Postfix {
+            let index = info.token.as_usize();
+            debug_assert!(
+                table[index].is_none(),
+                "duplicate postfix operator table entry for token {:?}",
+                info.token
+            );
+            table[index] = Some(PostfixInfo {
+                precedence: info.precedence,
+                associativity: info.associativity,
+                fixity: info.fixity,
+            });
         }
     }
     table
@@ -222,17 +246,25 @@ pub fn infix_op(token_type: &TokenType) -> Option<InfixInfo> {
     INFIX_TABLE[token_type.as_usize()]
 }
 
+pub fn postfix_op(token_type: &TokenType) -> Option<PostfixInfo> {
+    POSTFIX_TABLE[token_type.as_usize()]
+}
+
 /// Prefix operator metadata used by parser prefix dispatch.
 pub fn prefix_op(token_type: &TokenType) -> Option<PrefixInfo> {
     PREFIX_TABLE[token_type.as_usize()]
 }
 
 pub fn precedence_of(token_type: &TokenType) -> Option<Precedence> {
-    infix_op(token_type).map(|op| op.precedence)
+    infix_op(token_type)
+        .map(|op| op.precedence)
+        .or_else(|| postfix_op(token_type).map(|op| op.precedence))
 }
 
 pub fn associativity_of(token_type: &TokenType) -> Option<Assoc> {
-    infix_op(token_type).map(|op| op.associativity)
+    infix_op(token_type)
+        .map(|op| op.associativity)
+        .or_else(|| postfix_op(token_type).map(|op| op.associativity))
 }
 
 fn precedence_below(precedence: &Precedence) -> Precedence {
