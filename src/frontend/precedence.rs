@@ -223,16 +223,12 @@ pub fn prefix_op(token_type: &TokenType) -> Option<PrefixInfo> {
     PREFIX_TABLE[token_type.as_usize()]
 }
 
-pub fn precedence_of(token_type: &TokenType) -> Precedence {
-    infix_op(token_type)
-        .map(|op| op.precedence)
-        .unwrap_or(Precedence::Lowest)
+pub fn precedence_of(token_type: &TokenType) -> Option<Precedence> {
+    infix_op(token_type).map(|op| op.precedence)
 }
 
-pub fn associativity_of(token_type: &TokenType) -> Assoc {
-    infix_op(token_type)
-        .map(|op| op.associativity)
-        .unwrap_or(Assoc::Left)
+pub fn associativity_of(token_type: &TokenType) -> Option<Assoc> {
+    infix_op(token_type).map(|op| op.associativity)
 }
 
 fn precedence_below(precedence: &Precedence) -> Precedence {
@@ -251,17 +247,22 @@ fn precedence_below(precedence: &Precedence) -> Precedence {
     }
 }
 
-pub fn rhs_precedence_for_infix(token_type: &TokenType) -> Precedence {
-    if let Some(op) = infix_op(token_type) {
-        return match op.associativity {
-            Assoc::Left | Assoc::Nonassoc => op.precedence,
-            Assoc::Right => precedence_below(&op.precedence),
-        };
-    }
+pub fn rhs_precedence_for_infix(token_type: &TokenType) -> Option<Precedence> {
+    let op = infix_op(token_type)?;
+    Some(match op.associativity {
+        Assoc::Left | Assoc::Nonassoc => op.precedence,
+        Assoc::Right => precedence_below(&op.precedence),
+    })
+}
 
-    Precedence::Lowest
+pub fn precedence_or_lowest(token_type: &TokenType) -> Precedence {
+    precedence_of(token_type).unwrap_or(Precedence::Lowest)
+}
+
+pub fn associativity_or_left(token_type: &TokenType) -> Assoc {
+    associativity_of(token_type).unwrap_or(Assoc::Left)
 }
 
 pub fn token_precedence(token_type: &TokenType) -> Precedence {
-    precedence_of(token_type)
+    precedence_or_lowest(token_type)
 }

@@ -6,7 +6,7 @@ use crate::frontend::{
     },
     expression::Expression,
     position::{Position, Span},
-    precedence::{Precedence, token_precedence},
+    precedence::Precedence,
     token_type::TokenType,
 };
 
@@ -172,15 +172,6 @@ impl Parser {
 
             self.next_token();
         }
-    }
-
-    // Precedence helpers
-    pub(super) fn current_precedence(&self) -> Precedence {
-        token_precedence(&self.current_token.token_type)
-    }
-
-    pub(super) fn peek_precedence(&self) -> Precedence {
-        token_precedence(&self.peek_token.token_type)
     }
 
     // Complex parsing helpers

@@ -9,7 +9,7 @@ use crate::frontend::{
     },
     expression::{Expression, MatchArm, Pattern},
     position::{Position, Span},
-    precedence::{Precedence, rhs_precedence_for_infix},
+    precedence::{Fixity, Precedence, infix_op, rhs_precedence_for_infix},
     statement::Statement,
     token_type::TokenType,
 };
@@ -65,9 +65,15 @@ impl Parser {
     pub(super) fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left = self.parse_prefix()?;
 
-        while !self.is_expression_terminator(self.peek_token.token_type)
-            && precedence < self.peek_precedence()
-        {
+        while !self.is_expression_terminator(self.peek_token.token_type) {
+            let Some(peek_info) = infix_op(&self.peek_token.token_type) else {
+                break;
+            };
+
+            if precedence >= peek_info.precedence {
+                break;
+            }
+
             self.next_token();
             left = self.parse_infix(left)?;
         }
@@ -118,31 +124,50 @@ impl Parser {
 
     pub(super) fn parse_infix(&mut self, left: Expression) -> Option<Expression> {
         match self.current_token.token_type {
-            TokenType::Plus
-            | TokenType::Minus
-            | TokenType::Asterisk
-            | TokenType::Slash
-            | TokenType::Percent
-            | TokenType::Lt
-            | TokenType::Gt
-            | TokenType::Lte
-            | TokenType::Gte
-            | TokenType::Eq
-            | TokenType::NotEq
-            | TokenType::And
-            | TokenType::Or => self.parse_infix_expression(left),
-            TokenType::Pipe => self.parse_pipe_expression(left),
             TokenType::LParen => self.parse_call_expression(left),
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),
+            TokenType::Pipe => self.parse_pipe_expression(left),
+            _ if infix_op(&self.current_token.token_type).is_some() => {
+                self.parse_infix_expression(left)
+            }
             _ => Some(left),
         }
     }
 
     // Infix expressions
     pub(super) fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
+        let token_type = self.current_token.token_type;
+        let op_info = match infix_op(&token_type) {
+            Some(info) => info,
+            None => {
+                debug_assert!(
+                    false,
+                    "generic infix parse attempted without registry metadata for {:?}",
+                    token_type
+                );
+                return None;
+            }
+        };
+        debug_assert!(
+            op_info.fixity == Fixity::Infix,
+            "generic infix parse expected fixity Infix for {:?}, got {:?}",
+            token_type,
+            op_info.fixity
+        );
+
         let operator = self.current_token.literal.clone();
-        let right_precedence = rhs_precedence_for_infix(&self.current_token.token_type);
+        let right_precedence = match rhs_precedence_for_infix(&token_type) {
+            Some(precedence) => precedence,
+            None => {
+                debug_assert!(
+                    false,
+                    "missing rhs precedence for generic infix operator {:?}",
+                    token_type
+                );
+                return None;
+            }
+        };
         let start = left.span().start;
         self.next_token();
         let right = self.parse_expression(right_precedence)?;
@@ -158,7 +183,13 @@ impl Parser {
     // Pipe operator: a |> f(b, c) transforms to f(a, b, c)
     pub(super) fn parse_pipe_expression(&mut self, left: Expression) -> Option<Expression> {
         let start = left.span().start;
-        let right_precedence = rhs_precedence_for_infix(&self.current_token.token_type);
+        let right_precedence = match rhs_precedence_for_infix(&self.current_token.token_type) {
+            Some(precedence) => precedence,
+            None => {
+                debug_assert!(false, "missing rhs precedence metadata for pipe operator");
+                Precedence::Pipe
+            }
+        };
         self.next_token(); // consume |>
 
         // Parse the right side - could be identifier or call
