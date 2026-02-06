@@ -1,0 +1,10 @@
+---
+source: tests/examples_advanced_snapshots.rs
+---
+Fixture: examples/advanced/functional_pipeline.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>
