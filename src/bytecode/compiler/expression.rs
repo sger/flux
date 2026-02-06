@@ -434,8 +434,8 @@ impl Compiler {
         arms: &[MatchArm],
         _match_span: Span,
     ) -> CompileResult<()> {
-        // Compile scrutinee once and store it in a temp local
-        self.enter_block_scope();
+        // Compile scrutinee once and store it in a temp symbol.
+        // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
         self.compile_expression(scrutinee)?;
         let temp_symbol = self.symbol_table.define_temp();
         match temp_symbol.symbol_scope {
@@ -456,46 +456,54 @@ impl Compiler {
         };
 
         let mut end_jumps = Vec::new();
+        let mut next_arm_jumps: Vec<usize> = Vec::new();
 
         // Compile each arm
-        for (i, arm) in arms.iter().enumerate() {
-            let is_last = i == arms.len() - 1;
-
-            // For all arms except the last, we need to check if pattern matches
-            if !is_last {
-                // Duplicate scrutinee for pattern check
-                // We'll emit code to check the pattern and jump to next arm if not matched
-                let next_arm_jumps = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
-
-                // Pattern matched, compile the body
-                self.enter_block_scope();
-                self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
-                self.compile_expression(&arm.body)?;
-                self.leave_block_scope();
-
-                // Jump to end after executing this arm's body
-                let end_jump = self.emit(OpCode::OpJump, &[9999]);
-                end_jumps.push(end_jump);
-
-                // Patch jump to next arm
-                for jump_pos in next_arm_jumps {
-                    self.change_operand(jump_pos, self.current_instructions().len());
+        for arm in arms {
+            if !next_arm_jumps.is_empty() {
+                let arm_start = self.current_instructions().len();
+                for jump_pos in next_arm_jumps.drain(..) {
+                    self.change_operand(jump_pos, arm_start);
                 }
-            } else {
-                // Last arm: bind identifier (if any) or drop scrutinee, then compile body
-                self.enter_block_scope();
-                self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
-                self.compile_expression(&arm.body)?;
-                self.leave_block_scope();
+                // A failed pattern/guard jump leaves its condition on stack.
+                self.emit(OpCode::OpPop, &[]);
             }
+
+            // Check whether pattern matches and collect jumps to the next arm.
+            let mut arm_next_jumps = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
+
+            self.enter_block_scope();
+            self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
+
+            // Guard runs only after a successful pattern match and in the arm binding scope.
+            if let Some(guard) = &arm.guard {
+                self.compile_expression(guard)?;
+                arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
+            }
+
+            self.compile_expression(&arm.body)?;
+            self.leave_block_scope();
+
+            // Jump to end after executing this arm's body.
+            end_jumps.push(self.emit(OpCode::OpJump, &[9999]));
+            next_arm_jumps = arm_next_jumps;
         }
+
+        // If no arm matched (or all guards failed), leave a sentinel value on stack.
+        if !next_arm_jumps.is_empty() {
+            let no_match_start = self.current_instructions().len();
+            for jump_pos in next_arm_jumps {
+                self.change_operand(jump_pos, no_match_start);
+            }
+            self.emit(OpCode::OpPop, &[]);
+        }
+        self.emit(OpCode::OpNone, &[]);
 
         // Patch all end jumps to point here
         for jump_pos in end_jumps {
             self.change_operand(jump_pos, self.current_instructions().len());
         }
 
-        self.leave_block_scope();
         Ok(())
     }
 

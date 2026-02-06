@@ -1,0 +1,8 @@
+// Match guards: malformed guard syntax.
+// Expected diagnostics include parse errors around the missing guard expression.
+
+let bad_syntax = match Some(1) {
+    Some(v) if -> v,
+    _ -> 0,
+};
+print(bad_syntax);

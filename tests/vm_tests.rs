@@ -489,6 +489,44 @@ fn test_either_pattern_matching() {
 }
 
 #[test]
+fn test_match_guards_true_and_false_paths() {
+    assert_eq!(
+        run(r#"
+            match Some(2) {
+                Some(x) if x > 0 -> x,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(2)
+    );
+
+    assert_eq!(
+        run(r#"
+            match Some(-2) {
+                Some(x) if x > 0 -> x,
+                Some(x) -> 0 - x,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(2)
+    );
+}
+
+#[test]
+fn test_match_guards_can_use_pattern_bound_values() {
+    assert_eq!(
+        run(r#"
+            match Right(10) {
+                Right(v) if v > 20 -> 1,
+                Right(v) -> v,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(10)
+    );
+}
+
+#[test]
 fn test_either_in_functions() {
     // Function returning Left
     assert_eq!(

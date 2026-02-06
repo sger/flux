@@ -163,6 +163,60 @@ match x { 1 -> 10 };
 }
 
 #[test]
+fn guarded_catchall_is_not_considered_exhaustive() {
+    let src = r#"
+let x = 2;
+match x { _ if true -> 1 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for pattern validation test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from pattern validation");
+    let codes = diag_codes(&compile_diags);
+    assert!(
+        codes.iter().any(|c| c == "E015"),
+        "expected E015 for guarded catch-all non-exhaustive match, got {:?}",
+        codes
+    );
+    assert!(
+        !codes.iter().any(|c| c == "E016"),
+        "guarded catch-all should not be treated as catch-all-not-last, got {:?}",
+        codes
+    );
+}
+
+#[test]
+fn guarded_catchall_before_unguarded_fallback_is_allowed() {
+    let src = r#"
+let x = 2;
+match x { _ if true -> 1, _ -> 2 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for pattern validation test, got: {:?}",
+        parser_errors
+    );
+    assert!(
+        compile_result.is_ok(),
+        "expected guarded catch-all plus fallback to validate, got compile diagnostics: {:?}",
+        compile_result.err()
+    );
+}
+
+#[test]
 fn empty_match_reports_e014() {
     let src = r#"
 let x = 2;
