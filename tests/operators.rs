@@ -30,10 +30,42 @@ fn parse_expr_to_string(input: &str) -> String {
 #[test]
 fn lex_operator_longest_match_and_prefix_collisions() {
     let cases: [(&str, Vec<TokenType>); 9] = [
-        ("a==b", vec![TokenType::Ident, TokenType::Eq, TokenType::Ident, TokenType::Eof]),
-        ("a>=b", vec![TokenType::Ident, TokenType::Gte, TokenType::Ident, TokenType::Eof]),
-        ("a<=b", vec![TokenType::Ident, TokenType::Lte, TokenType::Ident, TokenType::Eof]),
-        ("a!=b", vec![TokenType::Ident, TokenType::NotEq, TokenType::Ident, TokenType::Eof]),
+        (
+            "a==b",
+            vec![
+                TokenType::Ident,
+                TokenType::Eq,
+                TokenType::Ident,
+                TokenType::Eof,
+            ],
+        ),
+        (
+            "a>=b",
+            vec![
+                TokenType::Ident,
+                TokenType::Gte,
+                TokenType::Ident,
+                TokenType::Eof,
+            ],
+        ),
+        (
+            "a<=b",
+            vec![
+                TokenType::Ident,
+                TokenType::Lte,
+                TokenType::Ident,
+                TokenType::Eof,
+            ],
+        ),
+        (
+            "a!=b",
+            vec![
+                TokenType::Ident,
+                TokenType::NotEq,
+                TokenType::Ident,
+                TokenType::Eof,
+            ],
+        ),
         (
             "a->b",
             vec![
@@ -45,7 +77,12 @@ fn lex_operator_longest_match_and_prefix_collisions() {
         ),
         (
             "x|>f",
-            vec![TokenType::Ident, TokenType::Pipe, TokenType::Ident, TokenType::Eof],
+            vec![
+                TokenType::Ident,
+                TokenType::Pipe,
+                TokenType::Ident,
+                TokenType::Eof,
+            ],
         ),
         (
             "a&&b||c",
@@ -118,7 +155,11 @@ fn parse_parentheses_override_precedence() {
 
     for (input, expected) in cases {
         let got = parse_expr_to_string(input);
-        assert_eq!(got, expected, "parentheses grouping mismatch for `{}`", input);
+        assert_eq!(
+            got, expected,
+            "parentheses grouping mismatch for `{}`",
+            input
+        );
     }
 }
 
