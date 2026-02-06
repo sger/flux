@@ -21,6 +21,9 @@ pub enum Precedence {
 pub enum Assoc {
     Left,
     Right,
+    /// Reserved for future operators where chaining is disallowed (e.g. `a < b < c`).
+    /// Current parser behavior treats `Nonassoc` as left-associative until dedicated
+    /// chain diagnostics are implemented.
     Nonassoc,
 }
 
@@ -219,6 +222,7 @@ pub fn infix_op(token_type: &TokenType) -> Option<InfixInfo> {
     INFIX_TABLE[token_type.as_usize()]
 }
 
+/// Prefix operator metadata used by parser prefix dispatch.
 pub fn prefix_op(token_type: &TokenType) -> Option<PrefixInfo> {
     PREFIX_TABLE[token_type.as_usize()]
 }

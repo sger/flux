@@ -306,3 +306,58 @@ fn generic_infix_dispatch_is_in_sync_with_operator_registry() {
         );
     }
 }
+
+#[test]
+fn operator_registry_nonassoc_is_reserved_for_future_chaining_diagnostics() {
+    assert!(
+        !OPERATOR_TABLE
+            .iter()
+            .any(|op| op.associativity == Assoc::Nonassoc),
+        "Nonassoc is reserved: add parser diagnostics for non-associative chains before registering Nonassoc operators"
+    );
+}
+
+#[test]
+fn parser_dispatch_is_compatible_with_registered_infix_and_postfix_operators() {
+    let explicitly_excluded: [TokenType; 0] = [];
+
+    for op in OPERATOR_TABLE
+        .iter()
+        .filter(|op| matches!(op.fixity, Fixity::Infix | Fixity::Postfix))
+    {
+        if explicitly_excluded.contains(&op.token) {
+            continue;
+        }
+
+        let (src, expected_fragment) = match op.token {
+            TokenType::Pipe => ("a |> f;", "f(a)"),
+            TokenType::Or => ("a || b;", "(a || b)"),
+            TokenType::And => ("a && b;", "(a && b)"),
+            TokenType::Eq => ("a == b;", "(a == b)"),
+            TokenType::NotEq => ("a != b;", "(a != b)"),
+            TokenType::Lt => ("a < b;", "(a < b)"),
+            TokenType::Gt => ("a > b;", "(a > b)"),
+            TokenType::Lte => ("a <= b;", "(a <= b)"),
+            TokenType::Gte => ("a >= b;", "(a >= b)"),
+            TokenType::Plus => ("a + b;", "(a + b)"),
+            TokenType::Minus => ("a - b;", "(a - b)"),
+            TokenType::Asterisk => ("a * b;", "(a * b)"),
+            TokenType::Slash => ("a / b;", "(a / b)"),
+            TokenType::Percent => ("a % b;", "(a % b)"),
+            TokenType::LParen => ("a(1);", "a(1)"),
+            TokenType::LBracket => ("a[1];", "(a[1])"),
+            TokenType::Dot => ("a.b;", "a.b"),
+            other => panic!("missing dispatch-compatibility fixture for operator token {other:?}"),
+        };
+
+        let parsed = parse_expr_to_string(src);
+        assert!(
+            parsed.contains(expected_fragment),
+            "operator {:?} should parse via compatible dispatch path. source: `{}` output: `{}` expected fragment: `{}`",
+            op.token,
+            src,
+            parsed,
+            expected_fragment
+        );
+    }
+}
