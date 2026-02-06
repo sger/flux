@@ -8,12 +8,11 @@ use crate::{
     frontend::{
         block::Block,
         diagnostics::{
-            CATCHALL_NOT_LAST, Diagnostic, DiagnosticBuilder, EMPTY_MATCH,
-            ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN,
-            ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN,
-            ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED,
-            NON_EXHAUSTIVE_MATCH, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-            UNKNOWN_PREFIX_OPERATOR,
+            Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
+            ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+            ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
+            ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
+            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         },
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
@@ -433,46 +432,8 @@ impl Compiler {
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
-        match_span: Span,
+        _match_span: Span,
     ) -> CompileResult<()> {
-        if arms.is_empty() {
-            return Err(Self::boxed(Diagnostic::make_error(
-                &EMPTY_MATCH,
-                &[],
-                self.file_path.clone(),
-                match_span,
-            )));
-        }
-        if arms.len() > 1 {
-            for arm in &arms[..arms.len() - 1] {
-                if matches!(
-                    arm.pattern,
-                    Pattern::Identifier { .. } | Pattern::Wildcard { .. }
-                ) {
-                    return Err(Self::boxed(Diagnostic::make_error(
-                        &CATCHALL_NOT_LAST,
-                        &[],
-                        self.file_path.clone(),
-                        arm.pattern.span(),
-                    )));
-                }
-            }
-        }
-
-        if let Some(last) = arms.last()
-            && !matches!(
-                last.pattern,
-                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-            )
-        {
-            return Err(Self::boxed(Diagnostic::make_error(
-                &NON_EXHAUSTIVE_MATCH,
-                &[],
-                self.file_path.clone(),
-                match_span,
-            )));
-        }
-
         // Compile scrutinee once and store it in a temp local
         self.enter_block_scope();
         self.compile_expression(scrutinee)?;

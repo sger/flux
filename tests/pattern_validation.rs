@@ -2,10 +2,38 @@ use std::panic::{self, AssertUnwindSafe};
 
 use flux::{
     bytecode::compiler::Compiler,
-    frontend::{diagnostics::Diagnostic, lexer::Lexer, parser::Parser, program::Program},
+    frontend::{
+        diagnostics::Diagnostic, lexer::Lexer, parser::Parser,
+        pattern_validate::validate_program_patterns, program::Program,
+    },
 };
 
 type CompileOutcome = Result<(), Vec<Diagnostic>>;
+
+fn parse_and_validate_patterns_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>), String> {
+    panic::catch_unwind(AssertUnwindSafe(|| {
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let parser_errors = parser.errors;
+        let pattern_diags = validate_program_patterns(&program, "pattern_validation_test.flx");
+        (program, parser_errors, pattern_diags)
+    }))
+    .map_err(|payload| {
+        if let Some(msg) = payload.downcast_ref::<&str>() {
+            (*msg).to_string()
+        } else if let Some(msg) = payload.downcast_ref::<String>() {
+            msg.clone()
+        } else {
+            "non-string panic payload".to_string()
+        }
+    })
+    .map(|(program, parser_errors, pattern_diags)| {
+        let mut all_diags = parser_errors;
+        all_diags.extend(pattern_diags);
+        (program, all_diags)
+    })
+}
 
 fn parse_and_validate_no_panic(
     input: &str,
@@ -196,5 +224,54 @@ match x { 1 -> 10 };
         compile_diags.len() >= 2,
         "expected validator to continue and report multiple diagnostics, got {}",
         compile_diags.len()
+    );
+}
+
+#[test]
+fn dedicated_pattern_validation_pass_accepts_valid_nested_patterns() {
+    let src = r#"
+let x = Some(Left(1));
+match x { Some(Left(v)) -> v, _ -> 0 };
+"#;
+
+    let result = parse_and_validate_patterns_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, all_diags) = result.expect("already checked panic");
+    assert!(
+        all_diags.is_empty(),
+        "expected no diagnostics for valid nested pattern validation input, got: {:?}",
+        all_diags
+    );
+}
+
+#[test]
+fn dedicated_pattern_validation_pass_reports_multiple_match_issues() {
+    let src = r#"
+let x = 2;
+match x { };
+match x { _ -> 1, 2 -> 2 };
+match x { 1 -> 10 };
+"#;
+
+    let result = parse_and_validate_patterns_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, all_diags) = result.expect("already checked panic");
+    let codes = diag_codes(&all_diags);
+    assert!(
+        codes.iter().any(|c| c == "E014"),
+        "expected E014 (empty match), got: {:?}",
+        codes
+    );
+    assert!(
+        codes.iter().any(|c| c == "E016"),
+        "expected E016 (catch-all not last), got: {:?}",
+        codes
+    );
+    assert!(
+        codes.iter().any(|c| c == "E015"),
+        "expected E015 (non-exhaustive), got: {:?}",
+        codes
     );
 }

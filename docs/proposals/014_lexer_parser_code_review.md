@@ -984,7 +984,7 @@ mod parser_fuzz_tests {
 
 ### Implementation Checklist (Remaining Work)
 
-- [ ] Add a dedicated parser pattern validation pass (or equivalent centralized validation).
+- [x] Add a dedicated parser pattern validation pass (or equivalent centralized validation).
 Acceptance: Invalid/unsupported pattern shapes produce deterministic diagnostics with spans, and valid nested patterns continue to parse correctly.
 
 - [ ] Introduce table-driven operator precedence handling (or an operator registry).

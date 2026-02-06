@@ -640,6 +640,14 @@ pub const MISSING_COMMA: ErrorCode = ErrorCode {
     hint: Some("Insert a comma between adjacent items, e.g. `a, b`."),
 };
 
+pub const DUPLICATE_PATTERN_BINDING: ErrorCode = ErrorCode {
+    code: "E075",
+    title: "DUPLICATE PATTERN BINDING",
+    error_type: ErrorType::Compiler,
+    message: "Pattern binds `{}` more than once.",
+    hint: Some("Use unique binding names within a single pattern."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================
