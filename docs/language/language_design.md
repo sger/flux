@@ -127,8 +127,8 @@ Flux emits human-friendly diagnostics with stable error codes.
 | Code | Title | Example | Example file |
 | --- | --- | --- | --- |
 | E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/functions/function_redeclaration_error.flx` |
-| E003 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
-| E004 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
+| E002 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
+| E003 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
 | E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
 | E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
 | E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
@@ -176,7 +176,57 @@ fun sum_of_squares(a, b) {
 ### Variables
 
 All bindings are immutable. Use `let` to bind values.
-Closures cannot assign to outer bindings; use `let` to shadow instead.
+Closures cannot assign to outer bindings.
+
+### Bindings and Shadowing
+
+Flux uses scope-based shadowing, but does not allow duplicate `let` names in the same scope.
+
+- Top-level `let` works with or without semicolons.
+- Function parameters create a new scope and can shadow outer bindings.
+- `let` is non-recursive and same-scope duplicate names are rejected (`E001`).
+
+```flux
+let x = 3
+
+fun t(x) {
+  x;        // parameter `x` shadows global `x`
+}
+```
+
+```flux
+let x = 3
+
+fun t(x) {
+  let x = x;   // error (E001): duplicate binding in same scope
+}
+```
+
+### Assignment and Rebinding
+
+Flux does not currently support mutable rebinding.
+
+- `x = value` is parsed as an assignment statement shape, but the compiler rejects it.
+- Assignment is a statement form only, not an expression.
+- `let mut` is not supported syntax in Flux today.
+
+```flux
+let x = 1;
+x = 2;              // error (E002): immutable binding
+
+let mut y = 1;      // syntax error (`mut` is not a keyword)
+y = 2;              // invalid assignment
+
+// Supported style: immutable update with a new binding name
+let y = 1;
+let next_y = y + 1;
+```
+
+```flux
+if x = y {          // parse error: assignment is not an expression
+  1;
+}
+```
 
 ### Top-Level Bindings (Planned)
 
@@ -208,42 +258,22 @@ let x = 5;  // Inline comment
 
 ### Semicolons
 
-Semicolons are **optional** for top-level statements on separate lines, but **required** inside function bodies (except the last expression).
+Current parser behavior: semicolons are accepted but optional in the common statement forms we test (top-level calls, top-level lets, and their semicolon-terminated variants).
 
-**Quick Rules:**
-- ✓ **OPTIONAL**: Top-level statements on separate lines
-- ✗ **REQUIRED**: Multiple statements on same line
-- ✗ **REQUIRED**: Inside function bodies (except last expression)
-
-**Top-level (semicolons optional):**
 ```flux
-let x = 42
-let y = 10
-print(x + y)
+print("hi")
+print("hi");
+
+let test = "this compiles"
+let test2 = "this compiles";
 ```
 
-**Top-level (semicolons also work):**
-```flux
-let x = 42;
-let y = 10;
-print(x + y);
-```
-
-**Inside functions (semicolons required except last):**
-```flux
-fun calculate(n) {
-    let doubled = n * 2;     // REQUIRED
-    let squared = n * n;     // REQUIRED
-    doubled + squared        // OPTIONAL (last expression)
-}
-```
-
-**Recommendation:** Skip semicolons at top level, use them inside functions.
+Flux does not lex newline tokens. Statement boundaries come from parser progression and expression terminators, so these forms parse without requiring explicit semicolons.
 
 **See also:**
 - Complete reference: [docs/language/semicolon_rules.md](semicolon_rules.md)
 - Examples: [examples/basics/semicolons.flx](../../examples/basics/semicolons.flx)
-- Tests: `tests/parser_tests.rs` (search for `optional_semicolons`)
+- Tests: `tests/parser_tests.rs` (search for `semicolon_verification`)
 
 ---
 

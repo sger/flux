@@ -1,0 +1,18 @@
+---
+source: tests/snapshots/lexer/mod.rs
+expression: output
+---
+  2:0   IDENT           "for"
+  2:4   (               "("
+  2:5   IDENT           "item"
+  2:10  IDENT           "in"
+  2:13  IDENT           "items"
+  2:18  )               ")"
+  2:20  {               "{"
+  3:4   IDENT           "print"
+  3:9   (               "("
+  3:10  IDENT           "item"
+  3:14  )               ")"
+  3:15  ;               ";"
+  4:0   }               "}"
+  5:0   EOF             ""

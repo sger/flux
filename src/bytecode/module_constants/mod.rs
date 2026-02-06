@@ -13,3 +13,6 @@ pub use compile::{ConstCompileError, compile_module_constants};
 pub use dependency::{find_constant_refs, topological_sort_constants};
 pub use error::ConstEvalError;
 pub use eval::eval_const_expr;
+
+#[cfg(test)]
+mod module_constants_test;

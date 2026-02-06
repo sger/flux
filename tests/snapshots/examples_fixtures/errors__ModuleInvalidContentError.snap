@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/ModuleInvalidContentError.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Errors.ModuleInvalidContentError` doesn't match file path `examples/errors/ModuleInvalidContentError.flx`.
+
+  --> examples/errors/ModuleInvalidContentError.flx:2:1
+  |
+2 | module Errors.ModuleInvalidContentError {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

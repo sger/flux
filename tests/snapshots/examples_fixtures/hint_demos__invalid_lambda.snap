@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/hint_demos/invalid_lambda.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E036]: LAMBDA SYNTAX ERROR
+
+Expected `->` after lambda parameters, got `*`.
+
+  --> examples/hint_demos/invalid_lambda.flx:5:17
+  |
+5 | let double = /x * 2;
+  |                 ^
+
+Hint:
+  Use `/x -> expr` or `/(x, y) -> expr`.
+
+
+Example:
+  let add = /(a, b) -> a + b;
+== stdout ==
+<not executed>

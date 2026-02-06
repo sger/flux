@@ -1,0 +1,5 @@
+---
+source: tests/snapshots/formatter/mod.rs
+expression: output
+---
+let msg="Hello ${name}, you are ${age} years old";

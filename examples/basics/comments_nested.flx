@@ -1,0 +1,169 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Nested Comment Examples - Advanced comment nesting demonstrations
+// ════════════════════════════════════════════════════════════════════════════
+
+/// This file demonstrates Flux's powerful nested comment support
+/// Unlike many languages, Flux allows arbitrary nesting of block comments
+
+// ════════════════════════════════════════════════════════════════════════════
+// Basic Nesting
+// ════════════════════════════════════════════════════════════════════════════
+
+/* Level 1 comment /* Level 2 nested */ back to Level 1 */
+let x = 5;
+
+/*
+   Outer comment
+   /* Inner comment */
+   Still in outer comment
+*/
+let y = 10;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Deep Nesting
+// ════════════════════════════════════════════════════════════════════════════
+
+/*
+   Level 1
+   /*
+      Level 2
+      /*
+         Level 3
+         /*
+            Level 4 - nesting depth is unlimited!
+         */
+         Back to Level 3
+      */
+      Back to Level 2
+   */
+   Back to Level 1
+*/
+let deeply_nested = "This code is active!";
+
+// ════════════════════════════════════════════════════════════════════════════
+// Practical Use Case: Commenting Out Code With Comments
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Nested comments make it easy to temporarily disable code
+ * that already contains block comments, without breaking anything!
+ */
+
+fun calculate_total(items) {
+    /*
+       Temporarily disabled - needs refactoring
+
+       /* Original implementation with detailed comment:
+          This calculates the sum using a complex algorithm
+          that accounts for weighted values
+       */
+       let sum = 0;
+       let i = 0;
+       while (i < len(items)) {
+           /* Apply weight factor */
+           sum = sum + items[i] * 1.5;
+           i = i + 1;
+       }
+       return sum;
+    */
+
+    // Simplified version for now
+    return 0;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Doc Comments Can Also Be Nested
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Process user data with validation
+ *
+ * Implementation notes:
+ * /* TODO: Add email validation
+ *    /* Check format */
+ *    /* Verify domain */
+ * */
+ *
+ * Returns processed user object
+ */
+fun process_user(name, email) {
+    return name;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Mixed Comment Types
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Doc comment for configuration
+let config = {
+    /* Database settings /* production */ */
+    "db": "postgres",
+
+    // Server port
+    "port": 8080,
+
+    /**
+     * API settings
+     * /* Version control /* v2.0 */ */
+     */
+    "api_version": "2.0"
+};
+
+// ════════════════════════════════════════════════════════════════════════════
+// Complex Nesting Patterns
+// ════════════════════════════════════════════════════════════════════════════
+
+/*
+   A /* B /* C */ B */ A
+   The above shows symmetrical nesting - works perfectly!
+*/
+
+/*
+   Multiple nested sections:
+   /* Section 1 */
+   Code between sections
+   /* Section 2 /* Subsection */ */
+   More code
+   /* Section 3 */
+*/
+
+/* /* /* /* Four levels deep! */ */ */ */
+
+// ════════════════════════════════════════════════════════════════════════════
+// Why Nested Comments Are Useful
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Without nested comment support, you can't do this:
+ *
+ * /* Comment out a whole function
+ * fun debug_helper() {
+ *     /* This inner comment would break non-nested systems */
+ *     let temp = calculate();
+ *     return temp;
+ * }
+ * */
+ *
+ * But Flux handles it perfectly!
+ */
+
+// Test execution
+print("Nested comments example running successfully!");
+print(deeply_nested);
+print(calculate_total([1, 2, 3]));
+print(process_user("Alice", "alice@example.com"));
+
+/*
+   Summary:
+
+   Flux's comment system supports:
+   ✓ Single-line comments (//)
+   ✓ Block comments (/* */)
+   ✓ Arbitrarily nested block comments
+   ✓ Line doc comments (///)
+   ✓ Block doc comments (/** */)
+   ✓ Nested doc comments
+
+   This makes it easy to comment out large code sections
+   without worrying about breaking existing comments!
+*/

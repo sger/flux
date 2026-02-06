@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/suggestions/no_match.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `zebra`.
+
+  --> examples/suggestions/no_match.flx:8:7
+  |
+8 | print(zebra);
+  |       ^^^^^
+
+Hint:
+  Define it first: let zebra = ...;
+== stdout ==
+<not executed>

@@ -13,10 +13,10 @@ print(some_val);
 print("\n2. Match with literals:");
 let value = 2;
 let result = match value {
-    0 -> "zero";
-    1 -> "one";
-    2 -> "two";
-    _ -> "other";
+    0 -> "zero",
+    1 -> "one",
+    2 -> "two",
+    _ -> "other",
 };
 print(result);
 
@@ -24,9 +24,9 @@ print(result);
 print("\n3. Match with Option patterns:");
 let opt = None;
 let msg = match opt {
-    Some(x) -> "found";
-    None -> "missing";
-    _ -> "unreachable";
+    Some(x) -> "found",
+    None -> "missing",
+    _ -> "unreachable",
 };
 print(msg);
 
@@ -50,10 +50,10 @@ print(not_found);
 print("\n6. Multiple patterns:");
 let x = 5;
 let desc = match x {
-    1 -> "one";
-    2 -> "two";
-    3 -> "three";
-    _ -> "many";
+    1 -> "one",
+    2 -> "two",
+    3 -> "three",
+    _ -> "many",
 };
 print(desc);
 

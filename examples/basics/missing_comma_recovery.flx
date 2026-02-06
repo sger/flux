@@ -1,0 +1,21 @@
+// Missing comma recovery demo
+//
+// This file intentionally contains syntax errors to exercise parser recovery
+// in expression lists (call arguments and array literals).
+//
+// Run with:
+//   cargo run -- run examples/basics/missing_comma_recovery.flx
+
+fun f(a, b, c, d) {
+    print(a);
+    print(b);
+    print(c);
+    print(d);
+}
+
+print(1 2 3);         // missing commas between call arguments
+[true false true];    // missing commas between array items
+f(10, 20 30, 40);     // missing comma in the middle argument gap
+
+let parsed_after_errors = "parser should still reach this statement";
+print(parsed_after_errors);

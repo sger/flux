@@ -1,0 +1,10 @@
+---
+source: tests/examples_basics_snapshots.rs
+---
+Fixture: examples/basics/array_iteration.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

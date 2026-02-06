@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/import_not_found_error.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Missing.Module` to import.
+
+  --> examples/errors/import_not_found_error.flx:2:1
+  |
+2 | import Missing.Module
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Missing.Module.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Missing.Module` under roots: examples/errors, src (imported from examples/errors/import_not_found_error.flx).
+== stdout ==
+<not executed>

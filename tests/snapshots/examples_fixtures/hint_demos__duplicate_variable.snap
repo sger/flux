@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/hint_demos/duplicate_variable.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `x` is already defined.
+
+  --> examples/hint_demos/duplicate_variable.flx:10:1
+   |
+10 | let x = 30;
+   | ^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/hint_demos/duplicate_variable.flx:4:1
+  |
+4 | let x = 10;
+  | ^^^^^^^^^^^
+== stdout ==
+<not executed>

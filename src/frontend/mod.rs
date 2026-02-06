@@ -8,6 +8,7 @@ pub mod lexer;
 pub mod linter;
 pub mod module_graph;
 pub mod parser;
+pub mod pattern_validate;
 pub mod position;
 pub mod precedence;
 pub mod program;

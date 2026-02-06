@@ -1,9 +1,8 @@
 // Semicolon Rules in Flux
 // =========================
-// Rule 1: Semicolons OPTIONAL for top-level statements on separate lines
-// Rule 2: Semicolons REQUIRED for multiple statements on same line
-// Rule 3: Semicolons REQUIRED inside function bodies (except last expression)
-// Rule 4: Consecutive let blocks without semicolons need a non-let statement between them
+// Rule 1: Semicolons are OPTIONAL for common statement forms
+// Rule 2: Trailing semicolons are also accepted
+// Rule 3: This parser is not newline-token based, so same-line forms can parse too
 
 print("=== Semicolon Demonstration ===")
 print("")
@@ -22,10 +21,10 @@ print("   x + y = " + to_string(x + y))
 print("")
 
 // ============================================================================
-// REQUIRED: Multiple statements on same line
+// ALSO WORKS: Multiple statements on same line
 // ============================================================================
 
-print("2. Same line (semicolons REQUIRED):")
+print("2. Same line (also parses):")
 let a = 1; let b = 2; let c = 3
 print("   a=" + to_string(a) + " b=" + to_string(b) + " c=" + to_string(c))
 print("")
@@ -43,10 +42,10 @@ fun add(x, y) {
 }
 print("   add(5, 3) = " + to_string(add(5, 3)))
 
-// ---- Multiple statements (semicolons required except last) ----
+// ---- Multiple statements (semicolons optional, accepted style) ----
 fun calculate(n) {
-    let doubled = n * 2;     // REQUIRED semicolon
-    let squared = n * n;     // REQUIRED semicolon
+    let doubled = n * 2;     // semicolon accepted
+    let squared = n * n;     // semicolon accepted
     doubled + squared        // OPTIONAL semicolon (last)
 }
 print("   calculate(5) = " + to_string(calculate(5)))
@@ -54,7 +53,7 @@ print("   calculate(5) = " + to_string(calculate(5)))
 // ---- With return statements ----
 fun get_max(a, b) {
     if (a > b) {
-        return a;            // REQUIRED semicolon (not last in function)
+        return a;            // semicolon accepted
     }
     return b                 // OPTIONAL semicolon (last in function)
 }
@@ -63,7 +62,7 @@ print("   get_max(10, 20) = " + to_string(get_max(10, 20)))
 // ---- Early return ----
 fun check_positive(n) {
     if (n <= 0) {
-        return "not positive";  // REQUIRED semicolon
+        return "not positive";  // semicolon accepted
     }
     "positive"                  // OPTIONAL semicolon (last)
 }
@@ -88,11 +87,11 @@ print("4. Style comparison:")
 print("")
 
 // Style A: No semicolons (clean, recommended for top-level)
-let lang = "Flux";          // Adding semicolon to prevent parser issue
-let version = "0.0.3";      // with consecutive let blocks
+let lang = "Flux"
+let version = "0.0.3"
 print("   Style A: " + lang + " v" + version)
 
-// A statement between let blocks allows no semicolons in next block
+// Styles can be mixed freely
 print("")
 
 // Style B: No semicolons in this block (works after print statement)
@@ -109,18 +108,18 @@ print("=== Summary ===")
 print("")
 print("Semicolons OPTIONAL:")
 print("  ✓ Top-level statements on separate lines")
-print("  ✓ Last expression in function/block")
-print("  ✓ Function definitions at top level")
+print("  ✓ Top-level call/let statements")
+print("  ✓ Statements inside function bodies")
 print("")
-print("Semicolons REQUIRED:")
-print("  ✗ Multiple statements on same line")
-print("  ✗ Inside function bodies (except last expression)")
-print("  ✗ Return statements (except when last)")
+print("Semicolons ALSO VALID:")
+print("  ✓ Multiple statements on same line")
+print("  ✓ Function body statements")
+print("  ✓ Return statements")
 print("")
 print("Parser Note:")
-print("  Consecutive let blocks need semicolons OR")
-print("  a non-let statement between them")
+print("  Newlines are not separate tokens")
+print("  Parser progress separates statements")
 print("")
 print("Recommendation:")
-print("  Skip semicolons at top level")
-print("  Use semicolons inside functions")
+print("  Pick one style and stay consistent")
+print("  Use semicolons when they improve readability")

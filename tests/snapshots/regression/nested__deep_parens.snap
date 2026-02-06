@@ -1,0 +1,7 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/nested/deep_parens.flx
+exit_code: 0
+
+false

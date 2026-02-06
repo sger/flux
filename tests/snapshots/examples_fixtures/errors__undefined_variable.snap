@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/undefined_variable.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `nonexistent_variable`.
+
+  --> examples/errors/undefined_variable.flx:6:7
+  |
+6 | print(nonexistent_variable)
+  |       ^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let nonexistent_variable = ...;
+== stdout ==
+<not executed>

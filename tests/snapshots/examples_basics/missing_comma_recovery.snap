@@ -1,0 +1,74 @@
+---
+source: tests/examples_basics_snapshots.rs
+---
+Fixture: examples/basics/missing_comma_recovery.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> examples/basics/missing_comma_recovery.flx:16:9
+   |
+16 | print(1 2 3);
+   |         ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> examples/basics/missing_comma_recovery.flx:16:11
+   |
+16 | print(1 2 3);
+   |           ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between items.
+
+  --> examples/basics/missing_comma_recovery.flx:17:7
+   |
+17 | [true false true];
+   |       ^^^^^
+
+Hint:
+  Add a comma between items, e.g. `[a, b]`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between items.
+
+  --> examples/basics/missing_comma_recovery.flx:17:13
+   |
+17 | [true false true];
+   |             ^^^^
+
+Hint:
+  Add a comma between items, e.g. `[a, b]`.
+
+
+--> compiler error[E073]: MISSING COMMA
+
+Missing comma between arguments.
+
+  --> examples/basics/missing_comma_recovery.flx:18:10
+   |
+18 | f(10, 20 30, 40);
+   |          ^^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+Found 5 errors.
+== stdout ==
+<not executed>

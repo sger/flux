@@ -1,0 +1,16 @@
+---
+source: tests/snapshots/bytecode/mod.rs
+expression: output
+---
+Constants:
+  0: "Hello"
+  1: " "
+  2: "World"
+
+Instructions:
+0000 OpConstant 0
+0003 OpConstant 1
+0006 OpAdd 
+0007 OpConstant 2
+0010 OpAdd 
+0011 OpSetGlobal 0

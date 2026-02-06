@@ -1,3 +1,4 @@
+use super::builders::DiagnosticBuilder;
 use super::types::{ErrorCode, ErrorType};
 
 pub const WRONG_NUMBER_OF_ARGUMENTS: ErrorCode = ErrorCode {
@@ -175,3 +176,30 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
     message: "Invalid substring bounds: start={}, end={}, length={}.",
     hint: Some("Ensure 0 <= start <= end <= length."),
 };
+
+// ============================================================================
+// Runtime Error Constructor Functions
+// ============================================================================
+// These functions provide a clean API for creating runtime diagnostics with
+// proper error codes. Use these instead of Diagnostic::error() in production code.
+
+use super::diagnostic::Diagnostic;
+use super::registry::diag_enhanced;
+use crate::frontend::position::Span;
+
+/// Create an "invalid operation" runtime error
+pub fn invalid_operation(
+    op_name: &str,
+    left_type: &str,
+    right_type: &str,
+    file: String,
+    span: Span,
+) -> Diagnostic {
+    diag_enhanced(&INVALID_OPERATION)
+        .with_message(format!(
+            "Cannot {} {} and {} values.",
+            op_name, left_type, right_type
+        ))
+        .with_file(file)
+        .with_span(span)
+}

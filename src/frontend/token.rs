@@ -8,6 +8,7 @@ pub struct Token {
     pub token_type: TokenType,
     pub literal: String,
     pub position: Position,
+    pub end_position: Position,
 }
 
 impl Token {
@@ -17,17 +18,35 @@ impl Token {
         line: usize,
         column: usize,
     ) -> Self {
+        let literal = literal.into();
+        let start = Position::new(line, column);
+        let len = literal.chars().count();
+        let end = Position::new(line, column.saturating_add(len));
+        Self {
+            token_type,
+            literal,
+            position: start,
+            end_position: end,
+        }
+    }
+
+    pub fn new_with_end(
+        token_type: TokenType,
+        literal: impl Into<String>,
+        line: usize,
+        column: usize,
+        end_position: Position,
+    ) -> Self {
         Self {
             token_type,
             literal: literal.into(),
             position: Position::new(line, column),
+            end_position,
         }
     }
 
     pub fn span(&self) -> Span {
-        let len = self.literal.chars().count();
-        let end = Position::new(self.position.line, self.position.column.saturating_add(len));
-        Span::new(self.position, end)
+        Span::new(self.position, self.end_position)
     }
 }
 

@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/Foo/List.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Modules.Foo.List` doesn't match file path `examples/Modules/Foo/List.flx`.
+
+  --> examples/Modules/Foo/List.flx:1:1
+  |
+1 | module Modules.Foo.List {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

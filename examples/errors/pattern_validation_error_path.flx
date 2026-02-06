@@ -1,0 +1,19 @@
+// Error path: intentionally invalid match pattern usage.
+// Expected diagnostics include:
+// - E016 (catch-all not last)
+// - E015 (non-exhaustive match)
+// - E014 (empty match)
+
+let value = 2;
+
+print(match value {
+    _ -> "any",
+    2 -> "two",
+});
+
+print(match value {
+    1 -> "one",
+    2 -> "two",
+});
+
+print(match value { });

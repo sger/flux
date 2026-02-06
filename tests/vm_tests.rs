@@ -54,6 +54,11 @@ outer();"#;
     let err = run_error(input);
     assert!(err.contains("Stack trace:"));
     assert!(
+        !err.lines().any(|line| line == "--> test.flx"),
+        "runtime diagnostics should not include file grouping headers, got:\n{}",
+        err
+    );
+    assert!(
         err.contains("test.flx:2:1"),
         "expected 1-based column in stack trace, got:\n{}",
         err
@@ -106,6 +111,18 @@ fn test_conditionals() {
 fn test_global_variables() {
     assert_eq!(run("let x = 5; x;"), Object::Integer(5));
     assert_eq!(run("let x = 5; let y = x; y;"), Object::Integer(5));
+}
+
+#[test]
+fn test_function_parameter_shadows_global_binding() {
+    assert_eq!(
+        run(r#"
+let x = 3;
+fun t(x) { x; }
+t(9) + x;
+"#),
+        Object::Integer(12)
+    );
 }
 
 #[test]
@@ -403,8 +420,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(1);
             match x {
-                Left(_) -> true;
-                _ -> false;
+                Left(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(true)
@@ -415,8 +432,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(1);
             match x {
-                Right(_) -> true;
-                _ -> false;
+                Right(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(true)
@@ -427,8 +444,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(1);
             match x {
-                Right(_) -> true;
-                _ -> false;
+                Right(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(false)
@@ -439,8 +456,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(1);
             match x {
-                Left(_) -> true;
-                _ -> false;
+                Left(_) -> true,
+                _ -> false,
             };
         "#),
         Object::Boolean(false)
@@ -451,8 +468,8 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Left(42);
             match x {
-                Left(v) -> v;
-                _ -> 0;
+                Left(v) -> v,
+                _ -> 0,
             };
         "#),
         Object::Integer(42)
@@ -463,11 +480,49 @@ fn test_either_pattern_matching() {
         run(r#"
             let x = Right(42);
             match x {
-                Right(v) -> v;
-                _ -> 0;
+                Right(v) -> v,
+                _ -> 0,
             };
         "#),
         Object::Integer(42)
+    );
+}
+
+#[test]
+fn test_match_guards_true_and_false_paths() {
+    assert_eq!(
+        run(r#"
+            match Some(2) {
+                Some(x) if x > 0 -> x,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(2)
+    );
+
+    assert_eq!(
+        run(r#"
+            match Some(-2) {
+                Some(x) if x > 0 -> x,
+                Some(x) -> 0 - x,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(2)
+    );
+}
+
+#[test]
+fn test_match_guards_can_use_pattern_bound_values() {
+    assert_eq!(
+        run(r#"
+            match Right(10) {
+                Right(v) if v > 20 -> 1,
+                Right(v) -> v,
+                _ -> 0,
+            };
+        "#,),
+        Object::Integer(10)
     );
 }
 

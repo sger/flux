@@ -6,9 +6,9 @@ module Modules.UserUtils {
     fun age_if_adult(user) {
         let age_opt = user["age"];
         return match age_opt {
-            Some(a) -> if a > 17 { Some(a) } else { None };
-            None -> None;
-            _ -> None;
+            Some(a) -> if a > 17 { Some(a) } else { None },
+            None -> None,
+            _ -> None,
         };
     }
 }

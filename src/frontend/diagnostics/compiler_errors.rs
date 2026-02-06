@@ -1,3 +1,4 @@
+use super::builders::DiagnosticBuilder;
 use super::types::{ErrorCode, ErrorType};
 
 pub const DUPLICATE_NAME: ErrorCode = ErrorCode {
@@ -13,7 +14,9 @@ pub const IMMUTABLE_BINDING: ErrorCode = ErrorCode {
     title: "IMMUTABLE BINDING",
     error_type: ErrorType::Compiler,
     message: "Cannot reassign to immutable variable `{}`.",
-    hint: Some("Variables are immutable by default. Use `let mut {}` if you need to reassign."),
+    hint: Some(
+        "In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_{} = ...`).",
+    ),
 };
 
 pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
@@ -21,7 +24,9 @@ pub const OUTER_ASSIGNMENT: ErrorCode = ErrorCode {
     title: "OUTER ASSIGNMENT",
     error_type: ErrorType::Compiler,
     message: "Cannot assign to variable `{}` from outer scope.",
-    hint: Some("Create a new binding with `let` or make the outer variable mutable."),
+    hint: Some(
+        "Variables captured by closures cannot be reassigned. Return the updated value from the function or bind it to a new name.",
+    ),
 };
 
 pub const UNDEFINED_VARIABLE: ErrorCode = ErrorCode {
@@ -105,7 +110,9 @@ pub const MODULE_NOT_IMPORTED: ErrorCode = ErrorCode {
     title: "MODULE NOT IMPORTED",
     error_type: ErrorType::Compiler,
     message: "Module `{}` is not imported.",
-    hint: Some("Add: import {}"),
+    hint: Some(
+        "Add an import statement at the top of your file: `import {}`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.",
+    ),
 };
 
 pub const EMPTY_MATCH: ErrorCode = ErrorCode {
@@ -145,7 +152,9 @@ pub const IMPORT_NOT_FOUND: ErrorCode = ErrorCode {
     title: "IMPORT NOT FOUND",
     error_type: ErrorType::Compiler,
     message: "Cannot find module `{}` to import.",
-    hint: Some("Check that the module file exists and the path is correct."),
+    hint: Some(
+        "Check that: 1) The module file exists (e.g., `{}.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.",
+    ),
 };
 
 pub const IMPORT_READ_FAILED: ErrorCode = ErrorCode {
@@ -242,7 +251,9 @@ pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
     title: "UNKNOWN KEYWORD",
     error_type: ErrorType::Compiler,
     message: "Unknown keyword: `{}`.",
-    hint: Some("Check for typos or use a different identifier."),
+    hint: Some(
+        "Flux keywords are: let, fun, if, else, match, import, module, return, true, false, None. Common mistakes: use `fun` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
+    ),
 };
 
 pub const EXPECTED_EXPRESSION: ErrorCode = ErrorCode {
@@ -274,7 +285,9 @@ pub const UNEXPECTED_TOKEN: ErrorCode = ErrorCode {
     title: "UNEXPECTED TOKEN",
     error_type: ErrorType::Compiler,
     message: "Unexpected token: {} (expected {}).",
-    hint: None,
+    hint: Some(
+        "Common causes: missing semicolon, unclosed parenthesis/bracket, or misplaced operator. Check the line above for syntax errors.",
+    ),
 };
 
 pub const INVALID_PATTERN_LEGACY: ErrorCode = ErrorCode {
@@ -592,3 +605,136 @@ pub const ICE_TEMP_SYMBOL_RIGHT_BINDING: ErrorCode = ErrorCode {
         "This is a compiler bug. Please report at: https://github.com/flux-lang/flux/issues",
     ),
 };
+
+pub const UNTERMINATED_STRING: ErrorCode = ErrorCode {
+    code: "E071",
+    title: "UNTERMINATED STRING",
+    error_type: ErrorType::Compiler,
+    message: "String literal is missing closing quote.",
+    hint: Some("Add a closing \" at the end of the string."),
+};
+
+pub const UNTERMINATED_INTERPOLATION: ErrorCode = ErrorCode {
+    code: "E072",
+    title: "UNTERMINATED INTERPOLATION",
+    error_type: ErrorType::Compiler,
+    message: "Expected string continuation or end after interpolation.",
+    hint: Some(
+        "String interpolation must be followed by more string content or the closing quote.",
+    ),
+};
+
+pub const UNTERMINATED_BLOCK_COMMENT: ErrorCode = ErrorCode {
+    code: "E074",
+    title: "UNTERMINATED BLOCK COMMENT",
+    error_type: ErrorType::Compiler,
+    message: "Block comment is missing closing */.",
+    hint: Some("Add a closing */ to end the comment."),
+};
+
+pub const MISSING_COMMA: ErrorCode = ErrorCode {
+    code: "E073",
+    title: "MISSING COMMA",
+    error_type: ErrorType::Compiler,
+    message: "Missing comma between {}.",
+    hint: Some("Insert a comma between adjacent items, e.g. `a, b`."),
+};
+
+pub const DUPLICATE_PATTERN_BINDING: ErrorCode = ErrorCode {
+    code: "E075",
+    title: "DUPLICATE PATTERN BINDING",
+    error_type: ErrorType::Compiler,
+    message: "Pattern binds `{}` more than once.",
+    hint: Some("Use unique binding names within a single pattern."),
+};
+
+// ============================================================================
+// Error Constructor Functions
+// ============================================================================
+// These functions provide a clean API for creating diagnostics with proper
+// error codes. Use these instead of Diagnostic::error() in production code.
+
+use super::diagnostic::Diagnostic;
+use super::registry::diag_enhanced;
+use crate::frontend::position::Span;
+
+// Parser Errors
+
+/// Create an "unknown keyword" error for unrecognized keywords
+pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str)>) -> Diagnostic {
+    let mut diag = diag_enhanced(&UNKNOWN_KEYWORD)
+        .with_span(span)
+        .with_message(format!("Unknown keyword: `{}`.", keyword));
+
+    if let Some((correct_keyword, description)) = suggestion {
+        diag = diag.with_suggestion_message(span, correct_keyword, description);
+    }
+
+    diag
+}
+
+/// Create an "unexpected token" error
+pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
+    diag_enhanced(&UNEXPECTED_TOKEN)
+        .with_span(span)
+        .with_message(message.into())
+}
+
+/// Create an "invalid integer" error
+pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_INTEGER)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as an integer.", literal))
+}
+
+/// Create an "invalid float" error
+pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_FLOAT)
+        .with_span(span)
+        .with_message(format!("Could not parse `{}` as a float.", literal))
+}
+
+/// Create a "pipe target error"
+pub fn pipe_target_error(span: Span) -> Diagnostic {
+    diag_enhanced(&PIPE_TARGET_ERROR)
+        .with_span(span)
+        .with_message("Pipe operator expects a function or function call.")
+        .with_hint_text("Use `value |> func` or `value |> func(arg)`")
+}
+
+/// Create an "invalid pattern" error
+pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
+    diag_enhanced(&INVALID_PATTERN)
+        .with_span(span)
+        .with_message(format!("Expected a pattern, found `{}`.", found))
+}
+
+/// Create a "lambda syntax error"
+pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic {
+    diag_enhanced(&LAMBDA_SYNTAX_ERROR)
+        .with_span(span)
+        .with_message(message.into())
+        .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
+}
+
+/// Create an "unterminated interpolation" error
+pub fn unterminated_interpolation(span: Span) -> Diagnostic {
+    diag_enhanced(&UNTERMINATED_INTERPOLATION)
+        .with_span(span)
+        .with_message("Expected string continuation or end after interpolation.")
+}
+
+/// Create an "unterminated block comment" error
+pub fn unterminated_block_comment(span: Span) -> Diagnostic {
+    diag_enhanced(&UNTERMINATED_BLOCK_COMMENT)
+        .with_span(span)
+        .with_message("Block comment is missing closing */.")
+}
+
+/// Create a "missing comma" error for adjacent list items/arguments
+pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
+    diag_enhanced(&MISSING_COMMA)
+        .with_span(span)
+        .with_message(format!("Missing comma between {}.", context))
+        .with_hint_text(format!("Add a comma between items, e.g. {}.", example))
+}

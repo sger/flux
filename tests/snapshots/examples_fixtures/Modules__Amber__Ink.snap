@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/Amber/Ink.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Modules.Amber.Ink` doesn't match file path `examples/Modules/Amber/Ink.flx`.
+
+  --> examples/Modules/Amber/Ink.flx:4:1
+  |
+4 | module Modules.Amber.Ink {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

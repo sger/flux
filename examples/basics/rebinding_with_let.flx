@@ -1,0 +1,13 @@
+// Rebinding in Flux uses new binding names, not assignment.
+
+let count = 1;
+print(count);
+
+let count2 = count + 1;
+print(count2);
+
+let count3 = count2 + 1;
+print(count3);
+
+// Invalid in Flux (left commented so this example runs):
+// count = count + 1;

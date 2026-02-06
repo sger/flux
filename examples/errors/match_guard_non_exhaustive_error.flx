@@ -1,0 +1,7 @@
+// Match guards: guarded catch-all is not exhaustive by itself.
+// Expected diagnostics include E015 (NON-EXHAUSTIVE MATCH).
+
+let non_exhaustive = match 42 {
+    _ if true -> 1,
+};
+print(non_exhaustive);

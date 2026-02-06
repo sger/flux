@@ -43,9 +43,9 @@ print(validateAge(200));
 // Convert Option to Either
 fun optionToEither(opt, errorMsg) {
     match opt {
-        Some(x) -> Right(x);
-        None -> Left(errorMsg);
-        _ -> Left("unknown");
+        Some(x) -> Right(x),
+        None -> Left(errorMsg),
+        _ -> Left("unknown"),
     }
 }
 
@@ -58,9 +58,9 @@ print(optionToEither(notFound, "not found"));
 // Convert Either to Option (losing error info)
 fun eitherToOption(either) {
     match either {
-        Right(x) -> Some(x);
-        Left(_) -> None;
-        _ -> None;
+        Right(x) -> Some(x),
+        Left(_) -> None,
+        _ -> None,
     }
 }
 
@@ -70,8 +70,8 @@ print(eitherToOption(Left("some error")));
 // Get value or default
 fun getOrElse(either, defaultVal) {
     match either {
-        Right(x) -> x;
-        _ -> defaultVal;
+        Right(x) -> x,
+        _ -> defaultVal,
     }
 }
 
@@ -81,9 +81,9 @@ print(getOrElse(Left("error"), 0));
 // Map over Either
 fun mapEither(either, f) {
     match either {
-        Right(x) -> Right(f(x));
-        Left(e) -> Left(e);
-        _ -> either;
+        Right(x) -> Right(f(x)),
+        Left(e) -> Left(e),
+        _ -> either,
     }
 }
 

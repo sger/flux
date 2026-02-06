@@ -1,0 +1,39 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/suggestions/scoped_variables.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found let.
+
+  --> examples/suggestions/scoped_variables.flx:7:5
+  |
+7 |     let localCount = 10;
+  |     ^^^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Unexpected `}` outside of a block.
+
+  --> examples/suggestions/scoped_variables.flx:12:1
+   |
+12 | };
+   | ^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ;.
+
+  --> examples/suggestions/scoped_variables.flx:12:2
+   |
+12 | };
+   |  ^
+
+Found 3 errors.
+== stdout ==
+<not executed>

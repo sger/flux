@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/lint/linter_warnings.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.Math` to import.
+
+  --> examples/lint/linter_warnings.flx:1:1
+  |
+1 | import Modules.Math as Math
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Math.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Math` under roots: examples/lint, src (imported from examples/lint/linter_warnings.flx).
+== stdout ==
+<not executed>

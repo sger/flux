@@ -1,0 +1,13 @@
+// Example: IMMUTABLE_BINDING (E002)
+// This demonstrates the enhanced error message for trying to reassign
+// an immutable variable.
+
+let count = 0;
+
+// This will error with the enhanced message explaining
+// immutability and suggesting a new binding name
+count = count + 1;
+
+// FIX: Create a new binding name
+// let count = 0;
+// let next_count = count + 1;

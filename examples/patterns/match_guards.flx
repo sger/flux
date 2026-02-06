@@ -1,0 +1,27 @@
+// Match guards: happy-path examples.
+
+let score = Some(82);
+let band = match score {
+    Some(v) if v >= 90 -> "A",
+    Some(v) if v >= 80 -> "B",
+    Some(v) if v >= 70 -> "C",
+    Some(_) -> "D",
+    _ -> "N/A",
+};
+print(band);
+
+let value = Right(10);
+let result = match value {
+    Right(v) if v > 100 -> "big right",
+    Right(v) if v > 5 -> "small right",
+    Left(err) -> "left: " + err,
+    _ -> "unknown",
+};
+print(result);
+
+let x = 3;
+let label = match x {
+    n if n % 2 == 0 -> "even",
+    _ -> "odd",
+};
+print(label);

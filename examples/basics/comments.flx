@@ -1,0 +1,129 @@
+// ════════════════════════════════════════════════════════════════════════════
+// Comment Examples - Demonstrating all comment types in Flux
+// ════════════════════════════════════════════════════════════════════════════
+
+// Single-line comments start with //
+// They extend to the end of the line and are ignored by the lexer
+
+/*
+   Block comments can span multiple lines
+   They start with /* and end with */
+   These are also ignored by the lexer
+*/
+
+/* Block comments can be /* nested */ inside each other */
+
+/*
+   This allows you to comment out code that already contains block comments:
+
+   /* This is already commented */
+   let x = 5;
+
+   Everything above is now commented out!
+*/
+
+/// Line doc comments start with three slashes
+/// They are preserved as DocComment tokens
+/// Typically used for function and variable documentation
+
+/**
+ * Block doc comments start with slash-star-star
+ * They can span multiple lines
+ * These are also preserved as DocComment tokens
+ * Commonly used for detailed documentation
+ */
+
+// ════════════════════════════════════════════════════════════════════════════
+// Practical Examples
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Calculate the factorial of a number
+/// Returns n! for non-negative integers
+fun factorial(n) {
+    // Base case: 0! = 1
+    if (n == 0) {
+        return 1;
+    } else {
+        // Recursive case: n! = n * (n-1)!
+        return n * factorial(n - 1);
+    }
+}
+
+/**
+ * Fibonacci sequence calculator
+ *
+ * Computes the nth Fibonacci number using recursion.
+ * The sequence is: 0, 1, 1, 2, 3, 5, 8, 13, ...
+ *
+ * Parameters:
+ *   n - The position in the sequence (0-indexed)
+ *
+ * Returns:
+ *   The nth Fibonacci number
+ */
+fun fib(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fib(n - 1) + fib(n - 2);
+}
+
+// Test the functions
+let result1 = factorial(5);  // 5! = 120
+let result2 = fib(10);        // 10th Fibonacci number = 55
+
+/*
+   Multi-line comments are useful for
+   temporarily disabling code during development:
+
+   let debug_value = compute_expensive_operation();
+   print(debug_value);
+*/
+
+/// Array operations demonstration
+let numbers = [1, 2, 3, 4, 5];
+let doubled = [];  // Will store doubled values
+
+// Iterate and process (simulated - depends on language features)
+// let i = 0;
+// while (i < 5) {
+//     doubled = doubled + [numbers[i] * 2];
+//     i = i + 1;
+// }
+
+/**
+ * Comments can help explain complex expressions:
+ *
+ * The formula below calculates compound interest:
+ * A = P(1 + r/n)^(nt)
+ * where:
+ *   P = principal amount
+ *   r = annual interest rate (decimal)
+ *   n = number of times interest compounds per year
+ *   t = time in years
+ */
+let principal = 1000;
+let rate = 0.05;      // 5% annual rate
+let compounds = 12;   // Monthly compounding
+let years = 10;       // Investment period
+
+// Formula implementation would go here
+// let amount = principal * pow(1 + rate/compounds, compounds * years);
+
+/// Main execution
+print("Factorial of 5:");
+print(result1);
+print("Fibonacci(10):");
+print(result2);
+
+/*
+   End of examples
+
+   Key takeaways:
+   - Use // for single-line comments
+   - Use /* */ for multi-line comments (can be nested!)
+   - Use /// for single-line documentation
+   - Use /** */ for multi-line documentation
+
+   All comment types are fully supported with proper nesting!
+*/

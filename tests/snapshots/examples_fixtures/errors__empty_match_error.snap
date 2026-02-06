@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/empty_match_error.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E014]: EMPTY MATCH
+
+Match expression must have at least one arm.
+
+  --> examples/errors/empty_match_error.flx:2:9
+  |
+2 | let x = match 1 { };
+  |         ^^^^^^^^^^^
+
+Hint:
+  Add at least one pattern match arm: match value { pattern -> expr; }
+== stdout ==
+<not executed>

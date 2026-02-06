@@ -1,0 +1,27 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/expected_token_error.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `,` or `)` after list item, got ;.
+
+  --> examples/errors/expected_token_error.flx:2:18
+  |
+2 |     print((1 + 2);
+  |                  ^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `)` before end of file.
+
+  --> examples/errors/expected_token_error.flx:4:1
+  |
+
+Found 2 errors.
+== stdout ==
+<not executed>

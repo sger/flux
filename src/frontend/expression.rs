@@ -22,6 +22,7 @@ pub enum Pattern {
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    pub guard: Option<Expression>,
     pub body: Expression,
     pub span: Span,
 }
@@ -196,7 +197,11 @@ impl fmt::Display for Expression {
             } => {
                 write!(f, "match {} {{", scrutinee)?;
                 for arm in arms {
-                    write!(f, " {} -> {};", arm.pattern, arm.body)?;
+                    if let Some(guard) = &arm.guard {
+                        write!(f, " {} if {} -> {};", arm.pattern, guard, arm.body)?;
+                    } else {
+                        write!(f, " {} -> {};", arm.pattern, arm.body)?;
+                    }
                 }
                 write!(f, " }}")
             }
@@ -265,7 +270,11 @@ impl Pattern {
 
 impl fmt::Display for MatchArm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} -> {}", self.pattern, self.body)
+        if let Some(guard) = &self.guard {
+            write!(f, "{} if {} -> {}", self.pattern, guard, self.body)
+        } else {
+            write!(f, "{} -> {}", self.pattern, self.body)
+        }
     }
 }
 

@@ -1,0 +1,14 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/bad_match_separator_then_continue.flx
+exit_code: 1
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Match arms must be separated by `,`, not `;`.
+
+  --> tests/fixtures/recovery/bad_match_separator_then_continue.flx:1:17
+  |
+1 | match x { 0 -> 1; 1 -> 2 }
+  |                 ^

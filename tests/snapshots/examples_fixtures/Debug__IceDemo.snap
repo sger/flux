@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Debug/IceDemo.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Debug.IceDemo` doesn't match file path `examples/Debug/IceDemo.flx`.
+
+  --> examples/Debug/IceDemo.flx:15:1
+   |
+15 | module Debug.IceDemo {
+   | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

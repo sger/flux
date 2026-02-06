@@ -1,0 +1,102 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Program {
+    statements: [
+        Function {
+            name: "add",
+            parameters: [
+                "a",
+                "b",
+            ],
+            body: Block {
+                statements: [
+                    Return {
+                        value: Some(
+                            Infix {
+                                left: Identifier {
+                                    name: "a",
+                                    span: Span {
+                                        start: Position {
+                                            line: 3,
+                                            column: 11,
+                                        },
+                                        end: Position {
+                                            line: 3,
+                                            column: 12,
+                                        },
+                                    },
+                                },
+                                operator: "+",
+                                right: Identifier {
+                                    name: "b",
+                                    span: Span {
+                                        start: Position {
+                                            line: 3,
+                                            column: 15,
+                                        },
+                                        end: Position {
+                                            line: 3,
+                                            column: 16,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start: Position {
+                                        line: 3,
+                                        column: 11,
+                                    },
+                                    end: Position {
+                                        line: 3,
+                                        column: 16,
+                                    },
+                                },
+                            },
+                        ),
+                        span: Span {
+                            start: Position {
+                                line: 3,
+                                column: 4,
+                            },
+                            end: Position {
+                                line: 3,
+                                column: 17,
+                            },
+                        },
+                    },
+                ],
+                span: Span {
+                    start: Position {
+                        line: 2,
+                        column: 14,
+                    },
+                    end: Position {
+                        line: 4,
+                        column: 1,
+                    },
+                },
+            },
+            span: Span {
+                start: Position {
+                    line: 2,
+                    column: 0,
+                },
+                end: Position {
+                    line: 4,
+                    column: 1,
+                },
+            },
+        },
+    ],
+    span: Span {
+        start: Position {
+            line: 2,
+            column: 0,
+        },
+        end: Position {
+            line: 5,
+            column: 0,
+        },
+    },
+}
