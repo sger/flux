@@ -8,7 +8,7 @@ use crate::frontend::{
         },
     },
     expression::{Expression, MatchArm, Pattern},
-    position::Span,
+    position::{Position, Span},
     precedence::Precedence,
     statement::Statement,
     token_type::TokenType,
@@ -17,6 +17,50 @@ use crate::frontend::{
 use super::Parser;
 
 impl Parser {
+    fn parse_parenthesized<T>(
+        &mut self,
+        mut parse_inner: impl FnMut(&mut Self) -> Option<T>,
+    ) -> Option<T> {
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+        self.next_token();
+        let inner = parse_inner(self)?;
+        if !self.expect_peek(TokenType::RParen) {
+            return None;
+        }
+        Some(inner)
+    }
+
+    fn build_match_expression(
+        &self,
+        start: Position,
+        scrutinee: Expression,
+        arms: Vec<MatchArm>,
+    ) -> Expression {
+        Expression::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+            span: Span::new(start, self.current_token.end_position),
+        }
+    }
+
+    fn emit_match_semicolon_separator_diagnostic(&mut self, diag_start: usize) -> bool {
+        self.errors.push(unexpected_token(
+            self.peek_token.span(),
+            "Match arms must be separated by `,`, not `;`.",
+        ));
+        self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+    }
+
+    fn emit_match_eof_diagnostic(&mut self, diag_start: usize) -> bool {
+        self.errors.push(unexpected_token(
+            self.peek_token.span(),
+            "Expected `}` to close match expression before end of file.",
+        ));
+        self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+    }
+
     // Core expression parsing
     pub(super) fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression> {
         let mut left = self.parse_prefix()?;
@@ -365,39 +409,17 @@ impl Parser {
                 }
                 TokenType::RBrace => {}
                 TokenType::Semicolon => {
-                    self.errors.push(unexpected_token(
-                        self.peek_token.span(),
-                        "Match arms must be separated by `,`, not `;`.",
-                    ));
-                    if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
-                    {
-                        return Some(Expression::Match {
-                            scrutinee: Box::new(scrutinee),
-                            arms,
-                            span: Span::new(start, self.current_token.end_position),
-                        });
+                    if self.emit_match_semicolon_separator_diagnostic(diag_start) {
+                        return Some(self.build_match_expression(start, scrutinee, arms));
                     }
                     // Recover by treating `;` as a comma separator.
                     self.next_token();
                 }
                 TokenType::Eof => {
-                    self.errors.push(unexpected_token(
-                        self.peek_token.span(),
-                        "Expected `}` to close match expression before end of file.",
-                    ));
-                    if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
-                    {
-                        return Some(Expression::Match {
-                            scrutinee: Box::new(scrutinee),
-                            arms,
-                            span: Span::new(start, self.current_token.end_position),
-                        });
+                    if self.emit_match_eof_diagnostic(diag_start) {
+                        return Some(self.build_match_expression(start, scrutinee, arms));
                     }
-                    return Some(Expression::Match {
-                        scrutinee: Box::new(scrutinee),
-                        arms,
-                        span: Span::new(start, self.current_token.end_position),
-                    });
+                    return Some(self.build_match_expression(start, scrutinee, arms));
                 }
                 _ => {
                     self.errors.push(unexpected_token(
@@ -409,11 +431,7 @@ impl Parser {
                     ));
                     if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
                     {
-                        return Some(Expression::Match {
-                            scrutinee: Box::new(scrutinee),
-                            arms,
-                            span: Span::new(start, self.current_token.end_position),
-                        });
+                        return Some(self.build_match_expression(start, scrutinee, arms));
                     }
 
                     while !matches!(
@@ -431,45 +449,17 @@ impl Parser {
                             self.next_token();
                         }
                         TokenType::Semicolon => {
-                            self.errors.push(unexpected_token(
-                                self.peek_token.span(),
-                                "Match arms must be separated by `,`, not `;`.",
-                            ));
-                            if self.check_list_error_limit(
-                                diag_start,
-                                TokenType::RBrace,
-                                "match arm list",
-                            ) {
-                                return Some(Expression::Match {
-                                    scrutinee: Box::new(scrutinee),
-                                    arms,
-                                    span: Span::new(start, self.current_token.end_position),
-                                });
+                            if self.emit_match_semicolon_separator_diagnostic(diag_start) {
+                                return Some(self.build_match_expression(start, scrutinee, arms));
                             }
                             self.next_token();
                         }
                         TokenType::RBrace => {}
                         TokenType::Eof => {
-                            self.errors.push(unexpected_token(
-                                self.peek_token.span(),
-                                "Expected `}` to close match expression before end of file.",
-                            ));
-                            if self.check_list_error_limit(
-                                diag_start,
-                                TokenType::RBrace,
-                                "match arm list",
-                            ) {
-                                return Some(Expression::Match {
-                                    scrutinee: Box::new(scrutinee),
-                                    arms,
-                                    span: Span::new(start, self.current_token.end_position),
-                                });
+                            if self.emit_match_eof_diagnostic(diag_start) {
+                                return Some(self.build_match_expression(start, scrutinee, arms));
                             }
-                            return Some(Expression::Match {
-                                scrutinee: Box::new(scrutinee),
-                                arms,
-                                span: Span::new(start, self.current_token.end_position),
-                            });
+                            return Some(self.build_match_expression(start, scrutinee, arms));
                         }
                         _ => {}
                     }
@@ -481,11 +471,7 @@ impl Parser {
             return None;
         }
 
-        Some(Expression::Match {
-            scrutinee: Box::new(scrutinee),
-            arms,
-            span: Span::new(start, self.current_token.end_position),
-        })
+        Some(self.build_match_expression(start, scrutinee, arms))
     }
 
     pub(super) fn parse_pattern(&mut self) -> Option<Pattern> {
@@ -502,42 +488,21 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Some => {
-                if !self.expect_peek(TokenType::LParen) {
-                    return None;
-                }
-                self.next_token();
-                let inner_pattern = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::RParen) {
-                    return None;
-                }
+                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
                 Some(Pattern::Some {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Left => {
-                if !self.expect_peek(TokenType::LParen) {
-                    return None;
-                }
-                self.next_token();
-                let inner_pattern = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::RParen) {
-                    return None;
-                }
+                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
                 Some(Pattern::Left {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Right => {
-                if !self.expect_peek(TokenType::LParen) {
-                    return None;
-                }
-                self.next_token();
-                let inner_pattern = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::RParen) {
-                    return None;
-                }
+                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
                 Some(Pattern::Right {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
@@ -666,14 +631,8 @@ impl Parser {
 
     pub(super) fn parse_some(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if !self.expect_peek(TokenType::LParen) {
-            return None;
-        }
-        self.next_token();
-        let value = self.parse_expression(Precedence::Lowest)?;
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
-        }
+        let value =
+            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
         Some(Expression::Some {
             value: Box::new(value),
             span: Span::new(start, self.current_token.end_position),
@@ -682,17 +641,8 @@ impl Parser {
 
     pub(super) fn parse_left(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if !self.expect_peek(TokenType::LParen) {
-            return None;
-        }
-
-        self.next_token();
-
-        let value = self.parse_expression(Precedence::Lowest)?;
-
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
-        }
+        let value =
+            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
 
         Some(Expression::Left {
             value: Box::new(value),
@@ -702,17 +652,8 @@ impl Parser {
 
     pub(super) fn parse_right(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if !self.expect_peek(TokenType::LParen) {
-            return None;
-        }
-
-        self.next_token();
-
-        let value = self.parse_expression(Precedence::Lowest)?;
-
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
-        }
+        let value =
+            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
 
         Some(Expression::Right {
             value: Box::new(value),

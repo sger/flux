@@ -1,6 +1,8 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use flux::frontend::{diagnostics::Diagnostic, lexer::Lexer, parser::Parser, program::Program, statement::Statement};
+use flux::frontend::{
+    diagnostics::Diagnostic, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
+};
 
 #[derive(Clone, Copy)]
 struct RecoveryCase {

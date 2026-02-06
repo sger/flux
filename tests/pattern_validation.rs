@@ -7,7 +7,9 @@ use flux::{
 
 type CompileOutcome = Result<(), Vec<Diagnostic>>;
 
-fn parse_and_validate_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>, CompileOutcome), String> {
+fn parse_and_validate_no_panic(
+    input: &str,
+) -> Result<(Program, Vec<Diagnostic>, CompileOutcome), String> {
     panic::catch_unwind(AssertUnwindSafe(|| {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
@@ -31,9 +33,15 @@ fn parse_and_validate_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>,
 }
 
 fn find_diag_by_code<'a>(diags: &'a [Diagnostic], code: &str) -> &'a Diagnostic {
-    diags.iter()
+    diags
+        .iter()
         .find(|d| d.code() == Some(code))
-        .unwrap_or_else(|| panic!("expected diagnostic code {code}, got {:?}", diag_codes(diags)))
+        .unwrap_or_else(|| {
+            panic!(
+                "expected diagnostic code {code}, got {:?}",
+                diag_codes(diags)
+            )
+        })
 }
 
 fn diag_codes(diags: &[Diagnostic]) -> Vec<String> {
