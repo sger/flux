@@ -1,4 +1,9 @@
-use flux::frontend::{lexer::Lexer, parser::Parser, token_type::TokenType};
+use flux::frontend::{
+    lexer::Lexer,
+    parser::Parser,
+    precedence::{Assoc, associativity_of, precedence_of},
+    token_type::TokenType,
+};
 
 fn lex_token_types(input: &str) -> Vec<TokenType> {
     let mut lexer = Lexer::new(input);
@@ -176,5 +181,68 @@ fn parse_unary_vs_binary_operator_disambiguation() {
     for (input, expected) in cases {
         let got = parse_expr_to_string(input);
         assert_eq!(got, expected, "unary/binary mismatch for `{}`", input);
+    }
+}
+
+#[test]
+fn operator_registry_has_precedence_for_all_supported_infix_tokens() {
+    let operators = [
+        TokenType::Pipe,
+        TokenType::Or,
+        TokenType::And,
+        TokenType::Eq,
+        TokenType::NotEq,
+        TokenType::Lt,
+        TokenType::Gt,
+        TokenType::Lte,
+        TokenType::Gte,
+        TokenType::Plus,
+        TokenType::Minus,
+        TokenType::Asterisk,
+        TokenType::Slash,
+        TokenType::Percent,
+        TokenType::LParen,
+        TokenType::LBracket,
+        TokenType::Dot,
+    ];
+
+    for token in operators {
+        assert!(
+            precedence_of(&token) != flux::frontend::precedence::Precedence::Lowest,
+            "expected precedence entry for operator token {:?}",
+            token
+        );
+    }
+}
+
+#[test]
+fn operator_registry_associativity_matches_current_behavior() {
+    let left_assoc = [
+        TokenType::Pipe,
+        TokenType::Or,
+        TokenType::And,
+        TokenType::Eq,
+        TokenType::NotEq,
+        TokenType::Lt,
+        TokenType::Gt,
+        TokenType::Lte,
+        TokenType::Gte,
+        TokenType::Plus,
+        TokenType::Minus,
+        TokenType::Asterisk,
+        TokenType::Slash,
+        TokenType::Percent,
+        TokenType::LParen,
+        TokenType::LBracket,
+        TokenType::Dot,
+    ];
+
+    for token in left_assoc {
+        assert_eq!(
+            associativity_of(&token),
+            Assoc::Left,
+            "expected left associativity for {:?}",
+            token
+        );
     }
 }
