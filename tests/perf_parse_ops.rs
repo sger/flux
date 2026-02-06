@@ -14,7 +14,7 @@ fn make_operator_heavy_source(ops: usize) -> String {
         src.push(' ');
         src.push_str(op);
         src.push(' ');
-        src.push_str("a");
+        src.push('a');
     }
 
     src.push(';');
