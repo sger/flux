@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/error_messages/import_not_found.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `NonExistent` to import.
+
+  --> examples/error_messages/import_not_found.flx:6:1
+  |
+6 | import NonExistent
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `NonExistent.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `NonExistent` under roots: examples/error_messages, src (imported from examples/error_messages/import_not_found.flx).
+== stdout ==
+<not executed>

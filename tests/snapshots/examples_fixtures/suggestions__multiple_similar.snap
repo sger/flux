@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/suggestions/multiple_similar.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `userNam`.
+
+  --> examples/suggestions/multiple_similar.flx:9:7
+  |
+9 | print(userNam);
+  |       ^^^^^^^
+
+Hint:
+  Define it first: let userNam = ...;
+
+
+Help:
+  Did you mean one of: `userName`, `userId`?
+== stdout ==
+<not executed>

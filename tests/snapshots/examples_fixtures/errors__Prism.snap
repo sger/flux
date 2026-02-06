@@ -1,0 +1,19 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/Prism.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E007]: DUPLICATE PARAMETER
+
+Duplicate parameter name: `x`.
+
+  --> examples/errors/Prism.flx:0:1
+  |
+
+
+Hint:
+  Each parameter must have a unique name.
+== stdout ==
+<not executed>

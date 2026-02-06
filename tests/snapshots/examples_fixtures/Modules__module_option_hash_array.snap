@@ -1,0 +1,37 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/module_option_hash_array.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.UserUtils` to import.
+
+  --> examples/Modules/module_option_hash_array.flx:1:1
+  |
+1 | import Modules.UserUtils as UserUtils
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.UserUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.UserUtils` under roots: examples/Modules, src (imported from examples/Modules/module_option_hash_array.flx).
+
+
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.Main` to import.
+
+  --> examples/Modules/module_option_hash_array.flx:2:1
+  |
+2 | import Modules.Main as Main
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.Main.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.Main` under roots: examples/Modules, src (imported from examples/Modules/module_option_hash_array.flx).
+
+Found 2 errors.
+== stdout ==
+<not executed>

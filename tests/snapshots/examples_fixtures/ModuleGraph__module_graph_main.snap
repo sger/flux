@@ -1,0 +1,37 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/ModuleGraph/module_graph_main.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `ModuleGraph.ModuleGraphA` to import.
+
+  --> examples/ModuleGraph/module_graph_main.flx:1:1
+  |
+1 | import ModuleGraph.ModuleGraphA
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `ModuleGraph.ModuleGraphA.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `ModuleGraph.ModuleGraphA` under roots: examples/ModuleGraph, src (imported from examples/ModuleGraph/module_graph_main.flx).
+
+
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `ModuleGraph.ModuleGraphB` to import.
+
+  --> examples/ModuleGraph/module_graph_main.flx:2:1
+  |
+2 | import ModuleGraph.ModuleGraphB
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `ModuleGraph.ModuleGraphB.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `ModuleGraph.ModuleGraphB` under roots: examples/ModuleGraph, src (imported from examples/ModuleGraph/module_graph_main.flx).
+
+Found 2 errors.
+== stdout ==
+<not executed>

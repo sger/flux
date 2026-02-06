@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/ModuleScriptCodeError.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Errors.ModuleScriptCodeError` doesn't match file path `examples/errors/ModuleScriptCodeError.flx`.
+
+  --> examples/errors/ModuleScriptCodeError.flx:1:1
+  |
+1 | module Errors.ModuleScriptCodeError { fun value() { 1; } }
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+
+
+--> compiler error[E028]: INVALID MODULE FILE
+
+Invalid module file: Module files may only contain imports and a single module declaration.
+
+  --> examples/errors/ModuleScriptCodeError.flx:2:1
+  |
+2 | 1;
+  | ^
+
+Hint:
+  Module files must have .flx extension and valid Flux code.
+
+Found 2 errors.
+== stdout ==
+<not executed>

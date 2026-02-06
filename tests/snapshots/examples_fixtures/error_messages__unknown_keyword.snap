@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/error_messages/unknown_keyword.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `function`. Flux uses `fun` for function declarations.
+
+  --> examples/error_messages/unknown_keyword.flx:6:1
+  |
+6 | function add(a, b) {
+  | ^^^^^^^^
+
+Hint:
+  Did you mean `fun`?
+== stdout ==
+<not executed>

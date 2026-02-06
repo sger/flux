@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/suggestions/simple_typo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `messge`.
+
+  --> examples/suggestions/simple_typo.flx:7:7
+  |
+7 | print(messge);
+  |       ^^^^^^
+
+Hint:
+  Define it first: let messge = ...;
+
+
+Help:
+  Did you mean one of: `message`, `merge`?
+== stdout ==
+<not executed>

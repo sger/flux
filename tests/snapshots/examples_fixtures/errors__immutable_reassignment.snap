@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/immutable_reassignment.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E002]: IMMUTABLE BINDING
+
+Cannot reassign to immutable variable `x`.
+
+  --> examples/errors/immutable_reassignment.flx:7:1
+  |
+7 | x = 20
+  | ^^^^^^
+
+Hint:
+  In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_x = ...`).
+== stdout ==
+<not executed>

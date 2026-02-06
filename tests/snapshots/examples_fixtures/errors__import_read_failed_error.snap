@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/errors/import_read_failed_error.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Errors.Broken` to import.
+
+  --> examples/errors/import_read_failed_error.flx:4:1
+  |
+4 | import Errors.Broken
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Errors.Broken.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Errors.Broken` under roots: examples/errors, src (imported from examples/errors/import_read_failed_error.flx).
+== stdout ==
+<not executed>

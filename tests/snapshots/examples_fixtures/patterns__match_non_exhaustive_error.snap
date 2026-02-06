@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/patterns/match_non_exhaustive_error.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match expressions must end with a `_` or identifier arm.
+
+  --> examples/patterns/match_non_exhaustive_error.flx:3:21
+  |
+3 |         let label = match value {
+  |                     ^^^^^^^^^^^^^
+4 |             1 -> "one",
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+5 |             2 -> "two",
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+6 |         };
+  | ^^^^^^^^^
+
+Hint:
+  Add a catch-all pattern: _ -> default_value
+== stdout ==
+<not executed>
