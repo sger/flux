@@ -996,7 +996,7 @@ Acceptance: Repeated parse flows (e.g., wrapped/similar constructs) call shared 
 - [ ] Expand non-list panic-mode recovery for malformed expressions/statements.
 Acceptance: Parser advances to safe synchronization points without infinite loops and continues parsing later statements after malformed constructs.
 
-- [ ] Add malformed-expression recovery tests that assert no panic and continued parsing.
+- [x] Add malformed-expression recovery tests that assert no panic and continued parsing.
 Acceptance: A malformed input corpus test (or equivalent) verifies diagnostics are emitted and parse returns a program shape without panicking.
 
 - [ ] Add tests that lock pattern-validation diagnostics.
@@ -1005,7 +1005,7 @@ Acceptance: Tests assert expected diagnostic code/message and parameterized span
 - [ ] Add tests that lock operator behavior after table-driven refactor.
 Acceptance: Arithmetic/comparison/logical precedence and associativity tests remain stable and pass with the new precedence source.
 
-- [ ] (Optional) Extract a dedicated lexer character reader abstraction.
+- [x] (Optional) Extract a dedicated lexer character reader abstraction.
 Acceptance: If chosen, character cursor/position logic is encapsulated in a dedicated type and all lexer tests remain green.
 
 ---
