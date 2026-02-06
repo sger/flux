@@ -193,8 +193,7 @@ pub fn render_source_snippet(
             // region extends into a comment.
             let max_span_col = max_span_col_on_line(line_no, span, labels);
 
-            let (display_line, _, _) =
-                render_diagnostic_line(line_text, 0, max_span_col);
+            let (display_line, _, _) = render_diagnostic_line(line_text, 0, max_span_col);
             let line_len = display_line.len();
 
             // Print the (possibly trimmed) source line
@@ -318,8 +317,7 @@ pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, u
     for line_no in start_line..=end_line {
         if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
             let max_col = max_span_col_on_line(line_no, span, empty_labels);
-            let (display_line, _, _) =
-                render_diagnostic_line(line_text, 0, max_col);
+            let (display_line, _, _) = render_diagnostic_line(line_text, 0, max_col);
             let line_len = display_line.len();
 
             let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
@@ -385,10 +383,7 @@ mod tests {
 
     #[test]
     fn line_comment_after_code() {
-        assert_eq!(
-            find_comment_start("print(len(arr));      // 5"),
-            Some(22)
-        );
+        assert_eq!(find_comment_start("print(len(arr));      // 5"), Some(22));
     }
 
     #[test]
@@ -404,19 +399,13 @@ mod tests {
 
     #[test]
     fn slash_inside_string_with_trailing_comment() {
-        assert_eq!(
-            find_comment_start(r#"print("//"); // comment"#),
-            Some(13)
-        );
+        assert_eq!(find_comment_start(r#"print("//"); // comment"#), Some(13));
     }
 
     #[test]
     fn escaped_quote_keeps_string_open() {
         // The \" doesn't end the string, so // is still inside.
-        assert_eq!(
-            find_comment_start(r#""hello \" // still in string""#),
-            None
-        );
+        assert_eq!(find_comment_start(r#""hello \" // still in string""#), None);
     }
 
     #[test]

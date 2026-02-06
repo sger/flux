@@ -852,8 +852,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -868,8 +876,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -886,8 +902,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -903,8 +927,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -919,8 +951,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -938,8 +978,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -954,8 +1002,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -972,8 +1028,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 
@@ -988,8 +1052,16 @@ fun fib(n) {
         for (input, expected_type, expected_literal) in tests {
             let mut lexer = Lexer::new(input);
             let tok = lexer.next_token();
-            assert_eq!(tok.token_type, expected_type, "Type mismatch for '{}'", input);
-            assert_eq!(tok.literal, expected_literal, "Literal mismatch for '{}'", input);
+            assert_eq!(
+                tok.token_type, expected_type,
+                "Type mismatch for '{}'",
+                input
+            );
+            assert_eq!(
+                tok.literal, expected_literal,
+                "Literal mismatch for '{}'",
+                input
+            );
         }
     }
 

@@ -1,6 +1,5 @@
 //! Comment handling (block comments and doc comments)
 
-use crate::frontend::position::Position;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::TokenType;
 
@@ -13,7 +12,7 @@ impl Lexer {
     /// The lexer position is left at the character after the closing */.
     pub(super) fn skip_block_comment(&mut self) -> bool {
         debug_assert!(
-            self.current_char == Some('/') && self.peek_char() == Some('*'),
+            self.current_char() == Some('/') && self.peek_char() == Some('*'),
             "skip_block_comment expects current_char == '/' and peek_char == '*'"
         );
         // We need to track nesting depth
@@ -23,8 +22,8 @@ impl Lexer {
         self.read_char(); // consume '/'
         self.read_char(); // consume '*'
 
-        while self.current_char.is_some() {
-            if self.current_char == Some('*') && self.peek_char() == Some('/') {
+        while self.current_char().is_some() {
+            if self.current_char() == Some('*') && self.peek_char() == Some('/') {
                 // Found closing */
                 self.read_char(); // consume '*'
                 self.read_char(); // consume '/'
@@ -32,7 +31,7 @@ impl Lexer {
                 if nesting_depth == 0 {
                     return true; // Successfully closed
                 }
-            } else if self.current_char == Some('/') && self.peek_char() == Some('*') {
+            } else if self.current_char() == Some('/') && self.peek_char() == Some('*') {
                 // Found opening /* - increment nesting depth
                 self.read_char(); // consume '/'
                 self.read_char(); // consume '*'
@@ -49,8 +48,9 @@ impl Lexer {
     /// Read a line doc comment (///)
     /// Returns a DocComment token containing the documentation text.
     pub(super) fn read_doc_line_comment(&mut self) -> Token {
-        let line = self.line;
-        let col = self.column;
+        let cursor = self.cursor_position();
+        let line = cursor.line;
+        let col = cursor.column;
 
         // Skip the three slashes
         self.read_char(); // first /
@@ -58,14 +58,14 @@ impl Lexer {
         self.read_char(); // third /
 
         // Skip leading space if present (common convention: "/// text")
-        if self.current_char == Some(' ') {
+        if self.current_char() == Some(' ') {
             self.read_char();
         }
 
         let mut content = String::new();
 
         // Read until newline or EOF
-        while let Some(ch) = self.current_char {
+        while let Some(ch) = self.current_char() {
             if ch == '\n' {
                 break;
             }
@@ -79,7 +79,7 @@ impl Lexer {
             content,
             line,
             col,
-            Position::new(self.line, self.column),
+            self.cursor_position(),
         )
     }
 
@@ -87,8 +87,9 @@ impl Lexer {
     /// Returns a DocComment token or UnterminatedBlockComment on error.
     /// Preserves newlines and internal formatting.
     pub(super) fn read_doc_block_comment(&mut self) -> Token {
-        let line = self.line;
-        let col = self.column;
+        let cursor = self.cursor_position();
+        let line = cursor.line;
+        let col = cursor.column;
 
         // Skip /** opening
         self.read_char(); // /
@@ -98,21 +99,21 @@ impl Lexer {
         let mut content = String::new();
 
         // Handle the empty doc comment `/**/` (overlaps opener/closer).
-        if self.current_char == Some('/') {
+        if self.current_char() == Some('/') {
             self.read_char(); // consume '/'
             return Token::new_with_end(
                 TokenType::DocComment,
                 content,
                 line,
                 col,
-                Position::new(self.line, self.column),
+                self.cursor_position(),
             );
         }
 
         // Track nesting for /** ... */ comments
         let mut nesting_depth = 1;
 
-        while let Some(ch) = self.current_char {
+        while let Some(ch) = self.current_char() {
             if ch == '*' && self.peek_char() == Some('/') {
                 // Found closing */
                 self.read_char(); // consume '*'
@@ -125,7 +126,7 @@ impl Lexer {
                         content,
                         line,
                         col,
-                        Position::new(self.line, self.column),
+                        self.cursor_position(),
                     );
                 }
                 // Nested closing delimiter intentionally omitted from doc content.
@@ -146,7 +147,7 @@ impl Lexer {
             "", // Use empty literal for all UnterminatedBlockComment tokens (consistency).
             line,
             col,
-            Position::new(self.line, self.column),
+            self.cursor_position(),
         )
     }
 }
