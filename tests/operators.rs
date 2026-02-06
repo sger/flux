@@ -1,7 +1,7 @@
 use flux::frontend::{
     lexer::Lexer,
     parser::Parser,
-    precedence::{Assoc, associativity_of, precedence_of},
+    precedence::{Assoc, Fixity, OPERATOR_TABLE, associativity_of, infix_op, precedence_of},
     token_type::TokenType,
 };
 
@@ -208,7 +208,7 @@ fn operator_registry_has_precedence_for_all_supported_infix_tokens() {
 
     for token in operators {
         assert!(
-            precedence_of(&token) != flux::frontend::precedence::Precedence::Lowest,
+            precedence_of(&token).is_some(),
             "expected precedence entry for operator token {:?}",
             token
         );
@@ -240,8 +240,68 @@ fn operator_registry_associativity_matches_current_behavior() {
     for token in left_assoc {
         assert_eq!(
             associativity_of(&token),
-            Assoc::Left,
+            Some(Assoc::Left),
             "expected left associativity for {:?}",
+            token
+        );
+    }
+}
+
+#[test]
+fn generic_infix_dispatch_is_in_sync_with_operator_registry() {
+    let generic_dispatch_tokens = [
+        TokenType::Or,
+        TokenType::And,
+        TokenType::Eq,
+        TokenType::NotEq,
+        TokenType::Lt,
+        TokenType::Gt,
+        TokenType::Lte,
+        TokenType::Gte,
+        TokenType::Plus,
+        TokenType::Minus,
+        TokenType::Asterisk,
+        TokenType::Slash,
+        TokenType::Percent,
+    ];
+    let excluded_from_generic_dispatch = [
+        TokenType::Pipe,
+        TokenType::LParen,
+        TokenType::LBracket,
+        TokenType::Dot,
+    ];
+
+    let mut registry_generic = OPERATOR_TABLE
+        .iter()
+        .filter(|op| op.fixity == Fixity::Infix)
+        .filter(|op| !excluded_from_generic_dispatch.contains(&op.token))
+        .map(|op| op.token)
+        .collect::<Vec<_>>();
+    registry_generic.sort_by_key(|token| token.as_usize());
+
+    let mut parser_generic = generic_dispatch_tokens.to_vec();
+    parser_generic.sort_by_key(|token| token.as_usize());
+
+    assert_eq!(
+        parser_generic, registry_generic,
+        "generic infix parser tokens must exactly match registry infix tokens (excluding special handlers)"
+    );
+
+    for token in generic_dispatch_tokens {
+        let info = infix_op(&token).expect("generic infix token must exist in operator registry");
+        assert_eq!(
+            info.fixity,
+            Fixity::Infix,
+            "generic parser token {:?} must use infix fixity",
+            token
+        );
+
+        let src = format!("a {} b;", token);
+        let expected = format!("(a {} b)", token);
+        let got = parse_expr_to_string(&src);
+        assert_eq!(
+            got, expected,
+            "registry token {:?} should be parsed by generic infix dispatch",
             token
         );
     }
