@@ -176,7 +176,7 @@ impl Parser {
 
     // Complex parsing helpers
     pub(super) fn parse_qualified_name(&mut self) -> Option<String> {
-        let mut name = self.current_token.literal.clone();
+        let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) {
             self.next_token(); // consume '.'
             if !self.expect_peek(TokenType::Ident) {
@@ -531,7 +531,7 @@ impl Parser {
 
     pub(super) fn validate_parameter_identifier(&mut self) -> Option<String> {
         if self.current_token.token_type == TokenType::Ident {
-            Some(self.current_token.literal.clone())
+            Some(self.current_token.literal.to_string())
         } else {
             self.errors.push(unexpected_token(
                 self.current_token.span(),

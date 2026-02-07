@@ -18,7 +18,10 @@ fn build_mixed_syntax_corpus() -> String {
             src,
             "if value_{i} >= 10 && value_{i} != 42 {{ value_{i}; }} else {{ 0; }}",
         );
-        let _ = writeln!(src, "{{ let nested_{i} = [1, 2, 3, value_{i}]; nested_{i}[0]; }}");
+        let _ = writeln!(
+            src,
+            "{{ let nested_{i} = [1, 2, 3, value_{i}]; nested_{i}[0]; }}"
+        );
     }
 
     src

@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
 pub mod block;
+pub mod byte_span;
 pub mod diagnostics;
 pub mod expression;
 pub mod formatter;
+pub mod lexeme;
 pub mod lexer;
 pub mod linter;
 pub mod module_graph;
