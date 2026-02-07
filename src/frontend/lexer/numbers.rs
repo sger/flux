@@ -9,20 +9,48 @@
 
 use super::Lexer;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NumberKind {
+    Int,
+    Float,
+}
+
 impl Lexer {
+    pub(super) fn read_number_span(&mut self) -> ((usize, usize), NumberKind) {
+        if self.current_byte() == Some(b'0') && matches!(self.peek_byte(), Some(b'x' | b'X')) {
+            return (self.read_hex_span(), NumberKind::Int);
+        }
+
+        if self.current_byte() == Some(b'0') && matches!(self.peek_byte(), Some(b'b' | b'B')) {
+            return (self.read_binary_span(), NumberKind::Int);
+        }
+
+        self.read_decimal_span()
+    }
+
     pub(super) fn read_number(&mut self) -> (String, bool) {
-        // Check for hex literal (0x or 0X)
-        if self.current_char() == Some('0') && matches!(self.peek_char(), Some('x' | 'X')) {
-            return self.read_hex_literal();
-        }
+        let ((start, end), kind) = self.read_number_span();
+        (self.slice_chars(start, end), kind == NumberKind::Float)
+    }
 
-        // Check for binary literal (0b or 0B)
-        if self.current_char() == Some('0') && matches!(self.peek_char(), Some('b' | 'B')) {
-            return self.read_binary_literal();
-        }
+    fn read_hex_span(&mut self) -> (usize, usize) {
+        let start = self.current_index();
 
-        // Read decimal number (integer or float)
-        self.read_decimal_number()
+        self.read_char(); // '0'
+        self.read_char(); // 'x'/'X'
+        self.reader.consume_hex_run();
+
+        (start, self.current_index())
+    }
+
+    fn read_binary_span(&mut self) -> (usize, usize) {
+        let start = self.current_index();
+
+        self.read_char(); // '0'
+        self.read_char(); // 'b'/'B'
+        self.reader.consume_binary_run();
+
+        (start, self.current_index())
     }
 
     /// Read a hexadecimal literal (0x1F, 0xFF, etc.)
@@ -116,5 +144,33 @@ impl Lexer {
 
         let literal = self.slice_chars(start, self.current_index());
         (literal, is_float)
+    }
+
+    fn read_decimal_span(&mut self) -> ((usize, usize), NumberKind) {
+        let start = self.current_index();
+
+        self.reader.consume_decimal_run();
+
+        let mut kind = NumberKind::Int;
+
+        if self.current_byte() == Some(b'.') && self.peek_byte().is_some_and(|b| b.is_ascii_digit())
+        {
+            kind = NumberKind::Float;
+            self.read_char();
+            self.reader.consume_decimal_run();
+        }
+
+        if self.current_byte().is_some_and(|b| b == b'e' || b == b'E') {
+            kind = NumberKind::Float;
+            self.read_char();
+
+            if self.current_byte().is_some_and(|b| b == b'+' || b == b'-') {
+                self.read_char();
+            }
+
+            self.reader.consume_decimal_run();
+        }
+
+        ((start, self.current_index()), kind)
     }
 }

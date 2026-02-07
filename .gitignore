@@ -28,3 +28,6 @@ Thumbs.db
 # Test files
 /test_imports/
 *.tmp
+
+# Benchmark artifacts
+/baseline_criterion/
