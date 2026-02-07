@@ -25,8 +25,8 @@ A small, functional language with a custom bytecode VM.
 ## Running Flux
 
 ```
-cargo run -- path/to/file.flx
-cargo run -- --verbose run path/to/file.flx
+cargo run -- examples/basics/print.flx
+cargo run -- run examples/basics/print.flx --verbose
 ```
 
 ## Diagnostics
@@ -176,244 +176,62 @@ Run with no args to see usage + the example list:
 scripts/run_examples.sh
 ```
 
-Run all examples (passes extra flags to each run):
+Run all non-error examples (passes extra flags to each run):
 
 ```
 scripts/run_examples.sh --all --no-cache
 ```
 
-## Basic Examples
+`--all` excludes `examples/errors`, `examples/Debug`, and other intentionally failing fixtures.
 
-```flux
-// basics/print.flx
-print("hello world");
-print(42);
-print(true);
-print(false);
+## Examples
+
+The `examples/` tree currently contains these groups of `.flx` programs:
+
+- `basics` (33): language fundamentals, builtins, interpolation, semicolon and recovery behavior
+- `Modules` (18): module declarations, qualified imports, aliases, and composition across files
+- `errors` (37): intentional compiler/runtime failures and diagnostic paths
+- `functions` (11): closures, forward references, immutability, redeclaration/reassignment errors
+- `imports`, `namespaces`, `patterns`, `ModuleGraph`, `suggestions`, `hint_demos`, `lint`, `advanced`, `Debug`, `roots`, `error_messages`
+
+Examples are designed to run through the helper script:
+
+```
+scripts/run_examples.sh <path-under-examples>
+scripts/run_examples.sh <folder-under-examples>/
 ```
 
-```flux
-// basics/arithmetic.flx
-print(1 + 2);
-print(10 - 3);
-print(4 * 5);
-print(15 / 3);
-print(2 + 3 * 4);
+Representative examples:
+
+| Example | What it demonstrates | Run |
+|---|---|---|
+| `examples/basics/print.flx` | basic literals and `print` | `scripts/run_examples.sh basics/print.flx` |
+| `examples/basics/string_interpolation.flx` | interpolation segments and expressions | `scripts/run_examples.sh basics/string_interpolation.flx` |
+| `examples/basics/pipe_operator.flx` | `|>` operator and function chaining | `scripts/run_examples.sh basics/pipe_operator.flx` |
+| `examples/basics/math_builtins.flx` | numeric builtins (`abs`, `min`, `max`) | `scripts/run_examples.sh basics/math_builtins.flx` |
+| `examples/functions/forward_reference.flx` | forward references and mutual recursion | `scripts/run_examples.sh functions/forward_reference.flx` |
+| `examples/functions/closure.flx` | closure capture and lexical scoping | `scripts/run_examples.sh functions/closure.flx` |
+| `examples/Modules/Main.flx` | module import and qualified call | `scripts/run_examples.sh Modules/Main.flx` |
+| `examples/Modules/pipe_with_modules.flx` | pipe operator with module functions | `scripts/run_examples.sh Modules/pipe_with_modules.flx` |
+| `examples/imports/test_import_math.flx` | import resolution with module roots | `scripts/run_examples.sh imports/test_import_math.flx` |
+| `examples/namespaces/namespace_alias_ok.flx` | aliasing module namespaces | `scripts/run_examples.sh namespaces/namespace_alias_ok.flx` |
+| `examples/patterns/either_match.flx` | pattern matching on `Left` / `Right` | `scripts/run_examples.sh patterns/either_match.flx` |
+| `examples/patterns/match_guards.flx` | guarded match arms | `scripts/run_examples.sh patterns/match_guards.flx` |
+| `examples/ModuleGraph/module_graph_main.flx` | module graph traversal and topo compile order | `scripts/run_examples.sh ModuleGraph/module_graph_main.flx` |
+| `examples/lint/warnings.flx` | linter warnings (`W008-W010`) | `scripts/run_examples.sh lint/warnings.flx` |
+| `examples/suggestions/simple_typo.flx` | did-you-mean suggestions for identifiers | `scripts/run_examples.sh suggestions/simple_typo.flx` |
+| `examples/hint_demos/inline_suggestion_demo.flx` | intentional parse errors with inline fix suggestions | `scripts/run_examples.sh hint_demos/inline_suggestion_demo.flx` |
+| `examples/error_messages/unknown_keyword.flx` | canonical `UNKNOWN_KEYWORD` diagnostic sample | `scripts/run_examples.sh error_messages/unknown_keyword.flx` |
+| `examples/errors/unterminated_string.flx` | intentional unterminated string compiler error | `scripts/run_examples.sh errors/unterminated_string.flx` |
+| `examples/roots/duplicate_root_import_error.flx` | duplicate module resolution across roots | `scripts/run_examples.sh roots/duplicate_root_import_error.flx` |
+
+Run a whole category:
+
 ```
-
-```flux
-// basics/prefix.flx
-print(-5);
-print(-10);
-print(-(-5));
-print(!true);
-print(!false);
-print(!!true);
+scripts/run_examples.sh basics/
+scripts/run_examples.sh patterns/
+scripts/run_examples.sh errors/
 ```
-
-```flux
-// basics/comparison.flx
-print(1 < 2);
-print(2 < 1);
-print(2 > 1);
-print(1 > 2);
-print(1 == 1);
-print(1 == 2);
-print(1 != 2);
-print(1 != 1);
-```
-
-```flux
-// basics/variables.flx
-let x = 5;
-print(x);
-let y = 10;
-print(y);
-print(x + y);
-let name = "hello";
-print(name);
-let flag = true;
-print(flag);
-```
-
-```flux
-// basics/complex_expr.flx
-let a = 5;
-let b = 10;
-let c = 2;
-print(a * a);
-print(a * b);
-print(b * b);
-print(a < b);
-print(a > b);
-let result = (a + b) * c + 12;
-print(result);
-```
-
-```flux
-// basics/strings.flx
-let greeting = "hello";
-let target = " world";
-print(greeting + target);
-let lang = "flux";
-let desc = " is awesome";
-print(lang + desc);
-print("a" + "b" + "c");
-```
-
-```flux
-// basics/if_else.flx
-if true {
-    print("yes");
-};
-if false {
-    print("should not print");
-} else {
-    print("no");
-};
-let x = 5;
-if x > 0 {
-    print("positive");
-} else {
-    print("negative");
-};
-let a = 10;
-let b = 10;
-if a == b {
-    print("equal");
-} else {
-    print("not equal");
-};
-let max = if 10 > 5 { 10; } else { 5; };
-print(max);
-```
-
-```flux
-// basics/arrays_basic.flx
-let arr = [1, 2, 3];
-print(arr);
-let empty = [];
-print(empty);
-let nums = [1, 2, 3, 4, 5];
-print(nums);
-let mixed = ["hello", 42, true];
-print(mixed[0]);
-print(mixed[1]);
-print(mixed[2]);
-```
-
-```flux
-// basics/array_builtins.flx
-let arr = [1, 2, 3, 4, 5];
-print(len(arr));
-print(len([]));
-print(first(arr));
-print(last(arr));
-print(rest(arr));
-print(push(arr, 6));
-print(first([]));
-print(last([]));
-print(rest([]));
-```
-
-```flux
-// basics/hash_basic.flx
-let h = {"a": 1, "b": 2, "c": 3};
-print(h["a"]);
-print(h["b"]);
-print(h["c"]);
-let nums = {1: "hello", 2: "world"};
-print(nums[1]);
-print(nums[2]);
-```
-
-```flux
-// basics/fibonacci.flx
-fun fib(n) {
-    if n < 2 {
-        n;
-    } else {
-        fib(n - 1) + fib(n - 2);
-    };
-}
-print(fib(0));
-print(fib(1));
-print(fib(2));
-print(fib(3));
-print(fib(4));
-print(fib(5));
-print(fib(6));
-print(fib(10));
-```
-
-```flux
-// basics/array_hash_combo.flx
-let users = [
-    {"name": "Alice", "age": 25},
-    {"name": "Bob", "age": 30}
-];
-print(users[0]["name"]);
-print(users[1]["name"]);
-print(users[0]["age"]);
-print(users[1]["age"]);
-let skills = {
-    "languages": ["python", "rust", "go"],
-    "count": 3
-};
-print(skills["languages"][0]);
-print(skills["languages"][1]);
-print(skills["count"]);
-```
-
-```flux
-// basics/array_iteration.flx
-fun printAll(arr) {
-    if len(arr) == 0 {
-        print("done");
-    } else {
-        print(first(arr));
-        printAll(rest(arr));
-    };
-}
-printAll([1, 2, 3, 4, 5]);
-fun sum(arr) {
-    if len(arr) == 0 {
-        0;
-    } else {
-        first(arr) + sum(rest(arr));
-    };
-}
-print(sum([1, 2, 3, 4, 5]));
-fun count(arr) {
-    if len(arr) == 0 {
-        0;
-    } else {
-        1 + count(rest(arr));
-    };
-}
-print(count([10, 20, 30]));
-```
-
-## Error Examples
-
-```flux
-// Qualified access without an import.
-print(Modules.Data.MyFile.value()); // MODULE NOT IMPORTED
-```
-
-```flux
-// Alias replaces the original qualifier.
-import Modules.Data.MyFile as MyFile
-Modules.Data.MyFile.value(); // MODULE NOT IMPORTED
-```
-
-```flux
-// Import cycle across module files.
-import ModuleGraph.ModuleGraphCycleA
-ModuleGraph.ModuleGraphCycleA.value(); // IMPORT CYCLE (E035)
-```
-
-More error-triggering examples live under `examples/Errors/`.
 
 ## Cache
 
@@ -437,5 +255,5 @@ cargo test
 Run a single test:
 
 ```
-cargo test runtime::vm::tests::test_builtin_len
+cargo test test_builtin_len
 ```
