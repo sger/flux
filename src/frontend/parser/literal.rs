@@ -13,14 +13,15 @@ impl Parser {
         let start = self.current_token.position;
         if !super::is_pascal_case_ident(&self.current_token) {
             return Some(Expression::Identifier {
-                name: self.current_token.literal.clone(),
+                name: self.current_token.literal.to_string(),
                 span: Span::new(start, self.current_token.end_position),
             });
         }
 
-        let mut name = self.current_token.literal.clone();
+        let mut name = self.current_token.literal.to_string();
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
+        // TODO: Remove pascal case keep only first letter uppercase
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
             if !self.expect_peek(TokenType::Ident) {
@@ -71,7 +72,7 @@ impl Parser {
 
     pub(super) fn parse_string(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let first_part = self.current_token.literal.clone();
+        let first_part = self.current_token.literal.to_string();
 
         // Simple string - no interpolation
         Some(Expression::String {
@@ -82,7 +83,7 @@ impl Parser {
 
     pub(super) fn parse_interpolation_start(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let first_part = self.current_token.literal.clone();
+        let first_part = self.current_token.literal.to_string();
 
         // InterpolationStart token signals the lexer found #{
         // Now parse as interpolated string
@@ -141,7 +142,7 @@ impl Parser {
             if self.is_peek_token(TokenType::InterpolationStart) {
                 // More string content with another interpolation
                 self.next_token();
-                let literal = self.current_token.literal.clone();
+                let literal = self.current_token.literal.to_string();
                 if !literal.is_empty() {
                     parts.push(StringPart::Literal(literal));
                 }
@@ -149,7 +150,7 @@ impl Parser {
             } else if self.is_peek_token(TokenType::StringEnd) {
                 // End of interpolated string
                 self.next_token();
-                let final_literal = self.current_token.literal.clone();
+                let final_literal = self.current_token.literal.to_string();
                 if !final_literal.is_empty() {
                     parts.push(StringPart::Literal(final_literal));
                 }

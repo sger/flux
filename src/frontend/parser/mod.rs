@@ -26,9 +26,9 @@ impl Parser {
     pub fn new(lexer: Lexer) -> Self {
         let mut parser = Parser {
             lexer,
-            current_token: Token::new(TokenType::Eof, "", 0, 0),
-            peek_token: Token::new(TokenType::Eof, "", 0, 0),
-            peek2_token: Token::new(TokenType::Eof, "", 0, 0),
+            current_token: Token::new_static(TokenType::Eof, "", 0, 0),
+            peek_token: Token::new_static(TokenType::Eof, "", 0, 0),
+            peek2_token: Token::new_static(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
             suppress_unterminated_string_error_at: None,
         };

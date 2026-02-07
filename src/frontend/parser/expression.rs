@@ -161,7 +161,7 @@ impl Parser {
             op_info.fixity
         );
 
-        let operator = self.current_token.literal.clone();
+        let operator = self.current_token.literal.to_string();
         let right_precedence = match rhs_precedence_for_infix(&token_type) {
             Some(precedence) => precedence,
             None => {
@@ -275,7 +275,7 @@ impl Parser {
             return None;
         }
 
-        let member = self.current_token.literal.clone();
+        let member = self.current_token.literal.to_string();
 
         Some(Expression::MemberAccess {
             object: Box::new(object),
@@ -287,7 +287,7 @@ impl Parser {
     // Prefix expressions
     pub(super) fn parse_prefix_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let operator = self.current_token.literal.clone();
+        let operator = self.current_token.literal.to_string();
         let token_type = self.current_token.token_type;
         let precedence = match prefix_op(&token_type) {
             Some(info) => info.precedence,
@@ -548,7 +548,7 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Ident => Some(Pattern::Identifier {
-                name: self.current_token.literal.clone(),
+                name: self.current_token.literal.to_string(),
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::None => Some(Pattern::None {
