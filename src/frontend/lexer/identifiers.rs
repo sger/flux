@@ -1,16 +1,16 @@
 //! Identifier parsing
 
-use super::{Lexer, helpers::is_letter};
+use super::Lexer;
 
 impl Lexer {
-    pub(super) fn read_identifier(&mut self) -> String {
+    pub(super) fn read_identifier_span(&mut self) -> (usize, usize) {
         let start = self.current_index();
-        while self
-            .current_char()
-            .is_some_and(|c| is_letter(c) || c.is_ascii_digit())
-        {
-            self.read_char();
-        }
-        self.slice_chars(start, self.current_index())
+        self.reader.consume_identifier_continue_run();
+        (start, self.current_index())
+    }
+
+    pub(super) fn read_identifier(&mut self) -> String {
+        let (start, end) = self.read_identifier_span();
+        self.slice_chars(start, end)
     }
 }
