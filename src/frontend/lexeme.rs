@@ -14,14 +14,16 @@ impl Lexeme {
         match self {
             Lexeme::Static(s) => s,
             Lexeme::Owned(s) => s,
-            Lexeme::Span { source, span } => source.get(span.start..span.end).unwrap_or_else(|| {
-                panic!(
-                    "invalid lexeme span {}..{} for source len {}",
-                    span.start,
-                    span.end,
-                    source.len()
-                )
-            }),
+            Lexeme::Span { source, span } => {
+                source.get(span.start..span.end).unwrap_or_else(|| {
+                    panic!(
+                        "invalid lexeme span {}..{} for source len {}",
+                        span.start,
+                        span.end,
+                        source.len()
+                    )
+                })
+            }
         }
     }
 
