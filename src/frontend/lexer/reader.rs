@@ -173,7 +173,14 @@ impl CharReader {
     }
 
     pub(super) fn slice_str(&self, start: usize, end: usize) -> &str {
-        self.source.get(start..end).unwrap_or("")
+        self.source.get(start..end).unwrap_or_else(|| {
+            panic!(
+                "invalid source slice {}..{} for source len {}",
+                start,
+                end,
+                self.source.len()
+            )
+        })
     }
 
     pub(super) fn skip_ascii_whitespace(&mut self) {
@@ -325,5 +332,12 @@ mod tests {
         assert_eq!(reader.current_byte(), Some(b'/'));
         assert_eq!(reader.peek_byte(), Some(b'/'));
         assert_eq!(reader.peek2_byte(), Some(b'/'));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid source slice")]
+    fn slice_str_panics_on_invalid_utf8_boundary() {
+        let reader = CharReader::new("é".to_string());
+        let _ = reader.slice_str(1, 2);
     }
 }
