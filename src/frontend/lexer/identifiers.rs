@@ -8,9 +8,4 @@ impl Lexer {
         self.reader.consume_identifier_continue_run();
         (start, self.current_index())
     }
-
-    pub(super) fn read_identifier(&mut self) -> String {
-        let (start, end) = self.read_identifier_span();
-        self.slice_chars(start, end)
-    }
 }
