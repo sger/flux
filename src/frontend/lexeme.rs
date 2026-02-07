@@ -14,7 +14,14 @@ impl Lexeme {
         match self {
             Lexeme::Static(s) => s,
             Lexeme::Owned(s) => s,
-            Lexeme::Span { source, span } => source.get(span.start..span.end).unwrap_or(""),
+            Lexeme::Span { source, span } => source.get(span.start..span.end).unwrap_or_else(|| {
+                panic!(
+                    "invalid lexeme span {}..{} for source len {}",
+                    span.start,
+                    span.end,
+                    source.len()
+                )
+            }),
         }
     }
 
@@ -103,5 +110,33 @@ impl From<&str> for Lexeme {
 impl From<&String> for Lexeme {
     fn from(value: &String) -> Self {
         Lexeme::Owned(value.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn span_lexeme_returns_exact_slice() {
+        let source: Arc<str> = Arc::from("foobar");
+        let lexeme = Lexeme::Span {
+            source,
+            span: ByteSpan::new(3, 6),
+        };
+
+        assert_eq!(lexeme.as_str(), "bar");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid lexeme span")]
+    fn span_lexeme_panics_on_invalid_utf8_boundary() {
+        let source: Arc<str> = Arc::from("é");
+        let lexeme = Lexeme::Span {
+            source,
+            span: ByteSpan::new(1, 2),
+        };
+
+        let _ = lexeme.as_str();
     }
 }
