@@ -39,10 +39,6 @@ impl CharReader {
         Arc::clone(&self.source)
     }
 
-    pub(super) fn source_str(&self) -> &str {
-        &self.source
-    }
-
     pub(super) fn current(&self) -> Option<char> {
         self.current_char
     }
@@ -112,14 +108,6 @@ impl CharReader {
         }
 
         self.decode_at(idx).map(|(ch, _)| ch)
-    }
-
-    pub(super) fn peek_n_byte(&self, n: usize) -> Option<u8> {
-        if n == 0 {
-            return None;
-        }
-
-        self.bytes().get(self.read_position + (n - 1)).copied()
     }
 
     pub(super) fn consume_hex_run(&mut self) {
@@ -194,6 +182,21 @@ impl CharReader {
             match bytes[idx] {
                 b'"' | b'\\' | b'\n' | b'\r' => break,
                 b'#' if bytes.get(idx + 1) == Some(&b'{') => break,
+                _ => idx += 1,
+            }
+        }
+
+        if idx != self.position {
+            self.set_current_from(idx);
+        }
+    }
+
+    pub(super) fn advance_until_slash_or_star(&mut self) {
+        let bytes = self.bytes();
+        let mut idx = self.position;
+        while idx < bytes.len() {
+            match bytes[idx] {
+                b'/' | b'*' => break,
                 _ => idx += 1,
             }
         }

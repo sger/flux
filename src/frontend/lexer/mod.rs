@@ -187,21 +187,6 @@ impl Lexer {
         self.reader.advance();
     }
 
-    fn peek_char(&self) -> Option<char> {
-        self.reader.peek()
-    }
-
-    /// Look ahead n chars without advancing.
-    /// n=1 is equivalent to peek_char() (next char), n=2 is the char after that.
-    /// Returns None when peeking past EOF.
-    fn peek_n(&self, n: usize) -> Option<char> {
-        self.reader.peek_n(n)
-    }
-
-    fn current_char(&self) -> Option<char> {
-        self.reader.current()
-    }
-
     fn current_byte(&self) -> Option<u8> {
         self.reader.current_byte()
     }
@@ -220,10 +205,6 @@ impl Lexer {
 
     fn cursor_position(&self) -> Position {
         self.reader.position()
-    }
-
-    fn slice_chars(&self, start: usize, end: usize) -> String {
-        self.reader.slice(start, end)
     }
 
     fn slice_str(&self, start: usize, end: usize) -> &str {

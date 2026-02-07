@@ -1,6 +1,5 @@
 //! Comment handling (block comments and doc comments)
 
-use crate::frontend::lexeme::Lexeme;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::TokenType;
 
@@ -40,7 +39,13 @@ impl Lexer {
                     self.read_char(); // consume '*'
                     nesting_depth += 1;
                 }
-                (Some(_), _) => self.read_char(),
+                (Some(_), _) => {
+                    let before = self.current_index();
+                    self.reader.advance_until_slash_or_star();
+                    if self.current_index() == before && self.current_byte().is_some() {
+                        self.read_char();
+                    }
+                }
                 (None, _) => return false,
             }
         }
@@ -94,7 +99,7 @@ impl Lexer {
         let mut content = String::new();
 
         // Handle the empty doc comment `/**/` (overlaps opener/closer).
-        if self.current_char() == Some('/') {
+        if self.current_byte() == Some(b'/') {
             self.read_char(); // consume '/'
             return Token::new_with_end(
                 TokenType::DocComment,
@@ -108,8 +113,10 @@ impl Lexer {
         // Track nesting for /** ... */ comments
         let mut nesting_depth = 1usize;
 
-        while let Some(ch) = self.current_char() {
-            if ch == '*' && self.peek_char() == Some('/') {
+        while let Some(b0) = self.current_byte() {
+            let b1 = self.peek_byte();
+
+            if b0 == b'*' && b1 == Some(b'/') {
                 // Found closing */
                 self.read_char(); // consume '*'
                 self.read_char(); // consume '/'
@@ -125,21 +132,31 @@ impl Lexer {
                     );
                 }
                 // Nested closing delimiter intentionally omitted from doc content.
-            } else if ch == '/' && self.peek_char() == Some('*') {
+            } else if b0 == b'/' && b1 == Some(b'*') {
                 // Found opening /* - treat as nested for depth, but omit delimiters from content.
                 self.read_char(); // consume '/'
                 self.read_char(); // consume '*'
                 nesting_depth += 1;
             } else {
-                content.push(ch);
+                // Copy a full run that cannot be a delimiter start.
+                let run_start = self.current_index();
+                self.reader.advance_until_slash_or_star();
+                let run_end = self.current_index();
+                if run_end > run_start {
+                    content.push_str(self.slice_str(run_start, run_end));
+                    continue;
+                }
+
+                // Single '/' or '*' that is not part of delimiter.
+                content.push(b0 as char);
                 self.read_char();
             }
         }
 
         // Reached EOF without closing the comment
-        Token::new_with_end(
+        Token::new_static_with_end(
             TokenType::UnterminatedBlockComment,
-            Lexeme::Static(""),
+            "",
             line,
             column,
             self.cursor_position(),
