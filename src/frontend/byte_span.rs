@@ -9,3 +9,7 @@ impl ByteSpan {
         Self { start, end }
     }
 }
+
+pub fn slice(src: &str, span: ByteSpan) -> &str {
+    src.get(span.start..span.end).unwrap_or("")
+}

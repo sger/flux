@@ -39,6 +39,10 @@ impl CharReader {
         Rc::clone(&self.source)
     }
 
+    pub(super) fn source_str(&self) -> &str {
+        &self.source
+    }
+
     #[inline(always)]
     pub(super) fn source_len(&self) -> usize {
         self.source.len()

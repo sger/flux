@@ -16,7 +16,9 @@ use std::rc::Rc;
 use reader::CharReader;
 use state::LexerState;
 
+use crate::frontend::interner::Interner;
 use crate::frontend::position::Position;
+use crate::frontend::symbol::Symbol;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::{TokenType, lookup_ident};
 
@@ -34,6 +36,7 @@ pub struct LexerWarning {
 #[derive(Debug, Clone)]
 pub struct Lexer {
     reader: CharReader,
+    interner: Interner,
     state: LexerState,
     warnings: Vec<LexerWarning>,
     /// Track unterminated block comment error (position where /* started)
@@ -42,8 +45,15 @@ pub struct Lexer {
 
 impl Lexer {
     pub fn new(input: impl Into<String>) -> Self {
+        let input = input.into();
+        let input_len = input.len();
+
+        let estimated_symbols = (input_len / 16).max(64);
+        let estimated_symbol_bytes = (input_len / 8).max(256);
+
         Self {
             reader: CharReader::new(input.into()),
+            interner: Interner::with_capacity(estimated_symbols, estimated_symbol_bytes),
             state: LexerState::Normal,
             warnings: Vec::new(),
             unterminated_block_comment_pos: None,
@@ -53,6 +63,18 @@ impl Lexer {
     /// Get warnings collected during lexing
     pub fn warnings(&self) -> &[LexerWarning] {
         &self.warnings
+    }
+
+    pub fn source(&self) -> &str {
+        &self.reader.source_str()
+    }
+
+    pub fn interner(&self) -> &Interner {
+        &self.interner
+    }
+
+    pub fn resolve_symbol(&self, symbol: Symbol) -> &str {
+        self.interner.resolve(symbol)
     }
 
     /// Get the next token from the input
@@ -81,7 +103,7 @@ impl Lexer {
 
         let cursor = self.cursor_position();
         let line = cursor.line;
-        let col = cursor.column;
+        let column = cursor.column;
 
         // Snapshot lookahead once. This keeps comment/operator dispatch branch-light.
         let b0 = self.current_byte();
@@ -94,7 +116,7 @@ impl Lexer {
             // Future improvement: if this is non-empty at EOF, emit a dedicated
             // unterminated interpolation/string diagnostic from the lexer.
             self.clear_interpolation_state();
-            return Token::new_static(TokenType::Eof, "", line, col);
+            return Token::new_static(TokenType::Eof, "", line, column);
         };
 
         // String literals are delegated; reader state advances internally.
@@ -112,29 +134,44 @@ impl Lexer {
         }
 
         // Two-byte operator dispatch table.
-        if let Some(token) = self.two_byte_token(b0, b1, line, col) {
+        if let Some(token) = self.two_byte_token(b0, b1, line, column) {
             return token;
         }
 
         // One-byte operator/delimiter dispatch table.
-        if let Some(token) = self.one_byte_token(b0, line, col, in_interp_expr) {
+        if let Some(token) = self.one_byte_token(b0, line, column, in_interp_expr) {
             return token;
         }
 
         // Identifiers/keywords: ASCII fast path with zero-copy keyword lookup.
         if is_letter_byte(b0) {
             let (start, end) = self.read_identifier_span();
-            let ident = self.slice_str(start, end);
+            let source = self.source_arc();
+            let ident = source.get(start..end).unwrap_or("");
             let token_type = lookup_ident(ident);
-            return Token::new_span_with_end(
-                token_type,
-                self.source_arc(),
-                start,
-                end,
-                line,
-                col,
-                self.cursor_position(),
-            );
+
+            return if token_type == TokenType::Ident {
+                let sym = self.interner.intern(ident);
+                Token::new_ident_span_with_end(
+                    source,
+                    sym,
+                    start,
+                    end,
+                    line,
+                    column,
+                    self.cursor_position(),
+                )
+            } else {
+                Token::new_span_with_end(
+                    token_type,
+                    source,
+                    start,
+                    end,
+                    line,
+                    column,
+                    self.cursor_position(),
+                )
+            };
         }
 
         // Numbers: lex into a span and defer parsing.
@@ -151,7 +188,7 @@ impl Lexer {
                 start,
                 end,
                 line,
-                col,
+                column,
                 self.cursor_position(),
             );
         }
@@ -164,7 +201,7 @@ impl Lexer {
             start_idx,
             self.current_index(),
             line,
-            col,
+            column,
             self.cursor_position(),
         )
     }
