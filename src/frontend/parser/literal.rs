@@ -9,6 +9,30 @@ use crate::frontend::{
 use super::Parser;
 
 impl Parser {
+    fn decode_string_escapes(raw: &str) -> String {
+        let mut out = String::with_capacity(raw.len());
+        let mut chars = raw.chars();
+
+        while let Some(ch) = chars.next() {
+            if ch != '\\' {
+                out.push(ch);
+                continue;
+            }
+
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('\\') => out.push('\\'),
+                Some('"') => out.push('"'),
+                Some('#') => out.push('#'),
+                Some(other) => out.push(other),
+                None => out.push('\\'),
+            }
+        }
+
+        out
+    }
     pub(super) fn parse_identifier(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         if !super::is_pascal_case_ident(&self.current_token) {
@@ -72,7 +96,7 @@ impl Parser {
 
     pub(super) fn parse_string(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let first_part = self.current_token.literal.to_string();
+        let first_part = Self::decode_string_escapes(&self.current_token.literal);
 
         // Simple string - no interpolation
         Some(Expression::String {
@@ -83,7 +107,7 @@ impl Parser {
 
     pub(super) fn parse_interpolation_start(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let first_part = self.current_token.literal.to_string();
+        let first_part = Self::decode_string_escapes(&self.current_token.literal);
 
         // InterpolationStart token signals the lexer found #{
         // Now parse as interpolated string
@@ -142,7 +166,7 @@ impl Parser {
             if self.is_peek_token(TokenType::InterpolationStart) {
                 // More string content with another interpolation
                 self.next_token();
-                let literal = self.current_token.literal.to_string();
+                let literal = Self::decode_string_escapes(&self.current_token.literal);
                 if !literal.is_empty() {
                     parts.push(StringPart::Literal(literal));
                 }
@@ -150,7 +174,7 @@ impl Parser {
             } else if self.is_peek_token(TokenType::StringEnd) {
                 // End of interpolated string
                 self.next_token();
-                let final_literal = self.current_token.literal.to_string();
+                let final_literal = Self::decode_string_escapes(&self.current_token.literal);
                 if !final_literal.is_empty() {
                     parts.push(StringPart::Literal(final_literal));
                 }
