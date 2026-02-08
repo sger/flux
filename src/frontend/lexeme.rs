@@ -1,4 +1,4 @@
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, ops::Deref, rc::Rc};
 
 use crate::frontend::byte_span::ByteSpan;
 
@@ -6,7 +6,7 @@ use crate::frontend::byte_span::ByteSpan;
 pub enum Lexeme {
     Static(&'static str),
     Owned(String),
-    Span { source: Arc<str>, span: ByteSpan },
+    Span { source: Rc<str>, span: ByteSpan },
 }
 
 impl Lexeme {
@@ -37,7 +37,7 @@ impl Lexeme {
         }
     }
 
-    pub fn from_span(source: Arc<str>, start: usize, end: usize) -> Self {
+    pub fn from_span(source: Rc<str>, start: usize, end: usize) -> Self {
         Lexeme::Span {
             source,
             span: ByteSpan::new(start, end),
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn span_lexeme_returns_exact_slice() {
-        let source: Arc<str> = Arc::from("foobar");
+        let source: Rc<str> = Rc::from("foobar");
         let lexeme = Lexeme::Span {
             source,
             span: ByteSpan::new(3, 6),
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "invalid lexeme span")]
     fn span_lexeme_panics_on_invalid_utf8_boundary() {
-        let source: Arc<str> = Arc::from("é");
+        let source: Rc<str> = Rc::from("é");
         let lexeme = Lexeme::Span {
             source,
             span: ByteSpan::new(1, 2),
