@@ -2,7 +2,7 @@ use crate::bytecode::symbol_scope::SymbolScope;
 use crate::frontend::position::Span;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Symbol {
+pub struct Binding {
     pub name: String,
     pub symbol_scope: SymbolScope,
     pub index: usize,
@@ -10,7 +10,7 @@ pub struct Symbol {
     pub span: Span,
 }
 
-impl Symbol {
+impl Binding {
     pub fn new(
         name: impl Into<String>,
         symbol_scope: SymbolScope,

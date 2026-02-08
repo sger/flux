@@ -3,7 +3,7 @@ use crate::{
         debug_info::{InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
-        symbol::Symbol,
+        binding::Binding,
         symbol_scope::SymbolScope,
     },
     frontend::position::Span,
@@ -64,7 +64,7 @@ impl Compiler {
         self.constants.len() - 1
     }
 
-    pub(super) fn load_symbol(&mut self, symbol: &Symbol) {
+    pub(super) fn load_symbol(&mut self, symbol: &Binding) {
         match symbol.symbol_scope {
             SymbolScope::Global => {
                 self.emit(OpCode::OpGetGlobal, &[symbol.index]);
