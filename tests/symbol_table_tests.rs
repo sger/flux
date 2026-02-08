@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use flux::bytecode::{symbol::Symbol, symbol_scope::SymbolScope, symbol_table::SymbolTable};
+    use flux::bytecode::{binding::Binding, symbol_scope::SymbolScope, symbol_table::SymbolTable};
     use flux::frontend::position::Span;
 
-    fn assert_symbol(sym: Symbol, name: &str, scope: SymbolScope, index: usize) {
+    fn assert_symbol(sym: Binding, name: &str, scope: SymbolScope, index: usize) {
         assert_eq!(sym.name, name);
         assert_eq!(sym.symbol_scope, scope);
         assert_eq!(sym.index, index);

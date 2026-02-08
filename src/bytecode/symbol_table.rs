@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
-use crate::bytecode::{symbol::Symbol, symbol_scope::SymbolScope};
+use crate::bytecode::{binding::Binding, symbol_scope::SymbolScope};
 use crate::frontend::position::Span;
 
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
     pub outer: Option<Box<SymbolTable>>,
-    store: HashMap<String, Symbol>,
+    store: HashMap<String, Binding>,
     pub num_definitions: usize,
-    pub free_symbols: Vec<Symbol>,
+    pub free_symbols: Vec<Binding>,
     allow_free: bool,
 }
 
@@ -43,7 +43,7 @@ impl SymbolTable {
         }
     }
 
-    pub fn define(&mut self, name: impl Into<String>, span: Span) -> Symbol {
+    pub fn define(&mut self, name: impl Into<String>, span: Span) -> Binding {
         let name = name.into();
         let scope = if self.outer.is_none() {
             SymbolScope::Global
@@ -56,7 +56,7 @@ impl SymbolTable {
             // The compiler will handle the error message
         }
 
-        let symbol = Symbol::new(name.clone(), scope, self.num_definitions, span);
+        let symbol = Binding::new(name.clone(), scope, self.num_definitions, span);
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
         symbol
@@ -75,32 +75,32 @@ impl SymbolTable {
         }
     }
 
-    pub fn define_builtin(&mut self, index: usize, name: impl Into<String>) -> Symbol {
+    pub fn define_builtin(&mut self, index: usize, name: impl Into<String>) -> Binding {
         let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Builtin, index, Span::default());
+        let symbol = Binding::new(name.clone(), SymbolScope::Builtin, index, Span::default());
         self.store.insert(name, symbol.clone());
         symbol
     }
 
-    pub fn define_function_name(&mut self, name: impl Into<String>, span: Span) -> Symbol {
+    pub fn define_function_name(&mut self, name: impl Into<String>, span: Span) -> Binding {
         let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Function, 0, span);
+        let symbol = Binding::new(name.clone(), SymbolScope::Function, 0, span);
         self.store.insert(name, symbol.clone());
         symbol
     }
 
-    pub fn define_temp(&mut self) -> Symbol {
+    pub fn define_temp(&mut self) -> Binding {
         let scope = if self.outer.is_none() {
             SymbolScope::Global
         } else {
             SymbolScope::Local
         };
-        let symbol = Symbol::new("<temp>", scope, self.num_definitions, Span::default());
+        let symbol = Binding::new("<temp>", scope, self.num_definitions, Span::default());
         self.num_definitions += 1;
         symbol
     }
 
-    pub fn resolve(&mut self, name: &str) -> Option<Symbol> {
+    pub fn resolve(&mut self, name: &str) -> Option<Binding> {
         match self.store.get(name) {
             Some(symbol) => Some(symbol.clone()),
             None => {
@@ -147,9 +147,9 @@ impl SymbolTable {
         names
     }
 
-    pub fn define_free(&mut self, original: Symbol) -> Symbol {
+    pub fn define_free(&mut self, original: Binding) -> Binding {
         self.free_symbols.push(original.clone());
-        let symbol = Symbol::new(
+        let symbol = Binding::new(
             original.name.clone(),
             SymbolScope::Free,
             self.free_symbols.len() - 1,

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::{
-        compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode, symbol::Symbol,
+        compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode, binding::Binding,
         symbol_scope::SymbolScope,
     },
     frontend::{
@@ -509,7 +509,7 @@ impl Compiler {
 
     pub(super) fn compile_pattern_check(
         &mut self,
-        scrutinee: &Symbol,
+        scrutinee: &Binding,
         pattern: &Pattern,
     ) -> CompileResult<Vec<usize>> {
         match pattern {
@@ -655,7 +655,7 @@ impl Compiler {
 
     pub(super) fn compile_pattern_bind(
         &mut self,
-        scrutinee: &Symbol,
+        scrutinee: &Binding,
         pattern: &Pattern,
     ) -> CompileResult<()> {
         match pattern {
