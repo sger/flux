@@ -1,7 +1,9 @@
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 
+use crate::frontend::interner::Interner;
 use crate::frontend::lexeme::Lexeme;
+use crate::frontend::symbol::Symbol;
 
 use super::position::{Position, Span};
 use super::token_type::TokenType;
@@ -10,6 +12,7 @@ use super::token_type::TokenType;
 pub struct Token {
     pub token_type: TokenType,
     pub literal: Lexeme,
+    pub symbol: Option<Symbol>,
     pub position: Position,
     pub end_position: Position,
 }
@@ -27,6 +30,7 @@ impl Token {
         Self {
             token_type,
             literal,
+            symbol: None,
             position: start,
             end_position: end,
         }
@@ -43,7 +47,7 @@ impl Token {
 
     pub fn new_span(
         token_type: TokenType,
-        source: Arc<str>,
+        source: Rc<str>,
         start: usize,
         end: usize,
         line: usize,
@@ -59,7 +63,7 @@ impl Token {
 
     pub fn new_span_with_end(
         token_type: TokenType,
-        source: Arc<str>,
+        source: Rc<str>,
         start: usize,
         end: usize,
         line: usize,
@@ -69,6 +73,25 @@ impl Token {
         Self {
             token_type,
             literal: Lexeme::from_span(source, start, end),
+            symbol: None,
+            position: Position::new(line, column),
+            end_position,
+        }
+    }
+
+    pub fn new_ident_span_with_end(
+        source: Rc<str>,
+        symbol: Symbol,
+        start: usize,
+        end: usize,
+        line: usize,
+        column: usize,
+        end_position: Position,
+    ) -> Self {
+        Self {
+            token_type: TokenType::Ident,
+            literal: Lexeme::from_span(source, start, end),
+            symbol: Some(symbol),
             position: Position::new(line, column),
             end_position,
         }
@@ -100,9 +123,26 @@ impl Token {
         Self {
             token_type,
             literal: literal.into(),
+            symbol: None,
             position: Position::new(line, column),
             end_position,
         }
+    }
+
+    pub fn token_text<'a>(&'a self, _src: &'a str, interner: &'a Interner) -> &'a str {
+        if let Some(symbol) = self.symbol {
+            return interner.resolve(symbol);
+        }
+
+        self.literal.as_str()
+    }
+
+    pub fn number_text<'a>(&'a self, _src: &'a str) -> &'a str {
+        self.literal.as_str()
+    }
+
+    pub fn string_text<'a>(&'a self, _src: &'a str) -> &'a str {
+        self.literal.as_str()
     }
 
     pub fn span(&self) -> Span {

@@ -10,7 +10,7 @@ mod reader;
 mod state;
 mod strings;
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 // Re-export state for visibility
 use reader::CharReader;
@@ -211,7 +211,7 @@ impl Lexer {
         self.reader.slice_str(start, end)
     }
 
-    fn source_arc(&self) -> Arc<str> {
+    fn source_arc(&self) -> Rc<str> {
         self.reader.source_arc()
     }
 

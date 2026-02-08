@@ -5,13 +5,13 @@
 //! - `current()` returns the decoded scalar at `position`.
 //! - Line/column are updated per decoded char (column is char-count, 0-based).
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::frontend::position::Position;
 
 #[derive(Debug, Clone)]
 pub(super) struct CharReader {
-    source: Arc<str>,
+    source: Rc<str>,
     position: usize,
     read_position: usize,
     current_char: Option<char>,
@@ -21,7 +21,7 @@ pub(super) struct CharReader {
 
 impl CharReader {
     pub(super) fn new(input: String) -> Self {
-        let source: Arc<str> = Arc::from(input);
+        let source: Rc<str> = Rc::from(input);
 
         let mut reader = Self {
             source,
@@ -35,8 +35,8 @@ impl CharReader {
         reader
     }
 
-    pub(super) fn source_arc(&self) -> Arc<str> {
-        Arc::clone(&self.source)
+    pub(super) fn source_arc(&self) -> Rc<str> {
+        Rc::clone(&self.source)
     }
 
     pub(super) fn current(&self) -> Option<char> {
