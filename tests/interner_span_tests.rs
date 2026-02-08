@@ -23,7 +23,6 @@ fn identifier_symbols_are_stable_for_same_name() {
 #[test]
 fn token_spans_slice_source_for_ident_number_and_string() {
     let mut lexer = Lexer::new(r#"foo 123 "a\n""#);
-    let source = lexer.source().to_string();
 
     let ident = lexer.next_token();
     let number = lexer.next_token();
@@ -33,7 +32,7 @@ fn token_spans_slice_source_for_ident_number_and_string() {
     assert_eq!(number.token_type, TokenType::Int);
     assert_eq!(string.token_type, TokenType::String);
 
-    assert_eq!(ident.token_text(&source, lexer.interner()), "foo");
-    assert_eq!(number.number_text(&source), "123");
-    assert_eq!(string.string_text(&source), r#"a\n"#);
+    assert_eq!(ident.token_text(lexer.interner()), "foo");
+    assert_eq!(number.number_text(), "123");
+    assert_eq!(string.string_text(), r#"a\n"#);
 }

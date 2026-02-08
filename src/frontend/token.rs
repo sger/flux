@@ -129,7 +129,11 @@ impl Token {
         }
     }
 
-    pub fn token_text<'a>(&'a self, _src: &'a str, interner: &'a Interner) -> &'a str {
+    /// Returns the text content of a token.
+    ///
+    /// For identifiers with symbols, resolves through the interner.
+    /// For other tokens, returns the literal text.
+    pub fn token_text<'a>(&'a self, interner: &'a Interner) -> &'a str {
         if let Some(symbol) = self.symbol {
             return interner.resolve(symbol);
         }
@@ -137,11 +141,13 @@ impl Token {
         self.literal.as_str()
     }
 
-    pub fn number_text<'a>(&'a self, _src: &'a str) -> &'a str {
+    /// Returns the text content of a number token.
+    pub fn number_text(&self) -> &str {
         self.literal.as_str()
     }
 
-    pub fn string_text<'a>(&'a self, _src: &'a str) -> &'a str {
+    /// Returns the text content of a string token (without quotes).
+    pub fn string_text(&self) -> &str {
         self.literal.as_str()
     }
 
