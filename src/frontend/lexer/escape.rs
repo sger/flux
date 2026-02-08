@@ -3,33 +3,38 @@
 use super::{Lexer, LexerWarning};
 
 impl Lexer {
-    /// Process an escape sequence after seeing backslash
-    pub(super) fn read_escape_sequence(&mut self) -> Option<char> {
-        let warning_position = self.cursor_position();
+    /// Validate and consume an escape sequence starting at backslash.
+    /// Leaves the lexer at the next unread byte after the escape.
+    pub(super) fn consume_escape_sequence(&mut self) {
+        if self.current_byte() != Some(b'\\') {
+            return;
+        }
 
-        let (result, advance_char) = match self.current_byte() {
-            Some(b'n') => (Some('\n'), true),
-            Some(b't') => (Some('\t'), true),
-            Some(b'r') => (Some('\r'), true),
-            Some(b'\\') => (Some('\\'), true),
-            Some(b'"') => (Some('"'), true),
-            Some(b'#') => (Some('#'), true), // \# for literal #
+        match self.peek_byte() {
+            // Fast path: valid ASCII escape consumes two bytes in one step.
+            Some(b'n' | b't' | b'r' | b'\\' | b'"' | b'#') => {
+                self.reader.advance_ascii_bytes(2);
+            }
             Some(byte) if byte.is_ascii() => {
+                self.reader.advance_ascii_bytes(1); // consume '\'
+                let warning_position = self.cursor_position();
                 let c = byte as char;
-                // Unknown escape - emit warning and return the character as-is
+
                 self.warnings.push(LexerWarning {
-                    message: format!(
-                        "Unknown escape sequence '\\{}'. Valid escapes are: \\n \\t \\r \\\\ \\\" \\#",
-                        c
-                    ),
+                    message: format!("Unknown escape sequence '\\{}. Valid escapes are: \\n \\t \\t \\\\ \\\" \\#",
+                        c),
                     position: warning_position,
                 });
-                (Some(c), true)
+                self.reader.advance_ascii_bytes(1); // consume escaped byte
             }
             Some(_) => {
+                self.read_char(); // consume '\'
+                let warning_position = self.cursor_position();
+
                 let char_start = self.current_index();
-                self.read_char();
+                self.read_char(); // consume escaped scalar
                 let char_end = self.current_index();
+
                 let c = self
                     .slice_str(char_start, char_end)
                     .chars()
@@ -37,21 +42,16 @@ impl Lexer {
                     .unwrap_or('\u{FFFD}');
 
                 self.warnings.push(LexerWarning {
-                    message: format!(
-                        "Unknown escape sequence '\\{}'. Valid escapes are: \\n \\t \\r \\\\ \\\" \\#",
-                        c
-                    ),
+                    message: format!("Unknown escape sequence '\\{}. Valid escapes are: \\n \\t \\t \\\\ \\\" \\#",
+                        c),
                     position: warning_position,
                 });
-
-                return Some(c);
             }
-            None => return None,
-        };
-
-        if advance_char {
-            self.read_char();
+            None => {
+                // Trailing backslash at EOF/newline context: consume '\' and let caller
+                // decide whether the string is unterminated.
+                self.reader.advance_ascii_bytes(1);
+            }
         }
-        result
     }
 }
