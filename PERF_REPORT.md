@@ -6,36 +6,36 @@ Current directory: `target/criterion`
 ## Raw Comparison Output
 ```text
 benchmark|baseline_mean_ms|current_mean_ms|change_percent|baseline_bytes_per_sec|current_bytes_per_sec
-lexer/next_token_loop/comment_heavy|2.1690|1.4193|-34.56|198356071.57|303129618.83
-lexer/next_token_loop/identifier_heavy|4.3723|1.5588|-64.35|158830569.10|445509613.29
-lexer/next_token_loop/mixed_syntax|4.1164|1.7212|-58.19|80873333.16|193418752.53
-lexer/next_token_loop/string_escape_interp_heavy|3.1274|1.6926|-45.88|113338613.50|209406561.20
-lexer/tokenize/comment_heavy|2.7631|1.5985|-42.15|155705929.39|269147210.04
-lexer/tokenize/identifier_heavy|5.4756|1.7836|-67.43|126825880.49|389351064.93
-lexer/tokenize/mixed_syntax|7.4432|2.9615|-60.21|44726582.48|112410848.02
-lexer/tokenize/string_escape_interp_heavy|4.5863|2.1354|-53.44|77284583.24|165987549.17
+lexer/next_token_loop/comment_heavy|0.7555|0.7555|0.00|569480560.58|569480560.58
+lexer/next_token_loop/identifier_heavy|1.9860|1.9860|0.00|349669633.91|349669633.91
+lexer/next_token_loop/mixed_syntax|1.6625|1.6625|0.00|200250759.94|200250759.94
+lexer/next_token_loop/string_escape_interp_heavy|1.5213|1.5213|0.00|232997068.51|232997068.51
+lexer/tokenize/comment_heavy|0.8283|0.8283|0.00|519434854.36|519434854.36
+lexer/tokenize/identifier_heavy|2.2658|2.2658|0.00|306491929.30|306491929.30
+lexer/tokenize/mixed_syntax|2.1785|2.1785|0.00|152814589.13|152814589.13
+lexer/tokenize/string_escape_interp_heavy|1.7289|1.7289|0.00|205012054.08|205012054.08
 ```
 
 ## Corpus: mixed
 | Benchmark | Baseline Mean (ms) | Current Mean (ms) | Change (%) | Baseline B/s | Current B/s |
 |---|---:|---:|---:|---:|---:|
-| lexer/tokenize/mixed_syntax | 7.4432 | 2.9615 | -60.21 | 44726582.48 | 112410848.02 |
-| lexer/next_token_loop/mixed_syntax | 4.1164 | 1.7212 | -58.19 | 80873333.16 | 193418752.53 |
+| lexer/tokenize/mixed_syntax | 2.1785 | 2.1785 | 0.00 | 152814589.13 | 152814589.13 |
+| lexer/next_token_loop/mixed_syntax | 1.6625 | 1.6625 | 0.00 | 200250759.94 | 200250759.94 |
 
 ## Corpus: comment_heavy
 | Benchmark | Baseline Mean (ms) | Current Mean (ms) | Change (%) | Baseline B/s | Current B/s |
 |---|---:|---:|---:|---:|---:|
-| lexer/tokenize/comment_heavy | 2.7631 | 1.5985 | -42.15 | 155705929.39 | 269147210.04 |
-| lexer/next_token_loop/comment_heavy | 2.1690 | 1.4193 | -34.56 | 198356071.57 | 303129618.83 |
+| lexer/tokenize/comment_heavy | 0.8283 | 0.8283 | 0.00 | 519434854.36 | 519434854.36 |
+| lexer/next_token_loop/comment_heavy | 0.7555 | 0.7555 | 0.00 | 569480560.58 | 569480560.58 |
 
 ## Corpus: ident_heavy
 | Benchmark | Baseline Mean (ms) | Current Mean (ms) | Change (%) | Baseline B/s | Current B/s |
 |---|---:|---:|---:|---:|---:|
-| lexer/tokenize/identifier_heavy | 5.4756 | 1.7836 | -67.43 | 126825880.49 | 389351064.93 |
-| lexer/next_token_loop/identifier_heavy | 4.3723 | 1.5588 | -64.35 | 158830569.10 | 445509613.29 |
+| lexer/tokenize/identifier_heavy | 2.2658 | 2.2658 | 0.00 | 306491929.30 | 306491929.30 |
+| lexer/next_token_loop/identifier_heavy | 1.9860 | 1.9860 | 0.00 | 349669633.91 | 349669633.91 |
 
 ## Corpus: string_heavy
 | Benchmark | Baseline Mean (ms) | Current Mean (ms) | Change (%) | Baseline B/s | Current B/s |
 |---|---:|---:|---:|---:|---:|
-| lexer/tokenize/string_escape_interp_heavy | 4.5863 | 2.1354 | -53.44 | 77284583.24 | 165987549.17 |
-| lexer/next_token_loop/string_escape_interp_heavy | 3.1274 | 1.6926 | -45.88 | 113338613.50 | 209406561.20 |
+| lexer/tokenize/string_escape_interp_heavy | 1.7289 | 1.7289 | 0.00 | 205012054.08 | 205012054.08 |
+| lexer/next_token_loop/string_escape_interp_heavy | 1.5213 | 1.5213 | 0.00 | 232997068.51 | 232997068.51 |
