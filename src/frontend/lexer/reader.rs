@@ -39,12 +39,58 @@ impl CharReader {
         Rc::clone(&self.source)
     }
 
+    #[inline(always)]
+    pub(super) fn source_len(&self) -> usize {
+        self.source.len()
+    }
+
+    #[inline(always)]
+    pub(super) fn byte_at(&self, idx: usize) -> Option<u8> {
+        self.bytes().get(idx).copied()
+    }
+
     pub(super) fn current(&self) -> Option<char> {
         self.current_char
     }
 
     pub(super) fn current_byte(&self) -> Option<u8> {
         self.bytes().get(self.position).copied()
+    }
+
+    #[inline(always)]
+    pub(super) fn seek_to(&mut self, new_position: usize) {
+        if new_position == self.position {
+            return;
+        }
+
+        self.set_current_from(new_position.min(self.bytes().len()));
+    }
+
+    #[inline(always)]
+    pub(super) fn seek_to_ascii_no_newline(&mut self, new_position: usize) {
+        let target = new_position.min(self.bytes().len());
+
+        if target <= self.position {
+            return;
+        }
+
+        debug_assert!(
+            self.bytes()[self.position..target]
+                .iter()
+                .all(|b| b.is_ascii() && *b != b'\n')
+        );
+
+        self.column += target - self.position;
+
+        if let Some((ch, len)) = self.decode_at(target) {
+            self.position = target;
+            self.read_position = target + len;
+            self.current_char = Some(ch);
+        } else {
+            self.position = self.bytes().len();
+            self.read_position = self.bytes().len() + 1;
+            self.current_char = None;
+        }
     }
 
     pub(super) fn advance(&mut self) -> Option<char> {

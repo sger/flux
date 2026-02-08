@@ -1,44 +1,30 @@
 //! String literal parsing and interpolation handling
 
-use crate::frontend::lexeme::Lexeme;
 use crate::frontend::token::Token;
 use crate::frontend::token_type::TokenType;
 
 use super::Lexer;
-
-enum StringContent {
-    Span { start: usize, end: usize },
-    Owned(String),
-}
 
 impl Lexer {
     /// Helper to create a string-family token using the lexer's cursor end position
     fn string_token_with_cursor_end(
         &self,
         token_type: TokenType,
-        content: StringContent,
+        content_start: usize,
+        content_end: usize,
         line: usize,
         column: usize,
     ) -> Token {
         // String-family tokens use source cursor end (raw span), not cooked literal length.
-        match content {
-            StringContent::Span { start, end } => Token::new_span_with_end(
-                token_type,
-                self.source_arc(),
-                start,
-                end,
-                line,
-                column,
-                self.cursor_position(),
-            ),
-            StringContent::Owned(content) => Token::new_with_end(
-                token_type,
-                Lexeme::Owned(content),
-                line,
-                column,
-                self.cursor_position(),
-            ),
-        }
+        Token::new_span_with_end(
+            token_type,
+            self.source_arc(),
+            content_start,
+            content_end,
+            line,
+            column,
+            self.cursor_position(),
+        )
     }
 
     /// Read the start of a string (called when we see opening ")
@@ -48,20 +34,38 @@ impl Lexer {
         let column = cursor.column;
         self.read_char(); // skip opening quote
 
-        let (content, ended, has_interpolation) = self.read_string_content();
+        let (content_start, content_end, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // String has interpolation - mark that we're in a string
             // Invariant: depth = 1 because we consumed the '{' of '#{' internally.
             self.enter_interpolated_string();
             // Return InterpolationStart instead of String to signal interpolation
-            self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::InterpolationStart,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         } else if !ended {
             // Hit newline or EOF without closing quote
-            self.string_token_with_cursor_end(TokenType::UnterminatedString, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::UnterminatedString,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         } else {
             // Simple string with no interpolation
-            self.string_token_with_cursor_end(TokenType::String, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::String,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         }
     }
 
@@ -74,138 +78,114 @@ impl Lexer {
         let line = cursor.line;
         let column = cursor.column;
 
-        let (content, ended, has_interpolation) = self.read_string_content();
+        let (content_start, content_end, ended, has_interpolation) = self.read_string_content();
 
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed the '{' of '#{'
             // Invariant: reset to 1 because '#{' consumed the '{' already.
             self.reset_current_interpolation_depth();
             // Return InterpolationStart to signal another interpolation
-            self.string_token_with_cursor_end(TokenType::InterpolationStart, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::InterpolationStart,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         } else if !ended {
             // Hit newline or EOF without closing quote
             self.exit_interpolated_string();
-            self.string_token_with_cursor_end(TokenType::UnterminatedString, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::UnterminatedString,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         } else {
             // End of interpolated string
             self.exit_interpolated_string();
-            self.string_token_with_cursor_end(TokenType::StringEnd, content, line, column)
+            self.string_token_with_cursor_end(
+                TokenType::StringEnd,
+                content_start,
+                content_end,
+                line,
+                column,
+            )
         }
     }
 
     /// Read string content until we hit closing quote or interpolation start
     /// Returns (content, ended_with_quote, has_interpolation)
-    fn read_string_content(&mut self) -> (StringContent, bool, bool) {
+    fn read_string_content(&mut self) -> (usize, usize, bool, bool) {
         let span_start = self.current_index();
+        let len = self.reader.source_len();
+        let mut i = span_start;
 
-        while let Some(c) = self.current_byte() {
-            match c {
+        loop {
+            // ASCII scan: skip plain content until a special delimiter.
+            while i < len {
+                let b = self.reader.byte_at(i).unwrap_or_default();
+                let b1 = self.reader.byte_at(i + 1);
+                if b == b'\\'
+                    || b == b'"'
+                    || b == b'\n'
+                    || b == b'\r'
+                    || b >= 0x80
+                    || (b == b'#' && b1 == Some(b'{'))
+                {
+                    break;
+                }
+                i += 1;
+            }
+
+            if i >= len {
+                // EOF before closing quote.
+                self.reader.seek_to_ascii_no_newline(i);
+                return (span_start, i, false, false);
+            }
+
+            match self.reader.byte_at(i).unwrap_or_default() {
                 b'\n' | b'\r' => {
-                    // Strings cannot span lines
-                    return (
-                        StringContent::Span {
-                            start: span_start,
-                            end: self.current_index(),
-                        },
-                        false,
-                        false,
-                    );
+                    // Strings cannot span lines.
+                    self.reader.seek_to_ascii_no_newline(i);
+                    return (span_start, i, false, false);
                 }
                 b'"' => {
-                    // End of string
-                    let end = self.current_index();
-                    self.read_char(); // consume closing quote
-                    return (
-                        StringContent::Span {
-                            start: span_start,
-                            end,
-                        },
-                        true,
-                        false,
-                    );
+                    // End of string.
+                    let end = i;
+                    self.reader.seek_to_ascii_no_newline(i + 1);
+                    return (span_start, end, true, false);
                 }
-                b'#' if self.peek_byte() == Some(b'{') => {
-                    // Start of interpolation
-                    let end = self.current_index();
-                    self.read_char(); // consume '#'
-                    self.read_char(); // consume '{'
-                    return (
-                        StringContent::Span {
-                            start: span_start,
-                            end,
-                        },
-                        false,
-                        true,
-                    );
+                b'#' => {
+                    // Interpolation start '#{'.
+                    let end = i;
+                    self.reader.seek_to_ascii_no_newline(i + 2); // consume '#{'
+                    return (span_start, end, false, true);
                 }
-                b'\\' => {
-                    // Escape sequence
-                    let mut owned = String::with_capacity(self.current_index() - span_start + 16);
-                    owned.push_str(self.slice_str(span_start, self.current_index()));
-                    self.read_char(); // consume backslash '\\'
-
-                    match self.read_escape_sequence() {
-                        Some(escaped) => owned.push(escaped),
-                        None => {
-                            // EOF right after backslash inside a string.
-                            // Keep the raw backslash in the token literal and terminate.
-                            owned.push('\\');
-                            return (StringContent::Owned(owned), false, false);
-                        }
+                b'\\' => match self.reader.byte_at(i + 1) {
+                    // Path for valid ASCII escapes.
+                    Some(b'n' | b't' | b'r' | b'\\' | b'"' | b'#') => {
+                        i += 2;
                     }
-
-                    return self.read_string_content_slow(owned);
-                }
-                _ => self.read_char(),
-            }
-        }
-
-        // Hit EOF without closing quote
-        (
-            StringContent::Span {
-                start: span_start,
-                end: self.current_index(),
-            },
-            false,
-            false,
-        )
-    }
-
-    fn read_string_content_slow(&mut self, mut owned: String) -> (StringContent, bool, bool) {
-        loop {
-            let run_start = self.current_index();
-            self.reader.advance_until_special_in_string();
-            let run_end = self.current_index();
-
-            if run_end > run_start {
-                owned.push_str(self.slice_str(run_start, run_end));
-            }
-
-            match self.current_byte() {
-                Some(b'\n' | b'\r') => return (StringContent::Owned(owned), false, false),
-                Some(b'"') => {
-                    self.read_char();
-                    return (StringContent::Owned(owned), true, false);
-                }
-                Some(b'#') if self.peek_byte() == Some(b'{') => {
-                    self.read_char();
-                    self.read_char();
-                    return (StringContent::Owned(owned), false, true);
-                }
-                Some(b'\\') => {
-                    self.read_char();
-                    match self.read_escape_sequence() {
-                        Some(ch) => owned.push(ch),
-                        None => {
-                            owned.push('\\');
-                            return (StringContent::Owned(owned), false, false);
-                        }
+                    // Slow path preserves warning behavior for invalid escapes.
+                    Some(_) => {
+                        self.reader.seek_to(i);
+                        self.consume_escape_sequence();
+                        i = self.current_index();
                     }
-                }
-                Some(_) => {
+                    // Trailing backslash at EOF.
+                    None => {
+                        self.reader.seek_to_ascii_no_newline(i + 1);
+                        return (span_start, i + 1, false, false);
+                    }
+                },
+                _ => {
+                    // Non-ASCII fallback keeps UTF-8 behavior correct.
+                    self.reader.seek_to(i);
                     self.read_char();
+                    i = self.current_index();
                 }
-                None => return (StringContent::Owned(owned), false, false),
             }
         }
     }
