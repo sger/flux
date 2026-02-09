@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    syntax::{block::Block, interner::Interner, position::Position, symbol::Symbol},
     runtime::object::Object,
+    syntax::{block::Block, interner::Interner, position::Position, symbol::Symbol},
 };
 
 use super::{analysis::analyze_module_constants, error::ConstEvalError, eval::eval_const_expr};

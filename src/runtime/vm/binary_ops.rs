@@ -1,5 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
+    runtime::object::Object,
     syntax::{
         diagnostics::{
             DIVISION_BY_ZERO_RUNTIME, DiagnosticBuilder, DiagnosticsAggregator, HintChain,
@@ -7,7 +8,6 @@ use crate::{
         },
         position::{Position, Span},
     },
-    runtime::object::Object,
 };
 
 use super::VM;

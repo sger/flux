@@ -1,7 +1,7 @@
 use crate::{
     bytecode::compiler::Compiler,
-    syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     runtime::object::Object,
+    syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
 
 fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {

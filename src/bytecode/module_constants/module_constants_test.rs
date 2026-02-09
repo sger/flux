@@ -4,6 +4,7 @@ use crate::{
     bytecode::module_constants::{
         ConstEvalError, analyze_module_constants, eval_const_expr, topological_sort_constants,
     },
+    runtime::object::Object,
     syntax::{
         block::Block,
         expression::Expression,
@@ -11,7 +12,6 @@ use crate::{
         position::{Position, Span},
         statement::Statement,
     },
-    runtime::object::Object,
 };
 
 fn pos(line: usize, column: usize) -> Position {
@@ -225,7 +225,10 @@ fn const_undefined_identifier_uses_resolved_name() {
 
     let err = eval_const_expr(&expr, &HashMap::new(), &interner).unwrap_err();
     assert_eq!(err.code, "E041");
-    assert!(err.message.contains("'missing_const' is not a module constant."));
+    assert!(
+        err.message
+            .contains("'missing_const' is not a module constant.")
+    );
 }
 
 #[test]

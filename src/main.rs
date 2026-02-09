@@ -9,6 +9,7 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
+    runtime::vm::VM,
     syntax::{
         diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
         formatter::format_source,
@@ -17,7 +18,6 @@ use flux::{
         module_graph::ModuleGraph,
         parser::Parser,
     },
-    runtime::vm::VM,
 };
 
 fn main() {

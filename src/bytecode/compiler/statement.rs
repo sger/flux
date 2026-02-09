@@ -5,6 +5,7 @@ use crate::{
         compiler::Compiler, debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
     },
+    runtime::{compiled_function::CompiledFunction, object::Object},
     syntax::{
         block::Block,
         diagnostics::{
@@ -16,7 +17,6 @@ use crate::{
         statement::Statement,
         symbol::Symbol,
     },
-    runtime::{compiled_function::CompiledFunction, object::Object},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;

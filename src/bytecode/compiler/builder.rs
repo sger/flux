@@ -1,13 +1,13 @@
 use crate::{
     bytecode::{
+        binding::Binding,
         debug_info::{InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
-        binding::Binding,
         symbol_scope::SymbolScope,
     },
-    syntax::position::Span,
     runtime::object::Object,
+    syntax::position::Span,
 };
 
 use super::Compiler;
