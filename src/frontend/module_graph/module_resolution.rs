@@ -9,6 +9,7 @@ use crate::frontend::{
         INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
         MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     },
+    interner::{self, Interner},
     lexer::Lexer,
     parser::Parser,
     position::{Position, Span},
@@ -48,17 +49,57 @@ pub(super) fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
     Ok(program)
 }
 
+pub(super) fn parse_program_with_interner(
+    path: &Path,
+    interner: Interner,
+) -> (Result<Program, Vec<Diagnostic>>, Interner) {
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(err) => {
+            let error_spec = &IMPORT_READ_FAILED;
+            let diag = Diagnostic::make_error(
+                error_spec,
+                &[&path.display().to_string(), &err.to_string()],
+                path.display().to_string(),
+                Span::new(Position::default(), Position::default()),
+            );
+            return (Err(vec![diag]), interner);
+        }
+    };
+
+    let lexer = Lexer::new_with_interner(source, interner);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+
+    let interner = parser.take_interner();
+
+    if !parser.errors.is_empty() {
+        let mut diags = parser.errors;
+        for diag in &mut diags {
+            diag.set_file(path.display().to_string());
+        }
+        return (Err(diags), interner);
+    }
+
+    (Ok(program), interner)
+}
+
 pub(super) fn resolve_imports(
     path: &Path,
     program: &Program,
     roots: &[PathBuf],
+    interner: &Interner,
 ) -> Result<Vec<ImportEdge>, Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     let mut edges = Vec::new();
 
     for statement in &program.statements {
         let (name, alias, position) = match statement {
-            Statement::Import { name, alias, span } => (name.clone(), alias.clone(), span.start),
+            Statement::Import { name, alias, span } => {
+                let name_str = interner.resolve(*name).to_string();
+                let alias_str = alias.map(|a| interner.resolve(a).to_string());
+                (name_str, alias_str, span.start)
+            }
             _ => continue,
         };
 
@@ -209,13 +250,14 @@ pub(super) fn validate_file_kind(
     program: &Program,
     is_entry: bool,
     roots: &[PathBuf],
+    interner: &Interner,
 ) -> Result<(), Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     let mut module_decls: Vec<(String, Position)> = Vec::new();
 
     for statement in &program.statements {
         if let Statement::Module { name, span, .. } = statement {
-            module_decls.push((name.clone(), span.start));
+            module_decls.push((interner.resolve(*name).to_string(), span.start));
         }
     }
 
