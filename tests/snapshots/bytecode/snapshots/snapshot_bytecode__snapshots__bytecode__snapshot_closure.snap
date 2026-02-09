@@ -2,20 +2,6 @@
 source: tests/snapshots/bytecode/mod.rs
 expression: output
 ---
-Constants:
-  0: <function>
-  1: <function>
-  2: 2
-  3: 3
-
-Instructions:
-0000 OpClosure 1 0
-0004 OpSetGlobal 0
-0007 OpGetGlobal 0
-0010 OpConstant 2
-0013 OpCall 1
-0015 OpSetGlobal 1
-0018 OpGetGlobal 1
-0021 OpConstant 3
-0024 OpCall 1
-0026 OpPop
+Compile Errors:
+  - Diagnostic { severity: Error, title: "DUPLICATE NAME", code: Some("E001"), error_type: Some(Compiler), message: Some("Duplicate binding: `print` is already defined."), file: Some("test.flx"), span: Some(Span { start: Position { line: 2, column: 0 }, end: Position { line: 4, column: 2 } }), labels: [], hints: [Hint { kind: Hint, text: "Use a different name or remove the previous definition.", span: None, label: None, file: None }, Hint { kind: Hint, text: "", span: Some(Span { start: Position { line: 0, column: 0 }, end: Position { line: 0, column: 0 } }), label: Some("first defined here"), file: None }], suggestions: [], hint_chains: [], related: [] }
+  - Diagnostic { severity: Error, title: "DUPLICATE NAME", code: Some("E001"), error_type: Some(Compiler), message: Some("Duplicate binding: `last` is already defined."), file: Some("test.flx"), span: Some(Span { start: Position { line: 5, column: 0 }, end: Position { line: 5, column: 25 } }), labels: [], hints: [Hint { kind: Hint, text: "Use a different name or remove the previous definition.", span: None, label: None, file: None }, Hint { kind: Hint, text: "", span: Some(Span { start: Position { line: 0, column: 0 }, end: Position { line: 0, column: 0 } }), label: Some("first defined here"), file: None }], suggestions: [], hint_chains: [], related: [] }

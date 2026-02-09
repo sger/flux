@@ -10,10 +10,12 @@ use crate::{
     },
     frontend::{
         diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
+        interner::Interner,
         pattern_validate::validate_program_patterns,
         position::{Position, Span},
         program::Program,
         statement::Statement,
+        symbol::Symbol,
     },
     runtime::object::Object,
 };
@@ -34,13 +36,14 @@ pub struct Compiler {
     pub errors: Vec<Diagnostic>,
     pub(super) file_path: String,
     imported_files: HashSet<String>,
-    pub(super) file_scope_symbols: HashSet<String>,
-    pub(super) imported_modules: HashSet<String>,
-    pub(super) import_aliases: HashMap<String, String>,
-    pub(super) current_module_prefix: Option<String>,
+    pub(super) file_scope_symbols: HashSet<Symbol>,
+    pub(super) imported_modules: HashSet<Symbol>,
+    pub(super) import_aliases: HashMap<Symbol, Symbol>,
+    pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
     pub(super) module_constants: HashMap<String, Object>,
+    pub interner: Interner,
 }
 
 #[cfg(test)]
@@ -52,43 +55,48 @@ impl Compiler {
     }
 
     pub fn new_with_file_path(file_path: impl Into<String>) -> Self {
+        Self::new_with_interner(file_path, Interner::new())
+    }
+
+    pub fn new_with_interner(file_path: impl Into<String>, interner: Interner) -> Self {
+        let mut interner = interner;
         let mut symbol_table = SymbolTable::new();
-        symbol_table.define_builtin(0, "print");
-        symbol_table.define_builtin(1, "len");
-        symbol_table.define_builtin(2, "first");
-        symbol_table.define_builtin(3, "last");
-        symbol_table.define_builtin(4, "rest");
-        symbol_table.define_builtin(5, "push");
-        symbol_table.define_builtin(6, "to_string");
-        symbol_table.define_builtin(7, "concat");
-        symbol_table.define_builtin(8, "reverse");
-        symbol_table.define_builtin(9, "contains");
-        symbol_table.define_builtin(10, "slice");
-        symbol_table.define_builtin(11, "sort");
-        symbol_table.define_builtin(12, "split");
-        symbol_table.define_builtin(13, "join");
-        symbol_table.define_builtin(14, "trim");
-        symbol_table.define_builtin(15, "upper");
-        symbol_table.define_builtin(16, "lower");
-        symbol_table.define_builtin(17, "chars");
-        symbol_table.define_builtin(18, "substring");
-        symbol_table.define_builtin(19, "keys");
-        symbol_table.define_builtin(20, "values");
-        symbol_table.define_builtin(21, "has_key");
-        symbol_table.define_builtin(22, "merge");
-        symbol_table.define_builtin(23, "abs");
-        symbol_table.define_builtin(24, "min");
-        symbol_table.define_builtin(25, "max");
+        symbol_table.define_builtin(0, interner.intern("print"));
+        symbol_table.define_builtin(1, interner.intern("len"));
+        symbol_table.define_builtin(2, interner.intern("first"));
+        symbol_table.define_builtin(3, interner.intern("last"));
+        symbol_table.define_builtin(4, interner.intern("rest"));
+        symbol_table.define_builtin(5, interner.intern("push"));
+        symbol_table.define_builtin(6, interner.intern("to_string"));
+        symbol_table.define_builtin(7, interner.intern("concat"));
+        symbol_table.define_builtin(8, interner.intern("reverse"));
+        symbol_table.define_builtin(9, interner.intern("contains"));
+        symbol_table.define_builtin(10, interner.intern("slice"));
+        symbol_table.define_builtin(11, interner.intern("sort"));
+        symbol_table.define_builtin(12, interner.intern("split"));
+        symbol_table.define_builtin(13, interner.intern("join"));
+        symbol_table.define_builtin(14, interner.intern("trim"));
+        symbol_table.define_builtin(15, interner.intern("upper"));
+        symbol_table.define_builtin(16, interner.intern("lower"));
+        symbol_table.define_builtin(17, interner.intern("chars"));
+        symbol_table.define_builtin(18, interner.intern("substring"));
+        symbol_table.define_builtin(19, interner.intern("keys"));
+        symbol_table.define_builtin(20, interner.intern("values"));
+        symbol_table.define_builtin(21, interner.intern("has_key"));
+        symbol_table.define_builtin(22, interner.intern("merge"));
+        symbol_table.define_builtin(23, interner.intern("abs"));
+        symbol_table.define_builtin(24, interner.intern("min"));
+        symbol_table.define_builtin(25, interner.intern("max"));
         // Type Checking Builtins (5.5)
-        symbol_table.define_builtin(26, "type_of");
-        symbol_table.define_builtin(27, "is_int");
-        symbol_table.define_builtin(28, "is_float");
-        symbol_table.define_builtin(29, "is_string");
-        symbol_table.define_builtin(30, "is_bool");
-        symbol_table.define_builtin(31, "is_array");
-        symbol_table.define_builtin(32, "is_hash");
-        symbol_table.define_builtin(33, "is_none");
-        symbol_table.define_builtin(34, "is_some");
+        symbol_table.define_builtin(26, interner.intern("type_of"));
+        symbol_table.define_builtin(27, interner.intern("is_int"));
+        symbol_table.define_builtin(28, interner.intern("is_float"));
+        symbol_table.define_builtin(29, interner.intern("is_string"));
+        symbol_table.define_builtin(30, interner.intern("is_bool"));
+        symbol_table.define_builtin(31, interner.intern("is_array"));
+        symbol_table.define_builtin(32, interner.intern("is_hash"));
+        symbol_table.define_builtin(33, interner.intern("is_none"));
+        symbol_table.define_builtin(34, interner.intern("is_some"));
 
         Self {
             constants: Vec::new(),
@@ -105,13 +113,19 @@ impl Compiler {
             current_span: None,
             // Module Constants
             module_constants: HashMap::new(),
+            interner,
         }
     }
 
-    pub fn new_with_state(symbol_table: SymbolTable, constants: Vec<Object>) -> Self {
+    pub fn new_with_state(
+        symbol_table: SymbolTable,
+        constants: Vec<Object>,
+        interner: Interner,
+    ) -> Self {
         let mut compiler = Self::new();
         compiler.symbol_table = symbol_table;
         compiler.constants = constants;
+        compiler.interner = interner;
         compiler
     }
 
@@ -146,8 +160,9 @@ impl Compiler {
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
                 {
+                    let name_str = self.interner.resolve(name);
                     self.errors.push(self.make_redeclaration_error(
-                        name,
+                        name_str,
                         *span,
                         Some(existing.span),
                         None,
@@ -155,21 +170,25 @@ impl Compiler {
                     continue;
                 }
                 // Check for import collision
-                if self.scope_index == 0 && self.file_scope_symbols.contains(name) {
+                if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
+                    let name_str = self.interner.resolve(name);
                     self.errors
-                        .push(self.make_import_collision_error(name, *span));
+                        .push(self.make_import_collision_error(name_str, *span));
                     continue;
                 }
                 // Predeclare the function name
                 self.symbol_table.define(name, *span);
-                self.file_scope_symbols.insert(name.clone());
+                self.file_scope_symbols.insert(name);
             }
         }
 
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
-        self.errors
-            .extend(validate_program_patterns(program, &self.file_path));
+        self.errors.extend(validate_program_patterns(
+            program,
+            &self.file_path,
+            &self.interner,
+        ));
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
@@ -257,11 +276,11 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
     }
 
-    pub(super) fn find_duplicate_name(names: &[String]) -> Option<&str> {
+    pub(super) fn find_duplicate_name(names: &[Symbol]) -> Option<Symbol> {
         let mut seen = HashSet::new();
         for name in names {
-            if !seen.insert(name.as_str()) {
-                return Some(name.as_str());
+            if !seen.insert(*name) {
+                return Some(*name);
             }
         }
         None

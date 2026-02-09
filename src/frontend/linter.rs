@@ -5,7 +5,7 @@ use crate::frontend::{
     diagnostics::{Diagnostic, DiagnosticBuilder},
     expression::{Expression, Pattern, StringPart},
     interner::Interner,
-    module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
+    module_graph::is_valid_module_name,
     position::{Position, Span},
     program::Program,
     statement::Statement,

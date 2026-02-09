@@ -2,8 +2,9 @@
 
 use std::collections::HashMap;
 
+
 use crate::{
-    frontend::expression::Expression,
+    frontend::{expression::Expression, interner::Interner, symbol::Symbol},
     runtime::{hash_key::HashKey, object::Object},
 };
 
@@ -15,7 +16,8 @@ use super::error::ConstEvalError;
 /// to already-evaluated constants.
 pub fn eval_const_expr(
     expr: &Expression,
-    defined: &HashMap<String, Object>,
+    defined: &HashMap<Symbol, Object>,
+    _interner: &Interner,
 ) -> Result<Object, ConstEvalError> {
     match expr {
         Expression::Integer { value, .. } => Ok(Object::Integer(*value)),
@@ -25,14 +27,14 @@ pub fn eval_const_expr(
         Expression::None { .. } => Ok(Object::None),
 
         Expression::Some { value, .. } => {
-            let inner = eval_const_expr(value, defined)?;
+            let inner = eval_const_expr(value, defined, _interner)?;
             Ok(Object::Some(Box::new(inner)))
         }
 
         Expression::Array { elements, .. } => {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
-                values.push(eval_const_expr(element, defined)?);
+                values.push(eval_const_expr(element, defined, _interner)?);
             }
             Ok(Object::Array(values))
         }
@@ -40,8 +42,8 @@ pub fn eval_const_expr(
         Expression::Hash { pairs, .. } => {
             let mut map = HashMap::with_capacity(pairs.len());
             for (key, value) in pairs {
-                let k = eval_const_expr(key, defined)?;
-                let v = eval_const_expr(value, defined)?;
+                let k = eval_const_expr(key, defined, _interner)?;
+                let v = eval_const_expr(value, defined, _interner)?;
 
                 let hash_key = match &k {
                     Object::Integer(i) => HashKey::Integer(*i),
@@ -66,7 +68,7 @@ pub fn eval_const_expr(
         Expression::Prefix {
             operator, right, ..
         } => {
-            let r = eval_const_expr(right, defined)?;
+            let r = eval_const_expr(right, defined, _interner)?;
             eval_const_unary_op(operator, &r)
         }
 
@@ -76,8 +78,8 @@ pub fn eval_const_expr(
             right,
             ..
         } => {
-            let l = eval_const_expr(left, defined)?;
-            let r = eval_const_expr(right, defined)?;
+            let l = eval_const_expr(left, defined, _interner)?;
+            let r = eval_const_expr(right, defined, _interner)?;
             eval_const_binary_op(&l, operator, &r)
         }
 

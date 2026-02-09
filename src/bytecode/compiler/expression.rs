@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::{
-        compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode, binding::Binding,
+        binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
         symbol_scope::SymbolScope,
     },
     frontend::{
@@ -17,6 +17,7 @@ use crate::{
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         position::{Position, Span},
+        symbol::Symbol,
     },
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
@@ -51,20 +52,30 @@ impl Compiler {
                 }
             }
             Expression::Identifier { name, span } => {
+                let name = *name;
                 if let Some(symbol) = self.symbol_table.resolve(name) {
                     self.load_symbol(&symbol);
-                } else if let Some(prefix) = &self.current_module_prefix {
-                    let qualified = format!("{}.{}", prefix, name);
-                    if let Some(symbol) = self.symbol_table.resolve(&qualified) {
+                } else if let Some(prefix) = self.current_module_prefix {
+                    let qualified = self.interner.intern_join(prefix, name);
+                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
                         self.load_symbol(&symbol);
-                    } else if let Some(constant_value) = self.module_constants.get(&qualified) {
-                        // Module constant - inline the value
-                        self.emit_constant_object(constant_value.clone());
                     } else {
-                        return Err(Self::boxed(self.make_undefined_variable_error(name, *span)));
+                        let qualified_str = self.interner.resolve(qualified).to_string();
+                        if let Some(constant_value) = self.module_constants.get(&qualified_str) {
+                            // Module constant - inline the value
+                            self.emit_constant_object(constant_value.clone());
+                        } else {
+                            let name_str = self.interner.resolve(name);
+                            return Err(Self::boxed(
+                                self.make_undefined_variable_error(name_str, *span),
+                            ));
+                        }
                     }
                 } else {
-                    return Err(Self::boxed(self.make_undefined_variable_error(name, *span)));
+                    let name_str = self.interner.resolve(name);
+                    return Err(Self::boxed(
+                        self.make_undefined_variable_error(name_str, *span),
+                    ));
                 }
             }
             Expression::Prefix {
@@ -201,14 +212,16 @@ impl Compiler {
             }
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
+                let member = *member;
                 let module_name = match object.as_ref() {
                     Expression::Identifier { name, .. } => {
-                        if let Some(target) = self.import_aliases.get(name) {
-                            Some(target.clone())
-                        } else if self.imported_modules.contains(name)
-                            || self.current_module_prefix.as_deref() == Some(name.as_str())
+                        let name = *name;
+                        if let Some(target) = self.import_aliases.get(&name) {
+                            Some(*target)
+                        } else if self.imported_modules.contains(&name)
+                            || self.current_module_prefix == Some(name)
                         {
-                            Some(name.clone())
+                            Some(name)
                         } else {
                             None
                         }
@@ -217,25 +230,34 @@ impl Compiler {
                 };
 
                 if let Some(module_name) = module_name {
-                    self.check_private_member(member, expr_span, Some(module_name.as_str()))?;
+                    let member_str = self.interner.resolve(member);
+                    self.check_private_member(
+                        member_str,
+                        expr_span,
+                        Some(self.interner.resolve(module_name)),
+                    )?;
 
-                    let qualified = format!("{}.{}", module_name, member);
+                    let qualified = self.interner.intern_join(module_name, member);
+                    let qualified_str = self.interner.resolve(qualified).to_string();
 
                     // Module Constants check if this is a compile-time constant
                     // If so, inline the constant value directly instead of loading from symbol
-                    if let Some(constant_value) = self.module_constants.get(&qualified) {
+                    if let Some(constant_value) = self.module_constants.get(&qualified_str) {
                         self.emit_constant_object(constant_value.clone());
                         return Ok(());
                     }
 
-                    if let Some(symbol) = self.symbol_table.resolve(&qualified) {
+                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
                         self.load_symbol(&symbol);
                         return Ok(());
                     }
 
+                    let module_name_str = self.interner.resolve(module_name);
+                    let member_str = self.interner.resolve(member);
+
                     return Err(Self::boxed(Diagnostic::make_error(
                         &UNKNOWN_MODULE_MEMBER,
-                        &[&module_name, member],
+                        &[module_name_str, member_str],
                         self.file_path.clone(),
                         expr_span,
                     )));
@@ -243,26 +265,31 @@ impl Compiler {
 
                 if let Expression::Identifier { name, .. } = object.as_ref()
                     && module_name.is_none()
-                    && is_valid_module_name(name)
                 {
-                    let has_symbol = self.symbol_table.resolve(name).is_some();
-                    if !has_symbol {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &MODULE_NOT_IMPORTED,
-                            &[name],
-                            self.file_path.clone(),
-                            expr_span,
-                        )));
+                    let name = *name;
+                    let name_str = self.interner.resolve(name);
+                    if is_valid_module_name(name_str) {
+                        let has_symbol = self.symbol_table.resolve(name).is_some();
+                        if !has_symbol {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &MODULE_NOT_IMPORTED,
+                                &[name_str],
+                                self.file_path.clone(),
+                                expr_span,
+                            )));
+                        }
                     }
                 }
 
-                self.check_private_member(member, expr_span, None)?;
+                let member_str = self.interner.resolve(member);
+                self.check_private_member(member_str, expr_span, None)?;
 
                 // Compile the object (e.g., the module identifier)
                 self.compile_expression(object)?;
 
                 // Emit the member name as a string constant (the hash key)
-                let member_idx = self.add_constant(Object::String(member.clone()));
+                let member_str = self.interner.resolve(member).to_string();
+                let member_idx = self.add_constant(Object::String(member_str));
                 self.emit(OpCode::OpConstant, &[member_idx]);
 
                 // Use index operation to access the member from the hash
@@ -300,15 +327,16 @@ impl Compiler {
 
     pub(super) fn compile_function_literal(
         &mut self,
-        parameters: &[String],
+        parameters: &[Symbol],
         body: &Block,
     ) -> CompileResult<()> {
         use crate::frontend::diagnostics::DUPLICATE_PARAMETER;
 
         if let Some(name) = Self::find_duplicate_name(parameters) {
+            let name_str = self.interner.resolve(name);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
-                &[name],
+                &[name_str],
                 self.file_path.clone(),
                 Span::new(Position::default(), Position::default()),
             )));
@@ -317,7 +345,7 @@ impl Compiler {
         self.enter_scope();
 
         for param in parameters {
-            self.symbol_table.define(param, Span::default());
+            self.symbol_table.define(*param, Span::default());
         }
 
         self.compile_block(body)?;
@@ -661,7 +689,7 @@ impl Compiler {
         match pattern {
             Pattern::Identifier { name, span } => {
                 self.load_symbol(scrutinee);
-                let symbol = self.symbol_table.define(name.clone(), *span);
+                let symbol = self.symbol_table.define(*name, *span);
                 match symbol.symbol_scope {
                     SymbolScope::Global => {
                         self.emit(OpCode::OpSetGlobal, &[symbol.index]);

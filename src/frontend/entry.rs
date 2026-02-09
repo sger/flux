@@ -32,4 +32,10 @@ impl Entry {
     pub fn len(&self) -> usize {
         self.end - self.start
     }
+
+    /// Returns `true` if this entry is empty (zero length).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
 }

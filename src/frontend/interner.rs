@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    hash::{BuildHasher, Hash, Hasher, RandomState},
+    hash::{BuildHasher, RandomState},
 };
 
 use crate::frontend::{entry::Entry, symbol::Symbol};
@@ -144,11 +144,17 @@ impl Interner {
         self.storage.get(entry.start..entry.end)
     }
 
-    fn hash_str(&self, s: &str) -> u64 {
-        let mut h = self.hasher.build_hasher();
+    /// Interns a qualified name by resolving two symbols, joining them with a dot,
+    /// and interning the result. Used for module-qualified identifiers like `Module.member`.
+    pub fn intern_join(&mut self, left: Symbol, right: Symbol) -> Symbol {
+        let left_str = self.resolve(left);
+        let right_str = self.resolve(right);
+        let qualified = format!("{}.{}", left_str, right_str);
+        self.intern(&qualified)
+    }
 
-        s.hash(&mut h);
-        h.finish()
+    fn hash_str(&self, s: &str) -> u64 {
+        self.hasher.hash_one(s)
     }
 }
 
@@ -253,14 +259,9 @@ mod tests {
         let mut interner = Interner::new();
 
         // Create many strings to increase chance of collisions
-        let strings: Vec<String> = (0..100)
-            .map(|i| format!("identifier_{}", i))
-            .collect();
+        let strings: Vec<String> = (0..100).map(|i| format!("identifier_{}", i)).collect();
 
-        let symbols: Vec<Symbol> = strings
-            .iter()
-            .map(|s| interner.intern(s))
-            .collect();
+        let symbols: Vec<Symbol> = strings.iter().map(|s| interner.intern(s)).collect();
 
         // Verify all symbols are unique
         for i in 0..symbols.len() {

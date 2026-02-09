@@ -9,7 +9,7 @@ use crate::frontend::{
         INVALID_MODULE_ALIAS, INVALID_MODULE_FILE, INVALID_MODULE_NAME, MODULE_PATH_MISMATCH,
         MULTIPLE_MODULES, SCRIPT_NOT_IMPORTABLE,
     },
-    interner::{self, Interner},
+    interner::Interner,
     lexer::Lexer,
     parser::Parser,
     position::{Position, Span},

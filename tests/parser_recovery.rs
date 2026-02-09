@@ -1,8 +1,8 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use flux::frontend::{
-    diagnostics::Diagnostic, expression::Expression, lexer::Lexer, parser::Parser,
-    program::Program, statement::Statement,
+    diagnostics::Diagnostic, expression::Expression, interner::Interner, lexer::Lexer,
+    parser::Parser, program::Program, statement::Statement,
 };
 
 #[derive(Clone, Copy)]
@@ -12,12 +12,13 @@ struct RecoveryCase {
     expect_followup_let: Option<&'static str>,
 }
 
-fn parse_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>), String> {
+fn parse_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>, Interner), String> {
     panic::catch_unwind(AssertUnwindSafe(|| {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        (program, parser.errors)
+        let interner = parser.take_interner();
+        (program, parser.errors, interner)
     }))
     .map_err(|payload| {
         if let Some(msg) = payload.downcast_ref::<&str>() {
@@ -30,21 +31,21 @@ fn parse_no_panic(input: &str) -> Result<(Program, Vec<Diagnostic>), String> {
     })
 }
 
-fn has_let_binding(program: &Program, name: &str) -> bool {
+fn has_let_binding(program: &Program, interner: &Interner, name: &str) -> bool {
     program
         .statements
         .iter()
-        .any(|stmt| matches!(stmt, Statement::Let { name: n, .. } if n == name))
+        .any(|stmt| matches!(stmt, Statement::Let { name: n, .. } if interner.resolve(*n) == name))
 }
 
-fn has_print_call_with_int_arg(program: &Program, expected: i64) -> bool {
+fn has_print_call_with_int_arg(program: &Program, interner: &Interner, expected: i64) -> bool {
     program.statements.iter().any(|stmt| {
         matches!(
             stmt,
             Statement::Expression {
                 expression: Expression::Call { function, arguments, .. },
                 ..
-            } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+            } if matches!(&**function, Expression::Identifier { name, .. } if interner.resolve(*name) == "print")
                 && matches!(arguments.as_slice(), [Expression::Integer { value, .. }] if *value == expected)
         )
     })
@@ -124,7 +125,7 @@ fn malformed_expression_corpus_recovers_without_panicking() {
             parsed.err()
         );
 
-        let (program, diagnostics) = parsed.expect("already checked panic state");
+        let (program, diagnostics, interner) = parsed.expect("already checked panic state");
 
         assert!(
             !diagnostics.is_empty(),
@@ -147,7 +148,7 @@ fn malformed_expression_corpus_recovers_without_panicking() {
 
         if let Some(binding_name) = case.expect_followup_let {
             assert!(
-                has_let_binding(&program, binding_name),
+                has_let_binding(&program, &interner, binding_name),
                 "expected recovery to keep parsing trailing `let {}` in case `{}`",
                 binding_name,
                 case.name
@@ -188,7 +189,7 @@ fn malformed_statements_recover_and_keep_followup_statements() {
             parsed.err()
         );
 
-        let (program, diagnostics) = parsed.expect("already checked panic state");
+        let (program, diagnostics, interner) = parsed.expect("already checked panic state");
         assert!(
             !diagnostics.is_empty(),
             "expected diagnostics for recovery case `{}`",
@@ -199,6 +200,7 @@ fn malformed_statements_recover_and_keep_followup_statements() {
             assert!(
                 has_let_binding(
                     &program,
+                    &interner,
                     if name.contains("initializer") {
                         "y"
                     } else {
@@ -212,7 +214,7 @@ fn malformed_statements_recover_and_keep_followup_statements() {
 
         if expect_print {
             assert!(
-                has_print_call_with_int_arg(&program, 2),
+                has_print_call_with_int_arg(&program, &interner, 2),
                 "expected follow-up print(2) statement in recovery case `{}`",
                 name
             );

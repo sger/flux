@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::frontend::{position::Span, statement::Statement};
+use crate::frontend::{interner::Interner, position::Span, statement::Statement};
 
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -18,6 +18,15 @@ impl Program {
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    /// Formats this program using the interner to resolve identifier names.
+    pub fn display_with(&self, interner: &Interner) -> String {
+        self.statements
+            .iter()
+            .map(|s| s.display_with(interner))
+            .collect::<Vec<_>>()
+            .join("")
     }
 }
 
