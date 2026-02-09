@@ -1,10 +1,11 @@
 use crate::frontend::{
-    lexer::Lexer, parser::Parser, statement::Statement, token::Token, token_type::TokenType,
+    interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
+    token::Token, token_type::TokenType,
 };
 
 use super::{is_pascal_case_ident, is_uppercase_ident};
 
-fn parse_ok(input: &str) -> crate::frontend::program::Program {
+fn parse_ok(input: &str) -> (Program, Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
@@ -13,17 +14,19 @@ fn parse_ok(input: &str) -> crate::frontend::program::Program {
         "parser errors: {:?}",
         parser.errors
     );
-    program
+
+    let interner = parser.take_interner();
+    (program, interner)
 }
 
 #[test]
 fn parses_module_statement() {
-    let program = parse_ok("module Foo { let x = 1; }");
+    let (program, interner) = parse_ok("module Foo { let x = 1; }");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
         Statement::Module { name, body, .. } => {
-            assert_eq!(name, "Foo");
+            assert_eq!(interner.resolve(*name), "Foo");
             assert_eq!(body.statements.len(), 1);
         }
         _ => panic!("expected module statement"),
@@ -32,13 +35,13 @@ fn parses_module_statement() {
 
 #[test]
 fn parses_import_with_alias() {
-    let program = parse_ok("import Foo.Bar as Baz");
+    let (program, interner) = parse_ok("import Foo.Bar as Baz");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
         Statement::Import { name, alias, .. } => {
-            assert_eq!(name, "Foo.Bar");
-            assert_eq!(alias.as_deref(), Some("Baz"));
+            assert_eq!(interner.resolve(*name), "Foo.Bar");
+            assert_eq!(alias.map(|a| interner.resolve(a)), Some("Baz"));
         }
         _ => panic!("expected import statement"),
     }
@@ -46,12 +49,12 @@ fn parses_import_with_alias() {
 
 #[test]
 fn parses_import_without_alias() {
-    let program = parse_ok("import Foo");
+    let (program, interner) = parse_ok("import Foo");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
         Statement::Import { name, alias, .. } => {
-            assert_eq!(name, "Foo");
+            assert_eq!(interner.resolve(*name), "Foo");
             assert!(alias.is_none());
         }
         _ => panic!("expected import statement"),

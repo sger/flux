@@ -92,7 +92,8 @@ impl fmt::Display for Statement {
                 body,
                 ..
             } => {
-                write!(f, "fun {}({}) {}", name, parameters.join(", "), body)
+                let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
+                write!(f, "fun {}({}) {}", name, params.join(", "), body)
             }
             Statement::Assign { name, value, .. } => {
                 write!(f, "{} = {};", name, value)

@@ -1,9 +1,17 @@
+use std::fmt;
+
 /// A unique identifier for an interned string.
 ///
 /// Symbols are created by the `Interner` and should not be constructed manually.
 /// They are cheap to copy and compare, making them ideal for compiler data structures.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Symbol(u32);
+
+impl fmt::Display for Symbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "${}", self.0)
+    }
+}
 
 impl Symbol {
     /// Creates a new symbol from a raw index.

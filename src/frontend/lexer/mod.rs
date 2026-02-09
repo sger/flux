@@ -60,6 +60,30 @@ impl Lexer {
         }
     }
 
+    /// Creates a new lexer that uses an existing interner.
+    ///
+    /// This is used for multi-file compilation where all files share the same
+    /// interner so that `Symbol` values are consistent across modules.
+    pub fn new_with_interner(input: impl Into<String>, interner: Interner) -> Self {
+        Self {
+            reader: CharReader::new(input.into()),
+            interner,
+            state: LexerState::Normal,
+            warnings: Vec::new(),
+            unterminated_block_comment_pos: None,
+        }
+    }
+
+    /// Takes ownership of the interner, leaving a default in its place.
+    pub fn take_interner(&mut self) -> Interner {
+        std::mem::take(&mut self.interner)
+    }
+
+    /// Returns a mutable reference to the interner.
+    pub fn interner_mut(&mut self) -> &mut Interner {
+        &mut self.interner
+    }
+
     /// Get warnings collected during lexing
     pub fn warnings(&self) -> &[LexerWarning] {
         &self.warnings

@@ -6,23 +6,33 @@ use crate::frontend::{
         CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH, NON_EXHAUSTIVE_MATCH,
     },
     expression::{Expression, MatchArm, Pattern, StringPart},
+    interner::Interner,
     program::Program,
     statement::Statement,
+    symbol::Symbol,
 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct PatternValidationContext<'a> {
     pub file_path: &'a str,
+    pub interner: &'a Interner,
 }
 
 impl<'a> PatternValidationContext<'a> {
-    pub fn new(file_path: &'a str) -> Self {
-        Self { file_path }
+    pub fn new(file_path: &'a str, interner: &'a Interner) -> Self {
+        Self {
+            file_path,
+            interner,
+        }
     }
 }
 
-pub fn validate_program_patterns(program: &Program, file_path: &str) -> Vec<Diagnostic> {
-    let ctx = PatternValidationContext::new(file_path);
+pub fn validate_program_patterns(
+    program: &Program,
+    file_path: &str,
+    interner: &Interner,
+) -> Vec<Diagnostic> {
+    let ctx = PatternValidationContext::new(file_path, interner);
     let mut diagnostics = Vec::new();
     for statement in &program.statements {
         validate_statement_patterns(statement, &ctx, &mut diagnostics);
@@ -213,14 +223,14 @@ fn validate_pattern_bindings(
     pattern: &Pattern,
     ctx: &PatternValidationContext<'_>,
     diagnostics: &mut Vec<Diagnostic>,
-    bindings: &mut HashSet<String>,
+    bindings: &mut HashSet<Symbol>,
 ) {
     match pattern {
         Pattern::Identifier { name, span } => {
-            if !bindings.insert(name.clone()) {
+            if !bindings.insert(*name) {
                 diagnostics.push(Diagnostic::make_error(
                     &DUPLICATE_PATTERN_BINDING,
-                    &[name],
+                    &[ctx.interner.resolve(*name)],
                     ctx.file_path.to_string(),
                     *span,
                 ));

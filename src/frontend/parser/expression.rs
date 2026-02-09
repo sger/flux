@@ -275,7 +275,10 @@ impl Parser {
             return None;
         }
 
-        let member = self.current_token.literal.to_string();
+        let member = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
 
         Some(Expression::MemberAccess {
             object: Box::new(object),
@@ -548,7 +551,10 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Ident => Some(Pattern::Identifier {
-                name: self.current_token.literal.to_string(),
+                name: self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::None => Some(Pattern::None {

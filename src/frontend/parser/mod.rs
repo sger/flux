@@ -1,6 +1,6 @@
 use crate::frontend::{
-    diagnostics::Diagnostic,
-    diagnostics::compiler_errors::unexpected_token,
+    diagnostics::{Diagnostic, compiler_errors::unexpected_token},
+    interner::Interner,
     lexer::Lexer,
     position::{Position, Span},
     program::Program,
@@ -49,6 +49,17 @@ impl Parser {
             token = self.lexer.next_token();
         }
         token
+    }
+
+    /// Takes ownership of the interner from the parser's lexer,
+    /// leaving a default interner in its place.
+    pub fn take_interner(&mut self) -> Interner {
+        self.lexer.take_interner()
+    }
+
+    /// Returns an immutable reference to the parser's interner.
+    pub fn interner(&self) -> &Interner {
+        self.lexer.interner()
     }
 
     pub fn parse_program(&mut self) -> Program {
