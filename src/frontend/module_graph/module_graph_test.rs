@@ -7,6 +7,7 @@ use crate::frontend::{
         SCRIPT_NOT_IMPORTABLE,
     },
     expression::Expression,
+    interner::Interner,
     position::{Position, Span},
     program::Program,
     statement::Statement,
@@ -61,10 +62,14 @@ fn normalize_roots_dedups() {
 
 #[test]
 fn validate_file_kind_multiple_modules() {
+    let mut interner = Interner::new();
+    let foo_sym = interner.intern("Foo");
+    let bar_sym = interner.intern("Bar");
+
     let program = Program {
         statements: vec![
             Statement::Module {
-                name: "Foo".to_string(),
+                name: foo_sym,
                 body: Block {
                     statements: vec![],
                     span: Span::default(),
@@ -72,7 +77,7 @@ fn validate_file_kind_multiple_modules() {
                 span: span(1, 0),
             },
             Statement::Module {
-                name: "Bar".to_string(),
+                name: bar_sym,
                 body: Block {
                     statements: vec![],
                     span: Span::default(),
@@ -86,25 +91,29 @@ fn validate_file_kind_multiple_modules() {
     let roots: Vec<PathBuf> = Vec::new();
     let path = Path::new("/tmp/Module.flx");
 
-    let err = validate_file_kind(path, &program, true, &roots).unwrap_err();
+    let err = validate_file_kind(path, &program, true, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(MULTIPLE_MODULES.code));
 }
 
 #[test]
 fn validate_file_kind_script_not_importable() {
+    let interner = Interner::new();
     let program = Program::new();
     let roots: Vec<PathBuf> = Vec::new();
     let path = Path::new("/tmp/Script.flx");
 
-    let err = validate_file_kind(path, &program, false, &roots).unwrap_err();
+    let err = validate_file_kind(path, &program, false, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(SCRIPT_NOT_IMPORTABLE.code));
 }
 
 #[test]
 fn resolve_imports_invalid_name() {
+    let mut interner = Interner::new();
+    let foo_sym = interner.intern("foo");
+
     let program = Program {
         statements: vec![Statement::Import {
-            name: "foo".to_string(),
+            name: foo_sym,
             alias: None,
             span: span(1, 0),
         }],
@@ -114,16 +123,20 @@ fn resolve_imports_invalid_name() {
     let roots: Vec<PathBuf> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
-    let err = resolve_imports(path, &program, &roots).unwrap_err();
+    let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(INVALID_MODULE_NAME.code));
 }
 
 #[test]
 fn resolve_imports_invalid_alias() {
+    let mut interner = Interner::new();
+    let foo_sym = interner.intern("Foo");
+    let bar_sym = interner.intern("bar");
+
     let program = Program {
         statements: vec![Statement::Import {
-            name: "Foo".to_string(),
-            alias: Some("bar".to_string()),
+            name: foo_sym,
+            alias: Some(bar_sym),
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -132,15 +145,18 @@ fn resolve_imports_invalid_alias() {
     let roots: Vec<PathBuf> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
-    let err = resolve_imports(path, &program, &roots).unwrap_err();
+    let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(INVALID_MODULE_ALIAS.code));
 }
 
 #[test]
 fn resolve_imports_missing_module() {
+    let mut interner = Interner::new();
+    let foo_bar_sym = interner.intern("Foo.Bar");
+
     let program = Program {
         statements: vec![Statement::Import {
-            name: "Foo.Bar".to_string(),
+            name: foo_bar_sym,
             alias: None,
             span: span(1, 0),
         }],
@@ -151,12 +167,14 @@ fn resolve_imports_missing_module() {
     let roots = vec![root];
     let path = Path::new("/tmp/main.flx");
 
-    let err = resolve_imports(path, &program, &roots).unwrap_err();
+    let err = resolve_imports(path, &program, &roots, &interner).unwrap_err();
     assert_eq!(err[0].code(), Some(IMPORT_NOT_FOUND.code));
 }
 
 #[test]
 fn resolve_imports_no_imports_returns_empty() {
+    let interner = Interner::new();
+
     let program = Program {
         statements: vec![Statement::Expression {
             expression: Expression::Integer {
@@ -171,6 +189,6 @@ fn resolve_imports_no_imports_returns_empty() {
     let roots: Vec<PathBuf> = Vec::new();
     let path = Path::new("/tmp/main.flx");
 
-    let imports = resolve_imports(path, &program, &roots).unwrap();
+    let imports = resolve_imports(path, &program, &roots, &interner).unwrap();
     assert!(imports.is_empty());
 }

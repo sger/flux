@@ -4,7 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::frontend::{diagnostics::Diagnostic, position::Position, program::Program};
+use crate::frontend::{
+    diagnostics::Diagnostic, interner::Interner,
+    module_graph::module_resolution::parse_program_with_interner, position::Position,
+    program::Program,
+};
 
 mod module_binding;
 mod module_order;
@@ -59,14 +63,16 @@ impl ModuleGraph {
     pub fn build_with_entry_and_roots(
         entry_path: &Path,
         entry_program: &Program,
+        interner: Interner,
         roots: &[PathBuf],
-    ) -> Result<Self, Vec<Diagnostic>> {
+    ) -> Result<(Self, Interner), Vec<Diagnostic>> {
         let mut diagnostics = Vec::new();
         let (entry_id, entry_path) = ModuleId::from_path(entry_path);
         let roots = normalize_roots(roots);
 
         let mut nodes: HashMap<ModuleId, ModuleNode> = HashMap::new();
         let mut pending: Vec<PathBuf> = vec![entry_path.clone()];
+        let mut interner = interner;
 
         while let Some(path) = pending.pop() {
             let (id, canonical_path) = ModuleId::from_path(&path);
@@ -77,7 +83,12 @@ impl ModuleGraph {
             let program = if id == entry_id {
                 entry_program.clone()
             } else {
-                match parse_program(&canonical_path) {
+                let (result, returned_interner) =
+                    parse_program_with_interner(&canonical_path, interner);
+
+                interner = returned_interner;
+
+                match result {
                     Ok(program) => program,
                     Err(mut diags) => {
                         diagnostics.append(&mut diags);
@@ -87,13 +98,13 @@ impl ModuleGraph {
             };
 
             if let Err(mut diags) =
-                validate_file_kind(&canonical_path, &program, id == entry_id, &roots)
+                validate_file_kind(&canonical_path, &program, id == entry_id, &roots, &interner)
             {
                 diagnostics.append(&mut diags);
                 continue;
             }
 
-            let imports = match resolve_imports(&canonical_path, &program, &roots) {
+            let imports = match resolve_imports(&canonical_path, &program, &roots, &interner) {
                 Ok(mut imports) => {
                     // Sort edges by stable ID to make traversal deterministic.
                     imports.sort_by(|a, b| a.target.as_str().cmp(b.target.as_str()));
@@ -126,11 +137,14 @@ impl ModuleGraph {
 
         let order = topo_order(&nodes, &entry_id).map_err(|diag| vec![*diag])?;
 
-        Ok(Self {
-            entry: entry_id,
-            nodes,
-            order,
-        })
+        Ok((
+            Self {
+                entry: entry_id,
+                nodes,
+                order,
+            },
+            interner,
+        ))
     }
 
     pub fn topo_order(&self) -> Vec<&ModuleNode> {
