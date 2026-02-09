@@ -2,7 +2,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use flux::{
     bytecode::compiler::Compiler,
-    frontend::{
+    syntax::{
         diagnostics::Diagnostic, lexer::Lexer, parser::Parser,
         pattern_validate::validate_program_patterns, program::Program,
     },

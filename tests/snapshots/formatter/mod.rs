@@ -1,4 +1,4 @@
-use flux::frontend::formatter::format_source;
+use flux::syntax::formatter::format_source;
 use insta::assert_snapshot;
 
 #[test]

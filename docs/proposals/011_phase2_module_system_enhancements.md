@@ -129,7 +129,7 @@ import Math { square, cube, * }  // Square and cube explicit, rest wildcard
 
 ### Implementation
 
-**1a. Update AST** ([src/frontend/statement.rs](src/frontend/statement.rs))
+**1a. Update AST** ([src/syntax/statement.rs](src/syntax/statement.rs))
 ```rust
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportSpecifier {
@@ -152,7 +152,7 @@ pub struct ImportStatement {
 }
 ```
 
-**1b. Update Parser** ([src/frontend/parser/statement.rs](src/frontend/parser/statement.rs))
+**1b. Update Parser** ([src/syntax/parser/statement.rs](src/syntax/parser/statement.rs))
 ```rust
 fn parse_import_statement(&mut self) -> Result<Statement, Box<Diagnostic>> {
     // ... existing module path parsing ...
@@ -285,7 +285,7 @@ module Utils {
 
 ### Implementation
 
-**2a. Add Export Statement** ([src/frontend/statement.rs](src/frontend/statement.rs))
+**2a. Add Export Statement** ([src/syntax/statement.rs](src/syntax/statement.rs))
 ```rust
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
@@ -539,7 +539,7 @@ pub struct ModuleStatement {
 }
 ```
 
-**5b. Update Lexer** ([src/frontend/lexer.rs](src/frontend/lexer.rs))
+**5b. Update Lexer** ([src/syntax/lexer.rs](src/syntax/lexer.rs))
 ```rust
 // Collect doc comments (///) as tokens
 fn skip_whitespace(&mut self) {

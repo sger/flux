@@ -155,7 +155,7 @@ Centralize error code definitions (title, message, hint) to:
 
 ### ✅ What Exists
 
-`src/frontend/error_codes.rs` (31 error codes):
+`src/syntax/error_codes.rs` (31 error codes):
 ```rust
 pub struct ErrorCode {
     pub code: &'static str,
@@ -195,7 +195,7 @@ Diagnostic::error("UNDEFINED VARIABLE")
 Extend `ErrorCode` struct with message templates, hints, and error type:
 
 ```rust
-// src/frontend/error_codes.rs
+// src/syntax/error_codes.rs
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorType {
@@ -266,7 +266,7 @@ Diagnostic::error(spec.title)
 ### Message Formatting
 
 ```rust
-// src/frontend/error_codes.rs
+// src/syntax/error_codes.rs
 
 /// Format error message by replacing {} placeholders with values
 pub fn format_message(template: &str, values: &[&str]) -> String {
@@ -295,7 +295,7 @@ pub fn format_message_named(template: &str, args: &[(&str, &str)]) -> String {
 ### Step 1: Extend ErrorCode Struct (30 min)
 
 ```rust
-// src/frontend/error_codes.rs
+// src/syntax/error_codes.rs
 pub struct ErrorCode {
     pub code: &'static str,
     pub title: &'static str,
@@ -473,7 +473,7 @@ Diagnostic::error("UNDEFINED VARIABLE")
 **After:**
 ```rust
 // parser.rs
-use crate::frontend::error_codes::{get_error, format_message};
+use crate::syntax::error_codes::{get_error, format_message};
 
 let err = get_error("E007").unwrap();
 Diagnostic::error(err.title)
@@ -498,7 +498,7 @@ Diagnostic::error("IMMUTABILITY ERROR")
 **After:**
 ```rust
 // compiler.rs
-use crate::frontend::error_codes::{get_error, format_message};
+use crate::syntax::error_codes::{get_error, format_message};
 
 let err = get_error("E012").unwrap();
 Diagnostic::error(err.title)
@@ -528,7 +528,7 @@ fn runtime_error(&self, message: String) -> String {
 **Updated VM error:**
 ```rust
 // runtime/vm.rs
-use crate::frontend::error_codes::{get_error, format_message, ErrorType};
+use crate::syntax::error_codes::{get_error, format_message, ErrorType};
 
 fn runtime_error_with_code(&self, code: &str, values: &[&str]) -> String {
     let err = get_error(code).expect("Error code must exist");
@@ -582,7 +582,7 @@ fn arity_error(name: &str, expected: &str, got: usize, signature: &str) -> Strin
 }
 
 // After
-use crate::frontend::error_codes::{get_error, format_message};
+use crate::syntax::error_codes::{get_error, format_message};
 
 fn arity_error(name: &str, expected: &str, got: usize) -> String {
     let err = get_error("E1001").unwrap();
@@ -598,7 +598,7 @@ fn arity_error(name: &str, expected: &str, got: usize) -> String {
 #[test]
 fn test_no_duplicate_error_codes() {
     use std::collections::HashSet;
-    use flux::frontend::error_codes::ERROR_CODES;
+    use flux::syntax::error_codes::ERROR_CODES;
 
     let mut seen = HashSet::new();
     for error in ERROR_CODES {
@@ -612,7 +612,7 @@ fn test_no_duplicate_error_codes() {
 
 #[test]
 fn test_all_errors_have_messages() {
-    use flux::frontend::error_codes::ERROR_CODES;
+    use flux::syntax::error_codes::ERROR_CODES;
 
     for error in ERROR_CODES {
         assert!(!error.message.is_empty(), "Error {} has empty message", error.code);
@@ -867,8 +867,8 @@ ErrorCode {
 ## References
 
 - [v0.0.3 Roadmap](../versions/roadmap_v0.0.3.md) - M1 milestone
-- Current implementation: `src/frontend/error_codes.rs`
-- Error formatting: `src/frontend/diagnostic.rs`
+- Current implementation: `src/syntax/error_codes.rs`
+- Error formatting: `src/syntax/diagnostic.rs`
 
 ---
 

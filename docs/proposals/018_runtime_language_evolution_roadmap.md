@@ -531,7 +531,7 @@ greet("World", "Hi");   // "Hi, World!"
 
 | Item | Detail |
 |------|--------|
-| New crate | `flux-lsp` wrapping existing frontend |
+| New crate | `flux-lsp` wrapping existing syntax module |
 | Features | Diagnostics on save, go-to-definition (symbol table), hover (type info) |
 | Effort | ~3-4 weeks |
 | Dependencies | None (builds on existing infrastructure) |

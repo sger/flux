@@ -1,5 +1,5 @@
-use flux::frontend::token::Token;
-use flux::frontend::token_type::TokenType;
+use flux::syntax::token::Token;
+use flux::syntax::token_type::TokenType;
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,7 @@ use crate::{
         binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
         symbol_scope::SymbolScope,
     },
-    frontend::{
+    syntax::{
         block::Block,
         diagnostics::{
             Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
@@ -60,19 +60,18 @@ impl Compiler {
                     if let Some(symbol) = self.symbol_table.resolve(qualified) {
                         self.load_symbol(&symbol);
                     } else {
-                        let qualified_str = self.interner.resolve(qualified).to_string();
-                        if let Some(constant_value) = self.module_constants.get(&qualified_str) {
+                        if let Some(constant_value) = self.module_constants.get(&qualified) {
                             // Module constant - inline the value
                             self.emit_constant_object(constant_value.clone());
                         } else {
-                            let name_str = self.interner.resolve(name);
+                            let name_str = self.sym(name);
                             return Err(Self::boxed(
                                 self.make_undefined_variable_error(name_str, *span),
                             ));
                         }
                     }
                 } else {
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name);
                     return Err(Self::boxed(
                         self.make_undefined_variable_error(name_str, *span),
                     ));
@@ -230,19 +229,17 @@ impl Compiler {
                 };
 
                 if let Some(module_name) = module_name {
-                    let member_str = self.interner.resolve(member);
+                    let member_str = self.sym(member);
                     self.check_private_member(
                         member_str,
                         expr_span,
-                        Some(self.interner.resolve(module_name)),
+                        Some(self.sym(module_name)),
                     )?;
 
                     let qualified = self.interner.intern_join(module_name, member);
-                    let qualified_str = self.interner.resolve(qualified).to_string();
-
                     // Module Constants check if this is a compile-time constant
                     // If so, inline the constant value directly instead of loading from symbol
-                    if let Some(constant_value) = self.module_constants.get(&qualified_str) {
+                    if let Some(constant_value) = self.module_constants.get(&qualified) {
                         self.emit_constant_object(constant_value.clone());
                         return Ok(());
                     }
@@ -252,8 +249,8 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    let module_name_str = self.interner.resolve(module_name);
-                    let member_str = self.interner.resolve(member);
+                    let module_name_str = self.sym(module_name);
+                    let member_str = self.sym(member);
 
                     return Err(Self::boxed(Diagnostic::make_error(
                         &UNKNOWN_MODULE_MEMBER,
@@ -267,10 +264,10 @@ impl Compiler {
                     && module_name.is_none()
                 {
                     let name = *name;
-                    let name_str = self.interner.resolve(name);
-                    if is_valid_module_name(name_str) {
+                    if is_valid_module_name(self.sym(name)) {
                         let has_symbol = self.symbol_table.resolve(name).is_some();
                         if !has_symbol {
+                            let name_str = self.sym(name);
                             return Err(Self::boxed(Diagnostic::make_error(
                                 &MODULE_NOT_IMPORTED,
                                 &[name_str],
@@ -281,14 +278,14 @@ impl Compiler {
                     }
                 }
 
-                let member_str = self.interner.resolve(member);
+                let member_str = self.sym(member);
                 self.check_private_member(member_str, expr_span, None)?;
 
                 // Compile the object (e.g., the module identifier)
                 self.compile_expression(object)?;
 
                 // Emit the member name as a string constant (the hash key)
-                let member_str = self.interner.resolve(member).to_string();
+                let member_str = self.sym(member).to_string();
                 let member_idx = self.add_constant(Object::String(member_str));
                 self.emit(OpCode::OpConstant, &[member_idx]);
 
@@ -330,10 +327,10 @@ impl Compiler {
         parameters: &[Symbol],
         body: &Block,
     ) -> CompileResult<()> {
-        use crate::frontend::diagnostics::DUPLICATE_PARAMETER;
+        use crate::syntax::diagnostics::DUPLICATE_PARAMETER;
 
         if let Some(name) = Self::find_duplicate_name(parameters) {
-            let name_str = self.interner.resolve(name);
+            let name_str = self.sym(name);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
                 &[name_str],

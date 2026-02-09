@@ -3,9 +3,9 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
-use flux::frontend::diagnostics::render_diagnostics;
-use flux::frontend::lexer::Lexer;
-use flux::frontend::parser::Parser;
+use flux::syntax::diagnostics::render_diagnostics;
+use flux::syntax::lexer::Lexer;
+use flux::syntax::parser::Parser;
 use flux::runtime::object::Object;
 use flux::runtime::vm::VM;
 

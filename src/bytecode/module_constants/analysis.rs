@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::{
+use crate::syntax::{
     block::Block, expression::Expression, position::Position, statement::Statement, symbol::Symbol,
 };
 

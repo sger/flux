@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
-    frontend::{
+    syntax::{
         diagnostics::{
             DIVISION_BY_ZERO_RUNTIME, DiagnosticBuilder, DiagnosticsAggregator, HintChain,
             INVALID_OPERATION, runtime_errors::invalid_operation,

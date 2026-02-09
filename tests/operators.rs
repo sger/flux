@@ -1,4 +1,4 @@
-use flux::frontend::{
+use flux::syntax::{
     diagnostics::Diagnostic,
     expression::Expression,
     interner::Interner,

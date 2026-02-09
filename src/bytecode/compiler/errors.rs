@@ -1,4 +1,4 @@
-use crate::frontend::{
+use crate::syntax::{
     diagnostics::{
         DUPLICATE_NAME, Diagnostic, DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
         OUTER_ASSIGNMENT, PRIVATE_MEMBER, UNDEFINED_VARIABLE,
@@ -40,7 +40,7 @@ impl Compiler {
             .symbol_table
             .all_symbol_names()
             .into_iter()
-            .map(|s| self.interner.resolve(s).to_string())
+            .map(|s| self.sym(s).to_string())
             .collect();
 
         // Find similar names using fuzzy matching
@@ -89,7 +89,7 @@ impl Compiler {
 
         let same_module = module_name.is_some_and(|name| {
             self.current_module_prefix
-                .map(|prefix| self.interner.resolve(prefix) == name)
+                .map(|prefix| self.sym(prefix) == name)
                 .unwrap_or(false)
         });
         if same_module {

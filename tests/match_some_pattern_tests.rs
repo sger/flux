@@ -1,5 +1,5 @@
 use flux::bytecode::compiler::Compiler;
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, parser::Parser};
 
 fn compile_ok(input: &str) {
     let lexer = Lexer::new(input);

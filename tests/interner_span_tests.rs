@@ -1,5 +1,5 @@
-use flux::frontend::lexer::Lexer;
-use flux::frontend::token_type::TokenType;
+use flux::syntax::lexer::Lexer;
+use flux::syntax::token_type::TokenType;
 
 #[test]
 fn identifier_symbols_are_stable_for_same_name() {

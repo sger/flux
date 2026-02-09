@@ -8,7 +8,7 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
-    frontend::{
+    syntax::{
         diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
         interner::Interner,
         pattern_validate::validate_program_patterns,
@@ -42,7 +42,7 @@ pub struct Compiler {
     pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
-    pub(super) module_constants: HashMap<String, Object>,
+    pub(super) module_constants: HashMap<Symbol, Object>,
     pub interner: Interner,
 }
 
@@ -144,6 +144,11 @@ impl Compiler {
         Box::new(diag)
     }
 
+    #[inline]
+    pub(super) fn sym(&self, s: Symbol) -> &str {
+        self.interner.resolve(s)
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
         self.file_scope_symbols.clear();
@@ -160,7 +165,7 @@ impl Compiler {
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
                 {
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name);
                     self.errors.push(self.make_redeclaration_error(
                         name_str,
                         *span,
@@ -171,7 +176,7 @@ impl Compiler {
                 }
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name);
                     self.errors
                         .push(self.make_import_collision_error(name_str, *span));
                     continue;

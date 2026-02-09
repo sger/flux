@@ -1,6 +1,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
-use flux::frontend::{
+use flux::syntax::{
     diagnostics::Diagnostic, expression::Expression, interner::Interner, lexer::Lexer,
     parser::Parser, program::Program, statement::Statement,
 };

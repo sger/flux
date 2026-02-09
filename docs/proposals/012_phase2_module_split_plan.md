@@ -70,7 +70,7 @@ Phase 1 successfully split the three largest files:
 
 ### Current State
 ```
-src/frontend/diagnostics/
+src/syntax/diagnostics/
 ├── diagnostic.rs           # 1,412 lines (TOO BIG!)
 ├── compiler_errors.rs      # 602 lines (TOO BIG!)
 ├── runtime_errors.rs       # 177 lines
@@ -93,7 +93,7 @@ src/frontend/diagnostics/
 ### Proposed Split
 
 ```
-src/frontend/diagnostics/
+src/syntax/diagnostics/
 ├── types/                  # Type definitions
 │   ├── mod.rs              # Re-exports
 │   ├── severity.rs         # Severity enum (30 lines)
@@ -134,7 +134,7 @@ src/frontend/diagnostics/
 **Create `diagnostics/types/hint.rs`:**
 ```rust
 use super::severity::Severity;
-use crate::frontend::position::Span;
+use crate::syntax::position::Span;
 
 /// Kind of hint to display
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -167,8 +167,8 @@ impl Hint {
 
 **Create `diagnostics/builders/diagnostic_builder.rs`:**
 ```rust
-use crate::frontend::diagnostics::{Diagnostic, Hint, Label, Severity};
-use crate::frontend::position::Span;
+use crate::syntax::diagnostics::{Diagnostic, Hint, Label, Severity};
+use crate::syntax::position::Span;
 
 /// Builder for constructing Diagnostic instances with fluent API
 pub struct DiagnosticBuilder {
@@ -246,7 +246,7 @@ impl DiagnosticBuilder {
 **Create `diagnostics/rendering/renderer.rs`:**
 ```rust
 use super::{source::SourceExtractor, formatter::DiagnosticFormatter};
-use crate::frontend::diagnostics::Diagnostic;
+use crate::syntax::diagnostics::Diagnostic;
 
 pub struct DiagnosticRenderer {
     source_extractor: SourceExtractor,
@@ -286,7 +286,7 @@ impl DiagnosticRenderer {
 
 **Create `diagnostics/rendering/source.rs`:**
 ```rust
-use crate::frontend::position::Span;
+use crate::syntax::position::Span;
 use std::collections::HashMap;
 
 pub struct SourceExtractor {
@@ -327,8 +327,8 @@ pub struct SourceContext {
 
 **Create `diagnostics/errors/parser_errors.rs`:**
 ```rust
-use crate::frontend::diagnostics::{Diagnostic, DiagnosticBuilder, Hint};
-use crate::frontend::position::Span;
+use crate::syntax::diagnostics::{Diagnostic, DiagnosticBuilder, Hint};
+use crate::syntax::position::Span;
 
 // Parsing errors (E001-E099)
 
@@ -495,7 +495,7 @@ impl CommandRegistry {
 **Create `cli/commands/run.rs`:**
 ```rust
 use super::{Command, CommandArgs};
-use flux::frontend::parser::Parser;
+use flux::syntax::parser::Parser;
 use flux::runtime::vm::VM;
 
 pub struct RunCommand;
@@ -655,7 +655,7 @@ src/bytecode/compiler/expression/
 **Create `expression/mod.rs`:**
 ```rust
 use crate::bytecode::compiler::Compiler;
-use crate::frontend::expression::Expression;
+use crate::syntax::expression::Expression;
 
 mod literals;
 mod operators;
@@ -698,7 +698,7 @@ impl Compiler {
 **Create `expression/control_flow.rs`:**
 ```rust
 use crate::bytecode::compiler::Compiler;
-use crate::frontend::expression::Expression;
+use crate::syntax::expression::Expression;
 use crate::bytecode::op_code::OpCode;
 
 pub fn compile_if(compiler: &mut Compiler, expr: &Expression) -> Result<()> {
@@ -739,14 +739,14 @@ pub fn compile_match(compiler: &mut Compiler, expr: &Expression) -> Result<()> {
 
 ### Current State
 ```
-src/frontend/
+src/syntax/
 └── linter.rs               # 402 lines - all lint checks mixed
 ```
 
 ### Proposed Split
 
 ```
-src/frontend/linter/
+src/syntax/linter/
 ├── mod.rs                  # Linter orchestrator (100 lines)
 ├── passes/                 # Individual lint passes
 │   ├── mod.rs              # Pass trait + registry (60 lines)
@@ -762,7 +762,7 @@ src/frontend/linter/
 
 **Create `linter/passes/mod.rs`:**
 ```rust
-use crate::frontend::{program::Program, diagnostics::Diagnostic};
+use crate::syntax::{program::Program, diagnostics::Diagnostic};
 
 pub trait LintPass {
     fn name(&self) -> &str;
@@ -805,7 +805,7 @@ impl LintPassRegistry {
 **Create `linter/passes/unused_vars.rs`:**
 ```rust
 use super::LintPass;
-use crate::frontend::{program::Program, diagnostics::Diagnostic};
+use crate::syntax::{program::Program, diagnostics::Diagnostic};
 use std::collections::HashSet;
 
 pub struct UnusedVarsPass {
@@ -855,7 +855,7 @@ impl UnusedVarsPass {
 
 **Create `linter/mod.rs`:**
 ```rust
-use crate::frontend::{program::Program, diagnostics::Diagnostic};
+use crate::syntax::{program::Program, diagnostics::Diagnostic};
 use passes::LintPassRegistry;
 
 mod passes;

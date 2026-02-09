@@ -183,7 +183,7 @@ VM Execution
 
 #### 1.1 Add Quote/Unquote to AST
 ```rust
-// frontend/expression.rs
+// syntax/expression.rs
 pub enum Expression {
     // ... existing variants
     Quote(Box<Expression>),
@@ -193,7 +193,7 @@ pub enum Expression {
 
 #### 1.2 Parse Quote/Unquote
 ```rust
-// frontend/parser.rs
+// syntax/parser.rs
 fn parse_quote_expression(&mut self) -> Expression {
     self.expect_token(Token::Quote)?;
     let expr = self.parse_block_or_expression()?;
@@ -214,7 +214,7 @@ pub enum Object {
 
 #### 2.1 Parse Macro Definitions
 ```rust
-// frontend/statement.rs
+// syntax/statement.rs
 pub struct MacroStatement {
     pub name: String,
     pub parameters: Vec<String>,
@@ -241,7 +241,7 @@ pub struct MacroDefinition {
 
 #### 3.1 Create Macro Expander
 ```rust
-// frontend/macro_expander.rs
+// syntax/macro_expander.rs
 pub struct MacroExpander {
     macros: HashMap<String, MacroDefinition>,
 }

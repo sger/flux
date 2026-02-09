@@ -1,10 +1,10 @@
 use crate::{
     bytecode::compiler::Compiler,
-    frontend::{interner::Interner, lexer::Lexer, parser::Parser},
+    syntax::{interner::Interner, lexer::Lexer, parser::Parser},
     runtime::object::Object,
 };
 
-fn parse_program(source: &str) -> (crate::frontend::program::Program, Interner) {
+fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();

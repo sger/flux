@@ -1,6 +1,6 @@
 use crate::bytecode::symbol_scope::SymbolScope;
-use crate::frontend::position::Span;
-use crate::frontend::symbol::Symbol;
+use crate::syntax::position::Span;
+use crate::syntax::symbol::Symbol;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {

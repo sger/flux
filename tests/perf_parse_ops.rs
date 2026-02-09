@@ -1,4 +1,4 @@
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, parser::Parser};
 use std::{hint::black_box, time::Instant};
 
 fn make_operator_heavy_source(ops: usize) -> String {
