@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::u32;
 
 use crate::bytecode::{binding::Binding, symbol_scope::SymbolScope};
 use crate::frontend::position::Span;
@@ -154,12 +153,12 @@ impl SymbolTable {
     pub fn define_free(&mut self, original: Binding) -> Binding {
         self.free_symbols.push(original.clone());
         let symbol = Binding::new(
-            original.name.clone(),
+            original.name,
             SymbolScope::Free,
             self.free_symbols.len() - 1,
             original.span,
         );
-        self.store.insert(symbol.name.clone(), symbol.clone());
+        self.store.insert(symbol.name, symbol.clone());
         symbol
     }
 }

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::frontend::{Identifier, block::Block, position::Span};
+use crate::frontend::{Identifier, block::Block, interner::Interner, position::Span};
 
 #[derive(Debug, Clone)]
 pub enum StringPart {
@@ -237,6 +237,155 @@ impl Expression {
             | Expression::Some { span, .. } => *span,
             // Either type expressions
             Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
+        }
+    }
+}
+
+impl Expression {
+    /// Formats this expression using the interner to resolve identifier names.
+    pub fn display_with(&self, interner: &Interner) -> String {
+        match self {
+            Expression::Identifier { name, .. } => interner.resolve(*name).to_string(),
+            Expression::Integer { value, .. } => format!("{}", value),
+            Expression::Float { value, .. } => format!("{}", value),
+            Expression::String { value, .. } => format!("\"{}\"", value),
+            Expression::InterpolatedString { parts, .. } => {
+                let mut out = String::from("\"");
+                for part in parts {
+                    match part {
+                        StringPart::Literal(s) => out.push_str(s),
+                        StringPart::Interpolation(expr) => {
+                            out.push_str(&format!("#{{{}}}", expr.display_with(interner)));
+                        }
+                    }
+                }
+                out.push('"');
+                out
+            }
+            Expression::Boolean { value, .. } => format!("{}", value),
+            Expression::Prefix {
+                operator, right, ..
+            } => format!("({}{})", operator, right.display_with(interner)),
+            Expression::Infix {
+                left,
+                operator,
+                right,
+                ..
+            } => format!(
+                "({} {} {})",
+                left.display_with(interner),
+                operator,
+                right.display_with(interner)
+            ),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                let mut out = format!("if {} {}", condition.display_with(interner), consequence);
+                if let Some(alt) = alternative {
+                    out.push_str(&format!(" else {}", alt));
+                }
+                out
+            }
+            Expression::Function {
+                parameters, body, ..
+            } => {
+                let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                format!("fun({}) {}", params.join(", "), body)
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                let args: Vec<String> =
+                    arguments.iter().map(|a| a.display_with(interner)).collect();
+                format!("{}({})", function.display_with(interner), args.join(", "))
+            }
+            Expression::Array { elements, .. } => {
+                let elems: Vec<String> =
+                    elements.iter().map(|e| e.display_with(interner)).collect();
+                format!("[{}]", elems.join(", "))
+            }
+            Expression::Index { left, index, .. } => {
+                format!(
+                    "({}[{}])",
+                    left.display_with(interner),
+                    index.display_with(interner)
+                )
+            }
+            Expression::Hash { pairs, .. } => {
+                let items: Vec<String> = pairs
+                    .iter()
+                    .map(|(k, v)| {
+                        format!("{}: {}", k.display_with(interner), v.display_with(interner))
+                    })
+                    .collect();
+                format!("{{{}}}", items.join(", "))
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                format!(
+                    "{}.{}",
+                    object.display_with(interner),
+                    interner.resolve(*member)
+                )
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                let mut out = format!("match {} {{", scrutinee.display_with(interner));
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        out.push_str(&format!(
+                            " {} if {} -> {};",
+                            arm.pattern.display_with(interner),
+                            guard.display_with(interner),
+                            arm.body.display_with(interner)
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            " {} -> {};",
+                            arm.pattern.display_with(interner),
+                            arm.body.display_with(interner)
+                        ));
+                    }
+                }
+                out.push_str(" }}");
+                out
+            }
+            Expression::None { .. } => "None".to_string(),
+            Expression::Some { value, .. } => {
+                format!("Some({})", value.display_with(interner))
+            }
+            Expression::Left { value, .. } => {
+                format!("Left({})", value.display_with(interner))
+            }
+            Expression::Right { value, .. } => {
+                format!("Right({})", value.display_with(interner))
+            }
+        }
+    }
+}
+
+impl Pattern {
+    /// Formats this pattern using the interner to resolve identifier names.
+    pub fn display_with(&self, interner: &Interner) -> String {
+        match self {
+            Pattern::Wildcard { .. } => "_".to_string(),
+            Pattern::Literal { expression, .. } => expression.display_with(interner),
+            Pattern::Identifier { name, .. } => interner.resolve(*name).to_string(),
+            Pattern::None { .. } => "None".to_string(),
+            Pattern::Some { pattern, .. } => {
+                format!("Some({})", pattern.display_with(interner))
+            }
+            Pattern::Left { pattern, .. } => {
+                format!("Left({})", pattern.display_with(interner))
+            }
+            Pattern::Right { pattern, .. } => {
+                format!("Right({})", pattern.display_with(interner))
+            }
         }
     }
 }

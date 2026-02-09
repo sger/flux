@@ -8,7 +8,9 @@ Program {
             expression: If {
                 condition: Infix {
                     left: Identifier {
-                        name: "x",
+                        name: Symbol(
+                            0,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 2,
@@ -51,7 +53,9 @@ Program {
                             expression: If {
                                 condition: Infix {
                                     left: Identifier {
-                                        name: "x",
+                                        name: Symbol(
+                                            0,
+                                        ),
                                         span: Span {
                                             start: Position {
                                                 line: 3,
@@ -93,7 +97,9 @@ Program {
                                         Expression {
                                             expression: Call {
                                                 function: Identifier {
-                                                    name: "print",
+                                                    name: Symbol(
+                                                        1,
+                                                    ),
                                                     span: Span {
                                                         start: Position {
                                                             line: 4,
@@ -160,7 +166,9 @@ Program {
                                             Expression {
                                                 expression: Call {
                                                     function: Identifier {
-                                                        name: "print",
+                                                        name: Symbol(
+                                                            1,
+                                                        ),
                                                         span: Span {
                                                             start: Position {
                                                                 line: 6,
@@ -262,7 +270,9 @@ Program {
                             Expression {
                                 expression: Call {
                                     function: Identifier {
-                                        name: "print",
+                                        name: Symbol(
+                                            1,
+                                        ),
                                         span: Span {
                                             start: Position {
                                                 line: 9,

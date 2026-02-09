@@ -4,6 +4,7 @@ use crate::frontend::{
     Identifier,
     block::Block,
     expression::Expression,
+    interner::Interner,
     position::{Position, Span},
 };
 
@@ -117,6 +118,59 @@ impl Statement {
         match self {
             Statement::Import { alias, .. } => alias.as_ref(),
             _ => None,
+        }
+    }
+
+    /// Formats this statement using the interner to resolve identifier names.
+    pub fn display_with(&self, interner: &Interner) -> String {
+        match self {
+            Statement::Let { name, value, .. } => {
+                format!(
+                    "let {} = {};",
+                    interner.resolve(*name),
+                    value.display_with(interner)
+                )
+            }
+            Statement::Return { value: Some(v), .. } => {
+                format!("return {};", v.display_with(interner))
+            }
+            Statement::Return { value: None, .. } => "return;".to_string(),
+            Statement::Expression { expression, .. } => expression.display_with(interner),
+            Statement::Function {
+                name,
+                parameters,
+                body,
+                ..
+            } => {
+                let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                format!(
+                    "fun {}({}) {}",
+                    interner.resolve(*name),
+                    params.join(", "),
+                    body
+                )
+            }
+            Statement::Assign { name, value, .. } => {
+                format!(
+                    "{} = {};",
+                    interner.resolve(*name),
+                    value.display_with(interner)
+                )
+            }
+            Statement::Module { name, body, .. } => {
+                format!("module {} {}", interner.resolve(*name), body)
+            }
+            Statement::Import { name, alias, .. } => {
+                if let Some(alias) = alias {
+                    format!(
+                        "import {} as {}",
+                        interner.resolve(*name),
+                        interner.resolve(*alias)
+                    )
+                } else {
+                    format!("import {}", interner.resolve(*name))
+                }
+            }
         }
     }
 }

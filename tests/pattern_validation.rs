@@ -15,8 +15,10 @@ fn parse_and_validate_patterns_no_panic(input: &str) -> Result<(Program, Vec<Dia
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        let parser_errors = parser.errors;
-        let pattern_diags = validate_program_patterns(&program, "pattern_validation_test.flx");
+        let parser_errors = parser.errors.clone();
+        let interner = parser.take_interner();
+        let pattern_diags =
+            validate_program_patterns(&program, "pattern_validation_test.flx", &interner);
         (program, parser_errors, pattern_diags)
     }))
     .map_err(|payload| {
@@ -42,9 +44,9 @@ fn parse_and_validate_no_panic(
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
         let parser_errors = parser.errors;
-
-        let mut compiler = Compiler::new_with_file_path("pattern_validation_test.flx");
+        let mut compiler = Compiler::new_with_interner("pattern_validation_test.flx", interner);
         let compile_result = compiler.compile(&program);
 
         (program, parser_errors, compile_result)

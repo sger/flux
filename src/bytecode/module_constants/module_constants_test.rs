@@ -7,6 +7,7 @@ use crate::{
     frontend::{
         block::Block,
         expression::Expression,
+        interner::Interner,
         position::{Position, Span},
         statement::Statement,
     },
@@ -18,23 +19,28 @@ fn pos(line: usize, column: usize) -> Position {
 }
 
 fn eval(expr: &Expression) -> Result<Object, ConstEvalError> {
-    eval_const_expr(expr, &HashMap::new())
+    let interner = Interner::new();
+    eval_const_expr(expr, &HashMap::new(), &interner)
 }
 
 #[test]
 fn analyze_orders_dependencies() {
+    let mut interner = Interner::new();
+    let sym_a = interner.intern("a");
+    let sym_b = interner.intern("b");
+
     let body = Block {
         statements: vec![
             Statement::Let {
-                name: "b".to_string(),
+                name: sym_b,
                 value: Expression::Identifier {
-                    name: "a".to_string(),
+                    name: sym_a,
                     span: Span::new(pos(1, 1), pos(1, 2)),
                 },
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
             Statement::Let {
-                name: "a".to_string(),
+                name: sym_a,
                 value: Expression::Integer {
                     value: 1,
                     span: Span::new(pos(2, 1), pos(2, 2)),
@@ -46,27 +52,31 @@ fn analyze_orders_dependencies() {
     };
 
     let analysis = analyze_module_constants(&body).unwrap();
-    assert_eq!(analysis.eval_order, vec!["a".to_string(), "b".to_string()]);
-    assert!(analysis.expressions.contains_key("a"));
-    assert!(analysis.expressions.contains_key("b"));
+    assert_eq!(analysis.eval_order, vec![sym_a, sym_b]);
+    assert!(analysis.expressions.contains_key(&sym_a));
+    assert!(analysis.expressions.contains_key(&sym_b));
 }
 
 #[test]
 fn analyze_detects_cycle() {
+    let mut interner = Interner::new();
+    let sym_a = interner.intern("a");
+    let sym_b = interner.intern("b");
+
     let body = Block {
         statements: vec![
             Statement::Let {
-                name: "a".to_string(),
+                name: sym_a,
                 value: Expression::Identifier {
-                    name: "b".to_string(),
+                    name: sym_b,
                     span: Span::new(pos(1, 1), pos(1, 2)),
                 },
                 span: Span::new(pos(1, 0), pos(1, 2)),
             },
             Statement::Let {
-                name: "b".to_string(),
+                name: sym_b,
                 value: Expression::Identifier {
-                    name: "a".to_string(),
+                    name: sym_a,
                     span: Span::new(pos(2, 1), pos(2, 2)),
                 },
                 span: Span::new(pos(2, 0), pos(2, 2)),
@@ -76,44 +86,57 @@ fn analyze_detects_cycle() {
     };
 
     let err = analyze_module_constants(&body).unwrap_err();
-    assert!(err.contains(&"a".to_string()));
-    assert!(err.contains(&"b".to_string()));
+    assert!(err.contains(&sym_a));
+    assert!(err.contains(&sym_b));
 }
 
 #[test]
 fn topo_sort_simple() {
+    let mut interner = Interner::new();
+    let sym_a = interner.intern("A");
+    let sym_b = interner.intern("B");
+    let sym_c = interner.intern("C");
+
     let mut deps = HashMap::new();
-    deps.insert("A".to_string(), vec![]);
-    deps.insert("B".to_string(), vec!["A".to_string()]);
-    deps.insert("C".to_string(), vec!["B".to_string()]);
+    deps.insert(sym_a, vec![]);
+    deps.insert(sym_b, vec![sym_a]);
+    deps.insert(sym_c, vec![sym_b]);
 
     let result = topological_sort_constants(&deps).unwrap();
-    assert_eq!(result, vec!["A", "B", "C"]);
+    assert_eq!(result, vec![sym_a, sym_b, sym_c]);
 }
 
 #[test]
 fn topo_sort_independent() {
+    let mut interner = Interner::new();
+    let sym_a = interner.intern("A");
+    let sym_b = interner.intern("B");
+
     let mut deps = HashMap::new();
-    deps.insert("A".to_string(), vec![]);
-    deps.insert("B".to_string(), vec![]);
+    deps.insert(sym_a, vec![]);
+    deps.insert(sym_b, vec![]);
 
     let result = topological_sort_constants(&deps).unwrap();
     assert_eq!(result.len(), 2);
-    assert!(result.contains(&"A".to_string()));
-    assert!(result.contains(&"B".to_string()));
+    assert!(result.contains(&sym_a));
+    assert!(result.contains(&sym_b));
 }
 
 #[test]
 fn topo_sort_cycle() {
+    let mut interner = Interner::new();
+    let sym_a = interner.intern("A");
+    let sym_b = interner.intern("B");
+
     let mut deps = HashMap::new();
-    deps.insert("A".to_string(), vec!["B".to_string()]);
-    deps.insert("B".to_string(), vec!["A".to_string()]);
+    deps.insert(sym_a, vec![sym_b]);
+    deps.insert(sym_b, vec![sym_a]);
 
     let result = topological_sort_constants(&deps);
     assert!(result.is_err());
     let cycle = result.unwrap_err();
-    assert!(cycle.contains(&"A".to_string()));
-    assert!(cycle.contains(&"B".to_string()));
+    assert!(cycle.contains(&sym_a));
+    assert!(cycle.contains(&sym_b));
 }
 
 #[test]
@@ -280,9 +303,12 @@ fn const_large_hash() {
 
 #[test]
 fn const_error_with_hint() {
+    let mut interner = Interner::new();
+    let sym_foo = interner.intern("foo");
+
     let expr = Expression::Call {
         function: Box::new(Expression::Identifier {
-            name: "foo".to_string(),
+            name: sym_foo,
             span: Default::default(),
         }),
         arguments: vec![],

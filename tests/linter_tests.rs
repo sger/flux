@@ -5,7 +5,8 @@ fn lint(input: &str) -> String {
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
     assert!(parser.errors.is_empty(), "parser errors in test input");
-    let diagnostics = Linter::new(None).lint(&program);
+    let interner = parser.take_interner();
+    let diagnostics = Linter::new(None, &interner).lint(&program);
     diagnostics
         .iter()
         .map(|d| format!("{}:{}", d.code().unwrap_or(""), d.title()))

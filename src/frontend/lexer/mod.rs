@@ -52,7 +52,7 @@ impl Lexer {
         let estimated_symbol_bytes = (input_len / 8).max(256);
 
         Self {
-            reader: CharReader::new(input.into()),
+            reader: CharReader::new(input),
             interner: Interner::with_capacity(estimated_symbols, estimated_symbol_bytes),
             state: LexerState::Normal,
             warnings: Vec::new(),
@@ -90,7 +90,7 @@ impl Lexer {
     }
 
     pub fn source(&self) -> &str {
-        &self.reader.source_str()
+        self.reader.source_str()
     }
 
     pub fn interner(&self) -> &Interner {

@@ -11,7 +11,9 @@ Program {
                         function: MemberAccess {
                             object: Call {
                                 function: Identifier {
-                                    name: "foo",
+                                    name: Symbol(
+                                        0,
+                                    ),
                                     span: Span {
                                         start: Position {
                                             line: 1,
@@ -35,7 +37,9 @@ Program {
                                     },
                                 },
                             },
-                            member: "bar",
+                            member: Symbol(
+                                1,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,
@@ -59,7 +63,9 @@ Program {
                             },
                         },
                     },
-                    member: "baz",
+                    member: Symbol(
+                        2,
+                    ),
                     span: Span {
                         start: Position {
                             line: 1,

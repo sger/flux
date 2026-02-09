@@ -40,7 +40,7 @@ impl Compiler {
             .symbol_table
             .all_symbol_names()
             .into_iter()
-            .map(|s| s.to_string())
+            .map(|s| self.interner.resolve(s).to_string())
             .collect();
 
         // Find similar names using fuzzy matching
@@ -87,8 +87,11 @@ impl Compiler {
             return Ok(());
         }
 
-        let same_module =
-            module_name.is_some_and(|name| self.current_module_prefix.as_deref() == Some(name));
+        let same_module = module_name.is_some_and(|name| {
+            self.current_module_prefix
+                .map(|prefix| self.interner.resolve(prefix) == name)
+                .unwrap_or(false)
+        });
         if same_module {
             return Ok(());
         }

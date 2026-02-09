@@ -5,7 +5,9 @@ expression: output
 Program {
     statements: [
         Let {
-            name: "arr",
+            name: Symbol(
+                0,
+            ),
             value: Array {
                 elements: [
                     Integer {
@@ -62,7 +64,9 @@ Program {
                     },
                     Call {
                         function: Identifier {
-                            name: "foo",
+                            name: Symbol(
+                                1,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,

@@ -2,15 +2,15 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::expression::Expression;
+use crate::frontend::{expression::Expression, symbol::Symbol};
 
 /// Find all constant references in an expression.
 ///
 /// Returns a list of constant names that the expression depends on.
 pub fn find_constant_refs(
     expression: &Expression,
-    known_constants: &HashSet<String>,
-) -> Vec<String> {
+    known_constants: &HashSet<Symbol>,
+) -> Vec<Symbol> {
     let mut refs = HashSet::new();
     collect_constant_refs(expression, known_constants, &mut refs);
     refs.into_iter().collect()
@@ -18,13 +18,13 @@ pub fn find_constant_refs(
 
 fn collect_constant_refs(
     expr: &Expression,
-    known_constants: &HashSet<String>,
-    refs: &mut HashSet<String>,
+    known_constants: &HashSet<Symbol>,
+    refs: &mut HashSet<Symbol>,
 ) {
     match expr {
         Expression::Identifier { name, .. } => {
             if known_constants.contains(name) {
-                refs.insert(name.clone());
+                refs.insert(*name);
             }
         }
         Expression::Infix { left, right, .. } => {
@@ -57,17 +57,17 @@ fn collect_constant_refs(
 /// Returns constants in evaluation order (dependencies first),
 /// or an error with the cycle path if circular dependencies are detected.
 pub fn topological_sort_constants(
-    dependencies: &HashMap<String, Vec<String>>,
-) -> Result<Vec<String>, Vec<String>> {
+    dependencies: &HashMap<Symbol, Vec<Symbol>>,
+) -> Result<Vec<Symbol>, Vec<Symbol>> {
     let mut result = Vec::new();
     let mut visited = HashSet::new();
     let mut in_progress = HashSet::new();
 
-    let mut names: Vec<&String> = dependencies.keys().collect();
-    names.sort();
+    let mut names: Vec<&Symbol> = dependencies.keys().collect();
+    names.sort_by_key(|s| s.as_u32());
     for name in names {
         visit_constant(
-            name,
+            *name,
             dependencies,
             &mut visited,
             &mut in_progress,
@@ -79,34 +79,34 @@ pub fn topological_sort_constants(
 }
 
 fn visit_constant(
-    name: &str,
-    deps: &HashMap<String, Vec<String>>,
-    visited: &mut HashSet<String>,
-    in_progress: &mut HashSet<String>,
-    result: &mut Vec<String>,
-) -> Result<(), Vec<String>> {
-    if visited.contains(name) {
+    name: Symbol,
+    deps: &HashMap<Symbol, Vec<Symbol>>,
+    visited: &mut HashSet<Symbol>,
+    in_progress: &mut HashSet<Symbol>,
+    result: &mut Vec<Symbol>,
+) -> Result<(), Vec<Symbol>> {
+    if visited.contains(&name) {
         return Ok(());
     }
 
-    if in_progress.contains(name) {
-        return Err(vec![name.to_string()]);
+    if in_progress.contains(&name) {
+        return Err(vec![name]);
     }
 
-    in_progress.insert(name.to_string());
+    in_progress.insert(name);
 
-    if let Some(dependencies) = deps.get(name) {
+    if let Some(dependencies) = deps.get(&name) {
         for dep in dependencies {
-            if let Err(mut cycle) = visit_constant(dep, deps, visited, in_progress, result) {
-                cycle.push(name.to_string());
+            if let Err(mut cycle) = visit_constant(*dep, deps, visited, in_progress, result) {
+                cycle.push(name);
                 return Err(cycle);
             }
         }
     }
 
-    in_progress.remove(name);
-    visited.insert(name.to_string());
-    result.push(name.to_string());
+    in_progress.remove(&name);
+    visited.insert(name);
+    result.push(name);
 
     Ok(())
 }

@@ -237,12 +237,14 @@ fn run_file(
                 std::process::exit(1);
             }
 
+            let interner = parser.take_interner();
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
-            let graph = match ModuleGraph::build_with_entry_and_roots(entry_path, &program, &roots)
-            {
-                Ok(graph) => graph,
+            let (graph, interner) = match ModuleGraph::build_with_entry_and_roots(
+                entry_path, &program, interner, &roots,
+            ) {
+                Ok(result) => result,
                 Err(diags) => {
                     let report = DiagnosticsAggregator::new(&diags)
                         .with_file_headers(false)
@@ -253,7 +255,7 @@ fn run_file(
                 }
             };
 
-            let mut compiler = Compiler::new_with_file_path(path);
+            let mut compiler = Compiler::new_with_interner(path, interner);
             let mut compile_errors: Vec<Diagnostic> = Vec::new();
             for node in graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
@@ -486,7 +488,8 @@ fn lint_file(path: &str, max_errors: usize) {
                 std::process::exit(1);
             }
 
-            let lints = Linter::new(Some(path.to_string())).lint(&program);
+            let interner = parser.take_interner();
+            let lints = Linter::new(Some(path.to_string()), &interner).lint(&program);
             if !lints.is_empty() {
                 let report = DiagnosticsAggregator::new(&lints)
                     .with_default_source(path, source.as_str())

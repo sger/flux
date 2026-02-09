@@ -5,7 +5,9 @@ expression: output
 Program {
     statements: [
         Let {
-            name: "result",
+            name: Symbol(
+                0,
+            ),
             value: Infix {
                 left: Integer {
                     value: 10,

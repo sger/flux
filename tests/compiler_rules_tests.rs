@@ -10,7 +10,8 @@ fn compile_ok_in(file_path: &str, input: &str) {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new_with_file_path(file_path);
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner(file_path, interner);
     compiler.compile(&program).expect("expected compile ok");
 }
 
@@ -23,7 +24,8 @@ fn compile_err(input: &str) -> String {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");
@@ -41,7 +43,8 @@ fn compile_err_in(file_path: &str, input: &str) -> String {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new_with_file_path(file_path);
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner(file_path, interner);
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");
@@ -59,7 +62,8 @@ fn compile_err_title(input: &str) -> String {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");
@@ -77,7 +81,8 @@ fn compile_err_message(input: &str) -> String {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     let err = compiler
         .compile(&program)
         .expect_err("expected compile error");

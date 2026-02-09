@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::frontend::{
-    block::Block, expression::Expression, position::Position, statement::Statement,
+    block::Block, expression::Expression, position::Position, statement::Statement, symbol::Symbol,
 };
 
 use super::dependency::{find_constant_refs, topological_sort_constants};
@@ -14,36 +14,36 @@ use super::dependency::{find_constant_refs, topological_sort_constants};
 #[derive(Debug)]
 pub struct ModuleConstantAnalysis<'a> {
     /// Constants in evaluation order (dependencies come first)
-    pub eval_order: Vec<String>,
+    pub eval_order: Vec<Symbol>,
     /// Map of constant name to (expression, source position)
-    pub expressions: HashMap<String, (&'a Expression, Position)>,
+    pub expressions: HashMap<Symbol, (&'a Expression, Position)>,
 }
 
 /// Analyze module constants: collect, build dependencies, and sort topologically.
 ///
 /// Returns constants in evaluation order, or an error with the cycle path
 /// if circular dependencies are detected.
-pub fn analyze_module_constants(body: &Block) -> Result<ModuleConstantAnalysis<'_>, Vec<String>> {
+pub fn analyze_module_constants(body: &Block) -> Result<ModuleConstantAnalysis<'_>, Vec<Symbol>> {
     // Step 1: Collect constant definitions
-    let mut expressions: HashMap<String, (&Expression, Position)> = HashMap::new();
-    let mut names: HashSet<String> = HashSet::new();
+    let mut expressions: HashMap<Symbol, (&Expression, Position)> = HashMap::new();
+    let mut names: HashSet<Symbol> = HashSet::new();
 
     for statement in &body.statements {
         if let Statement::Let {
             name, value, span, ..
         } = statement
         {
-            names.insert(name.clone());
-            expressions.insert(name.clone(), (value, span.start));
+            names.insert(*name);
+            expressions.insert(*name, (value, span.start));
         }
     }
 
     // Step 2: Build dependency graph
-    let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
+    let mut dependencies: HashMap<Symbol, Vec<Symbol>> = HashMap::new();
 
     for (name, (expr, _)) in &expressions {
         let refs = find_constant_refs(expr, &names);
-        dependencies.insert(name.clone(), refs);
+        dependencies.insert(*name, refs);
     }
 
     // Step 3: Topological sort with cycle detection

@@ -19,7 +19,7 @@ pub use module_binding::{
 };
 
 use module_order::topo_order;
-use module_resolution::{normalize_roots, parse_program, resolve_imports, validate_file_kind};
+use module_resolution::{normalize_roots, resolve_imports, validate_file_kind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModuleId(String);
