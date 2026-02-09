@@ -5,12 +5,16 @@ expression: output
 Program {
     statements: [
         Let {
-            name: "obj",
+            name: Symbol(
+                0,
+            ),
             value: Hash {
                 pairs: [
                     (
                         Identifier {
-                            name: "name",
+                            name: Symbol(
+                                1,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,
@@ -38,7 +42,9 @@ Program {
                     ),
                     (
                         Identifier {
-                            name: "age",
+                            name: Symbol(
+                                2,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,
@@ -66,7 +72,9 @@ Program {
                     ),
                     (
                         Identifier {
-                            name: "nested",
+                            name: Symbol(
+                                3,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,
@@ -82,7 +90,9 @@ Program {
                             pairs: [
                                 (
                                     Identifier {
-                                        name: "x",
+                                        name: Symbol(
+                                            4,
+                                        ),
                                         span: Span {
                                             start: Position {
                                                 line: 1,

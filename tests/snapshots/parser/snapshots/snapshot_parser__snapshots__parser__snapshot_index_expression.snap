@@ -7,7 +7,9 @@ Program {
         Expression {
             expression: Index {
                 left: Identifier {
-                    name: "arr",
+                    name: Symbol(
+                        0,
+                    ),
                     span: Span {
                         start: Position {
                             line: 1,
@@ -57,7 +59,9 @@ Program {
         Expression {
             expression: Index {
                 left: Identifier {
-                    name: "obj",
+                    name: Symbol(
+                        1,
+                    ),
                     span: Span {
                         start: Position {
                             line: 1,
@@ -70,7 +74,9 @@ Program {
                     },
                 },
                 index: Identifier {
-                    name: "key",
+                    name: Symbol(
+                        2,
+                    ),
                     span: Span {
                         start: Position {
                             line: 1,
@@ -108,7 +114,9 @@ Program {
             expression: Index {
                 left: Index {
                     left: Identifier {
-                        name: "matrix",
+                        name: Symbol(
+                            3,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 1,
@@ -121,7 +129,9 @@ Program {
                         },
                     },
                     index: Identifier {
-                        name: "i",
+                        name: Symbol(
+                            4,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 1,
@@ -145,7 +155,9 @@ Program {
                     },
                 },
                 index: Identifier {
-                    name: "j",
+                    name: Symbol(
+                        5,
+                    ),
                     span: Span {
                         start: Position {
                             line: 1,

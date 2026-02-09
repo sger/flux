@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
-use crate::frontend::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::{closure::Closure, frame::Frame, object::Object};
+use crate::syntax::diagnostics::NOT_A_FUNCTION;
 
 use super::VM;
 

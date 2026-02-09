@@ -15,7 +15,7 @@ This document provides a comprehensive code review of the lexer and parser, iden
 
 ### Current State
 
-**Files:** [src/frontend/lexer/mod.rs](../src/frontend/lexer/mod.rs) + lexer submodules
+**Files:** [src/syntax/lexer/mod.rs](../src/syntax/lexer/mod.rs) + lexer submodules
 **Status:** Refactored and modularized (with one intentional omission: no separate char reader type)
 
 ### Code Quality Assessment
@@ -116,7 +116,7 @@ All recommended number formats are now supported:
 - ✅ Underscores in numbers (`1_000_000`, `3.14_159`)
 
 **Implementation Details:**
-- [numbers.rs](../src/frontend/lexer/numbers.rs) now includes specialized parsing for hex and binary literals
+- [numbers.rs](../src/syntax/lexer/numbers.rs) now includes specialized parsing for hex and binary literals
 - Scientific notation supports both lowercase `e` and uppercase `E`, with optional `+/-` signs
 - Underscores can be placed anywhere in numbers for readability (preserved in literal)
 - All formats tested with 10 comprehensive test cases
@@ -141,7 +141,7 @@ All recommended comment features are already fully implemented:
 - Nested block comments are properly handled with depth tracking
 - Comprehensive test coverage with 19+ comment-related tests
 
-**Location:** [comments.rs](../src/frontend/lexer/comments.rs)
+**Location:** [comments.rs](../src/syntax/lexer/comments.rs)
 
 ### 5. **Interpolation State Could Be Clearer**
 
@@ -163,7 +163,7 @@ pub(super) enum LexerState {
 - Uses `Vec<usize>` instead of single `usize` for depth tracking
 - Enables **nested interpolated strings**: `"#{ "#{x}" }"` works correctly
 - Each nesting level maintains its own depth counter on the stack
-- Clear state transitions with dedicated methods in [state.rs](../src/frontend/lexer/state.rs)
+- Clear state transitions with dedicated methods in [state.rs](../src/syntax/lexer/state.rs)
 
 **Test Coverage:**
 - 10 comprehensive interpolation tests
@@ -194,7 +194,7 @@ The lexer has been successfully refactored from a monolithic 675-line file into 
 The following module structure was implemented:
 
 ```
-src/frontend/lexer/
+src/syntax/lexer/
 ├── mod.rs                  # Public API (100 lines)
 ├── state.rs                # Lexer state management (80 lines)
 ├── scanner/                # Token scanning
@@ -225,7 +225,7 @@ src/frontend/lexer/
 - Simpler implementation without loss of functionality
 - Can be extracted later if needed (YAGNI principle)
 
-**Current Implementation:** Character reading methods (`read_char()`, `peek_char()`, `peek_n()`, `skip_ignorable()`) are private methods in [mod.rs](../src/frontend/lexer/mod.rs)
+**Current Implementation:** Character reading methods (`read_char()`, `peek_char()`, `peek_n()`, `skip_ignorable()`) are private methods in [mod.rs](../src/syntax/lexer/mod.rs)
 
 **Original Proposal:** `lexer/char_reader.rs`:
 ```rust
@@ -359,8 +359,8 @@ impl NumberParser {
 
 **Create `lexer/literals/strings.rs`:**
 ```rust
-use crate::frontend::token::Token;
-use crate::frontend::token_type::TokenType;
+use crate::syntax::token::Token;
+use crate::syntax::token_type::TokenType;
 use super::CharReader;
 use super::escape::EscapeParser;
 
@@ -522,7 +522,7 @@ impl LexerState {
 
 **Actual Module Structure Implemented**:
 ```
-src/frontend/lexer/
+src/syntax/lexer/
 ├── mod.rs              # Main Lexer + public API + character reading (~280 lines)
 ├── state.rs            # LexerState enum + interpolation state methods (~87 lines)
 ├── escape.rs           # Escape sequence handling (~35 lines)
@@ -568,11 +568,11 @@ Each phase included a checkpoint where tests were run to ensure no regressions.
 ### Current State
 
 **Files:**
-- [expression.rs](../src/frontend/parser/expression.rs) (588 lines)
-- [statement.rs](../src/frontend/parser/statement.rs) (226 lines)
-- [literal.rs](../src/frontend/parser/literal.rs) (192 lines)
-- [helpers.rs](../src/frontend/parser/helpers.rs) (217 lines)
-- [mod.rs](../src/frontend/parser/mod.rs) (92 lines)
+- [expression.rs](../src/syntax/parser/expression.rs) (588 lines)
+- [statement.rs](../src/syntax/parser/statement.rs) (226 lines)
+- [literal.rs](../src/syntax/parser/literal.rs) (192 lines)
+- [helpers.rs](../src/syntax/parser/helpers.rs) (217 lines)
+- [mod.rs](../src/syntax/parser/mod.rs) (92 lines)
 
 **Total:** 1,315 lines (well-organized!)
 
@@ -1013,8 +1013,8 @@ Acceptance: If chosen, character cursor/position logic is encapsulated in a dedi
 ## References
 
 - [Phase 2 Module Split](012_phase2_module_split_plan.md)
-- [Lexer Implementation](../src/frontend/lexer/mod.rs)
-- [Parser Implementation](../src/frontend/parser/)
+- [Lexer Implementation](../src/syntax/lexer/mod.rs)
+- [Parser Implementation](../src/syntax/parser/)
 - **Crafting Interpreters:** Chapter on Lexing & Parsing
 
 ---

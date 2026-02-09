@@ -5,13 +5,17 @@ expression: output
 Program {
     statements: [
         Let {
-            name: "result",
+            name: Symbol(
+                0,
+            ),
             value: Infix {
                 left: Infix {
                     left: Infix {
                         left: Infix {
                             left: Identifier {
-                                name: "a",
+                                name: Symbol(
+                                    1,
+                                ),
                                 span: Span {
                                     start: Position {
                                         line: 1,
@@ -25,7 +29,9 @@ Program {
                             },
                             operator: "+",
                             right: Identifier {
-                                name: "b",
+                                name: Symbol(
+                                    2,
+                                ),
                                 span: Span {
                                     start: Position {
                                         line: 1,
@@ -50,7 +56,9 @@ Program {
                         },
                         operator: "*",
                         right: Identifier {
-                            name: "c",
+                            name: Symbol(
+                                3,
+                            ),
                             span: Span {
                                 start: Position {
                                     line: 1,
@@ -75,7 +83,9 @@ Program {
                     },
                     operator: "/",
                     right: Identifier {
-                        name: "d",
+                        name: Symbol(
+                            4,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 1,
@@ -101,7 +111,9 @@ Program {
                 operator: "-",
                 right: Infix {
                     left: Identifier {
-                        name: "e",
+                        name: Symbol(
+                            5,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 1,
@@ -115,7 +127,9 @@ Program {
                     },
                     operator: "%",
                     right: Identifier {
-                        name: "f",
+                        name: Symbol(
+                            6,
+                        ),
                         span: Span {
                             start: Position {
                                 line: 1,

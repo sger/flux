@@ -68,7 +68,7 @@ Convert strings to integers once during parsing, use integers everywhere:
 ### 1. Symbol Interner
 
 ```rust
-// src/frontend/interner.rs
+// src/syntax/interner.rs
 
 use std::collections::HashMap;
 
@@ -127,7 +127,7 @@ impl SymbolInterner {
 ### 2. Update AST
 
 ```rust
-// src/frontend/expression.rs
+// src/syntax/expression.rs
 
 // Before
 pub enum Expression {
@@ -151,7 +151,7 @@ pub enum Expression {
 ### 3. Update Parser
 
 ```rust
-// src/frontend/parser.rs
+// src/syntax/parser.rs
 
 pub struct Parser {
     lexer: Lexer,
@@ -283,10 +283,10 @@ let analysis = analyze_module_constants_interned(body, &mut interner)?;
 **Scope:** Intern all identifiers during parsing
 
 **Files to update:**
-- `src/frontend/interner.rs` (new)
-- `src/frontend/parser.rs` (~50 lines changed)
-- `src/frontend/expression.rs` (~10 lines changed)
-- `src/frontend/statement.rs` (~20 lines changed)
+- `src/syntax/interner.rs` (new)
+- `src/syntax/parser.rs` (~50 lines changed)
+- `src/syntax/expression.rs` (~10 lines changed)
+- `src/syntax/statement.rs` (~20 lines changed)
 - `src/bytecode/compiler.rs` (~100 lines changed)
 - `src/bytecode/module_constants/*.rs` (~50 lines changed)
 

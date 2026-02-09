@@ -1,5 +1,5 @@
 use flux::bytecode::compiler::Compiler;
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, parser::Parser};
 
 fn compile_ok(input: &str) {
     let lexer = Lexer::new(input);
@@ -10,7 +10,8 @@ fn compile_ok(input: &str) {
         "parser errors: {:?}",
         parser.errors
     );
-    let mut compiler = Compiler::new();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler.compile(&program).expect("expected compile ok");
 }
 

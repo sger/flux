@@ -5,10 +5,16 @@ expression: output
 Program {
     statements: [
         Function {
-            name: "add",
+            name: Symbol(
+                0,
+            ),
             parameters: [
-                "a",
-                "b",
+                Symbol(
+                    1,
+                ),
+                Symbol(
+                    2,
+                ),
             ],
             body: Block {
                 statements: [
@@ -16,7 +22,9 @@ Program {
                         value: Some(
                             Infix {
                                 left: Identifier {
-                                    name: "a",
+                                    name: Symbol(
+                                        1,
+                                    ),
                                     span: Span {
                                         start: Position {
                                             line: 3,
@@ -30,7 +38,9 @@ Program {
                                 },
                                 operator: "+",
                                 right: Identifier {
-                                    name: "b",
+                                    name: Symbol(
+                                        2,
+                                    ),
                                     span: Span {
                                         start: Position {
                                             line: 3,

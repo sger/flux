@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use flux::{
     bytecode::compiler::Compiler,
-    frontend::{
+    syntax::{
         diagnostics::{Diagnostic, DiagnosticsAggregator},
         lexer::Lexer,
         module_graph::ModuleGraph,
@@ -147,9 +147,11 @@ pub fn build_transcript(
             roots.push(src_root);
         }
 
-        match ModuleGraph::build_with_entry_and_roots(fixture, &program, &roots) {
-            Ok(graph) => {
-                let mut compiler = Compiler::new_with_file_path(fixture_rel);
+        let interner = parser.take_interner();
+
+        match ModuleGraph::build_with_entry_and_roots(fixture, &program, interner, &roots) {
+            Ok((graph, interner)) => {
+                let mut compiler = Compiler::new_with_interner(fixture_rel, interner);
                 for node in graph.topo_order() {
                     compiler.set_file_path(node.path.to_string_lossy().to_string());
                     if let Err(mut diags) = compiler.compile(&node.program) {

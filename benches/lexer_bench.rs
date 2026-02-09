@@ -1,8 +1,8 @@
 use std::fmt::Write;
 
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
-use flux::frontend::lexer::Lexer;
-use flux::frontend::token_type::TokenType;
+use flux::syntax::lexer::Lexer;
+use flux::syntax::token_type::TokenType;
 
 struct Corpus {
     name: &'static str,

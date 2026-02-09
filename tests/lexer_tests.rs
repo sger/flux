@@ -1,5 +1,5 @@
-use flux::frontend::lexer::Lexer;
-use flux::frontend::token_type::TokenType;
+use flux::syntax::lexer::Lexer;
+use flux::syntax::token_type::TokenType;
 
 #[cfg(test)]
 mod tests {
@@ -103,7 +103,7 @@ mod tests {
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::String);
-        assert_eq!(tok.literal, "a\"b");
+        assert_eq!(tok.literal, r#"a\"b"#);
         assert_eq!(tok.position.column, 0);
         assert_eq!(tok.span().end.column, input.chars().count());
     }
@@ -151,7 +151,7 @@ mod tests {
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::UnterminatedString);
-        assert_eq!(tok.literal, "a\n");
+        assert_eq!(tok.literal, r#"a\n"#);
         assert_eq!(tok.position.column, 0);
         assert_eq!(tok.span().end.column, input.chars().count());
     }
@@ -346,7 +346,7 @@ mod tests {
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::String);
-        assert_eq!(tok.literal, "Hello #{name}");
+        assert_eq!(tok.literal, r#"Hello \#{name}"#);
 
         let tok = lexer.next_token();
         assert_eq!(tok.token_type, TokenType::Eof);
@@ -485,10 +485,10 @@ fun fib(n) {
         // Document lexer behavior: unknown escapes are accepted and pass through
         // The linter will warn about these (W011), but the lexer is permissive
         let tests = vec![
-            (r#""\x""#, "x"),
-            (r#""\q""#, "q"),
-            (r#""\s""#, "s"),
-            (r#""\a\b\c""#, "abc"),
+            (r#""\x""#, r#"\x"#),
+            (r#""\q""#, r#"\q"#),
+            (r#""\s""#, r#"\s"#),
+            (r#""\a\b\c""#, r#"\a\b\c"#),
         ];
 
         for (input, expected) in tests {
@@ -512,13 +512,13 @@ fun fib(n) {
     fn valid_escape_sequences_work_correctly() {
         // Verify that all valid escape sequences are handled correctly
         let tests = vec![
-            (r#""\n""#, "\n"),
-            (r#""\t""#, "\t"),
-            (r#""\r""#, "\r"),
-            (r#""\\""#, "\\"),
-            (r#""\"""#, "\""),
-            (r#""\#""#, "#"),
-            (r#""\n\t\r""#, "\n\t\r"),
+            (r#""\n""#, r#"\n"#),
+            (r#""\t""#, r#"\t"#),
+            (r#""\r""#, r#"\r"#),
+            (r#""\\""#, r#"\\"#),
+            (r#""\"""#, r#"\""#),
+            (r#""\#""#, r#"\#"#),
+            (r#""\n\t\r""#, r#"\n\t\r"#),
         ];
 
         for (input, expected) in tests {
@@ -539,7 +539,7 @@ fun fib(n) {
         let tok = lexer.next_token();
 
         assert_eq!(tok.token_type, TokenType::String);
-        assert_eq!(tok.literal, "xqs"); // Escapes pass through
+        assert_eq!(tok.literal, r#"\x\q\s"#); // raw escapes are preserved
 
         let warnings = lexer.warnings();
         assert_eq!(
@@ -570,7 +570,7 @@ fun fib(n) {
         let tok = lexer.next_token();
 
         assert_eq!(tok.token_type, TokenType::String);
-        assert_eq!(tok.literal, "hello x world");
+        assert_eq!(tok.literal, r#"hello \x world"#);
 
         let warnings = lexer.warnings();
         assert!(!warnings.is_empty(), "Should warn about unknown escape");
