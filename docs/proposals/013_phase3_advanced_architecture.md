@@ -99,7 +99,7 @@ HashMap<String, Symbol>           // Slow lookups
 ### Proposed Architecture
 
 ```
-src/frontend/
+src/syntax/
 ├── interner/
 │   ├── mod.rs              # Public API (80 lines)
 │   ├── symbol_id.rs        # SymbolId type (40 lines)
@@ -109,7 +109,7 @@ src/frontend/
 
 ### Implementation
 
-**Create `frontend/interner/symbol_id.rs`:**
+**Create `syntax/interner/symbol_id.rs`:**
 ```rust
 /// Compact symbol identifier (4 bytes vs 24 bytes for String)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -135,7 +135,7 @@ impl fmt::Display for SymbolId {
 }
 ```
 
-**Create `frontend/interner/interner.rs`:**
+**Create `syntax/interner/interner.rs`:**
 ```rust
 use super::SymbolId;
 use std::collections::HashMap;
@@ -265,7 +265,7 @@ impl Linter {
 ### Proposed Architecture
 
 ```
-src/frontend/
+src/syntax/
 ├── visitor/
 │   ├── mod.rs              # Visitor trait (150 lines)
 │   ├── walk.rs             # Default traversal implementations (200 lines)
@@ -276,15 +276,15 @@ src/frontend/
 src/bytecode/
 └── codegen_visitor.rs      # Code generation as visitor (250 lines)
 
-src/frontend/
+src/syntax/
 └── type_checker_visitor.rs # Type checking as visitor (300 lines)
 ```
 
 ### Implementation
 
-**Create `frontend/visitor/mod.rs`:**
+**Create `syntax/visitor/mod.rs`:**
 ```rust
-use crate::frontend::{Expression, Statement, Program, Block};
+use crate::syntax::{Expression, Statement, Program, Block};
 
 /// Generic visitor trait for AST traversal
 ///
@@ -351,7 +351,7 @@ where
 
 **Example: Type Checker as Visitor:**
 ```rust
-use crate::frontend::visitor::Visitor;
+use crate::syntax::visitor::Visitor;
 
 pub struct TypeChecker {
     types: HashMap<SymbolId, Type>,
@@ -411,13 +411,13 @@ type_checker.check(&program);          // More clones!
 
 **Use arena allocator for AST:**
 ```
-src/frontend/
+src/syntax/
 └── arena/
     ├── mod.rs              # Arena allocator (100 lines)
     └── ast_arena.rs        # AST-specific arena (80 lines)
 ```
 
-**Create `frontend/arena/mod.rs`:**
+**Create `syntax/arena/mod.rs`:**
 ```rust
 use std::cell::RefCell;
 
@@ -485,7 +485,7 @@ pub enum Expression<'arena> {
 ### Proposed Architecture
 
 ```
-src/frontend/
+src/syntax/
 ├── types/
 │   ├── mod.rs              # Public API (80 lines)
 │   ├── type_ast.rs         # Type AST (150 lines)
@@ -501,7 +501,7 @@ src/frontend/
 
 ### Type AST
 
-**Create `frontend/types/type_ast.rs`:**
+**Create `syntax/types/type_ast.rs`:**
 ```rust
 /// Type representation
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -563,9 +563,9 @@ impl Type {
 
 ### Type Inference
 
-**Create `frontend/type_checker/inference.rs`:**
+**Create `syntax/type_checker/inference.rs`:**
 ```rust
-use crate::frontend::types::{Type, TypeVar};
+use crate::syntax::types::{Type, TypeVar};
 use std::collections::HashMap;
 
 pub struct TypeInference {
@@ -725,7 +725,7 @@ src/repl/
 
 ### AST Visitor Traits
 
-**Create `frontend/ast/visitor.rs`:**
+**Create `syntax/ast/visitor.rs`:**
 ```rust
 /// Mutable visitor that can transform AST
 pub trait MutVisitor {

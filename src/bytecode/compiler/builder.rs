@@ -1,13 +1,13 @@
 use crate::{
     bytecode::{
+        binding::Binding,
         debug_info::{InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
-        symbol::Symbol,
         symbol_scope::SymbolScope,
     },
-    frontend::position::Span,
     runtime::object::Object,
+    syntax::position::Span,
 };
 
 use super::Compiler;
@@ -64,7 +64,7 @@ impl Compiler {
         self.constants.len() - 1
     }
 
-    pub(super) fn load_symbol(&mut self, symbol: &Symbol) {
+    pub(super) fn load_symbol(&mut self, symbol: &Binding) {
         match symbol.symbol_scope {
             SymbolScope::Global => {
                 self.emit(OpCode::OpGetGlobal, &[symbol.index]);

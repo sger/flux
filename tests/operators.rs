@@ -1,6 +1,7 @@
-use flux::frontend::{
+use flux::syntax::{
     diagnostics::Diagnostic,
     expression::Expression,
+    interner::Interner,
     lexer::Lexer,
     parser::Parser,
     precedence::{
@@ -27,22 +28,24 @@ fn lex_token_types(input: &str) -> Vec<TokenType> {
 }
 
 fn parse_expr_to_string(input: &str) -> String {
-    let (program, errors) = parse_program_no_panic(input);
+    let (program, errors, interner) = parse_program_no_panic(input);
     assert!(
         errors.is_empty(),
         "parser errors for `{}`: {:?}",
         input,
         errors
     );
-    program.to_string()
+    program.display_with(&interner)
 }
 
-fn parse_program_no_panic(input: &str) -> (Program, Vec<Diagnostic>) {
+fn parse_program_no_panic(input: &str) -> (Program, Vec<Diagnostic>, Interner) {
     let parsed = panic::catch_unwind(|| {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        (program, parser.errors)
+        let interner = parser.take_interner();
+        let errors = parser.errors;
+        (program, errors, interner)
     });
 
     match parsed {
@@ -345,7 +348,7 @@ fn generic_infix_dispatch_is_in_sync_with_operator_registry() {
     // For generic infix tokens, parser dispatch uses registry metadata directly.
     for token in registry_generic {
         let src = format!("a {} b;", token);
-        let (program, errors) = parse_program_no_panic(&src);
+        let (program, errors, _interner) = parse_program_no_panic(&src);
         assert!(
             errors.is_empty(),
             "expected no parser diagnostics for generic infix {:?}, got {:?}",
@@ -399,7 +402,7 @@ fn parser_dispatch_is_compatible_with_registered_infix_and_postfix_operators() {
             other => panic!("missing parser compatibility fixture for operator token {other:?}"),
         };
 
-        let (program, errors) = parse_program_no_panic(src);
+        let (program, errors, _interner) = parse_program_no_panic(src);
         assert!(
             errors.is_empty(),
             "operator {:?} emitted parser diagnostics for `{}`: {:?}",

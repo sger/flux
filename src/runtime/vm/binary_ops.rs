@@ -1,13 +1,13 @@
 use crate::{
     bytecode::op_code::OpCode,
-    frontend::{
+    runtime::object::Object,
+    syntax::{
         diagnostics::{
             DIVISION_BY_ZERO_RUNTIME, DiagnosticBuilder, DiagnosticsAggregator, HintChain,
             INVALID_OPERATION, runtime_errors::invalid_operation,
         },
         position::{Position, Span},
     },
-    runtime::object::Object,
 };
 
 use super::VM;

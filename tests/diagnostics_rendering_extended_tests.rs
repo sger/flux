@@ -1,6 +1,6 @@
 mod diagnostics_env;
 
-use flux::frontend::{
+use flux::syntax::{
     diagnostics::{Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, ErrorType, Severity},
     position::{Position, Span},
 };

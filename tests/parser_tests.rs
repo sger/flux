@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use flux::frontend::{
-        expression::Expression, lexer::Lexer, parser::Parser, position::Position, program::Program,
-        statement::Statement,
+    use flux::syntax::{
+        expression::Expression, interner::Interner, lexer::Lexer, parser::Parser,
+        position::Position, program::Program, statement::Statement,
     };
 
     const SEMICOLON_VERIFICATION_PROGRAM: &str = r#"fun f(a, b, c, d) {
@@ -24,7 +24,7 @@ let test = "this compiles"
 let test2 = "this compiles";
 "#;
 
-    fn parse(input: &str) -> Program {
+    fn parse(input: &str) -> (Program, Interner) {
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
@@ -33,7 +33,8 @@ let test2 = "this compiles";
             "Parser errors: {:?}",
             parser.errors
         );
-        program
+        let interner = parser.take_interner();
+        (program, interner)
     }
 
     fn spaced_ints(count: usize) -> String {
@@ -60,18 +61,18 @@ let test2 = "this compiles";
 
     #[test]
     fn let_statements() {
-        let program = parse("let x = 5; let y = 10;");
+        let (program, interner) = parse("let x = 5; let y = 10;");
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[0] {
-            Statement::Let { name, .. } => assert_eq!(name, "x"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "x"),
             _ => panic!("expected Let statement"),
         }
     }
 
     #[test]
     fn return_statements() {
-        let program = parse("return 5; return;");
+        let (program, _interner) = parse("return 5; return;");
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[1] {
@@ -91,32 +92,37 @@ let test2 = "this compiles";
         ];
 
         for (input, expected) in tests {
-            let program = parse(input);
-            assert_eq!(program.to_string(), expected, "Failed for: {}", input);
+            let (program, interner) = parse(input);
+            assert_eq!(
+                program.display_with(&interner),
+                expected,
+                "Failed for: {}",
+                input
+            );
         }
     }
 
     #[test]
     fn if_expression() {
-        let program = parse("if x < y { x; };");
+        let (program, _interner) = parse("if x < y { x; };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn if_else_expression() {
-        let program = parse("if x < y { x; } else { y; };");
+        let (program, _interner) = parse("if x < y { x; } else { y; };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_match_arms_comma_separated_is_valid() {
-        let program = parse("match x { 0 -> 1, 1 -> 2 };");
+        let (program, _interner) = parse("match x { 0 -> 1, 1 -> 2 };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_match_arms_trailing_comma_is_valid() {
-        let program = parse(
+        let (program, _interner) = parse(
             r#"
             match x {
                 0 -> 1,
@@ -129,7 +135,7 @@ let test2 = "this compiles";
 
     #[test]
     fn test_match_arm_guard_parses_and_attaches_to_arm() {
-        let program = parse("match x { a if a > 0 -> 1, _ -> 0 };");
+        let (program, _interner) = parse("match x { a if a > 0 -> 1, _ -> 0 };");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -156,16 +162,16 @@ let test2 = "this compiles";
         let lexer = Lexer::new("match x { a if -> 1, _ -> 0 }\nlet y = 3;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         assert!(
             parser.errors.iter().any(|d| d.code() == Some("E031")),
             "expected malformed guard to report EXPECTED_EXPRESSION"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
             "expected parser to continue after malformed match guard"
         );
     }
@@ -175,6 +181,7 @@ let test2 = "this compiles";
         let lexer = Lexer::new("match x { 0 -> 1; 1 -> 2 }\nlet y = 3;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let sep_diags: Vec<_> = parser
             .errors
@@ -195,10 +202,9 @@ let test2 = "this compiles";
             "semicolon separator recovery should avoid EXPECTED_EXPRESSION cascades"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
             "expected parser to continue after invalid match separator"
         );
     }
@@ -208,6 +214,7 @@ let test2 = "this compiles";
         let lexer = Lexer::new("match x { 0 -> 1, 1 -> 2; _ -> 3 }\nlet y = 3;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let sep_diags: Vec<_> = parser
             .errors
@@ -228,31 +235,31 @@ let test2 = "this compiles";
             "mixed separator recovery should avoid EXPECTED_EXPRESSION cascades"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "y")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
             "expected parser to continue after mixed match separators"
         );
     }
 
     #[test]
     fn function_literal() {
-        let program = parse("fun(x, y) { x + y; };");
+        let (program, _interner) = parse("fun(x, y) { x + y; };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_function_statement() {
-        let program = parse("fun add(x, y) { x + y; }");
+        let (program, interner) = parse("fun add(x, y) { x + y; }");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
             Statement::Function {
                 name, parameters, ..
             } => {
-                assert_eq!(name, "add");
-                assert_eq!(parameters, &vec!["x".to_string(), "y".to_string()]);
+                assert_eq!(interner.resolve(*name), "add");
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["x", "y"]);
             }
             _ => panic!("expected Function statement"),
         }
@@ -260,13 +267,13 @@ let test2 = "this compiles";
 
     #[test]
     fn test_call_expression() {
-        let program = parse("add(1, 2 * 3);");
+        let (program, _interner) = parse("add(1, 2 * 3);");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_binding_shadowing_sample_program_parses_without_semicolons_and_keeps_ast_shape() {
-        let program = parse(
+        let (program, interner) = parse(
             r#"
 let x = 3
 
@@ -279,7 +286,7 @@ fun t(x) {
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[0] {
-            Statement::Let { name, .. } => assert_eq!(name, "x"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "x"),
             _ => panic!("expected top-level let statement"),
         }
 
@@ -290,14 +297,15 @@ fun t(x) {
                 body,
                 ..
             } => {
-                assert_eq!(name, "t");
-                assert_eq!(parameters, &vec!["x".to_string()]);
+                assert_eq!(interner.resolve(*name), "t");
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["x"]);
                 assert_eq!(body.statements.len(), 1);
                 match &body.statements[0] {
                     Statement::Let { name, value, .. } => {
-                        assert_eq!(name, "x");
+                        assert_eq!(interner.resolve(*name), "x");
                         assert!(
-                            matches!(value, Expression::Identifier { name, .. } if name == "x"),
+                            matches!(value, Expression::Identifier { name, .. } if interner.resolve(*name) == "x"),
                             "expected RHS of inner let to parse as identifier `x`"
                         );
                     }
@@ -339,6 +347,7 @@ fun t(x) {
         let lexer = Lexer::new("f(\"a\" \"b\")\nlet x = 1;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let missing_comma: Vec<_> = parser
             .errors
@@ -359,17 +368,16 @@ fun t(x) {
             "missing comma should avoid generic cascade diagnostics"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "x")
+            ),
             "expected parser recovery to continue after call argument error"
         );
     }
 
     #[test]
     fn test_string_literal() {
-        let program = parse(r#""hello world";"#);
+        let (program, _interner) = parse(r#""hello world";"#);
         assert_eq!(program.statements.len(), 1);
     }
 
@@ -441,35 +449,35 @@ fun t(x) {
 
     #[test]
     fn test_string_interpolation_simple() {
-        let program = parse(r#""Hello #{name}""#);
+        let (program, interner) = parse(r#""Hello #{name}""#);
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "\"Hello #{name}\"");
+        assert_eq!(program.display_with(&interner), "\"Hello #{name}\"");
     }
 
     #[test]
     fn test_string_interpolation_expression() {
-        let program = parse(r#""Sum #{1 + 2}""#);
+        let (program, interner) = parse(r#""Sum #{1 + 2}""#);
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "\"Sum #{(1 + 2)}\"");
+        assert_eq!(program.display_with(&interner), "\"Sum #{(1 + 2)}\"");
     }
 
     #[test]
     fn test_string_interpolation_nested_hash_expression_terminates() {
-        let program = parse("\"#{ {1: 2} }\"");
+        let (program, _interner) = parse("\"#{ {1: 2} }\"");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_boolean_literals() {
-        let program = parse("true; false;");
+        let (program, _interner) = parse("true; false;");
         assert_eq!(program.statements.len(), 2);
     }
 
     #[test]
     fn test_array_literal() {
-        let program = parse("[1, 2 * 2, 3 + 3];");
+        let (program, interner) = parse("[1, 2 * 2, 3 + 3];");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "[1, (2 * 2), (3 + 3)]");
+        assert_eq!(program.display_with(&interner), "[1, (2 * 2), (3 + 3)]");
     }
 
     #[test]
@@ -498,6 +506,7 @@ fun t(x) {
         let lexer = Lexer::new("[\"a\" \"b\"]\nlet x = 1;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let missing_comma: Vec<_> = parser
             .errors
@@ -518,19 +527,18 @@ fun t(x) {
             "missing comma should avoid generic cascade diagnostics"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "x")
+            ),
             "expected parser recovery to continue after array item error"
         );
     }
 
     #[test]
     fn test_index_expression() {
-        let program = parse("arr[1 + 1];");
+        let (program, interner) = parse("arr[1 + 1];");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "(arr[(1 + 1)])");
+        assert_eq!(program.display_with(&interner), "(arr[(1 + 1)])");
     }
 
     #[test]
@@ -538,6 +546,7 @@ fun t(x) {
         let lexer = Lexer::new("(\"a\" \"b\")\nlet x = 1;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let missing_comma: Vec<_> = parser
             .errors
@@ -558,31 +567,30 @@ fun t(x) {
             "tuple-like missing comma should avoid generic cascade diagnostics"
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "x")
+            ),
             "expected parser recovery to continue after parenthesized error"
         );
     }
 
     #[test]
     fn test_hash_literal() {
-        let program = parse(r#"{"one": 1, "two": 2};"#);
+        let (program, _interner) = parse(r#"{"one": 1, "two": 2};"#);
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_empty_hash() {
-        let program = parse("{};");
+        let (program, interner) = parse("{};");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "{}");
+        assert_eq!(program.display_with(&interner), "{}");
     }
 
     // Lambda shorthand tests
     #[test]
     fn test_lambda_single_param() {
-        let program = parse(r"\x -> x * 2;");
+        let (program, _interner) = parse(r"\x -> x * 2;");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -599,7 +607,7 @@ fun t(x) {
 
     #[test]
     fn test_lambda_single_ident_param_span_and_arity() {
-        let program = parse(r"\x -> x");
+        let (program, interner) = parse(r"\x -> x");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -610,7 +618,8 @@ fun t(x) {
                     },
                 ..
             } => {
-                assert_eq!(parameters, &vec!["x".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["x"]);
                 assert_eq!(span.start, Position::new(1, 0));
                 assert_eq!(span.end, Position::new(1, 7));
             }
@@ -620,8 +629,8 @@ fun t(x) {
 
     #[test]
     fn test_lambda_single_param_sugar_and_parenthesized_have_same_ast_shape() {
-        let sugar = parse(r"\x -> x");
-        let parenthesized = parse(r"\(x) -> x");
+        let (sugar, sugar_interner) = parse(r"\x -> x");
+        let (parenthesized, paren_interner) = parse(r"\(x) -> x");
 
         let sugar_params = match &sugar.statements[0] {
             Statement::Expression {
@@ -640,41 +649,49 @@ fun t(x) {
 
         assert_eq!(sugar_params.len(), 1);
         assert_eq!(paren_params.len(), 1);
-        assert_eq!(sugar_params, paren_params);
-        assert_eq!(sugar_params[0], "x");
+        let sugar_names: Vec<_> = sugar_params
+            .iter()
+            .map(|p| sugar_interner.resolve(*p))
+            .collect();
+        let paren_names: Vec<_> = paren_params
+            .iter()
+            .map(|p| paren_interner.resolve(*p))
+            .collect();
+        assert_eq!(sugar_names, paren_names);
+        assert_eq!(sugar_interner.resolve(sugar_params[0]), "x");
     }
 
     #[test]
     fn test_lambda_multi_param() {
-        let program = parse(r"\(x, y) -> x + y;");
+        let (program, _interner) = parse(r"\(x, y) -> x + y;");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_lambda_no_param() {
-        let program = parse(r"\() -> 42;");
+        let (program, _interner) = parse(r"\() -> 42;");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_lambda_block_body() {
-        let program = parse(r"\x -> { let y = x * 2; y + 1 };");
+        let (program, _interner) = parse(r"\x -> { let y = x * 2; y + 1 };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_lambda_in_let() {
-        let program = parse(r"let double = \x -> x * 2;");
+        let (program, interner) = parse(r"let double = \x -> x * 2;");
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Statement::Let { name, .. } => assert_eq!(name, "double"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "double"),
             _ => panic!("expected Let statement"),
         }
     }
 
     #[test]
     fn test_lambda_as_argument() {
-        let program = parse(r"map(arr, \x -> x * 2);");
+        let (program, _interner) = parse(r"map(arr, \x -> x * 2);");
         assert_eq!(program.statements.len(), 1);
     }
 
@@ -828,6 +845,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(1) { 1 }\nlet x = 2;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let diag = parser
             .errors
@@ -838,10 +856,9 @@ fun t(x) {
         assert_eq!(span.start, Position::new(1, 6));
 
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "x")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "x")
+            ),
             "expected parser to continue and parse trailing let statement"
         );
     }
@@ -851,6 +868,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(1, x) { x }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let diag = parser
             .errors
@@ -862,7 +880,8 @@ fun t(x) {
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
-                assert_eq!(parameters, &vec!["x".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["x"]);
             }
             _ => panic!("expected function statement"),
         }
@@ -873,6 +892,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(a b) { }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let diag = parser
             .errors
@@ -888,7 +908,8 @@ fun t(x) {
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
-                assert_eq!(parameters, &vec!["a".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["a"]);
             }
             _ => panic!("expected function statement"),
         }
@@ -899,6 +920,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(a,) { }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         assert!(
             parser.errors.is_empty(),
@@ -907,7 +929,8 @@ fun t(x) {
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
-                assert_eq!(parameters, &vec!["a".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["a"]);
             }
             _ => panic!("expected function statement"),
         }
@@ -918,6 +941,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(a,,b) { b }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let e105_diags: Vec<_> = parser
             .errors
@@ -933,7 +957,8 @@ fun t(x) {
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
-                assert_eq!(parameters, &vec!["a".to_string(), "b".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["a", "b"]);
             }
             _ => panic!("expected function statement"),
         }
@@ -944,6 +969,7 @@ fun t(x) {
         let lexer = Lexer::new("fun f(,x) { x }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let e105_diags: Vec<_> = parser
             .errors
@@ -959,7 +985,8 @@ fun t(x) {
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
-                assert_eq!(parameters, &vec!["x".to_string()]);
+                let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
+                assert_eq!(param_names, vec!["x"]);
             }
             _ => panic!("expected function statement"),
         }
@@ -1028,14 +1055,14 @@ fun t(x) {
 
     #[test]
     fn test_hash_literal_trailing_comma_is_accepted() {
-        let program = parse(r#"{"one": 1,}"#);
+        let (program, interner) = parse(r#"{"one": 1,}"#);
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.to_string(), "{\"one\": 1}");
+        assert_eq!(program.display_with(&interner), "{\"one\": 1}");
     }
 
     #[test]
     fn test_nested_trailing_commas_are_accepted() {
-        let program = parse("f([1,2,], g(3,4,),)");
+        let (program, _interner) = parse("f([1,2,], g(3,4,),)");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -1060,6 +1087,7 @@ fun t(x) {
         let lexer = Lexer::new("f(a, b c, d)");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let missing_comma_count = parser
             .errors
@@ -1086,7 +1114,7 @@ fun t(x) {
                     "expected trailing argument to be preserved"
                 );
                 assert!(
-                    matches!(&arguments[3], Expression::Identifier { name, .. } if name == "d"),
+                    matches!(&arguments[3], Expression::Identifier { name, .. } if interner.resolve(*name) == "d"),
                     "expected final argument `d` to be parsed after recovery"
                 );
             }
@@ -1099,6 +1127,7 @@ fun t(x) {
         let lexer = Lexer::new("let x = 1;\nlet y = 2;\nif x = y { x; }\nlet after = 3;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         assert!(
             parser.errors.iter().any(|d| d.code() == Some("E034")),
@@ -1108,7 +1137,7 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "after")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
             "expected parser recovery to continue after invalid assignment expression"
         );
     }
@@ -1118,6 +1147,7 @@ fun t(x) {
         let lexer = Lexer::new("let x = 1;\nx = ;\nlet after = 2;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         assert!(
             parser.errors.iter().any(|d| d.code() == Some("E031")),
@@ -1127,17 +1157,17 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "after")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
             "expected parser recovery to continue after malformed assignment statement"
         );
     }
 
     #[test]
     fn test_assignment_parses_as_statement_top_level_and_in_block() {
-        let program = parse("x = 2;\nfun f() { y = 3; }");
+        let (program, interner) = parse("x = 2;\nfun f() { y = 3; }");
 
         assert!(
-            matches!(&program.statements[0], Statement::Assign { name, .. } if name == "x"),
+            matches!(&program.statements[0], Statement::Assign { name, .. } if interner.resolve(*name) == "x"),
             "expected top-level assignment to parse as Statement::Assign"
         );
 
@@ -1146,7 +1176,7 @@ fun t(x) {
                 assert!(
                     body.statements
                         .iter()
-                        .any(|stmt| matches!(stmt, Statement::Assign { name, .. } if name == "y")),
+                        .any(|stmt| matches!(stmt, Statement::Assign { name, .. } if interner.resolve(*name) == "y")),
                     "expected block assignment to parse as Statement::Assign"
                 );
             }
@@ -1163,6 +1193,7 @@ fun t(x) {
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let summary_diags: Vec<_> = parser
             .errors
@@ -1196,7 +1227,7 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")),
             "expected parser to continue and parse trailing let statement"
         );
         assert!(
@@ -1206,9 +1237,9 @@ fun t(x) {
                     Statement::Expression {
                         expression: Expression::Call { function, arguments, .. },
                         ..
-                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                    } if matches!(&**function, Expression::Identifier { name, .. } if interner.resolve(*name) == "print")
                         && arguments.len() == 1
-                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "ok")
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if interner.resolve(*name) == "ok")
                 )
             }),
             "expected parser to continue and parse trailing print(ok) call"
@@ -1224,6 +1255,7 @@ fun t(x) {
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let summary_diags: Vec<_> = parser
             .errors
@@ -1257,7 +1289,7 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")),
             "expected parser to continue and parse trailing let statement"
         );
         assert!(
@@ -1267,9 +1299,9 @@ fun t(x) {
                     Statement::Expression {
                         expression: Expression::Call { function, arguments, .. },
                         ..
-                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                    } if matches!(&**function, Expression::Identifier { name, .. } if interner.resolve(*name) == "print")
                         && arguments.len() == 1
-                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "ok")
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if interner.resolve(*name) == "ok")
                 )
             }),
             "expected parser to continue and parse trailing print(ok) call"
@@ -1285,6 +1317,7 @@ fun t(x) {
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let summary_diags: Vec<_> = parser
             .errors
@@ -1307,7 +1340,7 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "ok")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")),
             "expected parser to continue and parse trailing let statement after match recovery"
         );
     }
@@ -1324,47 +1357,48 @@ fun t(x) {
 
     #[test]
     fn test_optional_semicolons_let_statements() {
-        let program = parse("let x = 5\nlet y = 10");
+        let (program, interner) = parse("let x = 5\nlet y = 10");
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[0] {
-            Statement::Let { name, .. } => assert_eq!(name, "x"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "x"),
             _ => panic!("expected Let statement"),
         }
         match &program.statements[1] {
-            Statement::Let { name, .. } => assert_eq!(name, "y"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "y"),
             _ => panic!("expected Let statement"),
         }
     }
 
     #[test]
     fn test_optional_semicolons_expressions() {
-        let program = parse("1 + 2\n3 + 4");
+        let (program, _interner) = parse("1 + 2\n3 + 4");
         assert_eq!(program.statements.len(), 2);
     }
 
     #[test]
     fn test_optional_semicolons_function_calls() {
-        let program = parse("print(\"Hello\")\nprint(\"World\")");
+        let (program, _interner) = parse("print(\"Hello\")\nprint(\"World\")");
         assert_eq!(program.statements.len(), 2);
     }
 
     #[test]
     fn test_top_level_call_with_and_without_semicolon_both_parse() {
-        let program = parse("print(\"hi\")\nprint(\"there\");");
+        let (program, _interner) = parse("print(\"hi\")\nprint(\"there\");");
         assert_eq!(program.statements.len(), 2);
     }
 
     #[test]
     fn test_top_level_let_with_and_without_semicolon_both_parse() {
-        let program = parse("let test = \"this compiles\"\nlet test2 = \"this compiles\";");
+        let (program, interner) =
+            parse("let test = \"this compiles\"\nlet test2 = \"this compiles\";");
         assert_eq!(program.statements.len(), 2);
         match &program.statements[0] {
-            Statement::Let { name, .. } => assert_eq!(name, "test"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "test"),
             _ => panic!("expected Let statement"),
         }
         match &program.statements[1] {
-            Statement::Let { name, .. } => assert_eq!(name, "test2"),
+            Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "test2"),
             _ => panic!("expected Let statement"),
         }
     }
@@ -1374,6 +1408,7 @@ fun t(x) {
         let lexer = Lexer::new(SEMICOLON_VERIFICATION_PROGRAM);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let interner = parser.take_interner();
 
         let missing_comma_count = parser
             .errors
@@ -1398,7 +1433,7 @@ fun t(x) {
 
         assert!(
             program.statements.iter().any(
-                |stmt| matches!(stmt, Statement::Let { name, .. } if name == "parsed_after_errors")
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "parsed_after_errors")
             ),
             "expected recovery to keep parsing `parsed_after_errors` binding"
         );
@@ -1406,14 +1441,14 @@ fun t(x) {
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "test")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "test")),
             "expected recovery to keep parsing `test` binding without semicolon"
         );
         assert!(
             program
                 .statements
                 .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if name == "test2")),
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "test2")),
             "expected recovery to keep parsing `test2` binding with semicolon"
         );
         assert!(
@@ -1423,9 +1458,9 @@ fun t(x) {
                     Statement::Expression {
                         expression: Expression::Call { function, arguments, .. },
                         ..
-                    } if matches!(&**function, Expression::Identifier { name, .. } if name == "print")
+                    } if matches!(&**function, Expression::Identifier { name, .. } if interner.resolve(*name) == "print")
                         && arguments.len() == 1
-                        && matches!(&arguments[0], Expression::Identifier { name, .. } if name == "parsed_after_errors")
+                        && matches!(&arguments[0], Expression::Identifier { name, .. } if interner.resolve(*name) == "parsed_after_errors")
                 )
             }),
             "expected recovery to keep parsing `print(parsed_after_errors)` call"
@@ -1435,13 +1470,13 @@ fun t(x) {
     #[test]
     fn test_mixed_semicolons() {
         // Mix of statements with and without semicolons
-        let program = parse("let x = 5;\nlet y = 10\nprint(x)\nprint(y);");
+        let (program, _interner) = parse("let x = 5;\nlet y = 10\nprint(x)\nprint(y);");
         assert_eq!(program.statements.len(), 4);
     }
 
     #[test]
     fn test_optional_semicolons_return() {
-        let program = parse("return 5\nreturn 10");
+        let (program, _interner) = parse("return 5\nreturn 10");
         assert_eq!(program.statements.len(), 2);
 
         match &program.statements[0] {
@@ -1452,13 +1487,13 @@ fun t(x) {
 
     #[test]
     fn test_optional_semicolons_if_statements() {
-        let program = parse("if (x > 0) { print(\"positive\") }\nprint(\"done\")");
+        let (program, _interner) = parse("if (x > 0) { print(\"positive\") }\nprint(\"done\")");
         assert_eq!(program.statements.len(), 2);
     }
 
     #[test]
     fn test_optional_semicolons_multiple_expressions() {
-        let program = parse("1 + 2\n3 * 4\n5 - 6\n7 / 8");
+        let (program, _interner) = parse("1 + 2\n3 * 4\n5 - 6\n7 / 8");
         assert_eq!(program.statements.len(), 4);
     }
 }

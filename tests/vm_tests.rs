@@ -3,17 +3,18 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
-use flux::frontend::diagnostics::render_diagnostics;
-use flux::frontend::lexer::Lexer;
-use flux::frontend::parser::Parser;
 use flux::runtime::object::Object;
 use flux::runtime::vm::VM;
+use flux::syntax::diagnostics::render_diagnostics;
+use flux::syntax::lexer::Lexer;
+use flux::syntax::parser::Parser;
 
 fn run(input: &str) -> Object {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    let mut compiler = Compiler::new();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
@@ -26,7 +27,8 @@ fn run_error(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    let mut compiler = Compiler::new_with_file_path("test.flx");
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("test.flx", interner);
     compiler
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));

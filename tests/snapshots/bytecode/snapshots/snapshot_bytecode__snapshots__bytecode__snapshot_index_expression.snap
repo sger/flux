@@ -2,19 +2,5 @@
 source: tests/snapshots/bytecode/mod.rs
 expression: output
 ---
-Constants:
-  0: 1
-  1: 2
-  2: 3
-  3: 1
-
-Instructions:
-0000 OpConstant 0
-0003 OpConstant 1
-0006 OpConstant 2
-0009 OpArray 3
-0012 OpSetGlobal 0
-0015 OpGetGlobal 0
-0018 OpConstant 3
-0021 OpIndex 
-0022 OpPop
+Compile Errors:
+  - Diagnostic { severity: Error, title: "DUPLICATE NAME", code: Some("E001"), error_type: Some(Compiler), message: Some("Duplicate binding: `print` is already defined."), file: Some("test.flx"), span: Some(Span { start: Position { line: 1, column: 0 }, end: Position { line: 1, column: 20 } }), labels: [], hints: [Hint { kind: Hint, text: "Use a different name or remove the previous definition.", span: None, label: None, file: None }, Hint { kind: Hint, text: "", span: Some(Span { start: Position { line: 0, column: 0 }, end: Position { line: 0, column: 0 } }), label: Some("first defined here"), file: None }], suggestions: [], hint_chains: [], related: [] }

@@ -103,7 +103,7 @@ Total: 11 weeks (2.75 months)
 **Goal:** Complete the centralized error code registry to prevent duplicates and improve maintainability.
 
 **Current State:**
-- ✅ `src/frontend/error_codes.rs` exists with 31 error codes (E001-E106)
+- ✅ `src/syntax/error_codes.rs` exists with 31 error codes (E001-E106)
 - ✅ `ErrorCode` struct with code + title
 - ✅ `ERROR_CODES` array and helper functions
 - ⚠️ Missing 26 v0.0.2 error codes (E120-E522 documented but not implemented)
@@ -193,9 +193,9 @@ Runtime errors:
 - ✅ Easy documentation generation
 
 **Critical Files:**
-- `src/frontend/error_codes.rs` (extend struct, add 26 codes)
-- `src/frontend/diagnostic.rs` (update to use message/hint)
-- `src/frontend/parser.rs` (refactor 15+ error sites)
+- `src/syntax/error_codes.rs` (extend struct, add 26 codes)
+- `src/syntax/diagnostic.rs` (update to use message/hint)
+- `src/syntax/parser.rs` (refactor 15+ error sites)
 - `src/bytecode/compiler.rs` (refactor 10+ error sites)
 - `tests/error_codes_tests.rs` (new: duplicate detection)
 - `docs/reference/ERROR_CATALOG_v0.0.3.md` (new: generated catalog)
@@ -236,11 +236,11 @@ error[E007]: UNDEFINED VARIABLE
 ```
 
 **Critical Files:**
-- `src/frontend/expression.rs` (add spans)
-- `src/frontend/statement.rs` (add spans)
-- `src/frontend/parser.rs` (track positions)
-- `src/frontend/position.rs` (span utilities)
-- `src/frontend/diagnostic.rs` (use spans)
+- `src/syntax/expression.rs` (add spans)
+- `src/syntax/statement.rs` (add spans)
+- `src/syntax/parser.rs` (track positions)
+- `src/syntax/position.rs` (span utilities)
+- `src/syntax/diagnostic.rs` (use spans)
 
 ---
 
@@ -285,7 +285,7 @@ error[E007]: UNDEFINED VARIABLE
 **Deliverable:** Enhanced linter with 3 new warning types (W008-W010)
 
 **Files Modified:**
-- `src/frontend/linter.rs` - Add new checks
+- `src/syntax/linter.rs` - Add new checks
 - `tests/linter_tests.rs` - Add tests for new warnings
 
 ---
@@ -325,8 +325,8 @@ match age {
 ```
 
 **Critical Files:**
-- `src/frontend/parser.rs` (parse guards)
-- `src/frontend/expression.rs` (extend MatchArm)
+- `src/syntax/parser.rs` (parse guards)
+- `src/syntax/expression.rs` (extend MatchArm)
 - `src/bytecode/compiler.rs` (compile guards)
 - `tests/vm_tests.rs` (test guards)
 
@@ -371,7 +371,7 @@ print(stats.1);  // 5
 **Critical Files:**
 - `src/runtime/object.rs` (add Tuple variant)
 - `src/bytecode/op_code.rs` (add OpTuple)
-- `src/frontend/parser.rs` (parse tuples)
+- `src/syntax/parser.rs` (parse tuples)
 - `src/bytecode/compiler.rs` (compile tuples)
 - `src/runtime/vm.rs` (execute OpTuple)
 
@@ -475,9 +475,9 @@ for item in collection {
 - Desugars to existing constructs
 
 **Critical Files:**
-- `src/frontend/token_type.rs` (add for keyword)
-- `src/frontend/parser.rs` (parse for)
-- `src/frontend/statement.rs` (For statement AST)
+- `src/syntax/token_type.rs` (add for keyword)
+- `src/syntax/parser.rs` (parse for)
+- `src/syntax/statement.rs` (For statement AST)
 - `src/bytecode/compiler.rs` (desugar to recursion)
 
 ---
@@ -520,9 +520,9 @@ match tuple {
 - Exhaustiveness checking
 
 **Critical Files:**
-- `src/frontend/parser.rs` (parse patterns)
+- `src/syntax/parser.rs` (parse patterns)
 - `src/bytecode/compiler.rs` (compile patterns)
-- `src/frontend/expression.rs` (pattern AST)
+- `src/syntax/expression.rs` (pattern AST)
 - `tests/vm_tests.rs` (pattern tests)
 
 ---

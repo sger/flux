@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
-use crate::bytecode::{symbol::Symbol, symbol_scope::SymbolScope};
-use crate::frontend::position::Span;
+use crate::bytecode::{binding::Binding, symbol_scope::SymbolScope};
+use crate::syntax::position::Span;
+use crate::syntax::symbol::Symbol;
 
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
     pub outer: Option<Box<SymbolTable>>,
-    store: HashMap<String, Symbol>,
+    store: HashMap<Symbol, Binding>,
     pub num_definitions: usize,
-    pub free_symbols: Vec<Symbol>,
+    pub free_symbols: Vec<Binding>,
     allow_free: bool,
 }
 
@@ -43,8 +44,7 @@ impl SymbolTable {
         }
     }
 
-    pub fn define(&mut self, name: impl Into<String>, span: Span) -> Symbol {
-        let name = name.into();
+    pub fn define(&mut self, name: Symbol, span: Span) -> Binding {
         let scope = if self.outer.is_none() {
             SymbolScope::Global
         } else {
@@ -56,18 +56,18 @@ impl SymbolTable {
             // The compiler will handle the error message
         }
 
-        let symbol = Symbol::new(name.clone(), scope, self.num_definitions, span);
+        let symbol = Binding::new(name, scope, self.num_definitions, span);
         self.store.insert(name, symbol.clone());
         self.num_definitions += 1;
         symbol
     }
 
-    pub fn exists_in_current_scope(&self, name: &str) -> bool {
-        self.store.contains_key(name)
+    pub fn exists_in_current_scope(&self, name: Symbol) -> bool {
+        self.store.contains_key(&name)
     }
 
-    pub fn mark_assigned(&mut self, name: &str) -> Result<(), String> {
-        if let Some(symbol) = self.store.get_mut(name) {
+    pub fn mark_assigned(&mut self, name: Symbol) -> Result<(), String> {
+        if let Some(symbol) = self.store.get_mut(&name) {
             symbol.mark_assigned();
             Ok(())
         } else {
@@ -75,33 +75,36 @@ impl SymbolTable {
         }
     }
 
-    pub fn define_builtin(&mut self, index: usize, name: impl Into<String>) -> Symbol {
-        let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Builtin, index, Span::default());
+    pub fn define_builtin(&mut self, index: usize, name: Symbol) -> Binding {
+        let symbol = Binding::new(name, SymbolScope::Builtin, index, Span::default());
         self.store.insert(name, symbol.clone());
         symbol
     }
 
-    pub fn define_function_name(&mut self, name: impl Into<String>, span: Span) -> Symbol {
-        let name = name.into();
-        let symbol = Symbol::new(name.clone(), SymbolScope::Function, 0, span);
+    pub fn define_function_name(&mut self, name: Symbol, span: Span) -> Binding {
+        let symbol = Binding::new(name, SymbolScope::Function, 0, span);
         self.store.insert(name, symbol.clone());
         symbol
     }
 
-    pub fn define_temp(&mut self) -> Symbol {
+    pub fn define_temp(&mut self) -> Binding {
         let scope = if self.outer.is_none() {
             SymbolScope::Global
         } else {
             SymbolScope::Local
         };
-        let symbol = Symbol::new("<temp>", scope, self.num_definitions, Span::default());
+        let symbol = Binding::new(
+            Symbol::new(u32::MAX),
+            scope,
+            self.num_definitions,
+            Span::default(),
+        );
         self.num_definitions += 1;
         symbol
     }
 
-    pub fn resolve(&mut self, name: &str) -> Option<Symbol> {
-        match self.store.get(name) {
+    pub fn resolve(&mut self, name: Symbol) -> Option<Binding> {
+        match self.store.get(&name) {
             Some(symbol) => Some(symbol.clone()),
             None => {
                 if let Some(outer) = &mut self.outer {
@@ -128,14 +131,14 @@ impl SymbolTable {
     /// Returns all symbols from the current scope and outer scopes,
     /// filtering out temporary symbols (those starting with '<').
     /// Used for generating "did you mean?" suggestions.
-    pub fn all_symbol_names(&self) -> Vec<&str> {
+    pub fn all_symbol_names(&self) -> Vec<Symbol> {
         let mut names = Vec::new();
 
         // Add symbols from current scope
         for name in self.store.keys() {
             // Filter out temporary symbols
-            if !name.starts_with('<') {
-                names.push(name.as_str());
+            if name.as_u32() != u32::MAX {
+                names.push(*name);
             }
         }
 
@@ -147,15 +150,15 @@ impl SymbolTable {
         names
     }
 
-    pub fn define_free(&mut self, original: Symbol) -> Symbol {
+    pub fn define_free(&mut self, original: Binding) -> Binding {
         self.free_symbols.push(original.clone());
-        let symbol = Symbol::new(
-            original.name.clone(),
+        let symbol = Binding::new(
+            original.name,
             SymbolScope::Free,
             self.free_symbols.len() - 1,
             original.span,
         );
-        self.store.insert(symbol.name.clone(), symbol.clone());
+        self.store.insert(symbol.name, symbol.clone());
         symbol
     }
 }

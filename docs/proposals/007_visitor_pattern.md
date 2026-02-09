@@ -68,12 +68,12 @@ impl Compiler {
 
 ### 1. Core Visitor Trait
 
-Create `src/frontend/visitor.rs`:
+Create `src/syntax/visitor.rs`:
 
 ```rust
 //! Generic visitor pattern for AST traversal.
 
-use crate::frontend::{
+use crate::syntax::{
     expression::Expression,
     statement::Statement,
     block::Block,
@@ -341,13 +341,13 @@ pub trait Visitor<T = ()> {
 
 #### 2.1 Type Checker (Future)
 
-**File:** `src/frontend/type_checker.rs`
+**File:** `src/syntax/type_checker.rs`
 
 ```rust
 //! Type checking visitor for static type analysis.
 
 use std::collections::HashMap;
-use crate::frontend::{visitor::Visitor, expression::Expression};
+use crate::syntax::{visitor::Visitor, expression::Expression};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -412,7 +412,7 @@ impl Visitor<Type> for TypeChecker {
 ```rust
 //! Optimization visitor for constant folding and dead code elimination.
 
-use crate::frontend::{visitor::Visitor, expression::Expression};
+use crate::syntax::{visitor::Visitor, expression::Expression};
 
 pub struct ConstantFolder {
     optimizations: usize,
@@ -480,7 +480,7 @@ impl Visitor<Expression> for ConstantFolder {
 
 use crate::{
     bytecode::{compiler::Compiler, op_code::OpCode},
-    frontend::{visitor::Visitor, expression::Expression},
+    syntax::{visitor::Visitor, expression::Expression},
     runtime::object::Object,
 };
 
@@ -531,7 +531,7 @@ impl<'a> Visitor<()> for CodeGenerator<'a> {
 **Goal:** Create visitor infrastructure without breaking existing code
 
 **Tasks:**
-1. Create `src/frontend/visitor.rs` with Visitor trait
+1. Create `src/syntax/visitor.rs` with Visitor trait
 2. Add tests for visitor trait
 3. Document visitor pattern usage
 4. No changes to existing compiler yet
