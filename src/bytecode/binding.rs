@@ -1,9 +1,10 @@
 use crate::bytecode::symbol_scope::SymbolScope;
 use crate::frontend::position::Span;
+use crate::frontend::symbol::Symbol;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
-    pub name: String,
+    pub name: Symbol,
     pub symbol_scope: SymbolScope,
     pub index: usize,
     pub is_assigned: bool,
@@ -11,14 +12,9 @@ pub struct Binding {
 }
 
 impl Binding {
-    pub fn new(
-        name: impl Into<String>,
-        symbol_scope: SymbolScope,
-        index: usize,
-        span: Span,
-    ) -> Self {
+    pub fn new(name: Symbol, symbol_scope: SymbolScope, index: usize, span: Span) -> Self {
         Self {
-            name: name.into(),
+            name,
             symbol_scope,
             index,
             is_assigned: false,

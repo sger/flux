@@ -141,6 +141,7 @@ impl Compiler {
         // This enables forward references and mutual recursion
         for statement in &program.statements {
             if let Statement::Function { name, span, .. } = statement {
+                let name = *name;
                 // Check for duplicate declaration first (takes precedence)
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
