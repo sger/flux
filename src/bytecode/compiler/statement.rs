@@ -5,7 +5,7 @@ use crate::{
         compiler::Compiler, debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
     },
-    frontend::{
+    syntax::{
         block::Block,
         diagnostics::{
             DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
@@ -37,7 +37,7 @@ impl Compiler {
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
                             name_str,
                             *span,
@@ -47,7 +47,7 @@ impl Compiler {
                     }
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(
                             self.make_import_collision_error(name_str, *span),
                         ));
@@ -77,13 +77,13 @@ impl Compiler {
                 Statement::Assign { name, span, .. } => {
                     let name = *name;
                     // Check if variable exists
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name).to_string();
                     let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
-                        Self::boxed(self.make_undefined_variable_error(name_str, *span))
+                        Self::boxed(self.make_undefined_variable_error(&name_str, *span))
                     })?;
 
                     if symbol.symbol_scope == SymbolScope::Free {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(
                             self.make_outer_assignment_error(name_str, *span),
                         ));
@@ -91,7 +91,7 @@ impl Compiler {
 
                     // Flux bindings are immutable today: assignment syntax is parsed so we can
                     // emit a targeted diagnostic, but reassignment is not allowed.
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name);
                     return Err(Self::boxed(self.make_immutability_error(name_str, *span)));
                 }
                 Statement::Return { value, .. } => match value {
@@ -117,7 +117,7 @@ impl Compiler {
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
                     {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
                             name_str,
                             *span,
@@ -142,18 +142,18 @@ impl Compiler {
                             *span,
                         )));
                     }
-                    let name_str = self.interner.resolve(name).to_string();
+                    let name_str = self.sym(name).to_string();
                     let binding_name_str = module_binding_name(&name_str).to_string();
                     let binding_name = self.interner.intern(&binding_name_str);
                     if self.scope_index == 0 && self.file_scope_symbols.contains(&binding_name) {
-                        let binding_name_str = self.interner.resolve(binding_name);
+                        let binding_name_str = self.sym(binding_name);
                         return Err(Self::boxed(
                             self.make_import_collision_error(binding_name_str, *span),
                         ));
                     }
-                    let name_str = self.interner.resolve(name);
+                    let name_str = self.sym(name);
                     if !is_valid_module_name(name_str) {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(Diagnostic::make_error(
                             &INVALID_MODULE_NAME,
                             &[name_str],
@@ -163,7 +163,7 @@ impl Compiler {
                     }
                     self.compile_module_statement(name, body, span.start)?;
                     if self.scope_index == 0 {
-                        let name_str = self.interner.resolve(name).to_string();
+                        let name_str = self.sym(name).to_string();
                         let binding_name_str = module_binding_name(&name_str).to_string();
                         let binding_name = self.interner.intern(&binding_name_str);
                         self.file_scope_symbols.insert(binding_name);
@@ -172,7 +172,7 @@ impl Compiler {
                 Statement::Import { name, alias, span } => {
                     let name = *name;
                     if self.scope_index > 0 {
-                        let name_str = self.interner.resolve(name);
+                        let name_str = self.sym(name);
                         return Err(Self::boxed(Diagnostic::make_error(
                             &IMPORT_SCOPE,
                             &[name_str],
@@ -180,14 +180,14 @@ impl Compiler {
                             *span,
                         )));
                     }
-                    let name_str = self.interner.resolve(name).to_string();
-                    let alias_str = alias.map(|a| self.interner.resolve(a).to_string());
+                    let name_str = self.sym(name).to_string();
+                    let alias_str = alias.map(|a| self.sym(a).to_string());
                     let binding_name_str =
                         import_binding_name(&name_str, alias_str.as_deref()).to_string();
                     let binding_name = self.interner.intern(&binding_name_str);
 
                     if self.file_scope_symbols.contains(&binding_name) {
-                        let binding_name_str = self.interner.resolve(binding_name);
+                        let binding_name_str = self.sym(binding_name);
                         return Err(Self::boxed(
                             self.make_import_collision_error(binding_name_str, *span),
                         ));
@@ -211,7 +211,7 @@ impl Compiler {
         position: Position,
     ) -> CompileResult<()> {
         if let Some(param) = Self::find_duplicate_name(parameters) {
-            let param_str = self.interner.resolve(param);
+            let param_str = self.sym(param);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
                 &[param_str],
@@ -282,11 +282,11 @@ impl Compiler {
         position: Position,
     ) -> CompileResult<()> {
         // Check if module is already defined
-        let name_str = self.interner.resolve(name);
+        let name_str = self.sym(name);
         let binding_name_str = module_binding_name(name_str).to_string();
         let binding_name = self.interner.intern(&binding_name_str);
         if self.symbol_table.exists_in_current_scope(binding_name) {
-            let binding_name_str = self.interner.resolve(binding_name);
+            let binding_name_str = self.sym(binding_name);
             return Err(Self::boxed(self.make_redeclaration_error(
                 binding_name_str,
                 Span::new(position, position),
@@ -301,7 +301,7 @@ impl Compiler {
                 Statement::Function { name: fn_name, .. } => {
                     if *fn_name == binding_name {
                         let pos = statement.position();
-                        let binding_name_str = self.interner.resolve(binding_name);
+                        let binding_name_str = self.sym(binding_name);
                         return Err(Self::boxed(Diagnostic::make_error(
                             &MODULE_NAME_CLASH,
                             &[binding_name_str],
@@ -342,8 +342,7 @@ impl Compiler {
         // ====================================================================
 
         // Compile module constants (analysis + evaluation)
-        let binding_name_str = self.interner.resolve(binding_name).to_string();
-        let constants = match compile_module_constants(body, &binding_name_str, &self.interner) {
+        let constants = match compile_module_constants(body, binding_name, &mut self.interner) {
             Ok(result) => result,
             Err(err) => {
                 self.current_module_prefix = previous_module;
@@ -373,7 +372,7 @@ impl Compiler {
                     && self.symbol_table.exists_in_current_scope(qualified_name)
                 {
                     self.current_module_prefix = previous_module;
-                    let qualified_name_str = self.interner.resolve(qualified_name);
+                    let qualified_name_str = self.sym(qualified_name);
                     return Err(Self::boxed(self.make_redeclaration_error(
                         qualified_name_str,
                         *span,

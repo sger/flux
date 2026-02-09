@@ -1,5 +1,5 @@
-use flux::frontend::token_type::TokenType;
-use flux::frontend::token_type::lookup_ident;
+use flux::syntax::token_type::TokenType;
+use flux::syntax::token_type::lookup_ident;
 
 #[cfg(test)]
 mod tests {

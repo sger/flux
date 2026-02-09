@@ -1,5 +1,5 @@
 use flux::bytecode::{compiler::Compiler, op_code::disassemble};
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, parser::Parser};
 use insta::assert_snapshot;
 
 fn compile_to_string(input: &str) -> String {

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    frontend::{block::Block, interner::Interner, position::Position, symbol::Symbol},
+    syntax::{block::Block, interner::Interner, position::Position, symbol::Symbol},
     runtime::object::Object,
 };
 
@@ -24,7 +24,7 @@ pub enum ConstCompileError {
 
 /// Compile module constants by analyzing dependencies and evaluating in order.
 ///
-/// Returns a map of qualified constant names (e.g., "Module.CONST") to their values.
+/// Returns a map of qualified constant symbols (e.g., `Module.CONST`) to their values.
 ///
 /// # Errors
 ///
@@ -32,9 +32,9 @@ pub enum ConstCompileError {
 /// Returns `ConstCompileError::EvalError` if a constant expression cannot be evaluated.
 pub fn compile_module_constants(
     body: &Block,
-    module_name: &str,
-    interner: &Interner,
-) -> Result<HashMap<String, Object>, ConstCompileError> {
+    module_name: Symbol,
+    interner: &mut Interner,
+) -> Result<HashMap<Symbol, Object>, ConstCompileError> {
     // Step 1: Analyze constants and resolve dependencies
     let analysis = analyze_module_constants(body).map_err(|cycle| {
         ConstCompileError::CircularDependency(
@@ -47,7 +47,7 @@ pub fn compile_module_constants(
 
     // Step 2: Evaluate constants in dependency order
     let mut local_constants: HashMap<Symbol, Object> = HashMap::new();
-    let mut module_constants: HashMap<String, Object> = HashMap::new();
+    let mut module_constants: HashMap<Symbol, Object> = HashMap::new();
 
     for const_name in &analysis.eval_order {
         let (expr, pos) = analysis.expressions.get(const_name).unwrap();
@@ -61,7 +61,7 @@ pub fn compile_module_constants(
         })?;
 
         local_constants.insert(*const_name, const_value.clone());
-        let qualified_name = format!("{}.{}", module_name, interner.resolve(*const_name));
+        let qualified_name = interner.intern_join(module_name, *const_name);
         module_constants.insert(qualified_name, const_value);
     }
 

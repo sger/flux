@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::frontend::{expression::Expression, symbol::Symbol};
+use crate::syntax::{expression::Expression, symbol::Symbol};
 
 /// Find all constant references in an expression.
 ///

@@ -1,3 +1,3 @@
 pub mod bytecode;
-pub mod frontend;
+pub mod syntax;
 pub mod runtime;

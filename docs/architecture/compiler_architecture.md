@@ -32,7 +32,7 @@ Source Code
 
 ```
 src/
-├── frontend/
+├── syntax/
 │   ├── lexer.rs         # Tokenization
 │   ├── parser.rs        # Parsing → AST
 │   ├── ast/
@@ -270,7 +270,7 @@ AST → Desugared AST → Bytecode
    Lambda shorthand → full functions (already done in parser)
 ```
 
-**New file:** `src/frontend/desugar.rs`
+**New file:** `src/syntax/desugar.rs`
 
 **Benefits:**
 - List comprehensions become trivial

@@ -171,9 +171,9 @@ These features must be implemented before building the stdlib.
 **Priority:** Critical
 
 **Files to modify:**
-1. `src/frontend/token_type.rs` - Add `LessEqual`, `GreaterEqual` tokens
-2. `src/frontend/lexer.rs` - Recognize `<=` and `>=`
-3. `src/frontend/parser.rs` - Parse as infix operators
+1. `src/syntax/token_type.rs` - Add `LessEqual`, `GreaterEqual` tokens
+2. `src/syntax/lexer.rs` - Recognize `<=` and `>=`
+3. `src/syntax/parser.rs` - Parse as infix operators
 4. `src/bytecode/op_code.rs` - Add `OpLessEqual`, `OpGreaterEqual`
 5. `src/bytecode/compiler.rs` - Emit new opcodes
 6. `src/runtime/vm.rs` - Execute comparisons
@@ -226,8 +226,8 @@ end:
 **Priority:** High
 
 **Files to modify:**
-1. `src/frontend/token_type.rs` - Add `Percent` token
-2. `src/frontend/lexer.rs` - Recognize `%`
+1. `src/syntax/token_type.rs` - Add `Percent` token
+2. `src/syntax/lexer.rs` - Recognize `%`
 3. `src/bytecode/op_code.rs` - Add `OpMod`
 4. `src/runtime/vm.rs` - Execute modulo
 

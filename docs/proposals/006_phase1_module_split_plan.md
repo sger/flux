@@ -120,7 +120,7 @@ src/bytecode/
 
 #### Module Breakdown
 
-**2a. `frontend/parser/expression.rs`** (400 lines)
+**2a. `syntax/parser/expression.rs`** (400 lines)
 - `parse_expression()` - Main dispatcher
 - `parse_prefix()` - Prefix operators
 - `parse_infix()` - Infix operators
@@ -141,7 +141,7 @@ src/bytecode/
 - `parse_pattern()`
 - All expression AST construction
 
-**2b. `frontend/parser/statement.rs`** (150 lines)
+**2b. `syntax/parser/statement.rs`** (150 lines)
 - `parse_statement()` - Main dispatcher
 - `parse_let_statement()`
 - `parse_assignment_statement()`
@@ -152,7 +152,7 @@ src/bytecode/
 - `parse_expression_statement()`
 - All statement AST construction
 
-**2c. `frontend/parser/utils.rs`** (50 lines)
+**2c. `syntax/parser/utils.rs`** (50 lines)
 - `next_token()` - Token navigation
 - `is_peek_token()`
 - `expect_peek()`
@@ -171,7 +171,7 @@ src/bytecode/
 
 #### File Structure
 ```
-src/frontend/
+src/syntax/
   ├── parser/
   │   ├── mod.rs       # Public exports, Parser struct
   │   ├── expression.rs # Expression parsing
@@ -181,7 +181,7 @@ src/frontend/
 ```
 
 #### Migration Strategy
-1. Create `frontend/parser/` directory
+1. Create `syntax/parser/` directory
 2. Extract methods into new modules
 3. Update parser.rs to delegate
 4. Run parser tests after each module

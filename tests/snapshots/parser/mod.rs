@@ -1,4 +1,4 @@
-use flux::frontend::{lexer::Lexer, parser::Parser};
+use flux::syntax::{lexer::Lexer, parser::Parser};
 use insta::assert_snapshot;
 
 fn parse_to_string(input: &str) -> String {

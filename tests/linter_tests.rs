@@ -1,4 +1,4 @@
-use flux::frontend::{lexer::Lexer, linter::Linter, parser::Parser};
+use flux::syntax::{lexer::Lexer, linter::Linter, parser::Parser};
 
 fn lint(input: &str) -> String {
     let lexer = Lexer::new(input);

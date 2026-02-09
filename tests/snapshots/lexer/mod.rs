@@ -1,4 +1,4 @@
-use flux::frontend::lexer::Lexer;
+use flux::syntax::lexer::Lexer;
 use insta::assert_snapshot;
 
 fn tokenize_to_string(input: &str) -> String {

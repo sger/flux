@@ -4,7 +4,7 @@ use crate::{
     bytecode::module_constants::{
         ConstEvalError, analyze_module_constants, eval_const_expr, topological_sort_constants,
     },
-    frontend::{
+    syntax::{
         block::Block,
         expression::Expression,
         interner::Interner,
@@ -212,6 +212,20 @@ fn const_float_divide_by_zero() {
     let err = eval(&expr).unwrap_err();
     assert_eq!(err.code, "E059");
     assert!(err.message.contains("Division by zero"));
+}
+
+#[test]
+fn const_undefined_identifier_uses_resolved_name() {
+    let mut interner = Interner::new();
+    let missing = interner.intern("missing_const");
+    let expr = Expression::Identifier {
+        name: missing,
+        span: Default::default(),
+    };
+
+    let err = eval_const_expr(&expr, &HashMap::new(), &interner).unwrap_err();
+    assert_eq!(err.code, "E041");
+    assert!(err.message.contains("'missing_const' is not a module constant."));
 }
 
 #[test]

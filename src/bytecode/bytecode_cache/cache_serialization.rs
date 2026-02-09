@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
-    frontend::position::{Position, Span},
+    syntax::position::{Position, Span},
     runtime::{compiled_function::CompiledFunction, object::Object},
 };
 

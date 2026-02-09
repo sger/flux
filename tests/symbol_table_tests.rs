@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use flux::bytecode::{binding::Binding, symbol_scope::SymbolScope, symbol_table::SymbolTable};
-    use flux::frontend::interner::Interner;
-    use flux::frontend::position::Span;
+    use flux::syntax::interner::Interner;
+    use flux::syntax::position::Span;
 
     fn assert_symbol(
         interner: &Interner,

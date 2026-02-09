@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use flux::frontend::{
+    use flux::syntax::{
         expression::Expression, interner::Interner, lexer::Lexer, parser::Parser,
         position::Position, program::Program, statement::Statement,
     };

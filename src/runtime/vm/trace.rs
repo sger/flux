@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16},
-    frontend::{
+    syntax::{
         diagnostics::{
             Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType, render_display_path,
         },

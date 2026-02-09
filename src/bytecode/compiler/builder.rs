@@ -6,7 +6,7 @@ use crate::{
         binding::Binding,
         symbol_scope::SymbolScope,
     },
-    frontend::position::Span,
+    syntax::position::Span,
     runtime::object::Object,
 };
 
