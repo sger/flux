@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
 use crate::frontend::{
+    Identifier,
     diagnostics::{Diagnostic, DiagnosticBuilder},
     expression::{Expression, Pattern, StringPart},
+    interner::Interner,
     module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
     position::{Position, Span},
     program::Program,
     statement::Statement,
+    symbol::Symbol,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,21 +27,23 @@ struct BindingInfo {
     kind: BindingKind,
 }
 
-pub struct Linter {
-    scopes: Vec<HashMap<String, BindingInfo>>,
+pub struct Linter<'a> {
+    scopes: Vec<HashMap<Symbol, BindingInfo>>,
     warnings: Vec<Diagnostic>,
     file: Option<String>,
+    interner: &'a Interner,
 }
 
 const MAX_FUNCTION_LINES: usize = 50;
 const MAX_FUNCTION_PARAMS: usize = 5;
 
-impl Linter {
-    pub fn new(file: Option<String>) -> Self {
+impl<'a> Linter<'a> {
+    pub fn new(file: Option<String>, interner: &'a Interner) -> Self {
         Self {
             scopes: vec![HashMap::new()],
             warnings: Vec::new(),
             file,
+            interner,
         }
     }
 
@@ -52,14 +57,14 @@ impl Linter {
         match statement {
             Statement::Let { name, value, span } => {
                 self.lint_expression(value);
-                self.define_binding(name, span.start, BindingKind::Let);
+                self.define_binding(*name, span.start, BindingKind::Let);
             }
             Statement::Assign {
                 name,
                 value,
                 span: _,
             } => {
-                self.mark_used(name);
+                self.mark_used(*name);
                 self.lint_expression(value);
             }
             Statement::Return { value, .. } => {
@@ -77,8 +82,9 @@ impl Linter {
                 span,
                 ..
             } => {
-                self.check_function_complexity(Some(name), parameters, body, span.start);
-                if !is_snake_case(name) {
+                self.check_function_complexity(Some(*name), parameters, body, span.start);
+                let name_str = self.interner.resolve(*name);
+                if !is_snake_case(name_str) {
                     self.push_warning(
                         "FUNCTION NAME STYLE",
                         "W005",
@@ -86,23 +92,23 @@ impl Linter {
                         format!("`{}` should be snake_case.", name),
                     );
                 }
-                self.define_binding(name, span.start, BindingKind::Function);
+                self.define_binding(*name, span.start, BindingKind::Function);
                 self.enter_scope();
                 for param in parameters {
-                    self.define_binding(param, span.start, BindingKind::Param);
+                    self.define_binding(*param, span.start, BindingKind::Param);
                 }
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
             Statement::Module { name, body, span } => {
-                let binding = module_binding_name(name);
-                self.define_binding(binding, span.start, BindingKind::Function);
+                self.define_binding(*name, span.start, BindingKind::Function);
                 self.enter_scope();
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
             Statement::Import { name, alias, span } => {
-                if !is_valid_module_name(name) {
+                let name_str = self.interner.resolve(*name);
+                if !is_valid_module_name(name_str) {
                     self.push_warning(
                         "IMPORT NAME STYLE",
                         "W006",
@@ -113,7 +119,7 @@ impl Linter {
                         ),
                     );
                 }
-                let binding = import_binding_name(name, alias.as_deref());
+                let binding = alias.unwrap_or(*name);
                 self.define_binding(binding, span.start, BindingKind::Import);
             }
         }
@@ -122,7 +128,7 @@ impl Linter {
     fn lint_expression(&mut self, expression: &Expression) {
         match expression {
             Expression::Identifier { name, .. } => {
-                self.mark_used(name);
+                self.mark_used(*name);
             }
             Expression::Integer { .. }
             | Expression::Float { .. }
@@ -161,7 +167,7 @@ impl Linter {
                 self.check_function_complexity(None, parameters, body, span.start);
                 self.enter_scope();
                 for param in parameters {
-                    self.define_binding(param, span.start, BindingKind::Param);
+                    self.define_binding(*param, span.start, BindingKind::Param);
                 }
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
@@ -245,7 +251,8 @@ impl Linter {
                 if info.used {
                     continue;
                 }
-                if name.starts_with('_') {
+                let name_str = self.interner.resolve(name);
+                if name_str.starts_with('_') {
                     continue;
                 }
                 match info.kind {
@@ -278,18 +285,19 @@ impl Linter {
         }
     }
 
-    fn define_binding(&mut self, name: &str, position: Position, kind: BindingKind) {
+    fn define_binding(&mut self, name: Symbol, position: Position, kind: BindingKind) {
         if self.is_shadowing(name) {
+            let name_str = self.interner.resolve(name);
             self.push_warning(
                 "SHADOWED NAME",
                 "W004",
                 position,
-                format!("`{}` shadows a binding from an outer scope.", name),
+                format!("`{}` shadows a binding from an outer scope.", name_str),
             );
         }
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(
-                name.to_string(),
+                name,
                 BindingInfo {
                     position,
                     used: false,
@@ -299,21 +307,21 @@ impl Linter {
         }
     }
 
-    fn is_shadowing(&self, name: &str) -> bool {
+    fn is_shadowing(&self, name: Symbol) -> bool {
         if self.scopes.len() <= 1 {
             return false;
         }
         for scope in self.scopes.iter().take(self.scopes.len() - 1).rev() {
-            if scope.contains_key(name) {
+            if scope.contains_key(&name) {
                 return true;
             }
         }
         false
     }
 
-    fn mark_used(&mut self, name: &str) {
+    fn mark_used(&mut self, name: Symbol) {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some(info) = scope.get_mut(name) {
+            if let Some(info) = scope.get_mut(&name) {
                 info.used = true;
                 return;
             }
@@ -323,7 +331,7 @@ impl Linter {
     fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Identifier { name, .. } => {
-                self.define_binding(name, Position::default(), BindingKind::Let);
+                self.define_binding(*name, Position::default(), BindingKind::Let);
             }
             Pattern::Some { pattern, .. }
             | Pattern::Left { pattern, .. }
@@ -347,13 +355,15 @@ impl Linter {
 
     fn check_function_complexity(
         &mut self,
-        name: Option<&str>,
-        parameters: &[String],
+        name: Option<Identifier>,
+        parameters: &[Identifier],
         body: &crate::frontend::block::Block,
         position: Position,
     ) {
         if parameters.len() > MAX_FUNCTION_PARAMS {
-            let label = name.unwrap_or("<anonymous>");
+            let label = name
+                .map(|n| self.interner.resolve(n))
+                .unwrap_or("<anonymous>");
             self.push_warning(
                 "TOO MANY PARAMETERS",
                 "W010",
@@ -369,7 +379,9 @@ impl Linter {
 
         let line_count = span_line_count(body.span());
         if line_count > MAX_FUNCTION_LINES {
-            let label = name.unwrap_or("<anonymous>");
+            let label = name
+                .map(|n| self.interner.resolve(n))
+                .unwrap_or("<anonymous>");
             self.push_warning(
                 "FUNCTION TOO LONG",
                 "W009",
