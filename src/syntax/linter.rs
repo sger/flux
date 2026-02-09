@@ -366,9 +366,7 @@ impl<'a> Linter<'a> {
         position: Position,
     ) {
         if parameters.len() > MAX_FUNCTION_PARAMS {
-            let label = name
-                .map(|n| self.sym(n))
-                .unwrap_or("<anonymous>");
+            let label = name.map(|n| self.sym(n)).unwrap_or("<anonymous>");
             self.push_warning(
                 "TOO MANY PARAMETERS",
                 "W010",
@@ -384,9 +382,7 @@ impl<'a> Linter<'a> {
 
         let line_count = span_line_count(body.span());
         if line_count > MAX_FUNCTION_LINES {
-            let label = name
-                .map(|n| self.sym(n))
-                .unwrap_or("<anonymous>");
+            let label = name.map(|n| self.sym(n)).unwrap_or("<anonymous>");
             self.push_warning(
                 "FUNCTION TOO LONG",
                 "W009",

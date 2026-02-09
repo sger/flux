@@ -3,11 +3,11 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
+use flux::runtime::object::Object;
+use flux::runtime::vm::VM;
 use flux::syntax::diagnostics::render_diagnostics;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
-use flux::runtime::object::Object;
-use flux::runtime::vm::VM;
 
 fn run(input: &str) -> Object {
     let lexer = Lexer::new(input);

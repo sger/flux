@@ -8,6 +8,7 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
+    runtime::object::Object,
     syntax::{
         diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
         interner::Interner,
@@ -17,7 +18,6 @@ use crate::{
         statement::Statement,
         symbol::Symbol,
     },
-    runtime::object::Object,
 };
 
 mod builder;

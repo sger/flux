@@ -5,6 +5,7 @@ use crate::{
         binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
         symbol_scope::SymbolScope,
     },
+    runtime::{compiled_function::CompiledFunction, object::Object},
     syntax::{
         block::Block,
         diagnostics::{
@@ -19,7 +20,6 @@ use crate::{
         position::{Position, Span},
         symbol::Symbol,
     },
-    runtime::{compiled_function::CompiledFunction, object::Object},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -59,16 +59,14 @@ impl Compiler {
                     let qualified = self.interner.intern_join(prefix, name);
                     if let Some(symbol) = self.symbol_table.resolve(qualified) {
                         self.load_symbol(&symbol);
+                    } else if let Some(constant_value) = self.module_constants.get(&qualified) {
+                        // Module constant - inline the value
+                        self.emit_constant_object(constant_value.clone());
                     } else {
-                        if let Some(constant_value) = self.module_constants.get(&qualified) {
-                            // Module constant - inline the value
-                            self.emit_constant_object(constant_value.clone());
-                        } else {
-                            let name_str = self.sym(name);
-                            return Err(Self::boxed(
-                                self.make_undefined_variable_error(name_str, *span),
-                            ));
-                        }
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(
+                            self.make_undefined_variable_error(name_str, *span),
+                        ));
                     }
                 } else {
                     let name_str = self.sym(name);
@@ -230,11 +228,7 @@ impl Compiler {
 
                 if let Some(module_name) = module_name {
                     let member_str = self.sym(member);
-                    self.check_private_member(
-                        member_str,
-                        expr_span,
-                        Some(self.sym(module_name)),
-                    )?;
+                    self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
 
                     let qualified = self.interner.intern_join(module_name, member);
                     // Module Constants check if this is a compile-time constant

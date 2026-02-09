@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 
-
 use crate::{
-    syntax::{expression::Expression, interner::Interner, symbol::Symbol},
     runtime::{hash_key::HashKey, object::Object},
+    syntax::{expression::Expression, interner::Interner, symbol::Symbol},
 };
 
 use super::error::ConstEvalError;
