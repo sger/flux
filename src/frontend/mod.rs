@@ -21,4 +21,4 @@ pub mod symbol;
 pub mod token;
 pub mod token_type;
 
-pub type Identifier = String;
+pub type Identifier = symbol::Symbol;

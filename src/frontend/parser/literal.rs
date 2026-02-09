@@ -37,15 +37,28 @@ impl Parser {
         let start = self.current_token.position;
         if !super::is_pascal_case_ident(&self.current_token) {
             return Some(Expression::Identifier {
-                name: self.current_token.literal.to_string(),
+                name: self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Only collect dotted segments for module paths (PascalCase names)
+        // Don't collect ALL_CAPS constants like PI, TAU, MAX
+        // TODO: Remove pascal case keep only first letter uppercase
+        if !self.is_peek_token(TokenType::Dot) || !super::is_pascal_case_ident(&self.peek2_token) {
+            return Some(Expression::Identifier {
+                name: self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
             });
         }
 
         let mut name = self.current_token.literal.to_string();
-        // Only collect dotted segments for module paths (PascalCase names)
-        // Don't collect ALL_CAPS constants like PI, TAU, MAX
-        // TODO: Remove pascal case keep only first letter uppercase
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
             if !self.expect_peek(TokenType::Ident) {
@@ -54,8 +67,11 @@ impl Parser {
             name.push('.');
             name.push_str(&self.current_token.literal);
         }
+
+        let symbol = self.lexer.interner_mut().intern(&name);
+
         Some(Expression::Identifier {
-            name,
+            name: symbol,
             span: Span::new(start, self.current_token.end_position),
         })
     }

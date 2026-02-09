@@ -85,7 +85,10 @@ impl Parser {
             return None;
         }
 
-        let name = self.current_token.literal.to_string();
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
 
         if !self.expect_peek(TokenType::LParen) {
             return None;
@@ -140,7 +143,10 @@ impl Parser {
             return None;
         }
 
-        let name = self.current_token.literal.to_string();
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
 
         if !self.expect_peek(TokenType::Assign) {
             return None;
@@ -169,7 +175,10 @@ impl Parser {
 
     pub(super) fn parse_assignment_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
-        let name = self.current_token.literal.to_string();
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
 
         if !self.expect_peek(TokenType::Assign) {
             return None;
@@ -233,7 +242,11 @@ impl Parser {
             if !self.expect_peek(TokenType::Ident) {
                 return None;
             }
-            alias = Some(self.current_token.literal.to_string());
+            alias = Some(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            );
         }
 
         // No semicolon required for import statements

@@ -1,4 +1,5 @@
 use crate::frontend::{
+    Identifier,
     block::Block,
     diagnostics::{
         Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
@@ -175,7 +176,16 @@ impl Parser {
     }
 
     // Complex parsing helpers
-    pub(super) fn parse_qualified_name(&mut self) -> Option<String> {
+    pub(super) fn parse_qualified_name(&mut self) -> Option<Identifier> {
+        let first_sym = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        if !self.is_peek_token(TokenType::Dot) {
+            return Some(first_sym);
+        }
+
+        // Build dotted name, then intern the whole thing
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) {
             self.next_token(); // consume '.'
@@ -185,10 +195,10 @@ impl Parser {
             name.push('.');
             name.push_str(&self.current_token.literal);
         }
-        Some(name)
+        Some(self.lexer.interner_mut().intern(&name))
     }
 
-    pub(super) fn parse_function_parameters(&mut self) -> Option<Vec<String>> {
+    pub(super) fn parse_function_parameters(&mut self) -> Option<Vec<Identifier>> {
         debug_assert!(self.is_current_token(TokenType::LParen));
         let mut identifiers = Vec::new();
         let diag_start = self.errors.len();
@@ -529,9 +539,13 @@ impl Parser {
         ));
     }
 
-    pub(super) fn validate_parameter_identifier(&mut self) -> Option<String> {
+    pub(super) fn validate_parameter_identifier(&mut self) -> Option<Identifier> {
         if self.current_token.token_type == TokenType::Ident {
-            Some(self.current_token.literal.to_string())
+            Some(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            )
         } else {
             self.errors.push(unexpected_token(
                 self.current_token.span(),
@@ -544,7 +558,7 @@ impl Parser {
         }
     }
 
-    fn parse_parameter_identifier_or_recover(&mut self) -> Option<String> {
+    fn parse_parameter_identifier_or_recover(&mut self) -> Option<Identifier> {
         if let Some(identifier) = self.validate_parameter_identifier() {
             return Some(identifier);
         }
