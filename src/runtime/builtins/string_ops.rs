@@ -3,14 +3,14 @@ use crate::runtime::value::Value;
 use super::helpers::{arg_array, arg_int, arg_string, check_arity, format_hint};
 
 pub(super) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 1, "to_string", "to_string(value)")?;
+    check_arity(args, 1, "to_string", "to_string(value)")?;
     Ok(Value::String(args[0].to_string_value().into()))
 }
 
 pub(super) fn builtin_split(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 2, "split", "split(s, delim)")?;
-    let s = arg_string(&args, 0, "split", "first argument", "split(s, delim)")?;
-    let delim = arg_string(&args, 1, "split", "second argument", "split(s, delim)")?;
+    check_arity(args, 2, "split", "split(s, delim)")?;
+    let s = arg_string(args, 0, "split", "first argument", "split(s, delim)")?;
+    let delim = arg_string(args, 1, "split", "second argument", "split(s, delim)")?;
     let parts: Vec<Value> = if delim.is_empty() {
         // Match test expectation: split into characters without empty ends.
         s.chars()
@@ -25,9 +25,9 @@ pub(super) fn builtin_split(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(super) fn builtin_join(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 2, "join", "join(arr, delim)")?;
-    let arr = arg_array(&args, 0, "join", "first argument", "join(arr, delim)")?;
-    let delim = arg_string(&args, 1, "join", "second argument", "join(arr, delim)")?;
+    check_arity(args, 2, "join", "join(arr, delim)")?;
+    let arr = arg_array(args, 0, "join", "first argument", "join(arr, delim)")?;
+    let delim = arg_string(args, 1, "join", "second argument", "join(arr, delim)")?;
     let strings: Result<Vec<String>, String> = arr
         .iter()
         .map(|item| match item {
@@ -43,28 +43,28 @@ pub(super) fn builtin_join(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(super) fn builtin_trim(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 1, "trim", "trim(s)")?;
-    let s = arg_string(&args, 0, "trim", "argument", "trim(s)")?;
+    check_arity(args, 1, "trim", "trim(s)")?;
+    let s = arg_string(args, 0, "trim", "argument", "trim(s)")?;
     Ok(Value::String(s.trim().to_string().into()))
 }
 
 pub(super) fn builtin_upper(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 1, "upper", "upper(s)")?;
-    let s = arg_string(&args, 0, "upper", "argument", "upper(s)")?;
+    check_arity(args, 1, "upper", "upper(s)")?;
+    let s = arg_string(args, 0, "upper", "argument", "upper(s)")?;
     Ok(Value::String(s.to_uppercase().into()))
 }
 
 pub(super) fn builtin_starts_with(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 2, "starts_with", "starts_with(s, prefix)")?;
+    check_arity(args, 2, "starts_with", "starts_with(s, prefix)")?;
     let s = arg_string(
-        &args,
+        args,
         0,
         "starts_with",
         "first argument",
         "starts_with(s, prefix)",
     )?;
     let prefix = arg_string(
-        &args,
+        args,
         1,
         "starts_with",
         "second argument",
@@ -74,16 +74,16 @@ pub(super) fn builtin_starts_with(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(super) fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 2, "ends_with", "ends_with(s, suffix)")?;
+    check_arity(args, 2, "ends_with", "ends_with(s, suffix)")?;
     let s = arg_string(
-        &args,
+        args,
         0,
         "ends_with",
         "first argument",
         "ends_with(s, suffix)",
     )?;
     let suffix = arg_string(
-        &args,
+        args,
         1,
         "ends_with",
         "second argument",
@@ -93,40 +93,28 @@ pub(super) fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(super) fn builtin_replace(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 3, "replace", "replace(s, from, to)")?;
-    let s = arg_string(
-        &args,
-        0,
-        "replace",
-        "first argument",
-        "replace(s, from, to)",
-    )?;
+    check_arity(args, 3, "replace", "replace(s, from, to)")?;
+    let s = arg_string(args, 0, "replace", "first argument", "replace(s, from, to)")?;
     let from = arg_string(
-        &args,
+        args,
         1,
         "replace",
         "second argument",
         "replace(s, from, to)",
     )?;
-    let to = arg_string(
-        &args,
-        2,
-        "replace",
-        "third argument",
-        "replace(s, from, to)",
-    )?;
+    let to = arg_string(args, 2, "replace", "third argument", "replace(s, from, to)")?;
     Ok(Value::String(s.replace(from, to).into()))
 }
 
 pub(super) fn builtin_lower(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 1, "lower", "lower(s)")?;
-    let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;
+    check_arity(args, 1, "lower", "lower(s)")?;
+    let s = arg_string(args, 0, "lower", "argument", "lower(s)")?;
     Ok(Value::String(s.to_lowercase().into()))
 }
 
 pub(super) fn builtin_chars(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 1, "chars", "chars(s)")?;
-    let s = arg_string(&args, 0, "chars", "argument", "chars(s)")?;
+    check_arity(args, 1, "chars", "chars(s)")?;
+    let s = arg_string(args, 0, "chars", "argument", "chars(s)")?;
     let chars: Vec<Value> = s
         .chars()
         .map(|c| Value::String(c.to_string().into()))
@@ -135,23 +123,23 @@ pub(super) fn builtin_chars(args: &[Value]) -> Result<Value, String> {
 }
 
 pub(super) fn builtin_substring(args: &[Value]) -> Result<Value, String> {
-    check_arity(&args, 3, "substring", "substring(s, start, end)")?;
+    check_arity(args, 3, "substring", "substring(s, start, end)")?;
     let s = arg_string(
-        &args,
+        args,
         0,
         "substring",
         "first argument",
         "substring(s, start, end)",
     )?;
     let start = arg_int(
-        &args,
+        args,
         1,
         "substring",
         "second argument",
         "substring(s, start, end)",
     )?;
     let end = arg_int(
-        &args,
+        args,
         2,
         "substring",
         "third argument",

@@ -7,7 +7,7 @@ use crate::runtime::{
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
 ///
-/// Phase 1 keeps variant payloads identical to the legacy `Object` representation
+/// Phase 1 keeps variant payloads identical to the legacy `Value` representation
 /// to avoid behavior changes during migration.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -222,5 +222,67 @@ mod tests {
                 .to_string_value(),
             "[\"a\", 2]"
         );
+    }
+
+    #[test]
+    fn test_clone_shares_rc_for_string() {
+        let value = Value::String("hello".into());
+        let cloned = value.clone();
+
+        match (value, cloned) {
+            (Value::String(left), Value::String(right)) => {
+                assert!(Rc::ptr_eq(&left, &right));
+                assert_eq!(Rc::strong_count(&left), 2);
+            }
+            _ => panic!("expected string values"),
+        }
+    }
+
+    #[test]
+    fn test_clone_shares_rc_for_array_and_hash() {
+        let array = Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)]));
+        let array_clone = array.clone();
+        match (array, array_clone) {
+            (Value::Array(left), Value::Array(right)) => {
+                assert!(Rc::ptr_eq(&left, &right));
+                assert_eq!(Rc::strong_count(&left), 2);
+            }
+            _ => panic!("expected array values"),
+        }
+
+        let mut map = HashMap::new();
+        map.insert(HashKey::String("k".to_string()), Value::Integer(42));
+        let hash = Value::Hash(Rc::new(map));
+        let hash_clone = hash.clone();
+        match (hash, hash_clone) {
+            (Value::Hash(left), Value::Hash(right)) => {
+                assert!(Rc::ptr_eq(&left, &right));
+                assert_eq!(Rc::strong_count(&left), 2);
+            }
+            _ => panic!("expected hash values"),
+        }
+    }
+
+    #[test]
+    fn test_clone_shares_rc_for_wrappers() {
+        let some = Value::Some(Rc::new(Value::Integer(7)));
+        let some_clone = some.clone();
+        match (some, some_clone) {
+            (Value::Some(left), Value::Some(right)) => {
+                assert!(Rc::ptr_eq(&left, &right));
+                assert_eq!(Rc::strong_count(&left), 2);
+            }
+            _ => panic!("expected some values"),
+        }
+
+        let ret = Value::ReturnValue(Rc::new(Value::String("ok".into())));
+        let ret_clone = ret.clone();
+        match (ret, ret_clone) {
+            (Value::ReturnValue(left), Value::ReturnValue(right)) => {
+                assert!(Rc::ptr_eq(&left, &right));
+                assert_eq!(Rc::strong_count(&left), 2);
+            }
+            _ => panic!("expected return values"),
+        }
     }
 }

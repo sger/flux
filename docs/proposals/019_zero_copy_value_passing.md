@@ -1,6 +1,6 @@
 # Proposal 019: Zero-Copy Value Passing via Reference Counting
 
-**Status:** Proposed
+**Status:** In Progress (Core migration complete; perf tuning pending)
 **Priority:** High (Runtime)
 **Created:** 2026-02-08
 **Related:** Proposal 016 (Tail-Call Optimization), Proposal 017 (Persistent Collections and GC), Proposal 018 (Roadmap)
@@ -80,7 +80,7 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Update builtin signatures and callsites accordingly.
 - **Done when:** builtin tests pass and no `to_vec()` arg-copy remains in hot call path.
 
-### 019.6 Closure Capture Path
+### 019.6 Closure Capture Path [DONE]
 
 - Update closure creation (`push_closure`) to capture `Value` (Rc-bump for heap values).
 - Add tests for large captured arrays/hashes.
@@ -99,26 +99,27 @@ Current microbench coverage (no TCO dependency):
 
 Note: `array_capture_10k` is intentionally excluded for now because array literals are stack-built and exceed current VM `STACK_SIZE` (2048), causing stack overflow during setup before capture behavior can be measured.
 
-### 019.7 Bytecode/Runtime Boundary Cleanup
+### 019.7 Bytecode/Runtime Boundary Cleanup [DONE]
 
 - Update remaining bytecode/runtime plumbing that assumes old `Object` ownership behavior.
 - Keep external language behavior unchanged.
 - **Done when:** compiler + VM + snapshot suites are green.
 
-### 019.8 Invariant Enforcement and Docs
+### 019.8 Invariant Enforcement and Docs [DONE]
 
 - Document no-cycle invariant in runtime module docs.
 - Add regression tests for nested captures/collections to validate stable completion behavior.
 - Add handoff notes for Proposal 017 integration.
 - **Done when:** invariant is documented in code/docs and tests cover the intended constraints.
 
-### 019.9 Performance Validation
+### 019.9 Performance Validation [IN PROGRESS]
 
 - Re-run benchmarks from 019.1 against baseline.
 - Update `PERF_REPORT.md` with before/after deltas for clone-heavy workloads.
-- **Done when:** measurable improvement is reported and no major regressions appear elsewhere.
+- Current state (2026-02-10): benchmark runs are recorded in `PERF_REPORT.md`, with mixed deltas (some closure scenarios improved, some regressions in array/capture paths).
+- **Done when:** measurable improvement is reported for target clone-heavy paths and no major regressions appear elsewhere.
 
-### 019.10 Final Migration Cleanup
+### 019.10 Final Migration Cleanup [DONE]
 
 - Remove temporary alias (`Object = Value`) once migration is complete.
 - Rename remaining internal references if needed for consistency.
@@ -599,7 +600,7 @@ This proposal is a **stepping stone** to Proposal 017:
 
 ## Implementation Checklist
 
-### Phase 1: Value Type
+### Phase 1: Value Type [DONE]
 
 1. Create `src/runtime/value.rs` with `Value` enum.
 2. Implement `Display`, `Debug`, `Clone`, `PartialEq` for `Value`.
@@ -608,7 +609,7 @@ This proposal is a **stepping stone** to Proposal 017:
 5. Update `src/runtime/mod.rs` re-exports.
 6. Verify all tests compile and pass with alias.
 
-### Phase 2: VM Migration
+### Phase 2: VM Migration [DONE]
 
 7. Update `VM` struct: `stack`, `constants`, `globals` use `Value`.
 8. Update `push()`, `pop()` — use `mem::replace` in `pop()`.
@@ -617,7 +618,7 @@ This proposal is a **stepping stone** to Proposal 017:
 11. Update `binary_ops.rs`, `comparison_ops.rs`, `index_ops.rs`.
 12. Verify all VM tests pass.
 
-### Phase 3: Compiler and Constants
+### Phase 3: Compiler and Constants [DONE]
 
 13. Update `Bytecode` struct: `constants: Vec<Value>`.
 14. Update compiler emission: wrap String/Array/Hash literals in `Rc`.
@@ -625,7 +626,7 @@ This proposal is a **stepping stone** to Proposal 017:
 16. Bump bytecode cache version.
 17. Verify compiler tests pass.
 
-### Phase 4: Builtins
+### Phase 4: Builtins [DONE]
 
 18. Update `src/runtime/builtins/` — all 35 builtin functions to accept `&[Value]`.
 19. Update array builtins: `push`, `concat`, `rest`, `first`, `last`, `reverse`, `sort`, `map`, `filter`, `reduce`, `contains`.
@@ -634,7 +635,7 @@ This proposal is a **stepping stone** to Proposal 017:
 22. Update type builtins: `type_of`, `is_array`, `is_hash`, `is_string`.
 23. Verify all builtin tests pass.
 
-### Phase 5: Cleanup and Benchmarks
+### Phase 5: Cleanup and Benchmarks [MOSTLY DONE]
 
 24. Remove `Object` type alias — rename `Value` to `Object` (or keep `Value`).
 25. Update all import paths.
