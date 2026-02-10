@@ -7,42 +7,42 @@ use super::type_check::{
 
 #[test]
 fn type_of_returns_type_name() {
-    let result = builtin_type_of(vec![Object::Integer(1)]).unwrap();
+    let result = builtin_type_of(&[Object::Integer(1)]).unwrap();
     assert_eq!(result, Object::String("Int".to_string()));
 }
 
 #[test]
 fn is_type_checks_values() {
     assert_eq!(
-        builtin_is_int(vec![Object::Integer(1)]).unwrap(),
+        builtin_is_int(&[Object::Integer(1)]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_float(vec![Object::Float(1.0)]).unwrap(),
+        builtin_is_float(&[Object::Float(1.0)]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_string(vec![Object::String("s".to_string())]).unwrap(),
+        builtin_is_string(&[Object::String("s".to_string())]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_bool(vec![Object::Boolean(true)]).unwrap(),
+        builtin_is_bool(&[Object::Boolean(true)]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_array(vec![Object::Array(vec![])]).unwrap(),
+        builtin_is_array(&[Object::Array(vec![])]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_hash(vec![Object::Hash(Default::default())]).unwrap(),
+        builtin_is_hash(&[Object::Hash(Default::default())]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_none(vec![Object::None]).unwrap(),
+        builtin_is_none(&[Object::None]).unwrap(),
         Object::Boolean(true)
     );
     assert_eq!(
-        builtin_is_some(vec![Object::Some(Box::new(Object::Integer(1)))]).unwrap(),
+        builtin_is_some(&[Object::Some(Box::new(Object::Integer(1)))]).unwrap(),
         Object::Boolean(true)
     );
 }

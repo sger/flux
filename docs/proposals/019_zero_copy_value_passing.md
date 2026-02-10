@@ -47,7 +47,7 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Add regression tests for value semantics (arrays/hashes/options/either/closures).
 - **Done when:** baseline perf numbers are captured and regression tests are green.
 
-### 019.2 Introduce `Value` Type (No Behavior Change)
+### 019.2 Introduce `Value` Type (No Behavior Change) [DONE]
 
 - Add `src/runtime/value.rs`.
 - Implement `Value` enum and core helpers (`type_name`, `is_truthy`, `to_hash_key`, `Display`).
@@ -65,14 +65,14 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Keep primitives unboxed.
 - **Done when:** existing runtime and VM tests pass with no semantic changes.
 
-### 019.4 VM Storage Migration
+### 019.4 VM Storage Migration [DONE]
 
 - Ensure runtime storage uses `Value` consistently:
   - constants, stack, globals, frame locals/free values
 - Update push/pop and `OpGet*` handlers to operate on `Value`.
 - **Done when:** VM tests pass and clone-heavy access paths no longer deep-copy collections.
 
-### 019.5 Builtin Call Path: Borrowed Args
+### 019.5 Builtin Call Path: Borrowed Args [DONE]
 
 - Change builtin invocation path to pass borrowed slices:
   - `&[Value]` instead of `Vec<Value>`
@@ -85,6 +85,19 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Update closure creation (`push_closure`) to capture `Value` (Rc-bump for heap values).
 - Add tests for large captured arrays/hashes.
 - **Done when:** closure tests pass and capture no longer deep-clones collections.
+
+Current microbench coverage (no TCO dependency):
+- `vm/closure_capture/array_capture_1k`
+- `vm/closure_capture/string_capture_64k`
+- `vm/closure_capture/hash_capture_1k`
+- `vm/closure_capture/nested_capture_array_1k`
+- `vm/closure_capture/repeated_calls_captured_array`
+- `vm/closure_capture/capture_only_array_1k` (isolates closure creation with capture)
+- `vm/closure_capture/no_capture_only_baseline` (creation baseline without capture)
+- `vm/closure_capture/call_only_captured_array_1k` (single captured closure, repeated calls)
+- `vm/closure_capture/create_and_call_captured_array_1k` (repeated create + call)
+
+Note: `array_capture_10k` is intentionally excluded for now because array literals are stack-built and exceed current VM `STACK_SIZE` (2048), causing stack overflow during setup before capture behavior can be measured.
 
 ### 019.7 Bytecode/Runtime Boundary Cleanup
 

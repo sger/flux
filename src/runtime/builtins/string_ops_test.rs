@@ -7,13 +7,13 @@ use super::string_ops::{
 
 #[test]
 fn to_string_converts_values() {
-    let result = builtin_to_string(vec![Object::Integer(42)]).unwrap();
+    let result = builtin_to_string(&[Object::Integer(42)]).unwrap();
     assert_eq!(result, Object::String("42".to_string()));
 }
 
 #[test]
 fn split_empty_delim_splits_chars() {
-    let result = builtin_split(vec![
+    let result = builtin_split(&[
         Object::String("ab".to_string()),
         Object::String("".to_string()),
     ])
@@ -30,7 +30,7 @@ fn split_empty_delim_splits_chars() {
 
 #[test]
 fn join_rejects_non_string_elements() {
-    let err = builtin_join(vec![
+    let err = builtin_join(&[
         Object::Array(vec![Object::Integer(1)]),
         Object::String(",".to_string()),
     ])
@@ -40,16 +40,16 @@ fn join_rejects_non_string_elements() {
 
 #[test]
 fn trim_upper_lower_chars() {
-    let trimmed = builtin_trim(vec![Object::String("  hi ".to_string())]).unwrap();
+    let trimmed = builtin_trim(&[Object::String("  hi ".to_string())]).unwrap();
     assert_eq!(trimmed, Object::String("hi".to_string()));
 
-    let upper = builtin_upper(vec![Object::String("hi".to_string())]).unwrap();
+    let upper = builtin_upper(&[Object::String("hi".to_string())]).unwrap();
     assert_eq!(upper, Object::String("HI".to_string()));
 
-    let lower = builtin_lower(vec![Object::String("HI".to_string())]).unwrap();
+    let lower = builtin_lower(&[Object::String("HI".to_string())]).unwrap();
     assert_eq!(lower, Object::String("hi".to_string()));
 
-    let chars = builtin_chars(vec![Object::String("ab".to_string())]).unwrap();
+    let chars = builtin_chars(&[Object::String("ab".to_string())]).unwrap();
     assert_eq!(
         chars,
         Object::Array(vec![
@@ -61,7 +61,7 @@ fn trim_upper_lower_chars() {
 
 #[test]
 fn substring_extracts_range() {
-    let result = builtin_substring(vec![
+    let result = builtin_substring(&[
         Object::String("hello".to_string()),
         Object::Integer(1),
         Object::Integer(4),

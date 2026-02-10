@@ -1,35 +1,35 @@
-use crate::runtime::object::Object;
+use crate::runtime::value::Value;
 
 use super::helpers::{arg_array, arg_int, arg_string, check_arity, format_hint};
 
-pub(super) fn builtin_to_string(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_to_string(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "to_string", "to_string(value)")?;
-    Ok(Object::String(args[0].to_string_value()))
+    Ok(Value::String(args[0].to_string_value()))
 }
 
-pub(super) fn builtin_split(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_split(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 2, "split", "split(s, delim)")?;
     let s = arg_string(&args, 0, "split", "first argument", "split(s, delim)")?;
     let delim = arg_string(&args, 1, "split", "second argument", "split(s, delim)")?;
-    let parts: Vec<Object> = if delim.is_empty() {
+    let parts: Vec<Value> = if delim.is_empty() {
         // Match test expectation: split into characters without empty ends.
-        s.chars().map(|ch| Object::String(ch.to_string())).collect()
+        s.chars().map(|ch| Value::String(ch.to_string())).collect()
     } else {
         s.split(delim)
-            .map(|part| Object::String(part.to_string()))
+            .map(|part| Value::String(part.to_string()))
             .collect()
     };
-    Ok(Object::Array(parts))
+    Ok(Value::Array(parts))
 }
 
-pub(super) fn builtin_join(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_join(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 2, "join", "join(arr, delim)")?;
     let arr = arg_array(&args, 0, "join", "first argument", "join(arr, delim)")?;
     let delim = arg_string(&args, 1, "join", "second argument", "join(arr, delim)")?;
     let strings: Result<Vec<String>, String> = arr
         .iter()
         .map(|item| match item {
-            Object::String(s) => Ok(s.clone()),
+            Value::String(s) => Ok(s.clone()),
             other => Err(format!(
                 "join expected array elements to be String, got {}{}",
                 other.type_name(),
@@ -37,35 +37,35 @@ pub(super) fn builtin_join(args: Vec<Object>) -> Result<Object, String> {
             )),
         })
         .collect();
-    Ok(Object::String(strings?.join(delim)))
+    Ok(Value::String(strings?.join(delim)))
 }
 
-pub(super) fn builtin_trim(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_trim(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "trim", "trim(s)")?;
     let s = arg_string(&args, 0, "trim", "argument", "trim(s)")?;
-    Ok(Object::String(s.trim().to_string()))
+    Ok(Value::String(s.trim().to_string()))
 }
 
-pub(super) fn builtin_upper(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_upper(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "upper", "upper(s)")?;
     let s = arg_string(&args, 0, "upper", "argument", "upper(s)")?;
-    Ok(Object::String(s.to_uppercase()))
+    Ok(Value::String(s.to_uppercase()))
 }
 
-pub(super) fn builtin_lower(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_lower(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "lower", "lower(s)")?;
     let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;
-    Ok(Object::String(s.to_lowercase()))
+    Ok(Value::String(s.to_lowercase()))
 }
 
-pub(super) fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_chars(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "chars", "chars(s)")?;
     let s = arg_string(&args, 0, "chars", "argument", "chars(s)")?;
-    let chars: Vec<Object> = s.chars().map(|c| Object::String(c.to_string())).collect();
-    Ok(Object::Array(chars))
+    let chars: Vec<Value> = s.chars().map(|c| Value::String(c.to_string())).collect();
+    Ok(Value::Array(chars))
 }
 
-pub(super) fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn builtin_substring(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 3, "substring", "substring(s, start, end)")?;
     let s = arg_string(
         &args,
@@ -97,8 +97,8 @@ pub(super) fn builtin_substring(args: Vec<Object>) -> Result<Object, String> {
         end as usize
     };
     if start >= end || start >= chars.len() {
-        Ok(Object::String(String::new()))
+        Ok(Value::String(String::new()))
     } else {
-        Ok(Object::String(chars[start..end].iter().collect()))
+        Ok(Value::String(chars[start..end].iter().collect()))
     }
 }

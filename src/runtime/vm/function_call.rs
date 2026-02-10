@@ -11,7 +11,7 @@ impl VM {
         match callee {
             Object::Closure(closure) => self.call_closure(closure, num_args),
             Object::Builtin(builtin) => {
-                let args: Vec<Object> = self.stack[self.sp - num_args..self.sp].to_vec();
+                let args = &self.stack[self.sp - num_args..self.sp];
                 self.sp -= num_args + 1;
                 let result = (builtin.func)(args)?;
                 self.push(result)?;

@@ -8,7 +8,7 @@ use flux::runtime::object::Object;
 
 fn call(name: &str, args: Vec<Object>) -> Result<Object, String> {
     let builtin = get_builtin(name).unwrap_or_else(|| panic!("missing builtin: {}", name));
-    (builtin.func)(args)
+    (builtin.func)(&args)
 }
 
 fn make_test_hash() -> Object {
