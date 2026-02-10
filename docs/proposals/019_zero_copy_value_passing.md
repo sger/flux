@@ -34,6 +34,85 @@ The core insight: since Flux values are semantically immutable (no mutation afte
 
 ---
 
+## Implementation Checklist
+
+Track execution with small, verifiable tasks. Each task has a clear done condition.
+
+### 019.1 Baseline and Safety Net
+
+- Add microbenchmarks for clone-heavy runtime paths:
+  - local/global/free access (`OpGet*`)
+  - builtin argument passing
+  - closure capture
+- Add regression tests for value semantics (arrays/hashes/options/either/closures).
+- **Done when:** baseline perf numbers are captured and regression tests are green.
+
+### 019.2 Introduce `Value` Type (No Behavior Change)
+
+- Add `src/runtime/value.rs`.
+- Implement `Value` enum and core helpers (`type_name`, `is_truthy`, `to_hash_key`, `Display`).
+- Add temporary migration alias in `src/runtime/object.rs`:
+  - `pub type Object = Value;`
+- **Done when:** code compiles with alias and behavior is unchanged.
+
+### 019.3 Rc-Wrap Heap Variants
+
+- Convert heap-owned variants:
+  - `String` -> `Rc<str>`
+  - `Array` -> `Rc<Vec<Value>>`
+  - `Hash` -> `Rc<HashMap<HashKey, Value>>`
+  - `Some/Left/Right/ReturnValue` -> `Rc<Value>`
+- Keep primitives unboxed.
+- **Done when:** existing runtime and VM tests pass with no semantic changes.
+
+### 019.4 VM Storage Migration
+
+- Ensure runtime storage uses `Value` consistently:
+  - constants, stack, globals, frame locals/free values
+- Update push/pop and `OpGet*` handlers to operate on `Value`.
+- **Done when:** VM tests pass and clone-heavy access paths no longer deep-copy collections.
+
+### 019.5 Builtin Call Path: Borrowed Args
+
+- Change builtin invocation path to pass borrowed slices:
+  - `&[Value]` instead of `Vec<Value>`
+- Remove per-call argument vector allocation in VM dispatch.
+- Update builtin signatures and callsites accordingly.
+- **Done when:** builtin tests pass and no `to_vec()` arg-copy remains in hot call path.
+
+### 019.6 Closure Capture Path
+
+- Update closure creation (`push_closure`) to capture `Value` (Rc-bump for heap values).
+- Add tests for large captured arrays/hashes.
+- **Done when:** closure tests pass and capture no longer deep-clones collections.
+
+### 019.7 Bytecode/Runtime Boundary Cleanup
+
+- Update remaining bytecode/runtime plumbing that assumes old `Object` ownership behavior.
+- Keep external language behavior unchanged.
+- **Done when:** compiler + VM + snapshot suites are green.
+
+### 019.8 Invariant Enforcement and Docs
+
+- Document no-cycle invariant in runtime module docs.
+- Add regression tests for nested captures/collections to validate stable completion behavior.
+- Add handoff notes for Proposal 017 integration.
+- **Done when:** invariant is documented in code/docs and tests cover the intended constraints.
+
+### 019.9 Performance Validation
+
+- Re-run benchmarks from 019.1 against baseline.
+- Update `PERF_REPORT.md` with before/after deltas for clone-heavy workloads.
+- **Done when:** measurable improvement is reported and no major regressions appear elsewhere.
+
+### 019.10 Final Migration Cleanup
+
+- Remove temporary alias (`Object = Value`) once migration is complete.
+- Rename remaining internal references if needed for consistency.
+- **Done when:** no migration shims remain and project compiles/tests cleanly.
+
+---
+
 ## Problem Statement
 
 ### Problem 1: O(n) Clone on Every Value Access
