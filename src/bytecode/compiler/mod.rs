@@ -44,6 +44,12 @@ pub struct Compiler {
     // Module Constants - stores compile-time evaluated module constants
     pub(super) module_constants: HashMap<Symbol, Value>,
     pub interner: Interner,
+    // Tail call optimization - tracks if we are compiling in tail position.
+    pub(super) in_tail_position: bool,
+    // Function parameter counts for active function scopes innermost last.
+    pub(super) function_param_counts: Vec<usize>,
+    // For each active function scope track local indexes captured by nested closures.
+    pub(super) captured_local_indices: Vec<HashSet<usize>>,
 }
 
 #[cfg(test)]
@@ -114,6 +120,9 @@ impl Compiler {
             // Module Constants
             module_constants: HashMap::new(),
             interner,
+            in_tail_position: false,
+            function_param_counts: Vec::new(),
+            captured_local_indices: Vec::new(),
         }
     }
 
@@ -328,6 +337,46 @@ impl Compiler {
                 )
             }
         }
+    }
+
+    pub(super) fn with_tail_position<F, R>(&mut self, in_tail: bool, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let saved = self.in_tail_position;
+        self.in_tail_position = in_tail;
+        let result = f(self);
+        self.in_tail_position = saved;
+        result
+    }
+
+    pub(super) fn with_function_context<F, R>(&mut self, num_params: usize, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.function_param_counts.push(num_params);
+        self.captured_local_indices.push(HashSet::new());
+        let result = f(self);
+        self.captured_local_indices.pop();
+        self.function_param_counts.pop();
+        result
+    }
+
+    pub(super) fn current_function_param_count(&self) -> Option<usize> {
+        self.function_param_counts.last().copied()
+    }
+
+    pub(super) fn current_function_captured_locals(&self) -> Option<&HashSet<usize>> {
+        self.captured_local_indices.last()
+    }
+
+    pub(super) fn mark_captured_in_current_function(&mut self, local_index: usize) {
+        if self.captured_local_indices.is_empty() {
+            return;
+        }
+
+        let current_idx = self.captured_local_indices.len() - 1;
+        self.captured_local_indices[current_idx].insert(local_index);
     }
 }
 

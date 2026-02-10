@@ -47,6 +47,8 @@ pub enum OpCode {
     OpIsRight = 41,
     OpUnwrapLeft = 42,
     OpUnwrapRight = 43,
+    OpTailCall = 44,
+    OpConsumeLocal = 45,
 }
 
 impl From<u8> for OpCode {
@@ -96,6 +98,8 @@ impl From<u8> for OpCode {
             41 => OpCode::OpIsRight,
             42 => OpCode::OpUnwrapLeft,
             43 => OpCode::OpUnwrapRight,
+            44 => OpCode::OpTailCall,
+            45 => OpCode::OpConsumeLocal,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -118,8 +122,10 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpArray
         | OpCode::OpHash => vec![2],
         OpCode::OpGetLocal
+        | OpCode::OpConsumeLocal
         | OpCode::OpSetLocal
         | OpCode::OpCall
+        | OpCode::OpTailCall
         | OpCode::OpGetFree
         | OpCode::OpGetBuiltin => vec![1],
         OpCode::OpClosure => vec![2, 1],

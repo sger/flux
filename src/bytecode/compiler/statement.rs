@@ -97,7 +97,11 @@ impl Compiler {
                 Statement::Return { value, .. } => match value {
                     Some(expr) => {
                         self.compile_expression(expr)?;
-                        self.emit(OpCode::OpReturnValue, &[]);
+                        // Don't emit OpReturnValue if we just emitted OpTailCall
+                        // because the tail call will loop back instead of returning
+                        if !self.is_last_instruction(OpCode::OpTailCall) {
+                            self.emit(OpCode::OpReturnValue, &[]);
+                        }
                     }
                     None => {
                         self.emit(OpCode::OpReturn, &[]);
@@ -237,7 +241,9 @@ impl Compiler {
             self.symbol_table.define(*param, Span::default());
         }
 
-        self.compile_block(body)?;
+        self.with_function_context(parameters.len(), |compiler| {
+            compiler.compile_block_with_tail(body)
+        })?;
 
         if self.is_last_instruction(OpCode::OpPop) {
             self.replace_last_pop_with_return();
@@ -248,6 +254,12 @@ impl Compiler {
         }
 
         let free_symbols = self.symbol_table.free_symbols.clone();
+        for free in &free_symbols {
+            if free.symbol_scope == SymbolScope::Local {
+                self.mark_captured_in_current_function(free.index);
+            }
+        }
+
         let num_locals = self.symbol_table.num_definitions;
         let (instructions, locations, files) = self.leave_scope();
 
@@ -427,6 +439,28 @@ impl Compiler {
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
         for statement in &block.statements {
             self.compile_statement(statement)?;
+        }
+
+        Ok(())
+    }
+
+    /// Compile a block with tail position awareness for the last statement
+    pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+        let len = block.statements.len();
+
+        for (i, statement) in block.statements.iter().enumerate() {
+            let is_last = i == len - 1;
+            let tail_eligible = matches!(
+                statement,
+                Statement::Expression { .. } | Statement::Return { .. }
+            );
+
+            if is_last && tail_eligible {
+                // Only value producing terminal statements are in tail position.
+                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))?;
+            } else {
+                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))?;
+            }
         }
 
         Ok(())
