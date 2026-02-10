@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
-    runtime::{compiled_function::CompiledFunction, object::Object},
+    runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::position::{Position, Span},
 };
 
@@ -74,10 +74,10 @@ fn object_roundtrip_includes_function_debug_info() {
     let function = CompiledFunction::new(vec![1, 2, 3], 2, 1, Some(debug_info.clone()));
 
     let objects = vec![
-        Object::Integer(7),
-        Object::Float(3.5),
-        Object::String("ok".to_string()),
-        Object::Function(std::rc::Rc::new(function)),
+        Value::Integer(7),
+        Value::Float(3.5),
+        Value::String("ok".to_string().into()),
+        Value::Function(std::rc::Rc::new(function)),
     ];
 
     for obj in &objects {

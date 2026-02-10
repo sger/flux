@@ -4,7 +4,7 @@ use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
         closure::Closure, compiled_function::CompiledFunction, frame::Frame, leak_detector,
-        object::Object,
+        value::Value,
     },
 };
 
@@ -19,10 +19,11 @@ const STACK_SIZE: usize = 2048;
 const GLOBALS_SIZE: usize = 65536;
 
 pub struct VM {
-    constants: Vec<Object>,
-    stack: Vec<Object>,
+    constants: Vec<Value>,
+    stack: Vec<Value>,
     sp: usize,
-    pub globals: Vec<Object>,
+    last_popped: Value,
+    pub globals: Vec<Value>,
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
@@ -36,9 +37,10 @@ impl VM {
 
         Self {
             constants: bytecode.constants,
-            stack: vec![Object::None; STACK_SIZE],
+            stack: vec![Value::None; STACK_SIZE],
             sp: 0,
-            globals: vec![Object::None; GLOBALS_SIZE],
+            last_popped: Value::None,
+            globals: vec![Value::None; GLOBALS_SIZE],
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
@@ -87,13 +89,17 @@ impl VM {
         Ok(())
     }
 
-    fn build_array(&self, start: usize, end: usize) -> Object {
-        let elements: Vec<Object> = self.stack[start..end].to_vec();
+    fn build_array(&mut self, start: usize, end: usize) -> Value {
+        // Move values out of stack to avoid Rc refcount overhead
+        let mut elements = Vec::with_capacity(end - start);
+        for i in start..end {
+            elements.push(std::mem::replace(&mut self.stack[i], Value::None));
+        }
         leak_detector::record_array();
-        Object::Array(elements)
+        Value::Array(Rc::new(elements))
     }
 
-    fn build_hash(&self, start: usize, end: usize) -> Result<Object, String> {
+    fn build_hash(&self, start: usize, end: usize) -> Result<Value, String> {
         let mut hash = HashMap::new();
         let mut i = start;
         while i < end {
@@ -108,7 +114,7 @@ impl VM {
             i += 2;
         }
         leak_detector::record_hash();
-        Ok(Object::Hash(hash))
+        Ok(Value::Hash(hash.into()))
     }
 
     fn current_frame(&self) -> &Frame {
@@ -119,7 +125,7 @@ impl VM {
         &mut self.frames[self.frame_index]
     }
 
-    fn push(&mut self, obj: Object) -> Result<(), String> {
+    fn push(&mut self, obj: Value) -> Result<(), String> {
         if self.sp >= STACK_SIZE {
             return Err("stack overflow".to_string());
         }
@@ -144,16 +150,21 @@ impl VM {
         frame
     }
 
-    fn pop(&mut self) -> Result<Object, String> {
+    fn pop(&mut self) -> Result<Value, String> {
         if self.sp == 0 {
             return Err("stack underflow".to_string());
         }
         self.sp -= 1;
-        Ok(self.stack[self.sp].clone())
+        // Store in last_popped before moving out. For Rc types this is just a refcount bump.
+        self.last_popped = std::mem::replace(&mut self.stack[self.sp], Value::None);
+        Ok(self.last_popped.clone())
     }
 
-    pub fn last_popped_stack_elem(&self) -> &Object {
-        &self.stack[self.sp]
+    /// Returns the last popped value from the stack.
+    ///
+    /// After a program completes execution, this returns the final result.
+    pub fn last_popped_stack_elem(&self) -> &Value {
+        &self.last_popped
     }
 }
 

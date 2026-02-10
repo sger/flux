@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::{
         diagnostics::{
             DIVISION_BY_ZERO_RUNTIME, DiagnosticBuilder, DiagnosticsAggregator, HintChain,
@@ -18,7 +18,7 @@ impl VM {
         let left = self.pop()?;
 
         match (&left, &right) {
-            (Object::Integer(l), Object::Integer(r)) => {
+            (Value::Integer(l), Value::Integer(r)) => {
                 if *r == 0 && (op == OpCode::OpDiv || op == OpCode::OpMod) {
                     return Err(self.runtime_error_enhanced(&DIVISION_BY_ZERO_RUNTIME, &[]));
                 }
@@ -30,9 +30,9 @@ impl VM {
                     OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown integer operator: {:?}", op)),
                 };
-                self.push(Object::Integer(result))
+                self.push(Value::Integer(result))
             }
-            (Object::Float(l), Object::Float(r)) => {
+            (Value::Float(l), Value::Float(r)) => {
                 let result = match op {
                     OpCode::OpAdd => l + r,
                     OpCode::OpSub => l - r,
@@ -41,9 +41,9 @@ impl VM {
                     OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
-                self.push(Object::Float(result))
+                self.push(Value::Float(result))
             }
-            (Object::Integer(l), Object::Float(r)) => {
+            (Value::Integer(l), Value::Float(r)) => {
                 let l = *l as f64;
                 let result = match op {
                     OpCode::OpAdd => l + r,
@@ -53,9 +53,9 @@ impl VM {
                     OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
-                self.push(Object::Float(result))
+                self.push(Value::Float(result))
             }
-            (Object::Float(l), Object::Integer(r)) => {
+            (Value::Float(l), Value::Integer(r)) => {
                 let r = *r as f64;
                 let result = match op {
                     OpCode::OpAdd => l + r,
@@ -65,10 +65,10 @@ impl VM {
                     OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown float operator: {:?}", op)),
                 };
-                self.push(Object::Float(result))
+                self.push(Value::Float(result))
             }
-            (Object::String(l), Object::String(r)) if op == OpCode::OpAdd => {
-                self.push(Object::String(format!("{}{}", l, r)))
+            (Value::String(l), Value::String(r)) if op == OpCode::OpAdd => {
+                self.push(Value::String(format!("{}{}", l, r).into()))
             }
             _ => {
                 let op_name = match op {
@@ -83,9 +83,9 @@ impl VM {
                 // Special handling for String + Int/Float with hint chains
                 if op == OpCode::OpAdd
                     && ((left.type_name() == "String"
-                        && matches!(right, Object::Integer(_) | Object::Float(_)))
+                        && matches!(right, Value::Integer(_) | Value::Float(_)))
                         || (right.type_name() == "String"
-                            && matches!(left, Object::Integer(_) | Object::Float(_))))
+                            && matches!(left, Value::Integer(_) | Value::Float(_))))
                 {
                     let (file, span) = self.current_location().unwrap_or_else(|| {
                         (
