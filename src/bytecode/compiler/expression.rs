@@ -5,7 +5,7 @@ use crate::{
         binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
         symbol_scope::SymbolScope,
     },
-    runtime::{compiled_function::CompiledFunction, object::Object},
+    runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
         diagnostics::{
@@ -30,15 +30,15 @@ impl Compiler {
         self.current_span = Some(expression.span());
         match expression {
             Expression::Integer { value, .. } => {
-                let idx = self.add_constant(Object::Integer(*value));
+                let idx = self.add_constant(Value::Integer(*value));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
             Expression::Float { value, .. } => {
-                let idx = self.add_constant(Object::Float(*value));
+                let idx = self.add_constant(Value::Float(*value));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
             Expression::String { value, .. } => {
-                let idx = self.add_constant(Object::String(value.clone()));
+                let idx = self.add_constant(Value::String(value.clone().into()));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
             Expression::InterpolatedString { parts, .. } => {
@@ -61,7 +61,7 @@ impl Compiler {
                         self.load_symbol(&symbol);
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
-                        self.emit_constant_object(constant_value.clone());
+                        self.emit_constant_value(constant_value.clone());
                     } else {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
@@ -234,7 +234,7 @@ impl Compiler {
                     // Module Constants check if this is a compile-time constant
                     // If so, inline the constant value directly instead of loading from symbol
                     if let Some(constant_value) = self.module_constants.get(&qualified) {
-                        self.emit_constant_object(constant_value.clone());
+                        self.emit_constant_value(constant_value.clone());
                         return Ok(());
                     }
 
@@ -280,7 +280,7 @@ impl Compiler {
 
                 // Emit the member name as a string constant (the hash key)
                 let member_str = self.sym(member).to_string();
-                let member_idx = self.add_constant(Object::String(member_str));
+                let member_idx = self.add_constant(Value::String(member_str.into()));
                 self.emit(OpCode::OpConstant, &[member_idx]);
 
                 // Use index operation to access the member from the hash
@@ -357,7 +357,7 @@ impl Compiler {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Object::Function(Rc::new(CompiledFunction::new(
+        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
             instructions,
             num_locals,
             parameters.len(),
@@ -375,7 +375,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         if parts.is_empty() {
             // Empty interpolated string - just push an empty string
-            let idx = self.add_constant(Object::String(String::new()));
+            let idx = self.add_constant(Value::String(String::new().into()));
             self.emit(OpCode::OpConstant, &[idx]);
             return Ok(());
         }
@@ -383,7 +383,7 @@ impl Compiler {
         // Compile the first part
         match &parts[0] {
             StringPart::Literal(s) => {
-                let idx = self.add_constant(Object::String(s.clone()));
+                let idx = self.add_constant(Value::String(s.clone().into()));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
             StringPart::Interpolation(expr) => {
@@ -396,7 +396,7 @@ impl Compiler {
         for part in &parts[1..] {
             match part {
                 StringPart::Literal(s) => {
-                    let idx = self.add_constant(Object::String(s.clone()));
+                    let idx = self.add_constant(Value::String(s.clone().into()));
                     self.emit(OpCode::OpConstant, &[idx]);
                 }
                 StringPart::Interpolation(expr) => {

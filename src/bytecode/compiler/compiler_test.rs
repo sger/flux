@@ -1,6 +1,6 @@
 use crate::{
     bytecode::compiler::Compiler,
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
 
@@ -25,8 +25,8 @@ fn compile_integer_literals_emits_constants() {
 
     let bytecode = compiler.bytecode();
 
-    assert!(bytecode.constants.contains(&Object::Integer(1)));
-    assert!(bytecode.constants.contains(&Object::Integer(2)));
+    assert!(bytecode.constants.contains(&Value::Integer(1)));
+    assert!(bytecode.constants.contains(&Value::Integer(2)));
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn compile_string_literal_emits_constant() {
     assert!(
         bytecode
             .constants
-            .contains(&Object::String("hello".to_string()))
+            .contains(&Value::String("hello".to_string().into()))
     );
 }
 
@@ -56,6 +56,6 @@ fn compile_function_decl_emits_function_constant() {
         bytecode
             .constants
             .iter()
-            .any(|obj| matches!(obj, Object::Function(_)))
+            .any(|obj| matches!(obj, Value::Function(_)))
     );
 }

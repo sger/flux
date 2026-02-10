@@ -38,13 +38,13 @@ fn add_mixed_numbers() {
 #[test]
 fn concat_strings() {
     let mut vm = new_vm();
-    vm.push(Object::String("Hello, ".to_string())).unwrap();
-    vm.push(Object::String("world".to_string())).unwrap();
+    vm.push(Object::String("Hello, ".to_string().into())).unwrap();
+    vm.push(Object::String("world".to_string().into())).unwrap();
 
     vm.execute_binary_operation(OpCode::OpAdd).unwrap();
 
     let result = vm.pop().unwrap();
-    assert_eq!(result, Object::String("Hello, world".to_string()));
+    assert_eq!(result, Object::String("Hello, world".to_string().into()));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn division_by_zero_errors() {
 #[test]
 fn invalid_operation_errors() {
     let mut vm = new_vm();
-    vm.push(Object::String("oops".to_string())).unwrap();
+    vm.push(Object::String("oops".to_string().into())).unwrap();
     vm.push(Object::Integer(1)).unwrap();
 
     assert!(vm.execute_binary_operation(OpCode::OpSub).is_err());

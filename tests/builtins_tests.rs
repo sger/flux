@@ -15,16 +15,16 @@ fn make_test_hash() -> Object {
     let mut hash = HashMap::new();
     hash.insert(
         HashKey::String("name".to_string()),
-        Object::String("Alice".to_string()),
+        Object::String("Alice".to_string().into() ),
     );
     hash.insert(HashKey::Integer(42), Object::Integer(100));
-    hash.insert(HashKey::Boolean(true), Object::String("yes".to_string()));
-    Object::Hash(hash)
+    hash.insert(HashKey::Boolean(true), Object::String("yes".to_string().into() ));
+    Object::Hash(hash.into())
 }
 
 #[test]
 fn test_builtin_len_string() {
-    let result = call("len", vec![Object::String("hello".to_string())]).unwrap();
+    let result = call("len", vec![Object::String("hello".to_string().into() )]).unwrap();
     assert_eq!(result, Object::Integer(5));
 }
 
@@ -36,7 +36,7 @@ fn test_builtin_len_array() {
             Object::Integer(1),
             Object::Integer(2),
             Object::Integer(3),
-        ])],
+        ].into())],
     )
     .unwrap();
     assert_eq!(result, Object::Integer(3));
@@ -44,15 +44,15 @@ fn test_builtin_len_array() {
 
 #[test]
 fn test_builtin_first() {
-    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
-    let result = call("first", vec![arr]).unwrap();
+    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
+    let result = call("first", vec![arr].into()).unwrap();
     assert_eq!(result, Object::Integer(1));
 }
 
 #[test]
 fn test_builtin_last() {
-    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
-    let result = call("last", vec![arr]).unwrap();
+    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
+    let result = call("last", vec![arr].into()).unwrap();
     assert_eq!(result, Object::Integer(2));
 }
 
@@ -62,21 +62,21 @@ fn test_builtin_rest() {
         Object::Integer(1),
         Object::Integer(2),
         Object::Integer(3),
-    ]);
-    let result = call("rest", vec![arr]).unwrap();
+    ].into());
+    let result = call("rest", vec![arr].into()).unwrap();
     assert_eq!(
         result,
-        Object::Array(vec![Object::Integer(2), Object::Integer(3)])
+        Object::Array(vec![Object::Integer(2), Object::Integer(3)].into())
     );
 }
 
 #[test]
 fn test_builtin_push() {
-    let arr = Object::Array(vec![Object::Integer(1)]);
-    let result = call("push", vec![arr, Object::Integer(2)]).unwrap();
+    let arr = Object::Array(vec![Object::Integer(1)].into());
+    let result = call("push", vec![arr, Object::Integer(2)].into()).unwrap();
     assert_eq!(
         result,
-        Object::Array(vec![Object::Integer(1), Object::Integer(2)])
+        Object::Array(vec![Object::Integer(1), Object::Integer(2)].into())
     );
 }
 
@@ -89,9 +89,9 @@ fn test_get_builtin() {
 
 #[test]
 fn test_builtin_concat() {
-    let a = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
-    let b = Object::Array(vec![Object::Integer(3), Object::Integer(4)]);
-    let result = call("concat", vec![a, b]).unwrap();
+    let a = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
+    let b = Object::Array(vec![Object::Integer(3), Object::Integer(4)].into());
+    let result = call("concat", vec![a, b].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
@@ -99,16 +99,16 @@ fn test_builtin_concat() {
             Object::Integer(2),
             Object::Integer(3),
             Object::Integer(4)
-        ])
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_concat_empty() {
-    let a = Object::Array(vec![Object::Integer(1)]);
-    let b = Object::Array(vec![]);
-    let result = call("concat", vec![a, b]).unwrap();
-    assert_eq!(result, Object::Array(vec![Object::Integer(1)]));
+    let a = Object::Array(vec![Object::Integer(1)].into());
+    let b = Object::Array(vec![].into());
+    let result = call("concat", vec![a, b].into()).unwrap();
+    assert_eq!(result, Object::Array(vec![Object::Integer(1)].into()));
 }
 
 #[test]
@@ -117,23 +117,23 @@ fn test_builtin_reverse() {
         Object::Integer(1),
         Object::Integer(2),
         Object::Integer(3),
-    ]);
-    let result = call("reverse", vec![arr]).unwrap();
+    ].into());
+    let result = call("reverse", vec![arr].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Integer(3),
             Object::Integer(2),
             Object::Integer(1)
-        ])
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_reverse_empty() {
-    let arr = Object::Array(vec![]);
-    let result = call("reverse", vec![arr]).unwrap();
-    assert_eq!(result, Object::Array(vec![]));
+    let arr = Object::Array(vec![].into());
+    let result = call("reverse", vec![arr].into()).unwrap();
+    assert_eq!(result, Object::Array(vec![].into()));
 }
 
 #[test]
@@ -142,8 +142,8 @@ fn test_builtin_contains_found() {
         Object::Integer(1),
         Object::Integer(2),
         Object::Integer(3),
-    ]);
-    let result = call("contains", vec![arr, Object::Integer(2)]).unwrap();
+    ].into());
+    let result = call("contains", vec![arr, Object::Integer(2)].into()).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 
@@ -153,8 +153,8 @@ fn test_builtin_contains_not_found() {
         Object::Integer(1),
         Object::Integer(2),
         Object::Integer(3),
-    ]);
-    let result = call("contains", vec![arr, Object::Integer(5)]).unwrap();
+    ].into());
+    let result = call("contains", vec![arr, Object::Integer(5)].into()).unwrap();
     assert_eq!(result, Object::Boolean(false));
 }
 
@@ -166,25 +166,25 @@ fn test_builtin_slice() {
         Object::Integer(3),
         Object::Integer(4),
         Object::Integer(5),
-    ]);
-    let result = call("slice", vec![arr, Object::Integer(1), Object::Integer(4)]).unwrap();
+    ].into());
+    let result = call("slice", vec![arr, Object::Integer(1), Object::Integer(4)].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Integer(2),
             Object::Integer(3),
             Object::Integer(4)
-        ])
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_slice_out_of_bounds() {
-    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
-    let result = call("slice", vec![arr, Object::Integer(0), Object::Integer(10)]).unwrap();
+    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
+    let result = call("slice", vec![arr, Object::Integer(0), Object::Integer(10)].into()).unwrap();
     assert_eq!(
         result,
-        Object::Array(vec![Object::Integer(1), Object::Integer(2)])
+        Object::Array(vec![Object::Integer(1), Object::Integer(2)].into())
     );
 }
 
@@ -196,8 +196,8 @@ fn test_builtin_sort() {
         Object::Integer(4),
         Object::Integer(1),
         Object::Integer(5),
-    ]);
-    let result = call("sort", vec![arr]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
@@ -206,7 +206,7 @@ fn test_builtin_sort() {
             Object::Integer(3),
             Object::Integer(4),
             Object::Integer(5)
-        ])
+        ].into())
     );
 }
 
@@ -216,15 +216,15 @@ fn test_builtin_sort_floats() {
         Object::Float(PI),
         Object::Float(1.0),
         Object::Float(2.71),
-    ]);
-    let result = call("sort", vec![arr]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Float(1.0),
             Object::Float(2.71),
             Object::Float(PI)
-        ])
+        ].into())
     );
 }
 
@@ -234,15 +234,15 @@ fn test_builtin_sort_mixed_numeric() {
         Object::Integer(3),
         Object::Float(1.5),
         Object::Integer(2),
-    ]);
-    let result = call("sort", vec![arr]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Float(1.5),
             Object::Integer(2),
             Object::Integer(3)
-        ])
+        ].into())
     );
 }
 
@@ -252,15 +252,15 @@ fn test_builtin_sort_asc_explicit() {
         Object::Integer(3),
         Object::Integer(1),
         Object::Integer(2),
-    ]);
-    let result = call("sort", vec![arr, Object::String("asc".to_string())]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr, Object::String("asc".to_string().into() )].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Integer(1),
             Object::Integer(2),
             Object::Integer(3)
-        ])
+        ].into())
     );
 }
 
@@ -271,8 +271,8 @@ fn test_builtin_sort_desc() {
         Object::Integer(1),
         Object::Integer(5),
         Object::Integer(2),
-    ]);
-    let result = call("sort", vec![arr, Object::String("desc".to_string())]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr, Object::String("desc".to_string().into() )].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
@@ -280,7 +280,7 @@ fn test_builtin_sort_desc() {
             Object::Integer(3),
             Object::Integer(2),
             Object::Integer(1)
-        ])
+        ].into())
     );
 }
 
@@ -290,22 +290,22 @@ fn test_builtin_sort_desc_floats() {
         Object::Float(1.0),
         Object::Float(PI),
         Object::Float(2.71),
-    ]);
-    let result = call("sort", vec![arr, Object::String("desc".to_string())]).unwrap();
+    ].into());
+    let result = call("sort", vec![arr, Object::String("desc".to_string().into() )].into()).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
             Object::Float(PI),
             Object::Float(2.71),
             Object::Float(1.0)
-        ])
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_sort_invalid_order() {
-    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
-    let result = call("sort", vec![arr, Object::String("invalid".to_string())]);
+    let arr = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
+    let result = call("sort", vec![arr, Object::String("invalid".to_string().into() )].into());
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("must be \"asc\" or \"desc\""));
 }
@@ -315,18 +315,18 @@ fn test_builtin_split() {
     let result = call(
         "split",
         vec![
-            Object::String("a,b,c".to_string()),
-            Object::String(",".to_string()),
+            Object::String("a,b,c".to_string().into() ),
+            Object::String(",".to_string().into() ),
         ],
     )
     .unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
-            Object::String("a".to_string()),
-            Object::String("b".to_string()),
-            Object::String("c".to_string())
-        ])
+            Object::String("a".to_string().into() ),
+            Object::String("b".to_string().into() ),
+            Object::String("c".to_string().into() )
+        ].into())
     );
 }
 
@@ -335,8 +335,8 @@ fn test_builtin_split_empty() {
     let result = call(
         "split",
         vec![
-            Object::String("hello".to_string()),
-            Object::String("".to_string()),
+            Object::String("hello".to_string().into() ),
+            Object::String("".to_string().into() ),
         ],
     )
     .unwrap();
@@ -344,77 +344,77 @@ fn test_builtin_split_empty() {
     assert_eq!(
         result,
         Object::Array(vec![
-            Object::String("h".to_string()),
-            Object::String("e".to_string()),
-            Object::String("l".to_string()),
-            Object::String("l".to_string()),
-            Object::String("o".to_string())
-        ])
+            Object::String("h".to_string().into() ),
+            Object::String("e".to_string().into() ),
+            Object::String("l".to_string().into() ),
+            Object::String("l".to_string().into() ),
+            Object::String("o".to_string().into() )
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_join() {
     let arr = Object::Array(vec![
-        Object::String("a".to_string()),
-        Object::String("b".to_string()),
-        Object::String("c".to_string()),
-    ]);
-    let result = call("join", vec![arr, Object::String(",".to_string())]).unwrap();
-    assert_eq!(result, Object::String("a,b,c".to_string()));
+        Object::String("a".to_string().into() ),
+        Object::String("b".to_string().into() ),
+        Object::String("c".to_string().into() ),
+    ].into());
+    let result = call("join", vec![arr, Object::String(",".to_string().into() )].into()).unwrap();
+    assert_eq!(result, Object::String("a,b,c".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_join_empty_delim() {
     let arr = Object::Array(vec![
-        Object::String("a".to_string()),
-        Object::String("b".to_string()),
-    ]);
-    let result = call("join", vec![arr, Object::String("".to_string())]).unwrap();
-    assert_eq!(result, Object::String("ab".to_string()));
+        Object::String("a".to_string().into() ),
+        Object::String("b".to_string().into() ),
+    ].into());
+    let result = call("join", vec![arr, Object::String("".to_string().into() )].into()).unwrap();
+    assert_eq!(result, Object::String("ab".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_trim() {
-    let result = call("trim", vec![Object::String("  hello world  ".to_string())]).unwrap();
-    assert_eq!(result, Object::String("hello world".to_string()));
+    let result = call("trim", vec![Object::String("  hello world  ".to_string().into() )]).unwrap();
+    assert_eq!(result, Object::String("hello world".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_trim_no_whitespace() {
-    let result = call("trim", vec![Object::String("hello".to_string())]).unwrap();
-    assert_eq!(result, Object::String("hello".to_string()));
+    let result = call("trim", vec![Object::String("hello".to_string().into() )]).unwrap();
+    assert_eq!(result, Object::String("hello".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_upper() {
-    let result = call("upper", vec![Object::String("hello".to_string())]).unwrap();
-    assert_eq!(result, Object::String("HELLO".to_string()));
+    let result = call("upper", vec![Object::String("hello".to_string().into() )]).unwrap();
+    assert_eq!(result, Object::String("HELLO".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_lower() {
-    let result = call("lower", vec![Object::String("HELLO".to_string())]).unwrap();
-    assert_eq!(result, Object::String("hello".to_string()));
+    let result = call("lower", vec![Object::String("HELLO".to_string().into() )]).unwrap();
+    assert_eq!(result, Object::String("hello".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_chars() {
-    let result = call("chars", vec![Object::String("abc".to_string())]).unwrap();
+    let result = call("chars", vec![Object::String("abc".to_string().into() )]).unwrap();
     assert_eq!(
         result,
         Object::Array(vec![
-            Object::String("a".to_string()),
-            Object::String("b".to_string()),
-            Object::String("c".to_string())
-        ])
+            Object::String("a".to_string().into() ),
+            Object::String("b".to_string().into() ),
+            Object::String("c".to_string().into() )
+        ].into())
     );
 }
 
 #[test]
 fn test_builtin_chars_empty() {
-    let result = call("chars", vec![Object::String("".to_string())]).unwrap();
-    assert_eq!(result, Object::Array(vec![]));
+    let result = call("chars", vec![Object::String("".to_string().into() )].into()).unwrap();
+    assert_eq!(result, Object::Array(vec![].into()));
 }
 
 #[test]
@@ -422,13 +422,13 @@ fn test_builtin_substring() {
     let result = call(
         "substring",
         vec![
-            Object::String("hello world".to_string()),
+            Object::String("hello world".to_string().into() ),
             Object::Integer(0),
             Object::Integer(5),
         ],
     )
     .unwrap();
-    assert_eq!(result, Object::String("hello".to_string()));
+    assert_eq!(result, Object::String("hello".to_string().into() ));
 }
 
 #[test]
@@ -436,13 +436,13 @@ fn test_builtin_substring_middle() {
     let result = call(
         "substring",
         vec![
-            Object::String("hello world".to_string()),
+            Object::String("hello world".to_string().into() ),
             Object::Integer(6),
             Object::Integer(11),
         ],
     )
     .unwrap();
-    assert_eq!(result, Object::String("world".to_string()));
+    assert_eq!(result, Object::String("world".to_string().into() ));
 }
 
 #[test]
@@ -450,24 +450,24 @@ fn test_builtin_substring_out_of_bounds() {
     let result = call(
         "substring",
         vec![
-            Object::String("hello".to_string()),
+            Object::String("hello".to_string().into() ),
             Object::Integer(0),
             Object::Integer(100),
         ],
     )
     .unwrap();
-    assert_eq!(result, Object::String("hello".to_string()));
+    assert_eq!(result, Object::String("hello".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_keys() {
     let hash = make_test_hash();
-    let result = call("keys", vec![hash]).unwrap();
+    let result = call("keys", vec![hash].into()).unwrap();
     match result {
         Object::Array(keys) => {
             assert_eq!(keys.len(), 3);
             // Check that all expected keys are present (order is not guaranteed)
-            let has_name = keys.contains(&Object::String("name".to_string()));
+            let has_name = keys.contains(&Object::String("name".to_string().into() ));
             let has_42 = keys.contains(&Object::Integer(42));
             let has_true = keys.contains(&Object::Boolean(true));
             assert!(has_name, "missing 'name' key");
@@ -480,22 +480,22 @@ fn test_builtin_keys() {
 
 #[test]
 fn test_builtin_keys_empty() {
-    let hash = Object::Hash(HashMap::new());
+    let hash = Object::Hash(HashMap::new().into() );
     let result = call("keys", vec![hash]).unwrap();
-    assert_eq!(result, Object::Array(vec![]));
+    assert_eq!(result, Object::Array(vec![].into()));
 }
 
 #[test]
 fn test_builtin_values() {
     let hash = make_test_hash();
-    let result = call("values", vec![hash]).unwrap();
+    let result = call("values", vec![hash].into()).unwrap();
     match result {
         Object::Array(values) => {
             assert_eq!(values.len(), 3);
             // Check that all expected values are present (order is not guaranteed)
-            let has_alice = values.contains(&Object::String("Alice".to_string()));
+            let has_alice = values.contains(&Object::String("Alice".to_string().into() ));
             let has_100 = values.contains(&Object::Integer(100));
-            let has_yes = values.contains(&Object::String("yes".to_string()));
+            let has_yes = values.contains(&Object::String("yes".to_string().into() ));
             assert!(has_alice, "missing 'Alice' value");
             assert!(has_100, "missing 100 value");
             assert!(has_yes, "missing 'yes' value");
@@ -506,22 +506,22 @@ fn test_builtin_values() {
 
 #[test]
 fn test_builtin_values_empty() {
-    let hash = Object::Hash(HashMap::new());
+    let hash = Object::Hash(HashMap::new().into() );
     let result = call("values", vec![hash]).unwrap();
-    assert_eq!(result, Object::Array(vec![]));
+    assert_eq!(result, Object::Array(vec![].into()));
 }
 
 #[test]
 fn test_builtin_has_key_found() {
     let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Object::String("name".to_string())]).unwrap();
+    let result = call("has_key", vec![hash, Object::String("name".to_string().into() )].into()).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 
 #[test]
 fn test_builtin_has_key_not_found() {
     let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Object::String("email".to_string())]).unwrap();
+    let result = call("has_key", vec![hash, Object::String("email".to_string().into() )]).unwrap();
     assert_eq!(result, Object::Boolean(false));
 }
 
@@ -542,7 +542,7 @@ fn test_builtin_has_key_boolean_key() {
 #[test]
 fn test_builtin_has_key_unhashable() {
     let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Object::Array(vec![])]);
+    let result = call("has_key", vec![hash, Object::Array(vec![].into())].into());
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("must be hashable"));
 }
@@ -557,7 +557,7 @@ fn test_builtin_merge() {
     h2.insert(HashKey::String("b".to_string()), Object::Integer(20)); // overwrites
     h2.insert(HashKey::String("c".to_string()), Object::Integer(3));
 
-    let result = call("merge", vec![Object::Hash(h1), Object::Hash(h2)]).unwrap();
+    let result = call("merge", vec![Object::Hash(h1.into()), Object::Hash(h2.into())]).unwrap();
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 3);
@@ -585,7 +585,7 @@ fn test_builtin_merge_empty() {
 
     let h2 = HashMap::new();
 
-    let result = call("merge", vec![Object::Hash(h1.clone()), Object::Hash(h2)]).unwrap();
+    let result = call("merge", vec![Object::Hash(h1.clone().into() ), Object::Hash(h2.into())]).unwrap();
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 1);
@@ -605,7 +605,7 @@ fn test_builtin_merge_into_empty() {
     let mut h2 = HashMap::new();
     h2.insert(HashKey::String("a".to_string()), Object::Integer(1));
 
-    let result = call("merge", vec![Object::Hash(h1), Object::Hash(h2)]).unwrap();
+    let result = call("merge", vec![Object::Hash(h1.into()), Object::Hash(h2.into())]).unwrap();
     match result {
         Object::Hash(merged) => {
             assert_eq!(merged.len(), 1);
@@ -650,7 +650,7 @@ fn test_builtin_abs_float_negative() {
 
 #[test]
 fn test_builtin_abs_type_error() {
-    let result = call("abs", vec![Object::String("hello".to_string())]);
+    let result = call("abs", vec![Object::String("hello".to_string().into() )]);
     assert!(result.is_err());
 }
 
@@ -718,7 +718,7 @@ fn test_builtin_max_negative() {
 fn test_builtin_min_type_error() {
     let result = call(
         "min",
-        vec![Object::String("a".to_string()), Object::Integer(1)],
+        vec![Object::String("a".to_string().into() ), Object::Integer(1)],
     );
     assert!(result.is_err());
 }
@@ -727,7 +727,7 @@ fn test_builtin_min_type_error() {
 fn test_builtin_max_type_error() {
     let result = call(
         "max",
-        vec![Object::Integer(1), Object::String("a".to_string())],
+        vec![Object::Integer(1), Object::String("a".to_string().into() )],
     );
     assert!(result.is_err());
 }
@@ -735,49 +735,49 @@ fn test_builtin_max_type_error() {
 #[test]
 fn test_builtin_type_of_int() {
     let result = call("type_of", vec![Object::Integer(42)]).unwrap();
-    assert_eq!(result, Object::String("Int".to_string()));
+    assert_eq!(result, Object::String("Int".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_float() {
     let result = call("type_of", vec![Object::Float(PI)]).unwrap();
-    assert_eq!(result, Object::String("Float".to_string()));
+    assert_eq!(result, Object::String("Float".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_string() {
-    let result = call("type_of", vec![Object::String("hello".to_string())]).unwrap();
-    assert_eq!(result, Object::String("String".to_string()));
+    let result = call("type_of", vec![Object::String("hello".to_string().into() )]).unwrap();
+    assert_eq!(result, Object::String("String".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_bool() {
     let result = call("type_of", vec![Object::Boolean(true)]).unwrap();
-    assert_eq!(result, Object::String("Bool".to_string()));
+    assert_eq!(result, Object::String("Bool".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_array() {
-    let result = call("type_of", vec![Object::Array(vec![Object::Integer(1)])]).unwrap();
-    assert_eq!(result, Object::String("Array".to_string()));
+    let result = call("type_of", vec![Object::Array(vec![Object::Integer(1)].into())].into()).unwrap();
+    assert_eq!(result, Object::String("Array".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_hash() {
-    let result = call("type_of", vec![Object::Hash(HashMap::new())]).unwrap();
-    assert_eq!(result, Object::String("Hash".to_string()));
+    let result = call("type_of", vec![Object::Hash(HashMap::new().into() )]).unwrap();
+    assert_eq!(result, Object::String("Hash".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_none() {
     let result = call("type_of", vec![Object::None]).unwrap();
-    assert_eq!(result, Object::String("None".to_string()));
+    assert_eq!(result, Object::String("None".to_string().into() ));
 }
 
 #[test]
 fn test_builtin_type_of_some() {
-    let result = call("type_of", vec![Object::Some(Box::new(Object::Integer(42)))]).unwrap();
-    assert_eq!(result, Object::String("Some".to_string()));
+    let result = call("type_of", vec![Object::Some(std::rc::Rc::new(Object::Integer(42)))]).unwrap();
+    assert_eq!(result, Object::String("Some".to_string().into() ));
 }
 
 #[test]
@@ -806,7 +806,7 @@ fn test_builtin_is_float_false() {
 
 #[test]
 fn test_builtin_is_string_true() {
-    let result = call("is_string", vec![Object::String("hello".to_string())]).unwrap();
+    let result = call("is_string", vec![Object::String("hello".to_string().into() )]).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 
@@ -830,25 +830,25 @@ fn test_builtin_is_bool_false() {
 
 #[test]
 fn test_builtin_is_array_true() {
-    let result = call("is_array", vec![Object::Array(vec![])]).unwrap();
+    let result = call("is_array", vec![Object::Array(vec![].into())].into()).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 
 #[test]
 fn test_builtin_is_array_false() {
-    let result = call("is_array", vec![Object::String("hello".to_string())]).unwrap();
+    let result = call("is_array", vec![Object::String("hello".to_string().into() )]).unwrap();
     assert_eq!(result, Object::Boolean(false));
 }
 
 #[test]
 fn test_builtin_is_hash_true() {
-    let result = call("is_hash", vec![Object::Hash(HashMap::new())]).unwrap();
+    let result = call("is_hash", vec![Object::Hash(HashMap::new().into() )]).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 
 #[test]
 fn test_builtin_is_hash_false() {
-    let result = call("is_hash", vec![Object::Array(vec![])]).unwrap();
+    let result = call("is_hash", vec![Object::Array(vec![].into())].into()).unwrap();
     assert_eq!(result, Object::Boolean(false));
 }
 
@@ -866,7 +866,7 @@ fn test_builtin_is_none_false() {
 
 #[test]
 fn test_builtin_is_some_true() {
-    let result = call("is_some", vec![Object::Some(Box::new(Object::Integer(42)))]).unwrap();
+    let result = call("is_some", vec![Object::Some(std::rc::Rc::new(Object::Integer(42)))]).unwrap();
     assert_eq!(result, Object::Boolean(true));
 }
 

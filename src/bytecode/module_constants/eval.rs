@@ -1,6 +1,6 @@
 //! Compile-time evaluation of constant expressions.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     runtime::{hash_key::HashKey, object::Object},
@@ -21,13 +21,13 @@ pub fn eval_const_expr(
     match expr {
         Expression::Integer { value, .. } => Ok(Object::Integer(*value)),
         Expression::Float { value, .. } => Ok(Object::Float(*value)),
-        Expression::String { value, .. } => Ok(Object::String(value.clone())),
+        Expression::String { value, .. } => Ok(Object::String(value.clone().into())),
         Expression::Boolean { value, .. } => Ok(Object::Boolean(*value)),
         Expression::None { .. } => Ok(Object::None),
 
         Expression::Some { value, .. } => {
             let inner = eval_const_expr(value, defined, interner)?;
-            Ok(Object::Some(Box::new(inner)))
+            Ok(Object::Some(Rc::new(inner)))
         }
 
         Expression::Array { elements, .. } => {
@@ -35,7 +35,7 @@ pub fn eval_const_expr(
             for element in elements {
                 values.push(eval_const_expr(element, defined, interner)?);
             }
-            Ok(Object::Array(values))
+            Ok(Object::Array(values.into()))
         }
 
         Expression::Hash { pairs, .. } => {
@@ -47,7 +47,7 @@ pub fn eval_const_expr(
                 let hash_key = match &k {
                     Object::Integer(i) => HashKey::Integer(*i),
                     Object::Boolean(b) => HashKey::Boolean(*b),
-                    Object::String(s) => HashKey::String(s.clone()),
+                    Object::String(s) => HashKey::String(s.to_string()),
                     _ => {
                         return Err(ConstEvalError::new(
                             "E040",
@@ -57,7 +57,7 @@ pub fn eval_const_expr(
                 };
                 map.insert(hash_key, v);
             }
-            Ok(Object::Hash(map))
+            Ok(Object::Hash(map.into()))
         }
 
         Expression::Identifier { name, .. } => defined.get(name).cloned().ok_or_else(|| {
@@ -139,7 +139,9 @@ fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Objec
         }
 
         // String concatenation
-        (Object::String(a), "+", Object::String(b)) => Ok(Object::String(format!("{}{}", a, b))),
+        (Object::String(a), "+", Object::String(b)) => {
+            Ok(Object::String(format!("{}{}", a, b).into()))
+        }
 
         // Boolean operations
         (Object::Boolean(a), "&&", Object::Boolean(b)) => Ok(Object::Boolean(*a && *b)),

@@ -6,7 +6,7 @@ fn hash_key_to_object(key: &HashKey) -> Value {
     match key {
         HashKey::Integer(v) => Value::Integer(*v),
         HashKey::Boolean(v) => Value::Boolean(*v),
-        HashKey::String(v) => Value::String(v.clone()),
+        HashKey::String(v) => Value::String(v.clone().into()),
     }
 }
 
@@ -14,14 +14,14 @@ pub(super) fn builtin_keys(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "keys", "keys(h)")?;
     let hash = arg_hash(&args, 0, "keys", "argument", "keys(h)")?;
     let keys: Vec<Value> = hash.keys().map(hash_key_to_object).collect();
-    Ok(Value::Array(keys))
+    Ok(Value::Array(keys.into()))
 }
 
 pub(super) fn builtin_values(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "values", "values(h)")?;
     let hash = arg_hash(&args, 0, "values", "argument", "values(h)")?;
     let values: Vec<Value> = hash.values().cloned().collect();
-    Ok(Value::Array(values))
+    Ok(Value::Array(values.into()))
 }
 
 pub(super) fn builtin_has_key(args: &[Value]) -> Result<Value, String> {
@@ -45,5 +45,5 @@ pub(super) fn builtin_merge(args: &[Value]) -> Result<Value, String> {
     for (k, v) in h2.iter() {
         result.insert(k.clone(), v.clone());
     }
-    Ok(Value::Hash(result))
+    Ok(Value::Hash(result.into()))
 }
