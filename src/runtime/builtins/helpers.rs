@@ -1,4 +1,4 @@
-use crate::runtime::{hash_key::HashKey, object::Object};
+use crate::runtime::{hash_key::HashKey, value::Value};
 use std::collections::HashMap;
 
 pub(super) fn format_hint(signature: &str) -> String {
@@ -34,7 +34,7 @@ pub(super) fn type_error(
 }
 
 pub(super) fn check_arity(
-    args: &[Object],
+    args: &[Value],
     expected: usize,
     name: &str,
     signature: &str,
@@ -51,7 +51,7 @@ pub(super) fn check_arity(
 }
 
 pub(super) fn check_arity_range(
-    args: &[Object],
+    args: &[Value],
     min: usize,
     max: usize,
     name: &str,
@@ -69,14 +69,14 @@ pub(super) fn check_arity_range(
 }
 
 pub(super) fn arg_string<'a>(
-    args: &'a [Object],
+    args: &'a [Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<&'a str, String> {
     match &args[index] {
-        Object::String(s) => Ok(s.as_str()),
+        Value::String(s) => Ok(s.as_str()),
         other => Err(type_error(
             name,
             label,
@@ -88,14 +88,14 @@ pub(super) fn arg_string<'a>(
 }
 
 pub(super) fn arg_array<'a>(
-    args: &'a [Object],
+    args: &'a [Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
-) -> Result<&'a Vec<Object>, String> {
+) -> Result<&'a Vec<Value>, String> {
     match &args[index] {
-        Object::Array(arr) => Ok(arr),
+        Value::Array(arr) => Ok(arr),
         other => Err(type_error(
             name,
             label,
@@ -107,14 +107,14 @@ pub(super) fn arg_array<'a>(
 }
 
 pub(super) fn arg_int(
-    args: &[Object],
+    args: &[Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<i64, String> {
     match &args[index] {
-        Object::Integer(value) => Ok(*value),
+        Value::Integer(value) => Ok(*value),
         other => Err(type_error(
             name,
             label,
@@ -126,14 +126,14 @@ pub(super) fn arg_int(
 }
 
 pub(super) fn arg_hash<'a>(
-    args: &'a [Object],
+    args: &'a [Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
-) -> Result<&'a HashMap<HashKey, Object>, String> {
+) -> Result<&'a HashMap<HashKey, Value>, String> {
     match &args[index] {
-        Object::Hash(h) => Ok(h),
+        Value::Hash(h) => Ok(h),
         other => Err(type_error(
             name,
             label,
@@ -145,15 +145,15 @@ pub(super) fn arg_hash<'a>(
 }
 
 pub(super) fn arg_number(
-    args: &[Object],
+    args: &[Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<f64, String> {
     match &args[index] {
-        Object::Integer(v) => Ok(*v as f64),
-        Object::Float(v) => Ok(*v),
+        Value::Integer(v) => Ok(*v as f64),
+        Value::Float(v) => Ok(*v),
         other => Err(type_error(
             name,
             label,

@@ -1,4 +1,4 @@
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{builtin_function::BuiltinFunction, value::Value};
 
 mod array_ops;
 mod hash_ops;
@@ -22,14 +22,14 @@ use type_check::{
     builtin_is_none, builtin_is_some, builtin_is_string, builtin_type_of,
 };
 
-fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
+fn builtin_print(args: &[Value]) -> Result<Value, String> {
     for arg in args {
         match &arg {
-            Object::String(s) => println!("{}", s), // Raw string
+            Value::String(s) => println!("{}", s), // Raw string
             _ => println!("{}", arg),
         }
     }
-    Ok(Object::None)
+    Ok(Value::None)
 }
 
 /// All built-in functions in order (index matters for OpGetBuiltin)

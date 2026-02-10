@@ -10,8 +10,8 @@ fn keys_and_values_return_arrays() {
     map.insert(HashKey::String("a".to_string()), Object::Integer(1));
     map.insert(HashKey::Integer(2), Object::String("b".to_string()));
 
-    let keys = builtin_keys(vec![Object::Hash(map.clone())]).unwrap();
-    let values = builtin_values(vec![Object::Hash(map)]).unwrap();
+    let keys = builtin_keys(&[Object::Hash(map.clone())]).unwrap();
+    let values = builtin_values(&[Object::Hash(map)]).unwrap();
 
     match keys {
         Object::Array(items) => {
@@ -35,17 +35,14 @@ fn has_key_and_merge_work() {
     let mut map = HashMap::new();
     map.insert(HashKey::String("k".to_string()), Object::Integer(1));
 
-    let has = builtin_has_key(vec![
-        Object::Hash(map.clone()),
-        Object::String("k".to_string()),
-    ])
-    .unwrap();
+    let has =
+        builtin_has_key(&[Object::Hash(map.clone()), Object::String("k".to_string())]).unwrap();
     assert_eq!(has, Object::Boolean(true));
 
     let mut map2 = HashMap::new();
     map2.insert(HashKey::String("k".to_string()), Object::Integer(2));
 
-    let merged = builtin_merge(vec![Object::Hash(map), Object::Hash(map2)]).unwrap();
+    let merged = builtin_merge(&[Object::Hash(map), Object::Hash(map2)]).unwrap();
     match merged {
         Object::Hash(map) => {
             assert_eq!(

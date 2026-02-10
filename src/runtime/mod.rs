@@ -1,4 +1,4 @@
-use crate::runtime::object::Object;
+use crate::runtime::value::Value;
 
 pub mod builtin_function;
 pub mod builtins;
@@ -11,4 +11,4 @@ pub mod object;
 pub mod value;
 pub mod vm;
 
-pub type BuiltinFn = fn(Vec<Object>) -> Result<Object, String>;
+pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
