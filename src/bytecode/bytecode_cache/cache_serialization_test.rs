@@ -76,7 +76,7 @@ fn object_roundtrip_includes_function_debug_info() {
     let objects = vec![
         Object::Integer(7),
         Object::Float(3.5),
-        Object::String("ok".to_string()),
+        Object::String("ok".to_string().into()),
         Object::Function(std::rc::Rc::new(function)),
     ];
 

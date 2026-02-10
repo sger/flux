@@ -18,17 +18,17 @@ pub enum Value {
     /// Boolean value.
     Boolean(bool),
     /// UTF-8 string value.
-    String(String),
+    String(Rc<str>),
     /// Absence of value.
     None,
     /// Optional value wrapper.
-    Some(Box<Value>),
+    Some(Rc<Value>),
     /// Either-left wrapper.
-    Left(Box<Value>),
+    Left(Rc<Value>),
     /// Either-right wrapper.
-    Right(Box<Value>),
+    Right(Rc<Value>),
     /// Internal return-signal wrapper used by function returns.
-    ReturnValue(Box<Value>),
+    ReturnValue(Rc<Value>),
     /// Compiled function object.
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
@@ -36,9 +36,9 @@ pub enum Value {
     /// Builtin function handle.
     Builtin(BuiltinFunction),
     /// Ordered collection of values.
-    Array(Vec<Value>),
+    Array(Rc<Vec<Value>>),
     /// Hash map keyed by hashable values.
-    Hash(HashMap<HashKey, Value>),
+    Hash(Rc<HashMap<HashKey, Value>>),
 }
 
 impl fmt::Display for Value {
@@ -111,7 +111,7 @@ impl Value {
         match self {
             Value::Integer(v) => Some(HashKey::Integer(*v)),
             Value::Boolean(v) => Some(HashKey::Boolean(*v)),
-            Value::String(v) => Some(HashKey::String(v.clone())),
+            Value::String(v) => Some(HashKey::String(v.to_string())),
             _ => None,
         }
     }
@@ -125,7 +125,7 @@ impl Value {
             Value::Integer(v) => v.to_string(),
             Value::Float(v) => v.to_string(),
             Value::Boolean(v) => v.to_string(),
-            Value::String(v) => v.clone(),
+            Value::String(v) => v.to_string(),
             Value::None => "None".to_string(),
             Value::Some(v) => format!("Some({})", v.to_string_value()),
             Value::Left(_) => "Left({})".to_string(),
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(Value::Float(3.5).to_string(), "3.5");
         assert_eq!(Value::Boolean(true).to_string(), "true");
         assert_eq!(
-            Value::Array(vec![Value::Integer(1), Value::Integer(2)]).to_string(),
+            Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)])).to_string(),
             "[1, 2]"
         );
     }
@@ -174,12 +174,15 @@ mod tests {
     #[test]
     fn test_hash_key() {
         assert_eq!(Value::Integer(1).to_hash_key(), Some(HashKey::Integer(1)));
-        assert_eq!(Value::Boolean(false).to_hash_key(), Some(HashKey::Boolean(false)));
         assert_eq!(
-            Value::String("a".to_string()).to_hash_key(),
+            Value::Boolean(false).to_hash_key(),
+            Some(HashKey::Boolean(false))
+        );
+        assert_eq!(
+            Value::String("a".into()).to_hash_key(),
             Some(HashKey::String("a".to_string()))
         );
-        assert_eq!(Value::Array(vec![]).to_hash_key(), None);
+        assert_eq!(Value::Array(Rc::new(vec![])).to_hash_key(), None);
     }
 
     #[test]
@@ -187,32 +190,36 @@ mod tests {
         assert_eq!(Value::Integer(1).type_name(), "Int");
         assert_eq!(Value::Float(1.0).type_name(), "Float");
         assert_eq!(Value::Boolean(true).type_name(), "Bool");
-        assert_eq!(Value::String("x".to_string()).type_name(), "String");
+        assert_eq!(Value::String("x".into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
-        assert_eq!(Value::Some(Box::new(Value::Integer(1))).type_name(), "Some");
-        assert_eq!(Value::Left(Box::new(Value::Integer(1))).type_name(), "Left");
-        assert_eq!(Value::Right(Box::new(Value::Integer(1))).type_name(), "Right");
+        assert_eq!(Value::Some(Rc::new(Value::Integer(1))).type_name(), "Some");
+        assert_eq!(Value::Left(Rc::new(Value::Integer(1))).type_name(), "Left");
         assert_eq!(
-            Value::ReturnValue(Box::new(Value::Integer(1))).type_name(),
+            Value::Right(Rc::new(Value::Integer(1))).type_name(),
+            "Right"
+        );
+        assert_eq!(
+            Value::ReturnValue(Rc::new(Value::Integer(1))).type_name(),
             "ReturnValue"
         );
-        assert_eq!(Value::Array(vec![]).type_name(), "Array");
-        assert_eq!(Value::Hash(HashMap::new()).type_name(), "Hash");
+        assert_eq!(Value::Array(Rc::new(vec![])).type_name(), "Array");
+        assert_eq!(Value::Hash(Rc::new(HashMap::new())).type_name(), "Hash");
     }
 
     #[test]
     fn test_to_string_value() {
-        assert_eq!(Value::String("hello".to_string()).to_string_value(), "hello");
+        assert_eq!(Value::String("hello".into()).to_string_value(), "hello");
         assert_eq!(
-            Value::Some(Box::new(Value::String("x".to_string()))).to_string_value(),
+            Value::Some(Rc::new(Value::String("x".into()))).to_string_value(),
             "Some(x)"
         );
         assert_eq!(
-            Value::ReturnValue(Box::new(Value::Integer(7))).to_string_value(),
+            Value::ReturnValue(Rc::new(Value::Integer(7))).to_string_value(),
             "7"
         );
         assert_eq!(
-            Value::Array(vec![Value::String("a".to_string()), Value::Integer(2)]).to_string_value(),
+            Value::Array(Rc::new(vec![Value::String("a".into()), Value::Integer(2)]))
+                .to_string_value(),
             "[\"a\", 2]"
         );
     }

@@ -21,7 +21,7 @@ fn call_builtin_len() {
     let mut vm = new_vm();
     let builtin = get_builtin("len").expect("len builtin").clone();
     vm.push(Object::Builtin(builtin)).unwrap();
-    vm.push(Object::Array(vec![Object::Integer(1), Object::Integer(2)]))
+    vm.push(Object::Array(vec![Object::Integer(1), Object::Integer(2)].into()))
         .unwrap();
 
     vm.execute_call(1).unwrap();

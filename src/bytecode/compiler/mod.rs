@@ -8,7 +8,7 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::{
         diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
         interner::Interner,
@@ -29,7 +29,7 @@ mod suggestions;
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 pub struct Compiler {
-    constants: Vec<Object>,
+    constants: Vec<Value>,
     pub symbol_table: SymbolTable,
     pub(super) scopes: Vec<CompilationScope>,
     pub(super) scope_index: usize,
@@ -42,7 +42,7 @@ pub struct Compiler {
     pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
-    pub(super) module_constants: HashMap<Symbol, Object>,
+    pub(super) module_constants: HashMap<Symbol, Value>,
     pub interner: Interner,
 }
 
@@ -119,7 +119,7 @@ impl Compiler {
 
     pub fn new_with_state(
         symbol_table: SymbolTable,
-        constants: Vec<Object>,
+        constants: Vec<Value>,
         interner: Interner,
     ) -> Self {
         let mut compiler = Self::new();
@@ -209,12 +209,12 @@ impl Compiler {
         Ok(())
     }
 
-    // Module Constants helper to emit any Object as a constant
-    pub(super) fn emit_constant_object(&mut self, obj: Object) {
+    // Module Constants helper to emit any Value as a constant
+    pub(super) fn emit_constant_value(&mut self, obj: Value) {
         match obj {
-            Object::Boolean(true) => self.emit(OpCode::OpTrue, &[]),
-            Object::Boolean(false) => self.emit(OpCode::OpFalse, &[]),
-            Object::None => self.emit(OpCode::OpNone, &[]),
+            Value::Boolean(true) => self.emit(OpCode::OpTrue, &[]),
+            Value::Boolean(false) => self.emit(OpCode::OpFalse, &[]),
+            Value::None => self.emit(OpCode::OpNone, &[]),
             _ => {
                 let idx = self.add_constant(obj);
                 self.emit(OpCode::OpConstant, &[idx])

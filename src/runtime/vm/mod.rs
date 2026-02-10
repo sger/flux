@@ -92,7 +92,7 @@ impl VM {
     fn build_array(&self, start: usize, end: usize) -> Value {
         let elements: Vec<Value> = self.stack[start..end].to_vec();
         leak_detector::record_array();
-        Value::Array(elements)
+        Value::Array(elements.into())
     }
 
     fn build_hash(&self, start: usize, end: usize) -> Result<Value, String> {
@@ -110,7 +110,7 @@ impl VM {
             i += 2;
         }
         leak_detector::record_hash();
-        Ok(Value::Hash(hash))
+        Ok(Value::Hash(hash.into()))
     }
 
     fn current_frame(&self) -> &Frame {

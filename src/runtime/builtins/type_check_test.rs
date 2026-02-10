@@ -8,7 +8,7 @@ use super::type_check::{
 #[test]
 fn type_of_returns_type_name() {
     let result = builtin_type_of(&[Value::Integer(1)]).unwrap();
-    assert_eq!(result, Value::String("Int".to_string()));
+    assert_eq!(result, Value::String("Int".to_string().into()));
 }
 
 #[test]
@@ -22,7 +22,7 @@ fn is_type_checks_values() {
         Value::Boolean(true)
     );
     assert_eq!(
-        builtin_is_string(&[Value::String("s".to_string())]).unwrap(),
+        builtin_is_string(&[Value::String("s".to_string().into())]).unwrap(),
         Value::Boolean(true)
     );
     assert_eq!(
@@ -30,7 +30,7 @@ fn is_type_checks_values() {
         Value::Boolean(true)
     );
     assert_eq!(
-        builtin_is_array(&[Value::Array(vec![])]).unwrap(),
+        builtin_is_array(&[Value::Array(vec![].into())]).unwrap(),
         Value::Boolean(true)
     );
     assert_eq!(
@@ -42,7 +42,7 @@ fn is_type_checks_values() {
         Value::Boolean(true)
     );
     assert_eq!(
-        builtin_is_some(&[Value::Some(Box::new(Value::Integer(1)))]).unwrap(),
+        builtin_is_some(&[Value::Some(std::rc::Rc::new(Value::Integer(1)))]).unwrap(),
         Value::Boolean(true)
     );
 }

@@ -38,8 +38,8 @@ fn compare_floats() {
 #[test]
 fn compare_strings() {
     let mut vm = new_vm();
-    vm.push(Object::String("b".to_string())).unwrap();
-    vm.push(Object::String("a".to_string())).unwrap();
+    vm.push(Object::String("b".to_string().into())).unwrap();
+    vm.push(Object::String("a".to_string().into())).unwrap();
 
     vm.execute_comparison(OpCode::OpGreaterThan).unwrap();
 
@@ -62,8 +62,8 @@ fn compare_none() {
 #[test]
 fn compare_left_right_not_equal() {
     let mut vm = new_vm();
-    vm.push(Object::Left(Box::new(Object::Integer(1)))).unwrap();
-    vm.push(Object::Right(Box::new(Object::Integer(1))))
+    vm.push(Object::Left(std::rc::Rc::new(Object::Integer(1)))).unwrap();
+    vm.push(Object::Right(std::rc::Rc::new(Object::Integer(1))))
         .unwrap();
 
     vm.execute_comparison(OpCode::OpEqual).unwrap();
@@ -76,7 +76,7 @@ fn compare_left_right_not_equal() {
 fn invalid_comparison_errors() {
     let mut vm = new_vm();
     vm.push(Object::Integer(1)).unwrap();
-    vm.push(Object::String("x".to_string())).unwrap();
+    vm.push(Object::String("x".to_string().into())).unwrap();
 
     assert!(vm.execute_comparison(OpCode::OpGreaterThan).is_err());
 }

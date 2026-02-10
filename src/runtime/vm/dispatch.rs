@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     bytecode::op_code::{OpCode, read_u8, read_u16},
     runtime::{builtins::BUILTINS, leak_detector, value::Value},
@@ -127,7 +129,7 @@ impl VM {
             OpCode::OpUnwrapSome => {
                 let value = self.pop()?;
                 match value {
-                    Value::Some(inner) => self.push(*inner)?,
+                    Value::Some(inner) => self.push(inner.as_ref().clone())?,
                     _ => {
                         return Err(format!("expected Some(..) but found {}", value.type_name()));
                     }
@@ -171,16 +173,16 @@ impl VM {
             OpCode::OpSome => {
                 let value = self.pop()?;
                 leak_detector::record_some();
-                self.push(Value::Some(Box::new(value)))?;
+                self.push(Value::Some(Rc::new(value)))?;
             }
             // Either type operations
             OpCode::OpLeft => {
                 let value = self.pop()?;
-                self.push(Value::Left(Box::new(value)))?;
+                self.push(Value::Left(Rc::new(value)))?;
             }
             OpCode::OpRight => {
                 let value = self.pop()?;
-                self.push(Value::Right(Box::new(value)))?;
+                self.push(Value::Right(Rc::new(value)))?;
             }
             OpCode::OpIsLeft => {
                 let value = self.pop()?;
@@ -195,20 +197,20 @@ impl VM {
             OpCode::OpUnwrapLeft => {
                 let value = self.pop()?;
                 match value {
-                    Value::Left(inner) => self.push(*inner)?,
+                    Value::Left(inner) => self.push(inner.as_ref().clone())?,
                     _ => return Err("Cannot unwrap non-Left value".to_string()),
                 }
             }
             OpCode::OpUnwrapRight => {
                 let value = self.pop()?;
                 match value {
-                    Value::Right(inner) => self.push(*inner)?,
+                    Value::Right(inner) => self.push(inner.as_ref().clone())?,
                     _ => return Err("Cannot unwrap non-Right value".to_string()),
                 }
             }
             OpCode::OpToString => {
                 let value = self.pop()?;
-                self.push(Value::String(value.to_string_value()))?;
+                self.push(Value::String(value.to_string_value().into()))?;
             }
         }
 

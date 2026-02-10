@@ -4,7 +4,7 @@ use super::helpers::check_arity;
 
 pub(super) fn builtin_type_of(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "type_of", "type_of(x)")?;
-    Ok(Value::String(args[0].type_name().to_string()))
+    Ok(Value::String(args[0].type_name().to_string().into()))
 }
 
 pub(super) fn builtin_is_int(args: &[Value]) -> Result<Value, String> {

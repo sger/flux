@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
-    runtime::{compiled_function::CompiledFunction, object::Object},
+    runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::position::{Position, Span},
 };
 
@@ -62,21 +62,21 @@ pub(super) fn read_string(reader: &mut File) -> Option<String> {
     String::from_utf8(buf).ok()
 }
 
-pub(super) fn write_object(writer: &mut File, obj: &Object) -> std::io::Result<()> {
+pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()> {
     match obj {
-        Object::Integer(value) => {
+        Value::Integer(value) => {
             writer.write_all(&[0])?;
             write_i64(writer, *value)
         }
-        Object::Float(value) => {
+        Value::Float(value) => {
             writer.write_all(&[1])?;
             write_f64(writer, *value)
         }
-        Object::String(value) => {
+        Value::String(value) => {
             writer.write_all(&[2])?;
             write_string(writer, value)
         }
-        Object::Function(func) => {
+        Value::Function(func) => {
             writer.write_all(&[3])?;
             write_u16(writer, func.num_locals as u16)?;
             write_u16(writer, func.num_parameters as u16)?;
@@ -91,13 +91,13 @@ pub(super) fn write_object(writer: &mut File, obj: &Object) -> std::io::Result<(
     }
 }
 
-pub(super) fn read_object(reader: &mut File) -> Option<Object> {
+pub(super) fn read_object(reader: &mut File) -> Option<Value> {
     let mut tag = [0u8; 1];
     reader.read_exact(&mut tag).ok()?;
     match tag[0] {
-        0 => Some(Object::Integer(read_i64(reader)?)),
-        1 => Some(Object::Float(read_f64(reader)?)),
-        2 => Some(Object::String(read_string(reader)?)),
+        0 => Some(Value::Integer(read_i64(reader)?)),
+        1 => Some(Value::Float(read_f64(reader)?)),
+        2 => Some(Value::String(read_string(reader)?.into())),
         3 => {
             let num_locals = read_u16(reader)? as usize;
             let num_parameters = read_u16(reader)? as usize;
@@ -105,7 +105,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Object> {
             let mut instructions = vec![0u8; instructions_len];
             reader.read_exact(&mut instructions).ok()?;
             let debug_info = read_function_debug_info(reader);
-            Some(Object::Function(std::rc::Rc::new(CompiledFunction::new(
+            Some(Value::Function(std::rc::Rc::new(CompiledFunction::new(
                 instructions,
                 num_locals,
                 num_parameters,

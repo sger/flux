@@ -76,7 +76,7 @@ pub(super) fn arg_string<'a>(
     signature: &str,
 ) -> Result<&'a str, String> {
     match &args[index] {
-        Value::String(s) => Ok(s.as_str()),
+        Value::String(s) => Ok(s.as_ref()),
         other => Err(type_error(
             name,
             label,

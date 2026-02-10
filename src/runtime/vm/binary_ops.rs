@@ -68,7 +68,7 @@ impl VM {
                 self.push(Value::Float(result))
             }
             (Value::String(l), Value::String(r)) if op == OpCode::OpAdd => {
-                self.push(Value::String(format!("{}{}", l, r)))
+                self.push(Value::String(format!("{}{}", l, r).into()))
             }
             _ => {
                 let op_name = match op {

@@ -6,7 +6,7 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_scope::SymbolScope,
     },
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::position::Span,
 };
 
@@ -59,8 +59,8 @@ impl Compiler {
         };
     }
 
-    pub(super) fn add_constant(&mut self, obj: Object) -> usize {
-        self.constants.push(obj);
+    pub(super) fn add_constant(&mut self, value: Value) -> usize {
+        self.constants.push(value);
         self.constants.len() - 1
     }
 

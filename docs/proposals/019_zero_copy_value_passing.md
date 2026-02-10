@@ -55,7 +55,7 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
   - `pub type Object = Value;`
 - **Done when:** code compiles with alias and behavior is unchanged.
 
-### 019.3 Rc-Wrap Heap Variants
+### 019.3 Rc-Wrap Heap Variants [DONE]
 
 - Convert heap-owned variants:
   - `String` -> `Rc<str>`

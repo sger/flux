@@ -45,7 +45,7 @@ pub(super) fn builtin_rest(args: &[Value]) -> Result<Value, String> {
     if arr.is_empty() {
         Ok(Value::None)
     } else {
-        Ok(Value::Array(arr[1..].to_vec()))
+        Ok(Value::Array(arr[1..].to_vec().into()))
     }
 }
 
@@ -54,7 +54,7 @@ pub(super) fn builtin_push(args: &[Value]) -> Result<Value, String> {
     let arr = arg_array(&args, 0, "push", "first argument", "push(arr, elem)")?;
     let mut new_arr = arr.clone();
     new_arr.push(args[1].clone());
-    Ok(Value::Array(new_arr))
+    Ok(Value::Array(new_arr.into()))
 }
 
 pub(super) fn builtin_concat(args: &[Value]) -> Result<Value, String> {
@@ -63,7 +63,7 @@ pub(super) fn builtin_concat(args: &[Value]) -> Result<Value, String> {
     let b = arg_array(&args, 1, "concat", "second argument", "concat(a, b)")?;
     let mut result = a.clone();
     result.extend(b.iter().cloned());
-    Ok(Value::Array(result))
+    Ok(Value::Array(result.into()))
 }
 
 pub(super) fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
@@ -71,7 +71,7 @@ pub(super) fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
     let arr = arg_array(&args, 0, "reverse", "argument", "reverse(arr)")?;
     let mut result = arr.clone();
     result.reverse();
-    Ok(Value::Array(result))
+    Ok(Value::Array(result.into()))
 }
 
 pub(super) fn builtin_contains(args: &[Value]) -> Result<Value, String> {
@@ -119,9 +119,9 @@ pub(super) fn builtin_slice(args: &[Value]) -> Result<Value, String> {
         end as usize
     };
     if start >= end || start >= arr.len() {
-        Ok(Value::Array(vec![]))
+        Ok(Value::Array(vec![].into()))
     } else {
-        Ok(Value::Array(arr[start..end].to_vec()))
+        Ok(Value::Array(arr[start..end].to_vec().into()))
     }
 }
 
@@ -178,5 +178,5 @@ pub(super) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
         };
         if descending { cmp.reverse() } else { cmp }
     });
-    Ok(Value::Array(result))
+    Ok(Value::Array(result.into()))
 }

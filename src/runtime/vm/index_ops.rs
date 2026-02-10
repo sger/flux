@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::runtime::{hash_key::HashKey, value::Value};
 
@@ -26,7 +26,7 @@ impl VM {
         if index < 0 || index as usize >= elements.len() {
             self.push(Value::None)
         } else {
-            self.push(Value::Some(Box::new(elements[index as usize].clone())))
+            self.push(Value::Some(Rc::new(elements[index as usize].clone())))
         }
     }
 
@@ -40,7 +40,7 @@ impl VM {
             .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
         match hash.get(&hash_key) {
-            Some(value) => self.push(Value::Some(Box::new(value.clone()))),
+            Some(value) => self.push(Value::Some(Rc::new(value.clone()))),
             None => self.push(Value::None),
         }
     }

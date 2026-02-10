@@ -16,19 +16,19 @@ fn new_vm() -> VM {
 #[test]
 fn array_index_in_bounds() {
     let mut vm = new_vm();
-    let array = Object::Array(vec![Object::Integer(1), Object::Integer(2)]);
+    let array = Object::Array(vec![Object::Integer(1), Object::Integer(2)].into());
     let index = Object::Integer(1);
 
     vm.execute_index_expression(array, index).unwrap();
 
     let result = vm.pop().unwrap();
-    assert_eq!(result, Object::Some(Box::new(Object::Integer(2))));
+    assert_eq!(result, Object::Some(std::rc::Rc::new(Object::Integer(2))));
 }
 
 #[test]
 fn array_index_out_of_bounds() {
     let mut vm = new_vm();
-    let array = Object::Array(vec![Object::Integer(1)]);
+    let array = Object::Array(vec![Object::Integer(1)].into());
     let index = Object::Integer(5);
 
     vm.execute_index_expression(array, index).unwrap();
@@ -40,7 +40,7 @@ fn array_index_out_of_bounds() {
 #[test]
 fn array_index_negative() {
     let mut vm = new_vm();
-    let array = Object::Array(vec![Object::Integer(1)]);
+    let array = Object::Array(vec![Object::Integer(1)].into());
     let index = Object::Integer(-1);
 
     vm.execute_index_expression(array, index).unwrap();
@@ -54,9 +54,9 @@ fn hash_index_missing_key() {
     let mut vm = new_vm();
     let mut map = HashMap::new();
     map.insert(HashKey::String("k".to_string()), Object::Integer(1));
-    let hash = Object::Hash(map);
+    let hash = Object::Hash(map.into());
 
-    vm.execute_index_expression(hash, Object::String("missing".to_string()))
+    vm.execute_index_expression(hash, Object::String("missing".to_string().into()))
         .unwrap();
 
     let result = vm.pop().unwrap();
