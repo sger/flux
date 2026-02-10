@@ -154,11 +154,7 @@ fn test_builtin_slice() {
         ]
         .into(),
     );
-    let result = call(
-        "slice",
-        vec![arr, Value::Integer(1), Value::Integer(4)],
-    )
-    .unwrap();
+    let result = call("slice", vec![arr, Value::Integer(1), Value::Integer(4)]).unwrap();
     assert_eq!(
         result,
         Value::Array(vec![Value::Integer(2), Value::Integer(3), Value::Integer(4)].into())
@@ -168,11 +164,7 @@ fn test_builtin_slice() {
 #[test]
 fn test_builtin_slice_out_of_bounds() {
     let arr = Value::Array(vec![Value::Integer(1), Value::Integer(2)].into());
-    let result = call(
-        "slice",
-        vec![arr, Value::Integer(0), Value::Integer(10)],
-    )
-    .unwrap();
+    let result = call("slice", vec![arr, Value::Integer(0), Value::Integer(10)]).unwrap();
     assert_eq!(
         result,
         Value::Array(vec![Value::Integer(1), Value::Integer(2)].into())
@@ -230,11 +222,7 @@ fn test_builtin_sort_mixed_numeric() {
 #[test]
 fn test_builtin_sort_asc_explicit() {
     let arr = Value::Array(vec![Value::Integer(3), Value::Integer(1), Value::Integer(2)].into());
-    let result = call(
-        "sort",
-        vec![arr, Value::String("asc".to_string().into())],
-    )
-    .unwrap();
+    let result = call("sort", vec![arr, Value::String("asc".to_string().into())]).unwrap();
     assert_eq!(
         result,
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
@@ -252,11 +240,7 @@ fn test_builtin_sort_desc() {
         ]
         .into(),
     );
-    let result = call(
-        "sort",
-        vec![arr, Value::String("desc".to_string().into())],
-    )
-    .unwrap();
+    let result = call("sort", vec![arr, Value::String("desc".to_string().into())]).unwrap();
     assert_eq!(
         result,
         Value::Array(
@@ -274,11 +258,7 @@ fn test_builtin_sort_desc() {
 #[test]
 fn test_builtin_sort_desc_floats() {
     let arr = Value::Array(vec![Value::Float(1.0), Value::Float(PI), Value::Float(2.71)].into());
-    let result = call(
-        "sort",
-        vec![arr, Value::String("desc".to_string().into())],
-    )
-    .unwrap();
+    let result = call("sort", vec![arr, Value::String("desc".to_string().into())]).unwrap();
     assert_eq!(
         result,
         Value::Array(vec![Value::Float(PI), Value::Float(2.71), Value::Float(1.0)].into())
@@ -355,11 +335,7 @@ fn test_builtin_join() {
         ]
         .into(),
     );
-    let result = call(
-        "join",
-        vec![arr, Value::String(",".to_string().into())],
-    )
-    .unwrap();
+    let result = call("join", vec![arr, Value::String(",".to_string().into())]).unwrap();
     assert_eq!(result, Value::String("a,b,c".to_string().into()));
 }
 
@@ -372,11 +348,7 @@ fn test_builtin_join_empty_delim() {
         ]
         .into(),
     );
-    let result = call(
-        "join",
-        vec![arr, Value::String("".to_string().into())],
-    )
-    .unwrap();
+    let result = call("join", vec![arr, Value::String("".to_string().into())]).unwrap();
     assert_eq!(result, Value::String("ab".to_string().into()));
 }
 
