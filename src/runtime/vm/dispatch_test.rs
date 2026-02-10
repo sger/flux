@@ -1,7 +1,7 @@
 use crate::{
     bytecode::bytecode::Bytecode,
     bytecode::op_code::OpCode,
-    runtime::{object::Object, vm::VM},
+    runtime::{value::Value, vm::VM},
 };
 
 fn new_vm() -> VM {
@@ -20,5 +20,5 @@ fn dispatch_op_true_pushes_boolean() {
 
     assert!(advance);
     let result = vm.pop().unwrap();
-    assert_eq!(result, Object::Boolean(true));
+    assert_eq!(result, Value::Boolean(true));
 }

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::{block::Block, interner::Interner, position::Position, symbol::Symbol},
 };
 
@@ -34,7 +34,7 @@ pub fn compile_module_constants(
     body: &Block,
     module_name: Symbol,
     interner: &mut Interner,
-) -> Result<HashMap<Symbol, Object>, ConstCompileError> {
+) -> Result<HashMap<Symbol, Value>, ConstCompileError> {
     // Step 1: Analyze constants and resolve dependencies
     let analysis = analyze_module_constants(body).map_err(|cycle| {
         ConstCompileError::CircularDependency(
@@ -46,8 +46,8 @@ pub fn compile_module_constants(
     })?;
 
     // Step 2: Evaluate constants in dependency order
-    let mut local_constants: HashMap<Symbol, Object> = HashMap::new();
-    let mut module_constants: HashMap<Symbol, Object> = HashMap::new();
+    let mut local_constants: HashMap<Symbol, Value> = HashMap::new();
+    let mut module_constants: HashMap<Symbol, Value> = HashMap::new();
 
     for const_name in &analysis.eval_order {
         let (expr, pos) = analysis.expressions.get(const_name).unwrap();

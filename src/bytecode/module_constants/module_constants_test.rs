@@ -4,7 +4,7 @@ use crate::{
     bytecode::module_constants::{
         ConstEvalError, analyze_module_constants, eval_const_expr, topological_sort_constants,
     },
-    runtime::object::Object,
+    runtime::value::Value,
     syntax::{
         block::Block,
         expression::Expression,
@@ -18,7 +18,7 @@ fn pos(line: usize, column: usize) -> Position {
     Position::new(line, column)
 }
 
-fn eval(expr: &Expression) -> Result<Object, ConstEvalError> {
+fn eval(expr: &Expression) -> Result<Value, ConstEvalError> {
     let interner = Interner::new();
     eval_const_expr(expr, &HashMap::new(), &interner)
 }
@@ -192,7 +192,7 @@ fn const_string_ordering() {
         span: Default::default(),
     };
     let result = eval(&expr).unwrap();
-    assert_eq!(result, Object::Boolean(true));
+    assert_eq!(result, Value::Boolean(true));
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn const_deep_recursion() {
     }
 
     let result = eval(&expr).unwrap();
-    assert_eq!(result, Object::Integer(51));
+    assert_eq!(result, Value::Integer(51));
 }
 
 #[test]
@@ -270,10 +270,10 @@ fn const_large_array() {
 
     let result = eval(&expr).unwrap();
     match result {
-        Object::Array(arr) => {
+        Value::Array(arr) => {
             assert_eq!(arr.len(), 100);
-            assert_eq!(arr[0], Object::Integer(0));
-            assert_eq!(arr[99], Object::Integer(99));
+            assert_eq!(arr[0], Value::Integer(0));
+            assert_eq!(arr[99], Value::Integer(99));
         }
         _ => panic!("Expected array"),
     }
@@ -303,15 +303,15 @@ fn const_large_hash() {
 
     let result = eval(&expr).unwrap();
     match result {
-        Object::Hash(map) => {
+        Value::Hash(map) => {
             assert_eq!(map.len(), 50);
             assert_eq!(
                 map.get(&crate::runtime::hash_key::HashKey::Integer(0)),
-                Some(&Object::Integer(0))
+                Some(&Value::Integer(0))
             );
             assert_eq!(
                 map.get(&crate::runtime::hash_key::HashKey::Integer(49)),
-                Some(&Object::Integer(98))
+                Some(&Value::Integer(98))
             );
         }
         _ => panic!("Expected hash"),

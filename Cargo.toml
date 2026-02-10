@@ -17,3 +17,7 @@ harness = false
 [[bench]]
 name = "closure_capture_bench"
 harness = false
+
+[[bench]]
+name = "array_passing_bench"
+harness = false

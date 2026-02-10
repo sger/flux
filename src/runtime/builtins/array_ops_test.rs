@@ -20,10 +20,10 @@ fn len_works_for_string_and_array() {
 #[test]
 fn first_last_rest_work() {
     let arr = Value::Array(vec![Value::Integer(1), Value::Integer(2)].into());
-    let first = builtin_first(&[arr.clone()]).unwrap();
+    let first = builtin_first(std::slice::from_ref(&arr)).unwrap();
     assert_eq!(first, Value::Integer(1));
 
-    let last = builtin_last(&[arr.clone()]).unwrap();
+    let last = builtin_last(std::slice::from_ref(&arr)).unwrap();
     assert_eq!(last, Value::Integer(2));
 
     let rest = builtin_rest(&[arr]).unwrap();
@@ -47,7 +47,7 @@ fn push_concat_reverse_contains_slice() {
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
     );
 
-    let reversed = builtin_reverse(&[arr.clone()]).unwrap();
+    let reversed = builtin_reverse(std::slice::from_ref(&arr)).unwrap();
     assert_eq!(
         reversed,
         Value::Array(vec![Value::Integer(2), Value::Integer(1)].into())
@@ -63,7 +63,7 @@ fn push_concat_reverse_contains_slice() {
 #[test]
 fn sort_default_and_desc() {
     let arr = Value::Array(vec![Value::Integer(3), Value::Integer(1), Value::Integer(2)].into());
-    let sorted = builtin_sort(&[arr.clone()]).unwrap();
+    let sorted = builtin_sort(std::slice::from_ref(&arr)).unwrap();
     assert_eq!(
         sorted,
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
