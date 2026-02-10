@@ -89,10 +89,14 @@ impl VM {
         Ok(())
     }
 
-    fn build_array(&self, start: usize, end: usize) -> Value {
-        let elements: Vec<Value> = self.stack[start..end].to_vec();
+    fn build_array(&mut self, start: usize, end: usize) -> Value {
+        // Move values out of stack to avoid Rc refcount overhead
+        let mut elements = Vec::with_capacity(end - start);
+        for i in start..end {
+            elements.push(std::mem::replace(&mut self.stack[i], Value::None));
+        }
         leak_detector::record_array();
-        Value::Array(elements.into())
+        Value::Array(Rc::new(elements))
     }
 
     fn build_hash(&self, start: usize, end: usize) -> Result<Value, String> {
@@ -151,11 +155,14 @@ impl VM {
             return Err("stack underflow".to_string());
         }
         self.sp -= 1;
-        let value = std::mem::replace(&mut self.stack[self.sp], Value::None);
-        self.last_popped = value.clone();
-        Ok(value)
+        // Store in last_popped before moving out. For Rc types this is just a refcount bump.
+        self.last_popped = std::mem::replace(&mut self.stack[self.sp], Value::None);
+        Ok(self.last_popped.clone())
     }
 
+    /// Returns the last popped value from the stack.
+    ///
+    /// After a program completes execution, this returns the final result.
     pub fn last_popped_stack_elem(&self) -> &Value {
         &self.last_popped
     }

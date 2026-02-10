@@ -7,8 +7,36 @@ use crate::runtime::{
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
 ///
-/// Phase 1 keeps variant payloads identical to the legacy `Value` representation
-/// to avoid behavior changes during migration.
+/// ## Memory Management Model
+///
+/// Values use `Rc` (reference counting) for heap-allocated types (String, Array, Hash, etc.)
+/// while keeping primitives (Integer, Float, Boolean, None) unboxed for efficiency.
+///
+/// ### No-Cycle Invariant
+///
+/// This design **requires maintaining acyclic value graphs**. Runtime values must form
+/// directed acyclic graphs (DAGs), never cycles.
+///
+/// **Invariant guarantees:**
+/// - Closures may capture values, but captured values cannot reference the capturing closure
+/// - No language feature exposes mutable reference cells that could create back-edges
+/// - Values are semantically immutable after creation
+///
+/// **Why this matters:**
+/// - `Rc` cannot handle reference cycles (would cause memory leaks)
+/// - The language design enforces this through immutability and lack of mutable cells
+/// - Future features requiring cycles must migrate to cycle-aware GC (Proposal 017)
+///
+/// **Validation:**
+/// - Tests verify deeply nested captures complete without leaks
+/// - Leak detector tracks allocation/deallocation of Rc-wrapped types
+///
+/// ### Design Rationale
+///
+/// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
+/// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
+///
+/// See [Proposal 019](../../docs/proposals/019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// 64-bit signed integer.
