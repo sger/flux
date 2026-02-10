@@ -57,7 +57,7 @@ impl VM {
     fn tail_call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
         if num_args != closure.function.num_parameters {
             return Err(format!(
-                "wrong number of arguments: wany={}, got={}",
+                "wrong number of arguments: want={}, got={}",
                 closure.function.num_parameters, num_args
             ));
         }

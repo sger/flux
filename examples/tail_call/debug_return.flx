@@ -1,0 +1,8 @@
+fun test(n) {
+    if n == 0 {
+        "zero";
+    } else {
+        "nonzero";
+    }
+}
+print(test(0));
