@@ -8,7 +8,7 @@ use flux::runtime::value::Value;
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     let builtin = get_builtin(name).unwrap_or_else(|| panic!("missing builtin: {}", name));
-    (builtin.func)(&args)
+    (builtin.func)(args)
 }
 
 fn make_test_hash() -> Value {
