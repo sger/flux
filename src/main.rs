@@ -9,7 +9,7 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    runtime::vm::VM,
+    runtime::{value::Value, vm::VM},
     syntax::{
         diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
         formatter::format_source,
@@ -446,7 +446,8 @@ fn show_bytecode(path: &str, max_errors: usize) {
                 std::process::exit(1);
             }
 
-            let mut compiler = Compiler::new_with_file_path(path);
+            let interner = parser.take_interner();
+            let mut compiler = Compiler::new_with_interner(path, interner);
             if let Err(diags) = compiler.compile(&program) {
                 let report = DiagnosticsAggregator::new(&diags)
                     .with_default_source(path, source.as_str())
@@ -466,6 +467,19 @@ fn show_bytecode(path: &str, max_errors: usize) {
             }
             println!("\nInstructions:");
             print!("{}", disassemble(&bytecode.instructions));
+
+            // Disassemble function constants
+            for (i, c) in bytecode.constants.iter().enumerate() {
+                if let Value::Function(f) = c {
+                    let name = f
+                        .debug_info
+                        .as_ref()
+                        .and_then(|d| d.name.as_deref())
+                        .unwrap_or("<anonymous>");
+                    println!("\nFunction <{}> (constant {}):", name, i);
+                    print!("{}", disassemble(&f.instructions));
+                }
+            }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }

@@ -272,7 +272,7 @@ impl Compiler {
             num_locals,
             parameters.len(),
             Some(FunctionDebugInfo::new(
-                Some(name.to_string()),
+                Some(self.sym(name).to_string()),
                 files,
                 locations,
             )),
