@@ -54,6 +54,70 @@ pub(super) fn builtin_upper(args: &[Value]) -> Result<Value, String> {
     Ok(Value::String(s.to_uppercase().into()))
 }
 
+pub(super) fn builtin_starts_with(args: &[Value]) -> Result<Value, String> {
+    check_arity(&args, 2, "starts_with", "starts_with(s, prefix)")?;
+    let s = arg_string(
+        &args,
+        0,
+        "starts_with",
+        "first argument",
+        "starts_with(s, prefix)",
+    )?;
+    let prefix = arg_string(
+        &args,
+        1,
+        "starts_with",
+        "second argument",
+        "starts_with(s, prefix)",
+    )?;
+    Ok(Value::Boolean(s.starts_with(prefix)))
+}
+
+pub(super) fn builtin_ends_with(args: &[Value]) -> Result<Value, String> {
+    check_arity(&args, 2, "ends_with", "ends_with(s, suffix)")?;
+    let s = arg_string(
+        &args,
+        0,
+        "ends_with",
+        "first argument",
+        "ends_with(s, suffix)",
+    )?;
+    let suffix = arg_string(
+        &args,
+        1,
+        "ends_with",
+        "second argument",
+        "ends_with(s, suffix)",
+    )?;
+    Ok(Value::Boolean(s.ends_with(suffix)))
+}
+
+pub(super) fn builtin_replace(args: &[Value]) -> Result<Value, String> {
+    check_arity(&args, 3, "replace", "replace(s, from, to)")?;
+    let s = arg_string(
+        &args,
+        0,
+        "replace",
+        "first argument",
+        "replace(s, from, to)",
+    )?;
+    let from = arg_string(
+        &args,
+        1,
+        "replace",
+        "second argument",
+        "replace(s, from, to)",
+    )?;
+    let to = arg_string(
+        &args,
+        2,
+        "replace",
+        "third argument",
+        "replace(s, from, to)",
+    )?;
+    Ok(Value::String(s.replace(from, to).into()))
+}
+
 pub(super) fn builtin_lower(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "lower", "lower(s)")?;
     let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;

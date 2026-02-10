@@ -10,7 +10,10 @@ fn len_works_for_string_and_array() {
     let result = builtin_len(&[Value::String("abc".to_string().into())]).unwrap();
     assert_eq!(result, Value::Integer(3));
 
-    let result = builtin_len(&[Value::Array(vec![Value::Integer(1), Value::Integer(2)].into())]).unwrap();
+    let result = builtin_len(&[Value::Array(
+        vec![Value::Integer(1), Value::Integer(2)].into(),
+    )])
+    .unwrap();
     assert_eq!(result, Value::Integer(2));
 }
 
@@ -34,21 +37,14 @@ fn push_concat_reverse_contains_slice() {
     let pushed = builtin_push(&[arr.clone(), Value::Integer(3)]).unwrap();
     assert_eq!(
         pushed,
-        Value::Array(vec![
-            Value::Integer(1),
-            Value::Integer(2),
-            Value::Integer(3)
-        ].into())
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
     );
 
-    let concat = builtin_concat(&[arr.clone(), Value::Array(vec![Value::Integer(3)].into())]).unwrap();
+    let concat =
+        builtin_concat(&[arr.clone(), Value::Array(vec![Value::Integer(3)].into())]).unwrap();
     assert_eq!(
         concat,
-        Value::Array(vec![
-            Value::Integer(1),
-            Value::Integer(2),
-            Value::Integer(3)
-        ].into())
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
     );
 
     let reversed = builtin_reverse(&[arr.clone()]).unwrap();
@@ -66,29 +62,17 @@ fn push_concat_reverse_contains_slice() {
 
 #[test]
 fn sort_default_and_desc() {
-    let arr = Value::Array(vec![
-        Value::Integer(3),
-        Value::Integer(1),
-        Value::Integer(2),
-    ].into());
+    let arr = Value::Array(vec![Value::Integer(3), Value::Integer(1), Value::Integer(2)].into());
     let sorted = builtin_sort(&[arr.clone()]).unwrap();
     assert_eq!(
         sorted,
-        Value::Array(vec![
-            Value::Integer(1),
-            Value::Integer(2),
-            Value::Integer(3)
-        ].into())
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
     );
 
     let sorted_desc = builtin_sort(&[arr, Value::String("desc".to_string().into())]).unwrap();
     assert_eq!(
         sorted_desc,
-        Value::Array(vec![
-            Value::Integer(3),
-            Value::Integer(2),
-            Value::Integer(1)
-        ].into())
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
     );
 }
 

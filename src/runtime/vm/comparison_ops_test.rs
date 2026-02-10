@@ -62,7 +62,8 @@ fn compare_none() {
 #[test]
 fn compare_left_right_not_equal() {
     let mut vm = new_vm();
-    vm.push(Object::Left(std::rc::Rc::new(Object::Integer(1)))).unwrap();
+    vm.push(Object::Left(std::rc::Rc::new(Object::Integer(1))))
+        .unwrap();
     vm.push(Object::Right(std::rc::Rc::new(Object::Integer(1))))
         .unwrap();
 

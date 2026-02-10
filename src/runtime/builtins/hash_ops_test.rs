@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::runtime::{hash_key::HashKey, value::Value};
 
-use super::hash_ops::{builtin_has_key, builtin_keys, builtin_merge, builtin_values};
+use super::hash_ops::{
+    builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values,
+};
 
 #[test]
 fn keys_and_values_return_arrays() {
@@ -53,6 +55,41 @@ fn has_key_and_merge_work() {
                 Some(&Value::Integer(2))
             );
         }
+        _ => panic!("expected hash"),
+    }
+}
+
+#[test]
+fn delete_removes_existing_key_and_keeps_missing() {
+    let mut map = HashMap::new();
+    map.insert(HashKey::String("k".to_string()), Value::Integer(1));
+    map.insert(HashKey::String("x".to_string()), Value::Integer(2));
+
+    let deleted = builtin_delete(&[
+        Value::Hash(map.clone().into()),
+        Value::String("k".to_string().into()),
+    ])
+    .unwrap();
+
+    match deleted {
+        Value::Hash(result) => {
+            assert_eq!(result.get(&HashKey::String("k".to_string())), None);
+            assert_eq!(
+                result.get(&HashKey::String("x".to_string())),
+                Some(&Value::Integer(2))
+            );
+        }
+        _ => panic!("expected hash"),
+    }
+
+    let deleted_missing = builtin_delete(&[
+        Value::Hash(map.into()),
+        Value::String("missing".to_string().into()),
+    ])
+    .unwrap();
+
+    match deleted_missing {
+        Value::Hash(result) => assert_eq!(result.len(), 2),
         _ => panic!("expected hash"),
     }
 }
