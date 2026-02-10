@@ -5,7 +5,7 @@ use crate::{
         compiler::Compiler, debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
     },
-    runtime::{compiled_function::CompiledFunction, object::Object},
+    runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
         diagnostics::{
@@ -255,7 +255,7 @@ impl Compiler {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Object::Function(Rc::new(CompiledFunction::new(
+        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
             instructions,
             num_locals,
             parameters.len(),

@@ -3,13 +3,13 @@ use flux::bytecode::{
     compiler::Compiler,
     op_code::{OpCode, make},
 };
-use flux::runtime::object::Object;
+use flux::runtime::value::Value;
 use flux::runtime::vm::VM;
 use flux::syntax::diagnostics::render_diagnostics;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
 
-fn run(input: &str) -> Object {
+fn run(input: &str) -> Value {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
@@ -38,9 +38,9 @@ fn run_error(input: &str) -> String {
 
 #[test]
 fn test_integer_arithmetic() {
-    assert_eq!(run("1 + 2;"), Object::Integer(3));
-    assert_eq!(run("5 * 2 + 10;"), Object::Integer(20));
-    assert_eq!(run("-5;"), Object::Integer(-5));
+    assert_eq!(run("1 + 2;"), Value::Integer(3));
+    assert_eq!(run("5 * 2 + 10;"), Value::Integer(20));
+    assert_eq!(run("-5;"), Value::Integer(-5));
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn unmigrated_runtime_error_maps_not_a_function_code() {
     let instructions = make(OpCode::OpClosure, &[0, 0]);
     let bytecode = Bytecode {
         instructions,
-        constants: vec![Object::Integer(1)],
+        constants: vec![Value::Integer(1)],
         debug_info: None,
     };
 
@@ -89,30 +89,30 @@ fn unmigrated_runtime_error_maps_not_a_function_code() {
 
 #[test]
 fn test_float_arithmetic() {
-    assert_eq!(run("1.5 + 2.25;"), Object::Float(3.75));
-    assert_eq!(run("2.0 * 3.5;"), Object::Float(7.0));
-    assert_eq!(run("-0.5;"), Object::Float(-0.5));
-    assert_eq!(run("1 + 2.5;"), Object::Float(3.5));
-    assert_eq!(run("2.5 + 1;"), Object::Float(3.5));
+    assert_eq!(run("1.5 + 2.25;"), Value::Float(3.75));
+    assert_eq!(run("2.0 * 3.5;"), Value::Float(7.0));
+    assert_eq!(run("-0.5;"), Value::Float(-0.5));
+    assert_eq!(run("1 + 2.5;"), Value::Float(3.5));
+    assert_eq!(run("2.5 + 1;"), Value::Float(3.5));
 }
 
 #[test]
 fn test_boolean_expressions() {
-    assert_eq!(run("true;"), Object::Boolean(true));
-    assert_eq!(run("1 < 2;"), Object::Boolean(true));
-    assert_eq!(run("!true;"), Object::Boolean(false));
+    assert_eq!(run("true;"), Value::Boolean(true));
+    assert_eq!(run("1 < 2;"), Value::Boolean(true));
+    assert_eq!(run("!true;"), Value::Boolean(false));
 }
 
 #[test]
 fn test_conditionals() {
-    assert_eq!(run("if true { 10; };"), Object::Integer(10));
-    assert_eq!(run("if false { 10; } else { 20; };"), Object::Integer(20));
+    assert_eq!(run("if true { 10; };"), Value::Integer(10));
+    assert_eq!(run("if false { 10; } else { 20; };"), Value::Integer(20));
 }
 
 #[test]
 fn test_global_variables() {
-    assert_eq!(run("let x = 5; x;"), Object::Integer(5));
-    assert_eq!(run("let x = 5; let y = x; y;"), Object::Integer(5));
+    assert_eq!(run("let x = 5; x;"), Value::Integer(5));
+    assert_eq!(run("let x = 5; let y = x; y;"), Value::Integer(5));
 }
 
 #[test]
@@ -123,16 +123,16 @@ let x = 3;
 fun t(x) { x; }
 t(9) + x;
 "#),
-        Object::Integer(12)
+        Value::Integer(12)
     );
 }
 
 #[test]
 fn test_functions() {
-    assert_eq!(run("let f = fun() { 5 + 10; }; f();"), Object::Integer(15));
+    assert_eq!(run("let f = fun() { 5 + 10; }; f();"), Value::Integer(15));
     assert_eq!(
         run("let sum = fun(a, b) { a + b; }; sum(1, 2);"),
-        Object::Integer(3)
+        Value::Integer(3)
     );
 }
 
@@ -143,7 +143,7 @@ fn test_closures() {
         let closure = newClosure(99);
         closure();
     "#;
-    assert_eq!(run(input), Object::Integer(99));
+    assert_eq!(run(input), Value::Integer(99));
 }
 
 #[test]
@@ -155,45 +155,41 @@ fn test_recursive_fibonacci() {
         };
         fib(10);
     "#;
-    assert_eq!(run(input), Object::Integer(55));
+    assert_eq!(run(input), Value::Integer(55));
 }
 
 #[test]
 fn test_array_literals() {
     assert_eq!(
         run("[1, 2, 3];"),
-        Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(2),
-            Object::Integer(3),
-        ])
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
-    assert_eq!(run("[];"), Object::Array(vec![]));
+    assert_eq!(run("[];"), Value::Array(vec![].into()));
 }
 
 #[test]
 fn test_array_index() {
     assert_eq!(
         run("[1, 2, 3][0];"),
-        Object::Some(Box::new(Object::Integer(1)))
+        Value::Some(std::rc::Rc::new(Value::Integer(1)))
     );
     assert_eq!(
         run("[1, 2, 3][1];"),
-        Object::Some(Box::new(Object::Integer(2)))
+        Value::Some(std::rc::Rc::new(Value::Integer(2)))
     );
     assert_eq!(
         run("[1, 2, 3][2];"),
-        Object::Some(Box::new(Object::Integer(3)))
+        Value::Some(std::rc::Rc::new(Value::Integer(3)))
     );
-    assert_eq!(run("[1, 2, 3][3];"), Object::None);
-    assert_eq!(run("[1, 2, 3][-1];"), Object::None);
+    assert_eq!(run("[1, 2, 3][3];"), Value::None);
+    assert_eq!(run("[1, 2, 3][-1];"), Value::None);
 }
 
 #[test]
 fn test_hash_literals() {
     let result = run(r#"{"a": 1};"#);
     match result {
-        Object::Hash(h) => {
+        Value::Hash(h) => {
             assert_eq!(h.len(), 1);
         }
         _ => panic!("expected hash"),
@@ -204,92 +200,88 @@ fn test_hash_literals() {
 fn test_hash_index() {
     assert_eq!(
         run(r#"{"a": 1}["a"];"#),
-        Object::Some(Box::new(Object::Integer(1)))
+        Value::Some(std::rc::Rc::new(Value::Integer(1)))
     );
-    assert_eq!(run(r#"{"a": 1}["b"];"#), Object::None);
+    assert_eq!(run(r#"{"a": 1}["b"];"#), Value::None);
     assert_eq!(
         run(r#"{1: "one"}[1];"#),
-        Object::Some(Box::new(Object::String("one".to_string())))
+        Value::Some(std::rc::Rc::new(Value::String("one".to_string().into())))
     );
 }
 
 #[test]
 fn test_builtin_len() {
-    assert_eq!(run(r#"len("hello");"#), Object::Integer(5));
-    assert_eq!(run("len([1, 2, 3]);"), Object::Integer(3));
+    assert_eq!(run(r#"len("hello");"#), Value::Integer(5));
+    assert_eq!(run("len([1, 2, 3]);"), Value::Integer(3));
 }
 
 #[test]
 fn test_builtin_array_functions() {
-    assert_eq!(run("first([1, 2, 3]);"), Object::Integer(1));
-    assert_eq!(run("last([1, 2, 3]);"), Object::Integer(3));
+    assert_eq!(run("first([1, 2, 3]);"), Value::Integer(1));
+    assert_eq!(run("last([1, 2, 3]);"), Value::Integer(3));
     assert_eq!(
         run("rest([1, 2, 3]);"),
-        Object::Array(vec![Object::Integer(2), Object::Integer(3),])
+        Value::Array(vec![Value::Integer(2), Value::Integer(3),].into())
     );
     assert_eq!(
         run("push([1, 2], 3);"),
-        Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(2),
-            Object::Integer(3),
-        ])
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
 }
 
 #[test]
 fn test_less_than_or_equal_operator() {
-    assert_eq!(run("5 <= 10;"), Object::Boolean(true));
-    assert_eq!(run("10 <= 5;"), Object::Boolean(false));
-    assert_eq!(run("5 <= 5;"), Object::Boolean(true));
-    assert_eq!(run("5.5 <= 10.5;"), Object::Boolean(true));
-    assert_eq!(run("10.5 <= 5.5;"), Object::Boolean(false));
-    assert_eq!(run("5.5 <= 5.5;"), Object::Boolean(true));
-    assert_eq!(run(r#""apple" <= "banana";"#), Object::Boolean(true));
-    assert_eq!(run(r#""banana" <= "apple";"#), Object::Boolean(false));
-    assert_eq!(run(r#""apple" <= "apple";"#), Object::Boolean(true));
+    assert_eq!(run("5 <= 10;"), Value::Boolean(true));
+    assert_eq!(run("10 <= 5;"), Value::Boolean(false));
+    assert_eq!(run("5 <= 5;"), Value::Boolean(true));
+    assert_eq!(run("5.5 <= 10.5;"), Value::Boolean(true));
+    assert_eq!(run("10.5 <= 5.5;"), Value::Boolean(false));
+    assert_eq!(run("5.5 <= 5.5;"), Value::Boolean(true));
+    assert_eq!(run(r#""apple" <= "banana";"#), Value::Boolean(true));
+    assert_eq!(run(r#""banana" <= "apple";"#), Value::Boolean(false));
+    assert_eq!(run(r#""apple" <= "apple";"#), Value::Boolean(true));
 }
 
 #[test]
 fn test_greater_than_or_equal_operator() {
-    assert_eq!(run("10 >= 5;"), Object::Boolean(true));
-    assert_eq!(run("5 >= 10;"), Object::Boolean(false));
-    assert_eq!(run("5 >= 5;"), Object::Boolean(true));
-    assert_eq!(run("10.5 >= 5.5;"), Object::Boolean(true));
-    assert_eq!(run("5.5 >= 10.5;"), Object::Boolean(false));
-    assert_eq!(run("5.5 >= 5.5;"), Object::Boolean(true));
-    assert_eq!(run(r#""banana" >= "apple";"#), Object::Boolean(true));
-    assert_eq!(run(r#""apple" >= "banana";"#), Object::Boolean(false));
-    assert_eq!(run(r#""apple" >= "apple";"#), Object::Boolean(true));
+    assert_eq!(run("10 >= 5;"), Value::Boolean(true));
+    assert_eq!(run("5 >= 10;"), Value::Boolean(false));
+    assert_eq!(run("5 >= 5;"), Value::Boolean(true));
+    assert_eq!(run("10.5 >= 5.5;"), Value::Boolean(true));
+    assert_eq!(run("5.5 >= 10.5;"), Value::Boolean(false));
+    assert_eq!(run("5.5 >= 5.5;"), Value::Boolean(true));
+    assert_eq!(run(r#""banana" >= "apple";"#), Value::Boolean(true));
+    assert_eq!(run(r#""apple" >= "banana";"#), Value::Boolean(false));
+    assert_eq!(run(r#""apple" >= "apple";"#), Value::Boolean(true));
 }
 
 #[test]
 fn test_modulo_operator() {
     // Integer modulo
-    assert_eq!(run("10 % 3;"), Object::Integer(1));
-    assert_eq!(run("7 % 2;"), Object::Integer(1)); // odd check
-    assert_eq!(run("8 % 2;"), Object::Integer(0)); // even check
-    assert_eq!(run("15 % 4;"), Object::Integer(3));
-    assert_eq!(run("100 % 7;"), Object::Integer(2));
-    assert_eq!(run("5 % 5;"), Object::Integer(0));
+    assert_eq!(run("10 % 3;"), Value::Integer(1));
+    assert_eq!(run("7 % 2;"), Value::Integer(1)); // odd check
+    assert_eq!(run("8 % 2;"), Value::Integer(0)); // even check
+    assert_eq!(run("15 % 4;"), Value::Integer(3));
+    assert_eq!(run("100 % 7;"), Value::Integer(2));
+    assert_eq!(run("5 % 5;"), Value::Integer(0));
 
     // Float modulo
-    assert_eq!(run("10.5 % 3.0;"), Object::Float(1.5));
-    assert_eq!(run("7.5 % 2.0;"), Object::Float(1.5));
-    assert_eq!(run("10.0 % 3.0;"), Object::Float(1.0));
-    assert_eq!(run("5.5 % 2.5;"), Object::Float(0.5));
+    assert_eq!(run("10.5 % 3.0;"), Value::Float(1.5));
+    assert_eq!(run("7.5 % 2.0;"), Value::Float(1.5));
+    assert_eq!(run("10.0 % 3.0;"), Value::Float(1.0));
+    assert_eq!(run("5.5 % 2.5;"), Value::Float(0.5));
 
     // Mixed integer-float modulo
-    assert_eq!(run("10 % 3.0;"), Object::Float(1.0));
-    assert_eq!(run("7 % 2.5;"), Object::Float(2.0));
+    assert_eq!(run("10 % 3.0;"), Value::Float(1.0));
+    assert_eq!(run("7 % 2.5;"), Value::Float(2.0));
 
     // Mixed float-integer modulo
-    assert_eq!(run("10.5 % 3;"), Object::Float(1.5));
-    assert_eq!(run("7.5 % 2;"), Object::Float(1.5));
+    assert_eq!(run("10.5 % 3;"), Value::Float(1.5));
+    assert_eq!(run("7.5 % 2;"), Value::Float(1.5));
 
     // Edge cases
-    assert_eq!(run("1 % 10;"), Object::Integer(1)); // smaller % larger
-    assert_eq!(run("0 % 5;"), Object::Integer(0)); // zero % n
+    assert_eq!(run("1 % 10;"), Value::Integer(1)); // smaller % larger
+    assert_eq!(run("0 % 5;"), Value::Integer(0)); // zero % n
 }
 
 #[test]
@@ -297,7 +289,7 @@ fn test_pipe_operator() {
     // Basic pipe: value |> function
     assert_eq!(
         run("let double = fun(x) { x * 2; }; 5 |> double;"),
-        Object::Integer(10)
+        Value::Integer(10)
     );
 
     // Chained pipes: value |> f |> g
@@ -305,19 +297,19 @@ fn test_pipe_operator() {
         run(
             "let double = fun(x) { x * 2; }; let triple = fun(x) { x * 3; }; 5 |> double |> triple;"
         ),
-        Object::Integer(30)
+        Value::Integer(30)
     );
 
     // Pipe with additional arguments: value |> function(arg)
     assert_eq!(
         run("let add = fun(x, y) { x + y; }; 5 |> add(3);"),
-        Object::Integer(8)
+        Value::Integer(8)
     );
 
     // Pipe with multiple additional arguments
     assert_eq!(
         run("let sum3 = fun(a, b, c) { a + b + c; }; 1 |> sum3(2, 3);"),
-        Object::Integer(6)
+        Value::Integer(6)
     );
 
     // Complex chain with mixed calls
@@ -328,13 +320,13 @@ fn test_pipe_operator() {
             let square = fun(x) { x * x; };
             2 |> double |> add(10) |> square;
         "#),
-        Object::Integer(196) // ((2*2) + 10)^2 = 14^2 = 196
+        Value::Integer(196) // ((2*2) + 10)^2 = 14^2 = 196
     );
 
     // Pipe preserves argument order (left side becomes first arg)
     assert_eq!(
         run("let subtract = fun(a, b) { a - b; }; 10 |> subtract(3);"),
-        Object::Integer(7) // 10 - 3 = 7
+        Value::Integer(7) // 10 - 3 = 7
     );
 
     // Pipe with string operations
@@ -344,13 +336,13 @@ fn test_pipe_operator() {
             let exclaim = fun(s) { s + "!"; };
             "World" |> greet |> exclaim;
         "#),
-        Object::String("Hello, World!".to_string())
+        Value::String("Hello, World!".to_string().into())
     );
 
     // Pipe with array operations
     assert_eq!(
         run("let getFirst = fun(arr) { first(arr); }; [1, 2, 3] |> getFirst;"),
-        Object::Integer(1)
+        Value::Integer(1)
     );
 
     // Nested pipe expressions
@@ -360,7 +352,7 @@ fn test_pipe_operator() {
             let double = fun(x) { x * 2; };
             (3 |> inc) |> double;
         "#),
-        Object::Integer(8) // (3+1) * 2 = 8
+        Value::Integer(8) // (3+1) * 2 = 8
     );
 }
 
@@ -369,49 +361,59 @@ fn test_either_left_right() {
     // Basic Left creation
     assert_eq!(
         run("Left(42);"),
-        Object::Left(Box::new(Object::Integer(42)))
+        Value::Left(std::rc::Rc::new(Value::Integer(42)))
     );
 
     // Basic Right creation
     assert_eq!(
         run("Right(42);"),
-        Object::Right(Box::new(Object::Integer(42)))
+        Value::Right(std::rc::Rc::new(Value::Integer(42)))
     );
 
     // Left with string
     assert_eq!(
         run(r#"Left("error");"#),
-        Object::Left(Box::new(Object::String("error".to_string())))
+        Value::Left(std::rc::Rc::new(Value::String("error".to_string().into())))
     );
 
     // Right with string
     assert_eq!(
         run(r#"Right("success");"#),
-        Object::Right(Box::new(Object::String("success".to_string())))
+        Value::Right(std::rc::Rc::new(Value::String(
+            "success".to_string().into()
+        )))
     );
 
     // Nested Left
     assert_eq!(
         run("Left(Left(1));"),
-        Object::Left(Box::new(Object::Left(Box::new(Object::Integer(1)))))
+        Value::Left(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 
     // Nested Right
     assert_eq!(
         run("Right(Right(1));"),
-        Object::Right(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        Value::Right(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 
     // Left containing Right
     assert_eq!(
         run("Left(Right(42));"),
-        Object::Left(Box::new(Object::Right(Box::new(Object::Integer(42)))))
+        Value::Left(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
+            Value::Integer(42)
+        ))))
     );
 
     // Right containing Left
     assert_eq!(
         run("Right(Left(42));"),
-        Object::Right(Box::new(Object::Left(Box::new(Object::Integer(42)))))
+        Value::Right(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
+            Value::Integer(42)
+        ))))
     );
 }
 
@@ -426,7 +428,7 @@ fn test_either_pattern_matching() {
                 _ -> false,
             };
         "#),
-        Object::Boolean(true)
+        Value::Boolean(true)
     );
 
     // Simple Right match with wildcard
@@ -438,7 +440,7 @@ fn test_either_pattern_matching() {
                 _ -> false,
             };
         "#),
-        Object::Boolean(true)
+        Value::Boolean(true)
     );
 
     // Left doesn't match Right pattern
@@ -450,7 +452,7 @@ fn test_either_pattern_matching() {
                 _ -> false,
             };
         "#),
-        Object::Boolean(false)
+        Value::Boolean(false)
     );
 
     // Right doesn't match Left pattern
@@ -462,7 +464,7 @@ fn test_either_pattern_matching() {
                 _ -> false,
             };
         "#),
-        Object::Boolean(false)
+        Value::Boolean(false)
     );
 
     // Match on Left with binding
@@ -474,7 +476,7 @@ fn test_either_pattern_matching() {
                 _ -> 0,
             };
         "#),
-        Object::Integer(42)
+        Value::Integer(42)
     );
 
     // Match on Right with binding
@@ -486,7 +488,7 @@ fn test_either_pattern_matching() {
                 _ -> 0,
             };
         "#),
-        Object::Integer(42)
+        Value::Integer(42)
     );
 }
 
@@ -499,7 +501,7 @@ fn test_match_guards_true_and_false_paths() {
                 _ -> 0,
             };
         "#,),
-        Object::Integer(2)
+        Value::Integer(2)
     );
 
     assert_eq!(
@@ -510,7 +512,7 @@ fn test_match_guards_true_and_false_paths() {
                 _ -> 0,
             };
         "#,),
-        Object::Integer(2)
+        Value::Integer(2)
     );
 }
 
@@ -524,7 +526,7 @@ fn test_match_guards_can_use_pattern_bound_values() {
                 _ -> 0,
             };
         "#,),
-        Object::Integer(10)
+        Value::Integer(10)
     );
 }
 
@@ -536,7 +538,7 @@ fn test_either_in_functions() {
             fun fail(msg) { Left(msg) }
             fail("oops");
         "#),
-        Object::Left(Box::new(Object::String("oops".to_string())))
+        Value::Left(std::rc::Rc::new(Value::String("oops".to_string().into())))
     );
 
     // Function returning Right
@@ -545,7 +547,7 @@ fn test_either_in_functions() {
             fun succeed(val) { Right(val) }
             succeed(100);
         "#),
-        Object::Right(Box::new(Object::Integer(100)))
+        Value::Right(std::rc::Rc::new(Value::Integer(100)))
     );
 
     // Safe divide function
@@ -560,7 +562,7 @@ fn test_either_in_functions() {
             }
             safeDivide(10, 2);
         "#),
-        Object::Right(Box::new(Object::Integer(5)))
+        Value::Right(std::rc::Rc::new(Value::Integer(5)))
     );
 
     assert_eq!(
@@ -574,25 +576,27 @@ fn test_either_in_functions() {
             }
             safeDivide(10, 0);
         "#),
-        Object::Left(Box::new(Object::String("division by zero".to_string())))
+        Value::Left(std::rc::Rc::new(Value::String(
+            "division by zero".to_string().into()
+        )))
     );
 }
 
 #[test]
 fn test_either_equality() {
     // Left equality
-    assert_eq!(run("Left(1) == Left(1);"), Object::Boolean(true));
-    assert_eq!(run("Left(1) == Left(2);"), Object::Boolean(false));
-    assert_eq!(run("Left(1) != Left(2);"), Object::Boolean(true));
+    assert_eq!(run("Left(1) == Left(1);"), Value::Boolean(true));
+    assert_eq!(run("Left(1) == Left(2);"), Value::Boolean(false));
+    assert_eq!(run("Left(1) != Left(2);"), Value::Boolean(true));
 
     // Right equality
-    assert_eq!(run("Right(1) == Right(1);"), Object::Boolean(true));
-    assert_eq!(run("Right(1) == Right(2);"), Object::Boolean(false));
-    assert_eq!(run("Right(1) != Right(2);"), Object::Boolean(true));
+    assert_eq!(run("Right(1) == Right(1);"), Value::Boolean(true));
+    assert_eq!(run("Right(1) == Right(2);"), Value::Boolean(false));
+    assert_eq!(run("Right(1) != Right(2);"), Value::Boolean(true));
 
     // Left vs Right
-    assert_eq!(run("Left(1) == Right(1);"), Object::Boolean(false));
-    assert_eq!(run("Left(1) != Right(1);"), Object::Boolean(true));
+    assert_eq!(run("Left(1) == Right(1);"), Value::Boolean(false));
+    assert_eq!(run("Left(1) != Right(1);"), Value::Boolean(true));
 }
 
 #[test]
@@ -600,22 +604,31 @@ fn test_either_with_option() {
     // Left containing Some
     assert_eq!(
         run("Left(Some(42));"),
-        Object::Left(Box::new(Object::Some(Box::new(Object::Integer(42)))))
+        Value::Left(std::rc::Rc::new(Value::Some(std::rc::Rc::new(
+            Value::Integer(42)
+        ))))
     );
 
     // Right containing None
-    assert_eq!(run("Right(None);"), Object::Right(Box::new(Object::None)));
+    assert_eq!(
+        run("Right(None);"),
+        Value::Right(std::rc::Rc::new(Value::None))
+    );
 
     // Some containing Left
     assert_eq!(
         run("Some(Left(1));"),
-        Object::Some(Box::new(Object::Left(Box::new(Object::Integer(1)))))
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 
     // Some containing Right
     assert_eq!(
         run("Some(Right(1));"),
-        Object::Some(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 }
 
@@ -624,11 +637,14 @@ fn test_either_in_arrays() {
     // Array of Either values
     assert_eq!(
         run("[Left(1), Right(2), Left(3)];"),
-        Object::Array(vec![
-            Object::Left(Box::new(Object::Integer(1))),
-            Object::Right(Box::new(Object::Integer(2))),
-            Object::Left(Box::new(Object::Integer(3))),
-        ])
+        Value::Array(
+            vec![
+                Value::Left(std::rc::Rc::new(Value::Integer(1))),
+                Value::Right(std::rc::Rc::new(Value::Integer(2))),
+                Value::Left(std::rc::Rc::new(Value::Integer(3))),
+            ]
+            .into()
+        )
     );
 }
 
@@ -637,13 +653,15 @@ fn test_either_in_hash() {
     // Hash with Either values
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["ok"];"#),
-        Object::Some(Box::new(Object::Right(Box::new(Object::Integer(1)))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
-        Object::Some(Box::new(Object::Left(Box::new(Object::String(
-            "fail".to_string()
-        )))))
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
+            Value::String("fail".to_string().into())
+        ))))
     );
 }

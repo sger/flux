@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::runtime::{closure::Closure, frame::Frame, object::Object};
+use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 use crate::syntax::diagnostics::NOT_A_FUNCTION;
 
 use super::VM;
@@ -9,9 +9,9 @@ impl VM {
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee = self.stack[self.sp - 1 - num_args].clone();
         match callee {
-            Object::Closure(closure) => self.call_closure(closure, num_args),
-            Object::Builtin(builtin) => {
-                let args: Vec<Object> = self.stack[self.sp - num_args..self.sp].to_vec();
+            Value::Closure(closure) => self.call_closure(closure, num_args),
+            Value::Builtin(builtin) => {
+                let args = &self.stack[self.sp - num_args..self.sp];
                 self.sp -= num_args + 1;
                 let result = (builtin.func)(args)?;
                 self.push(result)?;
@@ -43,14 +43,14 @@ impl VM {
         num_free: usize,
     ) -> Result<(), String> {
         match &self.constants[const_index] {
-            Object::Function(func) => {
+            Value::Function(func) => {
                 let mut free = Vec::with_capacity(num_free);
                 for i in 0..num_free {
                     free.push(self.stack[self.sp - num_free + i].clone());
                 }
                 self.sp -= num_free;
                 let closure = Closure::new(func.clone(), free);
-                self.push(Object::Closure(Rc::new(closure)))
+                self.push(Value::Closure(Rc::new(closure)))
             }
             _ => Err("not a function".to_string()),
         }

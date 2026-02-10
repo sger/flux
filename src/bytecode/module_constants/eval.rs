@@ -1,9 +1,9 @@
 //! Compile-time evaluation of constant expressions.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    runtime::{hash_key::HashKey, object::Object},
+    runtime::{hash_key::HashKey, value::Value},
     syntax::{expression::Expression, interner::Interner, symbol::Symbol},
 };
 
@@ -15,19 +15,19 @@ use super::error::ConstEvalError;
 /// to already-evaluated constants.
 pub fn eval_const_expr(
     expr: &Expression,
-    defined: &HashMap<Symbol, Object>,
+    defined: &HashMap<Symbol, Value>,
     interner: &Interner,
-) -> Result<Object, ConstEvalError> {
+) -> Result<Value, ConstEvalError> {
     match expr {
-        Expression::Integer { value, .. } => Ok(Object::Integer(*value)),
-        Expression::Float { value, .. } => Ok(Object::Float(*value)),
-        Expression::String { value, .. } => Ok(Object::String(value.clone())),
-        Expression::Boolean { value, .. } => Ok(Object::Boolean(*value)),
-        Expression::None { .. } => Ok(Object::None),
+        Expression::Integer { value, .. } => Ok(Value::Integer(*value)),
+        Expression::Float { value, .. } => Ok(Value::Float(*value)),
+        Expression::String { value, .. } => Ok(Value::String(value.clone().into())),
+        Expression::Boolean { value, .. } => Ok(Value::Boolean(*value)),
+        Expression::None { .. } => Ok(Value::None),
 
         Expression::Some { value, .. } => {
             let inner = eval_const_expr(value, defined, interner)?;
-            Ok(Object::Some(Box::new(inner)))
+            Ok(Value::Some(Rc::new(inner)))
         }
 
         Expression::Array { elements, .. } => {
@@ -35,7 +35,7 @@ pub fn eval_const_expr(
             for element in elements {
                 values.push(eval_const_expr(element, defined, interner)?);
             }
-            Ok(Object::Array(values))
+            Ok(Value::Array(values.into()))
         }
 
         Expression::Hash { pairs, .. } => {
@@ -45,9 +45,9 @@ pub fn eval_const_expr(
                 let v = eval_const_expr(value, defined, interner)?;
 
                 let hash_key = match &k {
-                    Object::Integer(i) => HashKey::Integer(*i),
-                    Object::Boolean(b) => HashKey::Boolean(*b),
-                    Object::String(s) => HashKey::String(s.clone()),
+                    Value::Integer(i) => HashKey::Integer(*i),
+                    Value::Boolean(b) => HashKey::Boolean(*b),
+                    Value::String(s) => HashKey::String(s.to_string()),
                     _ => {
                         return Err(ConstEvalError::new(
                             "E040",
@@ -57,7 +57,7 @@ pub fn eval_const_expr(
                 };
                 map.insert(hash_key, v);
             }
-            Ok(Object::Hash(map))
+            Ok(Value::Hash(map.into()))
         }
 
         Expression::Identifier { name, .. } => defined.get(name).cloned().ok_or_else(|| {
@@ -91,11 +91,11 @@ pub fn eval_const_expr(
     }
 }
 
-fn eval_const_unary_op(op: &str, right: &Object) -> Result<Object, ConstEvalError> {
+fn eval_const_unary_op(op: &str, right: &Value) -> Result<Value, ConstEvalError> {
     match (op, right) {
-        ("-", Object::Integer(i)) => Ok(Object::Integer(-i)),
-        ("-", Object::Float(f)) => Ok(Object::Float(-f)),
-        ("!", Object::Boolean(b)) => Ok(Object::Boolean(!b)),
+        ("-", Value::Integer(i)) => Ok(Value::Integer(-i)),
+        ("-", Value::Float(f)) => Ok(Value::Float(-f)),
+        ("!", Value::Boolean(b)) => Ok(Value::Boolean(!b)),
         _ => Err(ConstEvalError::new(
             "E043",
             format!("Cannot apply '{}' to {:?} at compile time.", op, right),
@@ -103,75 +103,77 @@ fn eval_const_unary_op(op: &str, right: &Object) -> Result<Object, ConstEvalErro
     }
 }
 
-fn eval_const_binary_op(left: &Object, op: &str, right: &Object) -> Result<Object, ConstEvalError> {
+fn eval_const_binary_op(left: &Value, op: &str, right: &Value) -> Result<Value, ConstEvalError> {
     match (left, op, right) {
         // Integer arithmetic
-        (Object::Integer(a), "+", Object::Integer(b)) => Ok(Object::Integer(a + b)),
-        (Object::Integer(a), "-", Object::Integer(b)) => Ok(Object::Integer(a - b)),
-        (Object::Integer(a), "*", Object::Integer(b)) => Ok(Object::Integer(a * b)),
-        (Object::Integer(_), "/", Object::Integer(0)) => Err(ConstEvalError::new(
+        (Value::Integer(a), "+", Value::Integer(b)) => Ok(Value::Integer(a + b)),
+        (Value::Integer(a), "-", Value::Integer(b)) => Ok(Value::Integer(a - b)),
+        (Value::Integer(a), "*", Value::Integer(b)) => Ok(Value::Integer(a * b)),
+        (Value::Integer(_), "/", Value::Integer(0)) => Err(ConstEvalError::new(
             "E059",
             "Division by zero in module constant.",
         )),
-        (Object::Integer(a), "/", Object::Integer(b)) => Ok(Object::Integer(a / b)),
-        (Object::Integer(_), "%", Object::Integer(0)) => Err(ConstEvalError::new(
+        (Value::Integer(a), "/", Value::Integer(b)) => Ok(Value::Integer(a / b)),
+        (Value::Integer(_), "%", Value::Integer(0)) => Err(ConstEvalError::new(
             "E059",
             "Modulo by zero in module constant.",
         )),
-        (Object::Integer(a), "%", Object::Integer(b)) => Ok(Object::Integer(a % b)),
+        (Value::Integer(a), "%", Value::Integer(b)) => Ok(Value::Integer(a % b)),
 
         // Float arithmetic
-        (Object::Float(a), "+", Object::Float(b)) => Ok(Object::Float(a + b)),
-        (Object::Float(a), "-", Object::Float(b)) => Ok(Object::Float(a - b)),
-        (Object::Float(a), "*", Object::Float(b)) => Ok(Object::Float(a * b)),
-        (Object::Float(_), "/", Object::Float(b)) if *b == 0.0 => Err(ConstEvalError::new(
+        (Value::Float(a), "+", Value::Float(b)) => Ok(Value::Float(a + b)),
+        (Value::Float(a), "-", Value::Float(b)) => Ok(Value::Float(a - b)),
+        (Value::Float(a), "*", Value::Float(b)) => Ok(Value::Float(a * b)),
+        (Value::Float(_), "/", Value::Float(b)) if *b == 0.0 => Err(ConstEvalError::new(
             "E059",
             "Division by zero in module constant.",
         )),
-        (Object::Float(a), "/", Object::Float(b)) => Ok(Object::Float(a / b)),
+        (Value::Float(a), "/", Value::Float(b)) => Ok(Value::Float(a / b)),
 
         // Mixed numeric - promote to float
-        (Object::Integer(i), op, Object::Float(_)) => {
-            eval_const_binary_op(&Object::Float(*i as f64), op, right)
+        (Value::Integer(i), op, Value::Float(_)) => {
+            eval_const_binary_op(&Value::Float(*i as f64), op, right)
         }
-        (Object::Float(_), op, Object::Integer(i)) => {
-            eval_const_binary_op(left, op, &Object::Float(*i as f64))
+        (Value::Float(_), op, Value::Integer(i)) => {
+            eval_const_binary_op(left, op, &Value::Float(*i as f64))
         }
 
         // String concatenation
-        (Object::String(a), "+", Object::String(b)) => Ok(Object::String(format!("{}{}", a, b))),
+        (Value::String(a), "+", Value::String(b)) => {
+            Ok(Value::String(format!("{}{}", a, b).into()))
+        }
 
         // Boolean operations
-        (Object::Boolean(a), "&&", Object::Boolean(b)) => Ok(Object::Boolean(*a && *b)),
-        (Object::Boolean(a), "||", Object::Boolean(b)) => Ok(Object::Boolean(*a || *b)),
+        (Value::Boolean(a), "&&", Value::Boolean(b)) => Ok(Value::Boolean(*a && *b)),
+        (Value::Boolean(a), "||", Value::Boolean(b)) => Ok(Value::Boolean(*a || *b)),
 
         // Integer comparisons
-        (Object::Integer(a), "==", Object::Integer(b)) => Ok(Object::Boolean(a == b)),
-        (Object::Integer(a), "!=", Object::Integer(b)) => Ok(Object::Boolean(a != b)),
-        (Object::Integer(a), "<", Object::Integer(b)) => Ok(Object::Boolean(a < b)),
-        (Object::Integer(a), ">", Object::Integer(b)) => Ok(Object::Boolean(a > b)),
-        (Object::Integer(a), "<=", Object::Integer(b)) => Ok(Object::Boolean(a <= b)),
-        (Object::Integer(a), ">=", Object::Integer(b)) => Ok(Object::Boolean(a >= b)),
+        (Value::Integer(a), "==", Value::Integer(b)) => Ok(Value::Boolean(a == b)),
+        (Value::Integer(a), "!=", Value::Integer(b)) => Ok(Value::Boolean(a != b)),
+        (Value::Integer(a), "<", Value::Integer(b)) => Ok(Value::Boolean(a < b)),
+        (Value::Integer(a), ">", Value::Integer(b)) => Ok(Value::Boolean(a > b)),
+        (Value::Integer(a), "<=", Value::Integer(b)) => Ok(Value::Boolean(a <= b)),
+        (Value::Integer(a), ">=", Value::Integer(b)) => Ok(Value::Boolean(a >= b)),
 
         // Float comparisons
-        (Object::Float(a), "==", Object::Float(b)) => Ok(Object::Boolean(a == b)),
-        (Object::Float(a), "!=", Object::Float(b)) => Ok(Object::Boolean(a != b)),
-        (Object::Float(a), "<", Object::Float(b)) => Ok(Object::Boolean(a < b)),
-        (Object::Float(a), ">", Object::Float(b)) => Ok(Object::Boolean(a > b)),
-        (Object::Float(a), "<=", Object::Float(b)) => Ok(Object::Boolean(a <= b)),
-        (Object::Float(a), ">=", Object::Float(b)) => Ok(Object::Boolean(a >= b)),
+        (Value::Float(a), "==", Value::Float(b)) => Ok(Value::Boolean(a == b)),
+        (Value::Float(a), "!=", Value::Float(b)) => Ok(Value::Boolean(a != b)),
+        (Value::Float(a), "<", Value::Float(b)) => Ok(Value::Boolean(a < b)),
+        (Value::Float(a), ">", Value::Float(b)) => Ok(Value::Boolean(a > b)),
+        (Value::Float(a), "<=", Value::Float(b)) => Ok(Value::Boolean(a <= b)),
+        (Value::Float(a), ">=", Value::Float(b)) => Ok(Value::Boolean(a >= b)),
 
         // String comparisons
-        (Object::String(a), "==", Object::String(b)) => Ok(Object::Boolean(a == b)),
-        (Object::String(a), "!=", Object::String(b)) => Ok(Object::Boolean(a != b)),
-        (Object::String(a), "<", Object::String(b)) => Ok(Object::Boolean(a < b)),
-        (Object::String(a), ">", Object::String(b)) => Ok(Object::Boolean(a > b)),
-        (Object::String(a), "<=", Object::String(b)) => Ok(Object::Boolean(a <= b)),
-        (Object::String(a), ">=", Object::String(b)) => Ok(Object::Boolean(a >= b)),
+        (Value::String(a), "==", Value::String(b)) => Ok(Value::Boolean(a == b)),
+        (Value::String(a), "!=", Value::String(b)) => Ok(Value::Boolean(a != b)),
+        (Value::String(a), "<", Value::String(b)) => Ok(Value::Boolean(a < b)),
+        (Value::String(a), ">", Value::String(b)) => Ok(Value::Boolean(a > b)),
+        (Value::String(a), "<=", Value::String(b)) => Ok(Value::Boolean(a <= b)),
+        (Value::String(a), ">=", Value::String(b)) => Ok(Value::Boolean(a >= b)),
 
         // Boolean comparisons
-        (Object::Boolean(a), "==", Object::Boolean(b)) => Ok(Object::Boolean(a == b)),
-        (Object::Boolean(a), "!=", Object::Boolean(b)) => Ok(Object::Boolean(a != b)),
+        (Value::Boolean(a), "==", Value::Boolean(b)) => Ok(Value::Boolean(a == b)),
+        (Value::Boolean(a), "!=", Value::Boolean(b)) => Ok(Value::Boolean(a != b)),
 
         _ => Err(ConstEvalError::new(
             "E048",
