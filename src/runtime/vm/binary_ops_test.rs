@@ -38,7 +38,8 @@ fn add_mixed_numbers() {
 #[test]
 fn concat_strings() {
     let mut vm = new_vm();
-    vm.push(Object::String("Hello, ".to_string().into())).unwrap();
+    vm.push(Object::String("Hello, ".to_string().into()))
+        .unwrap();
     vm.push(Object::String("world".to_string().into())).unwrap();
 
     vm.execute_binary_operation(OpCode::OpAdd).unwrap();

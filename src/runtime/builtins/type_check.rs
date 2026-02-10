@@ -1,4 +1,4 @@
-use crate::runtime::{object::Object, value::Value};
+use crate::runtime::value::Value;
 
 use super::helpers::check_arity;
 
@@ -22,7 +22,7 @@ pub(super) fn builtin_is_string(args: &[Value]) -> Result<Value, String> {
     Ok(Value::Boolean(matches!(args[0], Value::String(_))))
 }
 
-pub(super) fn builtin_is_bool(args: &[Value]) -> Result<Object, String> {
+pub(super) fn builtin_is_bool(args: &[Value]) -> Result<Value, String> {
     check_arity(&args, 1, "is_bool", "is_bool(x)")?;
     Ok(Value::Boolean(matches!(args[0], Value::Boolean(_))))
 }

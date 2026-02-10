@@ -11,11 +11,11 @@ use array_ops::{
     builtin_concat, builtin_contains, builtin_first, builtin_last, builtin_len, builtin_push,
     builtin_rest, builtin_reverse, builtin_slice, builtin_sort,
 };
-use hash_ops::{builtin_has_key, builtin_keys, builtin_merge, builtin_values};
+use hash_ops::{builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values};
 use numeric_ops::{builtin_abs, builtin_max, builtin_min};
 use string_ops::{
-    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring,
-    builtin_to_string, builtin_trim, builtin_upper,
+    builtin_chars, builtin_ends_with, builtin_join, builtin_lower, builtin_replace, builtin_split,
+    builtin_starts_with, builtin_substring, builtin_to_string, builtin_trim, builtin_upper,
 };
 use type_check::{
     builtin_is_array, builtin_is_bool, builtin_is_float, builtin_is_hash, builtin_is_int,
@@ -103,6 +103,18 @@ pub static BUILTINS: &[BuiltinFunction] = &[
         func: builtin_lower,
     },
     BuiltinFunction {
+        name: "starts_with",
+        func: builtin_starts_with,
+    },
+    BuiltinFunction {
+        name: "ends_with",
+        func: builtin_ends_with,
+    },
+    BuiltinFunction {
+        name: "replace",
+        func: builtin_replace,
+    },
+    BuiltinFunction {
         name: "chars",
         func: builtin_chars,
     },
@@ -125,6 +137,10 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "merge",
         func: builtin_merge,
+    },
+    BuiltinFunction {
+        name: "delete",
+        func: builtin_delete,
     },
     BuiltinFunction {
         name: "abs",

@@ -1,8 +1,8 @@
 use crate::runtime::value::Value;
 
 use super::string_ops::{
-    builtin_chars, builtin_join, builtin_lower, builtin_split, builtin_substring,
-    builtin_to_string, builtin_trim, builtin_upper,
+    builtin_chars, builtin_ends_with, builtin_join, builtin_lower, builtin_replace, builtin_split,
+    builtin_starts_with, builtin_substring, builtin_to_string, builtin_trim, builtin_upper,
 };
 
 #[test]
@@ -21,10 +21,13 @@ fn split_empty_delim_splits_chars() {
 
     assert_eq!(
         result,
-        Value::Array(vec![
-            Value::String("a".to_string().into()),
-            Value::String("b".to_string().into())
-        ].into())
+        Value::Array(
+            vec![
+                Value::String("a".to_string().into()),
+                Value::String("b".to_string().into())
+            ]
+            .into()
+        )
     );
 }
 
@@ -52,10 +55,13 @@ fn trim_upper_lower_chars() {
     let chars = builtin_chars(&[Value::String("ab".to_string().into())]).unwrap();
     assert_eq!(
         chars,
-        Value::Array(vec![
-            Value::String("a".to_string().into()),
-            Value::String("b".to_string().into())
-        ].into())
+        Value::Array(
+            vec![
+                Value::String("a".to_string().into()),
+                Value::String("b".to_string().into())
+            ]
+            .into()
+        )
     );
 }
 
@@ -69,4 +75,29 @@ fn substring_extracts_range() {
     .unwrap();
 
     assert_eq!(result, Value::String("ell".to_string().into()));
+}
+
+#[test]
+fn starts_ends_and_replace_work() {
+    let starts = builtin_starts_with(&[
+        Value::String("hello".to_string().into()),
+        Value::String("he".to_string().into()),
+    ])
+    .unwrap();
+    assert_eq!(starts, Value::Boolean(true));
+
+    let ends = builtin_ends_with(&[
+        Value::String("hello".to_string().into()),
+        Value::String("lo".to_string().into()),
+    ])
+    .unwrap();
+    assert_eq!(ends, Value::Boolean(true));
+
+    let replaced = builtin_replace(&[
+        Value::String("banana".to_string().into()),
+        Value::String("na".to_string().into()),
+        Value::String("X".to_string().into()),
+    ])
+    .unwrap();
+    assert_eq!(replaced, Value::String("baXX".to_string().into()));
 }

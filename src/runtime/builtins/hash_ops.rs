@@ -47,3 +47,18 @@ pub(super) fn builtin_merge(args: &[Value]) -> Result<Value, String> {
     }
     Ok(Value::Hash(result.into()))
 }
+
+pub(super) fn builtin_delete(args: &[Value]) -> Result<Value, String> {
+    check_arity(&args, 2, "delete", "delete(h, k)")?;
+    let hash = arg_hash(&args, 0, "delete", "first argument", "delete(h, k)")?;
+    let key = args[1].to_hash_key().ok_or_else(|| {
+        format!(
+            "delete key must be hashable (String, Int, Bool), got {}{}",
+            args[1].type_name(),
+            format_hint("delete(h, k)")
+        )
+    })?;
+    let mut result = hash.clone();
+    result.remove(&key);
+    Ok(Value::Hash(result.into()))
+}
