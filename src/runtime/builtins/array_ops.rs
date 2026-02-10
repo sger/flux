@@ -1,11 +1,13 @@
+use std::rc::Rc;
+
 use crate::runtime::value::Value;
 
 use super::helpers::{
     arg_array, arg_int, arg_string, check_arity, check_arity_range, format_hint, type_error,
 };
 
-pub(super) fn builtin_len(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 1, "len", "len(value)")?;
+pub(super) fn builtin_len(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "len", "len(value)")?;
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
@@ -19,9 +21,9 @@ pub(super) fn builtin_len(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_first(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 1, "first", "first(arr)")?;
-    let arr = arg_array(args, 0, "first", "argument", "first(arr)")?;
+pub(super) fn builtin_first(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "first", "first(arr)")?;
+    let arr = arg_array(&args, 0, "first", "argument", "first(arr)")?;
     if arr.is_empty() {
         Ok(Value::None)
     } else {
@@ -29,9 +31,9 @@ pub(super) fn builtin_first(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_last(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 1, "last", "last(arr)")?;
-    let arr = arg_array(args, 0, "last", "argument", "last(arr)")?;
+pub(super) fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "last", "last(arr)")?;
+    let arr = arg_array(&args, 0, "last", "argument", "last(arr)")?;
     if arr.is_empty() {
         Ok(Value::None)
     } else {
@@ -39,9 +41,9 @@ pub(super) fn builtin_last(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_rest(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 1, "rest", "rest(arr)")?;
-    let arr = arg_array(args, 0, "rest", "argument", "rest(arr)")?;
+pub(super) fn builtin_rest(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "rest", "rest(arr)")?;
+    let arr = arg_array(&args, 0, "rest", "argument", "rest(arr)")?;
     if arr.is_empty() {
         Ok(Value::None)
     } else {
@@ -49,50 +51,112 @@ pub(super) fn builtin_rest(args: &[Value]) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_push(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 2, "push", "push(arr, elem)")?;
-    let arr = arg_array(args, 0, "push", "first argument", "push(arr, elem)")?;
-    let mut new_arr = arr.clone();
-    new_arr.push(args[1].clone());
-    Ok(Value::Array(new_arr.into()))
+pub(super) fn builtin_push(mut args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 2, "push", "push(arr, elem)")?;
+    let elem = args.swap_remove(1);
+    let arr_obj = args.swap_remove(0);
+
+    match arr_obj {
+        Value::Array(mut arr) => {
+            Rc::make_mut(&mut arr).push(elem);
+            Ok(Value::Array(arr))
+        }
+        other => Err(type_error(
+            "push",
+            "first argument",
+            "Array",
+            other.type_name(),
+            "push(arr, elem)",
+        )),
+    }
 }
 
-pub(super) fn builtin_concat(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 2, "concat", "concat(a, b)")?;
-    let a = arg_array(args, 0, "concat", "first argument", "concat(a, b)")?;
-    let b = arg_array(args, 1, "concat", "second argument", "concat(a, b)")?;
-    let mut result = a.clone();
-    result.extend(b.iter().cloned());
-    Ok(Value::Array(result.into()))
+pub(super) fn builtin_concat(mut args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 2, "concat", "concat(a, b)")?;
+    let b_obj = args.swap_remove(1);
+    let a_obj = args.swap_remove(0);
+
+    match (a_obj, b_obj) {
+        (Value::Array(mut a), Value::Array(b)) => {
+            Rc::make_mut(&mut a).extend(b.iter().cloned());
+            Ok(Value::Array(a))
+        }
+        (left, right) => {
+            if !matches!(left, Value::Array(_)) {
+                return Err(type_error(
+                    "concat",
+                    "first argument",
+                    "Array",
+                    left.type_name(),
+                    "concat(a, b)",
+                ));
+            }
+            Err(type_error(
+                "concat",
+                "second argument",
+                "Array",
+                right.type_name(),
+                "concat(a, b)",
+            ))
+        }
+    }
 }
 
-pub(super) fn builtin_reverse(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 1, "reverse", "reverse(arr)")?;
-    let arr = arg_array(args, 0, "reverse", "argument", "reverse(arr)")?;
-    let mut result = arr.clone();
-    result.reverse();
-    Ok(Value::Array(result.into()))
+pub(super) fn builtin_reverse(mut args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "reverse", "reverse(arr)")?;
+
+    match args.swap_remove(0) {
+        Value::Array(mut arr) => {
+            Rc::make_mut(&mut arr).reverse();
+            Ok(Value::Array(arr))
+        }
+        other => Err(type_error(
+            "reverse",
+            "argument",
+            "Array",
+            other.type_name(),
+            "reverse(arr)",
+        )),
+    }
 }
 
-pub(super) fn builtin_contains(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 2, "contains", "contains(arr, elem)")?;
-    let arr = arg_array(args, 0, "contains", "first argument", "contains(arr, elem)")?;
+pub(super) fn builtin_contains(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 2, "contains", "contains(arr, elem)")?;
+    let arr = arg_array(
+        &args,
+        0,
+        "contains",
+        "first argument",
+        "contains(arr, elem)",
+    )?;
     let elem = &args[1];
     let found = arr.iter().any(|item| item == elem);
     Ok(Value::Boolean(found))
 }
 
-pub(super) fn builtin_slice(args: &[Value]) -> Result<Value, String> {
-    check_arity(args, 3, "slice", "slice(arr, start, end)")?;
-    let arr = arg_array(args, 0, "slice", "first argument", "slice(arr, start, end)")?;
+pub(super) fn builtin_slice(args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 3, "slice", "slice(arr, start, end)")?;
+    let arr = arg_array(
+        &args,
+        0,
+        "slice",
+        "first argument",
+        "slice(arr, start, end)",
+    )?;
     let start = arg_int(
-        args,
+        &args,
         1,
         "slice",
         "second argument",
         "slice(arr, start, end)",
     )?;
-    let end = arg_int(args, 2, "slice", "third argument", "slice(arr, start, end)")?;
+    let end = arg_int(
+        &args,
+        2,
+        "slice",
+        "third argument",
+        "slice(arr, start, end)",
+    )?;
     let len = arr.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
     let end = if end > len {
@@ -110,12 +174,12 @@ pub(super) fn builtin_slice(args: &[Value]) -> Result<Value, String> {
 /// sort(arr) or sort(arr, order) - Return a new sorted array
 /// order: "asc" (default) or "desc"
 /// Only works with integers/floats
-pub(super) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
-    check_arity_range(args, 1, 2, "sort", "sort(arr, order)")?;
-    let arr = arg_array(args, 0, "sort", "first argument", "sort(arr, order)")?;
+pub(super) fn builtin_sort(mut args: Vec<Value>) -> Result<Value, String> {
+    check_arity_range(&args, 1, 2, "sort", "sort(arr, order)")?;
+
     // Determine sort order (default: ascending)
     let descending = if args.len() == 2 {
-        match arg_string(args, 1, "sort", "second argument", "sort(arr, order)")? {
+        match arg_string(&args, 1, "sort", "second argument", "sort(arr, order)")? {
             "asc" => false,
             "desc" => true,
             other => {
@@ -130,6 +194,19 @@ pub(super) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
         false
     };
 
+    let mut arr = match args.swap_remove(0) {
+        Value::Array(arr) => arr,
+        other => {
+            return Err(type_error(
+                "sort",
+                "first argument",
+                "Array",
+                other.type_name(),
+                "sort(arr, order)",
+            ));
+        }
+    };
+
     // Check if all elements are comparable (integers or floats)
     let all_numeric = arr
         .iter()
@@ -142,9 +219,7 @@ pub(super) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
         ));
     }
 
-    let mut result = arr.clone();
-
-    result.sort_by(|a, b| {
+    Rc::make_mut(&mut arr).sort_by(|a, b| {
         use std::cmp::Ordering;
         // Smart comparison: avoid f64 conversion when both are same type
         let cmp = match (a, b) {
@@ -160,5 +235,5 @@ pub(super) fn builtin_sort(args: &[Value]) -> Result<Value, String> {
         };
         if descending { cmp.reverse() } else { cmp }
     });
-    Ok(Value::Array(result.into()))
+    Ok(Value::Array(arr))
 }
