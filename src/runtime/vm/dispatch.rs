@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::{OpCode, read_u8, read_u16},
-    runtime::{builtins::BUILTINS, leak_detector, object::Object},
+    runtime::{builtins::BUILTINS, leak_detector, value::Value},
 };
 
 use super::VM;
@@ -10,7 +10,7 @@ impl VM {
         match op {
             OpCode::OpCurrentClosure => {
                 let closure = self.current_frame().closure.clone();
-                self.push(Object::Closure(closure))?;
+                self.push(Value::Closure(closure))?;
             }
             OpCode::OpReturnValue => {
                 let return_value = self.pop()?;
@@ -21,7 +21,7 @@ impl VM {
             OpCode::OpReturn => {
                 let bp = self.pop_frame().base_pointer;
                 self.sp = bp - 1;
-                self.push(Object::None)?;
+                self.push(Value::None)?;
             }
             OpCode::OpGetLocal => {
                 let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
@@ -102,13 +102,13 @@ impl VM {
             }
             OpCode::OpBang => {
                 let operand = self.pop()?;
-                self.push(Object::Boolean(!operand.is_truthy()))?;
+                self.push(Value::Boolean(!operand.is_truthy()))?;
             }
             OpCode::OpMinus => {
                 let operand = self.pop()?;
                 match operand {
-                    Object::Integer(val) => self.push(Object::Integer(-val))?,
-                    Object::Float(val) => self.push(Object::Float(-val))?,
+                    Value::Integer(val) => self.push(Value::Integer(-val))?,
+                    Value::Float(val) => self.push(Value::Float(-val))?,
                     _ => {
                         return Err(format!(
                             "unsupported type for negation: {}",
@@ -117,17 +117,17 @@ impl VM {
                     }
                 }
             }
-            OpCode::OpTrue => self.push(Object::Boolean(true))?,
-            OpCode::OpFalse => self.push(Object::Boolean(false))?,
+            OpCode::OpTrue => self.push(Value::Boolean(true))?,
+            OpCode::OpFalse => self.push(Value::Boolean(false))?,
             // Note: OpNull was removed, use OpNone instead
             OpCode::OpIsSome => {
                 let value = self.pop()?;
-                self.push(Object::Boolean(matches!(value, Object::Some(_))))?;
+                self.push(Value::Boolean(matches!(value, Value::Some(_))))?;
             }
             OpCode::OpUnwrapSome => {
                 let value = self.pop()?;
                 match value {
-                    Object::Some(inner) => self.push(*inner)?,
+                    Value::Some(inner) => self.push(*inner)?,
                     _ => {
                         return Err(format!("expected Some(..) but found {}", value.type_name()));
                     }
@@ -137,7 +137,7 @@ impl VM {
                 let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip += 1;
                 let builtin = BUILTINS[idx].clone();
-                self.push(Object::Builtin(builtin))?;
+                self.push(Value::Builtin(builtin))?;
             }
             OpCode::OpCall => {
                 let num_args = read_u8(self.current_frame().instructions(), ip + 1) as usize;
@@ -167,48 +167,48 @@ impl VM {
                 let left = self.pop()?;
                 self.execute_index_expression(left, index)?;
             }
-            OpCode::OpNone => self.push(Object::None)?,
+            OpCode::OpNone => self.push(Value::None)?,
             OpCode::OpSome => {
                 let value = self.pop()?;
                 leak_detector::record_some();
-                self.push(Object::Some(Box::new(value)))?;
+                self.push(Value::Some(Box::new(value)))?;
             }
             // Either type operations
             OpCode::OpLeft => {
                 let value = self.pop()?;
-                self.push(Object::Left(Box::new(value)))?;
+                self.push(Value::Left(Box::new(value)))?;
             }
             OpCode::OpRight => {
                 let value = self.pop()?;
-                self.push(Object::Right(Box::new(value)))?;
+                self.push(Value::Right(Box::new(value)))?;
             }
             OpCode::OpIsLeft => {
                 let value = self.pop()?;
-                let result = matches!(value, Object::Left(_));
-                self.push(Object::Boolean(result))?;
+                let result = matches!(value, Value::Left(_));
+                self.push(Value::Boolean(result))?;
             }
             OpCode::OpIsRight => {
                 let value = self.pop()?;
-                let result = matches!(value, Object::Right(_));
-                self.push(Object::Boolean(result))?;
+                let result = matches!(value, Value::Right(_));
+                self.push(Value::Boolean(result))?;
             }
             OpCode::OpUnwrapLeft => {
                 let value = self.pop()?;
                 match value {
-                    Object::Left(inner) => self.push(*inner)?,
+                    Value::Left(inner) => self.push(*inner)?,
                     _ => return Err("Cannot unwrap non-Left value".to_string()),
                 }
             }
             OpCode::OpUnwrapRight => {
                 let value = self.pop()?;
                 match value {
-                    Object::Right(inner) => self.push(*inner)?,
+                    Value::Right(inner) => self.push(*inner)?,
                     _ => return Err("Cannot unwrap non-Right value".to_string()),
                 }
             }
             OpCode::OpToString => {
                 let value = self.pop()?;
-                self.push(Object::String(value.to_string_value()))?;
+                self.push(Value::String(value.to_string_value()))?;
             }
         }
 
