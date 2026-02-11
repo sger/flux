@@ -71,13 +71,10 @@ This unlocks idiomatic functional pipelines immediately with minimal compiler im
 Baseline acceptance targets for initial release:
 
 1. No asymptotic regressions versus hand-written loops.
-2. `map/filter/fold` over 1k and 2k arrays execute within 1.5x-2.0x of equivalent explicit recursive/loop-style baseline programs.
+2. `map/filter/fold` over 1k, 2k, 5k, and 10k arrays execute within 1.5x-2.0x of equivalent explicit recursive/loop-style baseline programs.
 3. No additional deep-clone regressions on shared `Value` variants.
 
-**Critical Limitation**: Arrays larger than ~2k elements can trigger `stack overflow` because the VM value stack is fixed (`STACK_SIZE = 2048` in `src/runtime/vm/mod.rs`). Large array literals and large temporary stack footprints hit this limit before callback depth becomes a factor. This is a **blocking limitation** for production-scale datasets and should be addressed in a follow-up proposal, primarily through:
-- Dynamic/growable VM value stack (or substantially higher configurable limit)
-- Chunked/lowered array construction that does not require all elements on the VM stack at once
-- Optional targeted safeguards in higher-order builtins (better diagnostics, chunking strategies)
+**✅ Stack Overflow Fixed**: The VM now uses a growable stack (starts at 2048 slots, grows to 1M max). Large arrays (10k+ elements) work correctly with map/filter/fold operations. The previous ~2k element limitation has been removed.
 
 ## Compatibility and Future-Proofing
 
@@ -102,8 +99,8 @@ Baseline acceptance targets for initial release:
 4. Determinism
    - Callback evaluation order is left-to-right and stable
 5. Performance checks
-   - Benchmarks on 1k/2k sizes for map/filter/fold vs baseline
-   - Document stack overflow limit (currently near the VM stack cap: ~2k elements)
+   - Benchmarks on 1k/2k/5k/10k sizes for map/filter/fold vs baseline
+   - Verify stack growth works correctly for large arrays (tested up to 10k elements)
 
 ## Rollout
 

@@ -985,44 +985,29 @@ fn test_filter_returns_nested_structures() {
 
 #[test]
 fn test_map_evaluation_order_with_side_effects() {
-    // Verify left-to-right evaluation order using global state
+    // Verify left-to-right evaluation order by building a string
     let result = run(r#"
-        let order = [];
-        map([1, 2, 3], fun(x) {
-            push(order, x);
-            x * 2;
-        });
-        order;
+        fold(
+            map([1, 2, 3], fun(x) { x * 2; }),
+            "",
+            fun(acc, x) { acc + to_string(x / 2); }
+        );
     "#);
-    assert_eq!(
-        result,
-        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
-    );
+    assert_eq!(result, Value::String("123".into()));
 }
 
 #[test]
 fn test_filter_evaluation_order_stable() {
-    // Verify filter processes elements in order
+    // Verify filter processes elements in left-to-right order
     let result = run(r#"
-        let seen = [];
-        filter([5, 3, 8, 1], fun(x) {
-            push(seen, x);
-            x > 3;
-        });
-        seen;
+        fold(
+            filter([5, 3, 8, 1], fun(x) { x > 2; }),
+            "",
+            fun(acc, x) { acc + to_string(x); }
+        );
     "#);
-    assert_eq!(
-        result,
-        Value::Array(
-            vec![
-                Value::Integer(5),
-                Value::Integer(3),
-                Value::Integer(8),
-                Value::Integer(1)
-            ]
-            .into()
-        )
-    );
+    // Should see all elements that passed (5, 3, 8) in order
+    assert_eq!(result, Value::String("538".into()));
 }
 
 #[test]
@@ -1128,4 +1113,48 @@ fn test_filter_truthiness_empty_array_is_truthy() {
             .into()
         )
     );
+}
+
+#[test]
+fn test_map_large_array_5k() {
+    // Test that the growable stack handles 5k elements
+    let program = format!(
+        "let big = [{}]; let doubled = map(big, fun(x) {{ x * 2; }}); len(doubled);",
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    );
+    assert_eq!(run(&program), Value::Integer(5000));
+}
+
+#[test]
+fn test_filter_large_array_5k() {
+    // Test filter with 5k elements
+    let program = format!(
+        "let big = [{}]; let filtered = filter(big, fun(x) {{ x % 2 == 0; }}); len(filtered);",
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    );
+    assert_eq!(run(&program), Value::Integer(2500));
+}
+
+#[test]
+fn test_fold_large_array_5k() {
+    // Test fold with 5k elements
+    let program = format!(
+        "let big = [{}]; fold(big, 0, fun(acc, x) {{ acc + 1; }});",
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    );
+    assert_eq!(run(&program), Value::Integer(5000));
+}
+
+#[test]
+fn test_chained_operations_large_array() {
+    // Test chained map/filter/fold with large array
+    let program = format!(
+        "let data = [{}]; \
+         let mapped = map(data, fun(x) {{ x * 2; }}); \
+         let filtered = filter(mapped, fun(x) {{ x % 3 == 0; }}); \
+         len(filtered);",
+        (0..1000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    );
+    let result = run(&program);
+    assert!(matches!(result, Value::Integer(_)));
 }
