@@ -22,7 +22,7 @@ use type_check::{
     builtin_is_none, builtin_is_some, builtin_is_string, builtin_type_of,
 };
 
-fn builtin_print(args: &[Value]) -> Result<Value, String> {
+fn builtin_print(args: Vec<Value>) -> Result<Value, String> {
     for arg in args {
         match &arg {
             Value::String(s) => println!("{}", s), // Raw string

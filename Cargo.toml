@@ -21,3 +21,11 @@ harness = false
 [[bench]]
 name = "array_passing_bench"
 harness = false
+
+[[bench]]
+name = "tail_call_accumulator_bench"
+harness = false
+
+[[bench]]
+name = "zero_copy_value_bench"
+harness = false

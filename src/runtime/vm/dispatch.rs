@@ -37,6 +37,13 @@ impl VM {
                 let bp = self.current_frame().base_pointer;
                 self.stack[bp + idx] = self.pop()?;
             }
+            OpCode::OpConsumeLocal => {
+                let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
+                self.current_frame_mut().ip += 1;
+                let bp = self.current_frame().base_pointer;
+                let value = std::mem::replace(&mut self.stack[bp + idx], Value::None);
+                self.push(value)?;
+            }
             OpCode::OpGetFree => {
                 let idx = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip += 1;
@@ -145,6 +152,12 @@ impl VM {
                 let num_args = read_u8(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip += 1;
                 self.execute_call(num_args)?;
+                return Ok(false);
+            }
+            OpCode::OpTailCall => {
+                let num_args = read_u8(self.current_frame().instructions(), ip + 1) as usize;
+                self.current_frame_mut().ip += 1;
+                self.execute_tail_call(num_args)?;
                 return Ok(false);
             }
             OpCode::OpPop => {

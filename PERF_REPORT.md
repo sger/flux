@@ -66,6 +66,31 @@ Command:
 | vm/closure_capture/call_only_captured_array_1k | 419.44-425.95 us | 20.104-20.415 MiB/s | no significant change |
 | vm/closure_capture/create_and_call_captured_array_1k | 538.03-552.37 us | 34.543-35.463 MiB/s | no significant change |
 
+## Tail-Call Accumulator Benchmarks (2026-02-10)
+
+Command:
+- `cargo bench --bench tail_call_accumulator_bench -- --noplot`
+
+### vm/tail_call_accumulator
+| Benchmark | Time (Current) | Throughput (Current) |
+|---|---:|---:|
+| vm/tail_call_accumulator/build_1k | 509.94-518.06 us | 245.06-248.96 KiB/s |
+| vm/tail_call_accumulator/build_5k | 1.3307-1.3466 ms | 94.275-95.401 KiB/s |
+| vm/tail_call_accumulator/build_10k | 2.3558-2.3894 ms | 53.541-54.304 KiB/s |
+
+## Zero-Copy Value Benchmarks (2026-02-10)
+
+Command:
+- `cargo bench --bench zero_copy_value_bench -- --noplot`
+
+### vm/zero_copy_value
+| Benchmark | Time (Current) | Throughput (Current) |
+|---|---:|---:|
+| vm/zero_copy_value/op_get_local_array_1k_x512 | 389.84-400.31 us | 36.169-37.140 MiB/s |
+| vm/zero_copy_value/op_get_global_array_1k_x512 | 389.42-401.97 us | 29.962-30.928 MiB/s |
+| vm/zero_copy_value/op_get_free_array_1k_x512 | 386.89-398.97 us | 27.900-28.771 MiB/s |
+| vm/zero_copy_value/arg_passthrough_array_1k_x512 | 422.63-434.54 us | 33.359-34.299 MiB/s |
+
 ---
 
 ## Analysis: Pre-Optimization Performance Regressions

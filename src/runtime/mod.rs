@@ -25,4 +25,4 @@ pub mod leak_detector;
 pub mod value;
 pub mod vm;
 
-pub type BuiltinFn = fn(&[Value]) -> Result<Value, String>;
+pub type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
