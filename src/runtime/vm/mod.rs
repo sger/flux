@@ -15,7 +15,8 @@ mod function_call;
 mod index_ops;
 mod trace;
 
-const STACK_SIZE: usize = 2048;
+const INITIAL_STACK_SIZE: usize = 2048;
+const MAX_STACK_SIZE: usize = 1 << 20; // 1,048,576 slots
 const GLOBALS_SIZE: usize = 65536;
 
 pub struct VM {
@@ -37,7 +38,7 @@ impl VM {
 
         Self {
             constants: bytecode.constants,
-            stack: vec![Value::None; STACK_SIZE],
+            stack: vec![Value::None; INITIAL_STACK_SIZE],
             sp: 0,
             last_popped: Value::None,
             globals: vec![Value::None; GLOBALS_SIZE],
@@ -150,11 +151,31 @@ impl VM {
         &mut self.frames[self.frame_index]
     }
 
-    fn push(&mut self, obj: Value) -> Result<(), String> {
-        if self.sp >= STACK_SIZE {
+    fn ensure_stack_capacity(&mut self, needed_top: usize) -> Result<(), String> {
+        if needed_top <= self.stack.len() {
+            return Ok(());
+        }
+        if needed_top > MAX_STACK_SIZE {
             return Err("stack overflow".to_string());
         }
 
+        let mut new_len = self.stack.len().max(1);
+        while new_len < needed_top {
+            new_len = (new_len.saturating_mul(2)).min(MAX_STACK_SIZE);
+            if new_len == MAX_STACK_SIZE {
+                break;
+            }
+        }
+        if new_len < needed_top {
+            return Err("stack overflow".to_string());
+        }
+
+        self.stack.resize(new_len, Value::None);
+        Ok(())
+    }
+
+    fn push(&mut self, obj: Value) -> Result<(), String> {
+        self.ensure_stack_capacity(self.sp + 1)?;
         self.stack[self.sp] = obj;
         self.sp += 1;
         Ok(())

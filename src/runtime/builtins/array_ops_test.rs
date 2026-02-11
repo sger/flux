@@ -1,11 +1,12 @@
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{value::Value, vm::VM},
+    runtime::{builtin_function::BuiltinFunction, value::Value, vm::VM},
 };
 
 use super::array_ops::{
-    builtin_concat, builtin_contains, builtin_first, builtin_last, builtin_len, builtin_push,
-    builtin_rest, builtin_reverse, builtin_slice, builtin_sort,
+    builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_fold, builtin_last,
+    builtin_len, builtin_map, builtin_push, builtin_rest, builtin_reverse, builtin_slice,
+    builtin_sort,
 };
 
 fn test_vm() -> VM {
@@ -114,4 +115,216 @@ fn sort_rejects_bad_order() {
     )
     .unwrap_err();
     assert!(err.contains("sort order"));
+}
+
+#[test]
+fn map_with_builtin_callback_and_empty_input() {
+    let arr = Value::Array(
+        vec![
+            Value::String("a".into()),
+            Value::String("hello".into()),
+            Value::String("xyz".into()),
+        ]
+        .into(),
+    );
+
+    let mapped = builtin_map(
+        &mut test_vm(),
+        vec![
+            arr,
+            Value::Builtin(BuiltinFunction {
+                name: "len",
+                func: builtin_len,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        mapped,
+        Value::Array(vec![Value::Integer(1), Value::Integer(5), Value::Integer(3)].into())
+    );
+
+    let empty = builtin_map(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![].into()),
+            Value::Builtin(BuiltinFunction {
+                name: "len",
+                func: builtin_len,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(empty, Value::Array(vec![].into()));
+}
+
+#[test]
+fn filter_truthiness_and_empty_input() {
+    let arr = Value::Array(
+        vec![
+            Value::Array(vec![].into()),
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Array(vec![].into()),
+            Value::Array(vec![Value::Integer(2), Value::Integer(3)].into()),
+        ]
+        .into(),
+    );
+
+    let filtered = builtin_filter(
+        &mut test_vm(),
+        vec![
+            arr,
+            Value::Builtin(BuiltinFunction {
+                name: "first",
+                func: builtin_first,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        filtered,
+        Value::Array(
+            vec![
+                Value::Array(vec![Value::Integer(1)].into()),
+                Value::Array(vec![Value::Integer(2), Value::Integer(3)].into())
+            ]
+            .into()
+        )
+    );
+
+    let empty = builtin_filter(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![].into()),
+            Value::Builtin(BuiltinFunction {
+                name: "first",
+                func: builtin_first,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(empty, Value::Array(vec![].into()));
+}
+
+#[test]
+fn fold_with_builtin_callback_and_empty_input() {
+    let arr = Value::Array(
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Array(vec![Value::Integer(2), Value::Integer(3)].into()),
+            Value::Array(vec![Value::Integer(4)].into()),
+        ]
+        .into(),
+    );
+
+    let folded = builtin_fold(
+        &mut test_vm(),
+        vec![
+            arr,
+            Value::Array(vec![].into()),
+            Value::Builtin(BuiltinFunction {
+                name: "concat",
+                func: builtin_concat,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(
+        folded,
+        Value::Array(
+            vec![
+                Value::Integer(1),
+                Value::Integer(2),
+                Value::Integer(3),
+                Value::Integer(4)
+            ]
+            .into()
+        )
+    );
+
+    let init = Value::String("seed".into());
+    let empty_fold = builtin_fold(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![].into()),
+            init.clone(),
+            Value::Builtin(BuiltinFunction {
+                name: "concat",
+                func: builtin_concat,
+            }),
+        ],
+    )
+    .unwrap();
+    assert_eq!(empty_fold, init);
+}
+
+#[test]
+fn map_filter_fold_reject_non_callable_callback() {
+    let map_err = builtin_map(
+        &mut test_vm(),
+        vec![Value::Array(vec![Value::Integer(1)].into()), Value::Integer(42)],
+    )
+    .unwrap_err();
+    assert!(map_err.contains("to be Function"));
+
+    let filter_err = builtin_filter(
+        &mut test_vm(),
+        vec![Value::Array(vec![Value::Integer(1)].into()), Value::Boolean(true)],
+    )
+    .unwrap_err();
+    assert!(filter_err.contains("to be Function"));
+
+    let fold_err = builtin_fold(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Integer(0),
+            Value::String("nope".into()),
+        ],
+    )
+    .unwrap_err();
+    assert!(fold_err.contains("to be Function"));
+}
+
+#[test]
+fn map_filter_fold_propagate_callback_arity_errors() {
+    let map_err = builtin_map(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Builtin(BuiltinFunction {
+                name: "concat",
+                func: builtin_concat,
+            }),
+        ],
+    )
+    .unwrap_err();
+    assert!(map_err.contains("wrong number of arguments"));
+
+    let filter_err = builtin_filter(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Builtin(BuiltinFunction {
+                name: "concat",
+                func: builtin_concat,
+            }),
+        ],
+    )
+    .unwrap_err();
+    assert!(filter_err.contains("wrong number of arguments"));
+
+    let fold_err = builtin_fold(
+        &mut test_vm(),
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Integer(0),
+            Value::Builtin(BuiltinFunction {
+                name: "len",
+                func: builtin_len,
+            }),
+        ],
+    )
+    .unwrap_err();
+    assert!(fold_err.contains("wrong number of arguments"));
 }

@@ -269,6 +269,9 @@ pub(super) fn builtin_sort(
 }
 
 /// map(arr, fn) - Apply fn to each element, return new array of results
+///
+/// Callback signature: fn(element) - must accept exactly 1 argument
+/// Elements are processed in left-to-right order
 pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "map", "map(arr, fun)")?;
     let arr = arg_array(&args, 0, "map", "first argument", "map(arr, fun)")?;
@@ -288,14 +291,20 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     }
 
     let mut results = Vec::with_capacity(arr.len());
-    for item in arr.iter() {
-        let result = ctx.invoke_value(func.clone(), vec![item.clone()])?;
+    for (idx, item) in arr.iter().enumerate() {
+        let result = ctx
+            .invoke_value(func.clone(), vec![item.clone()])
+            .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
         results.push(result);
     }
     Ok(Value::Array(results.into()))
 }
 
 /// filter(arr, pred) - Keep elements where pred returns truthy
+///
+/// Callback signature: pred(element) - must accept exactly 1 argument
+/// Truthiness: Only `Boolean(false)` and `None` are falsy; all other values are truthy
+/// Elements are processed in left-to-right order
 pub(super) fn builtin_filter(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
@@ -318,8 +327,10 @@ pub(super) fn builtin_filter(
     }
 
     let mut results = Vec::new();
-    for item in arr.iter() {
-        let result = ctx.invoke_value(func.clone(), vec![item.clone()])?;
+    for (idx, item) in arr.iter().enumerate() {
+        let result = ctx
+            .invoke_value(func.clone(), vec![item.clone()])
+            .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
         if result.is_truthy() {
             results.push(item.clone());
         }
@@ -328,7 +339,10 @@ pub(super) fn builtin_filter(
 }
 
 /// fold(arr, initial, fn) - Reduce array to single value
-/// fn is called as fn(accumulator, element)
+///
+/// Callback signature: fn(accumulator, element) - must accept exactly 2 arguments
+/// Left fold (foldl) semantics: processes elements in left-to-right order
+/// Returns initial value unchanged if array is empty
 pub(super) fn builtin_fold(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
@@ -357,8 +371,10 @@ pub(super) fn builtin_fold(
         }
     }
 
-    for item in arr.iter() {
-        acc = ctx.invoke_value(func.clone(), vec![acc, item.clone()])?;
+    for (idx, item) in arr.iter().enumerate() {
+        acc = ctx
+            .invoke_value(func.clone(), vec![acc, item.clone()])
+            .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
     }
     Ok(acc)
 }

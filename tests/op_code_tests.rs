@@ -7,6 +7,7 @@ mod tests {
     use flux::bytecode::op_code::operand_widths;
     use flux::bytecode::op_code::read_u8;
     use flux::bytecode::op_code::read_u16;
+    use flux::bytecode::op_code::read_u32;
 
     #[test]
     fn test_make() {
@@ -55,11 +56,36 @@ mod tests {
 
     #[test]
     fn read_helpers() {
-        let bytes = vec![0xAA, 0x01, 0x02, 0xFF];
+        let bytes = vec![0xAA, 0x01, 0x02, 0x03, 0x04, 0xFF];
 
         assert_eq!(read_u8(&bytes, 0), 0xAA);
         assert_eq!(read_u16(&bytes, 1), 0x0102);
-        assert_eq!(read_u8(&bytes, 3), 0xFF);
+        assert_eq!(read_u32(&bytes, 1), 0x01020304);
+        assert_eq!(read_u8(&bytes, 5), 0xFF);
+    }
+
+    #[test]
+    fn make_u32_operand() {
+        let ins = make(OpCode::OpConstantLong, &[70_000]);
+        assert_eq!(
+            ins,
+            vec![
+                OpCode::OpConstantLong as u8,
+                0x00,
+                0x01,
+                0x11,
+                0x70
+            ]
+        );
+    }
+
+    #[test]
+    fn make_multi_operands_with_u32_prefix() {
+        let ins = make(OpCode::OpClosureLong, &[70_000, 2]);
+        assert_eq!(
+            ins,
+            vec![OpCode::OpClosureLong as u8, 0x00, 0x01, 0x11, 0x70, 0x02]
+        );
     }
 
     #[test]
@@ -101,8 +127,12 @@ mod tests {
     #[test]
     fn operand_widths_contract() {
         assert_eq!(operand_widths(OpCode::OpConstant), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpConstantLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpGetLocal), vec![1]);
         assert_eq!(operand_widths(OpCode::OpClosure), vec![2, 1]);
+        assert_eq!(operand_widths(OpCode::OpClosureLong), vec![4, 1]);
+        assert_eq!(operand_widths(OpCode::OpArrayLong), vec![4]);
+        assert_eq!(operand_widths(OpCode::OpHashLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
     }
 }

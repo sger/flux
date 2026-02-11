@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    bytecode::op_code::{OpCode, read_u8, read_u16},
+    bytecode::op_code::{OpCode, read_u8, read_u16, read_u32},
     runtime::{builtins::BUILTINS, leak_detector, value::Value},
 };
 
@@ -56,6 +56,12 @@ impl VM {
                 self.current_frame_mut().ip += 3;
                 self.push_closure(idx, num_free)?;
             }
+            OpCode::OpClosureLong => {
+                let idx = read_u32(self.current_frame().instructions(), ip + 1) as usize;
+                let num_free = read_u8(self.current_frame().instructions(), ip + 5) as usize;
+                self.current_frame_mut().ip += 5;
+                self.push_closure(idx, num_free)?;
+            }
             OpCode::OpJump => {
                 let pos = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip = pos - 1;
@@ -97,6 +103,11 @@ impl VM {
             OpCode::OpConstant => {
                 let idx = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip += 2;
+                self.push(self.constants[idx].clone())?;
+            }
+            OpCode::OpConstantLong => {
+                let idx = read_u32(self.current_frame().instructions(), ip + 1) as usize;
+                self.current_frame_mut().ip += 4;
                 self.push(self.constants[idx].clone())?;
             }
             OpCode::OpAdd | OpCode::OpSub | OpCode::OpMul | OpCode::OpDiv | OpCode::OpMod => {
@@ -170,9 +181,23 @@ impl VM {
                 self.sp -= num_elements;
                 self.push(array)?;
             }
+            OpCode::OpArrayLong => {
+                let num_elements = read_u32(self.current_frame().instructions(), ip + 1) as usize;
+                self.current_frame_mut().ip += 4;
+                let array = self.build_array(self.sp - num_elements, self.sp);
+                self.sp -= num_elements;
+                self.push(array)?;
+            }
             OpCode::OpHash => {
                 let num_elements = read_u16(self.current_frame().instructions(), ip + 1) as usize;
                 self.current_frame_mut().ip += 2;
+                let hash = self.build_hash(self.sp - num_elements, self.sp)?;
+                self.sp -= num_elements;
+                self.push(hash)?;
+            }
+            OpCode::OpHashLong => {
+                let num_elements = read_u32(self.current_frame().instructions(), ip + 1) as usize;
+                self.current_frame_mut().ip += 4;
                 let hash = self.build_hash(self.sp - num_elements, self.sp)?;
                 self.sp -= num_elements;
                 self.push(hash)?;

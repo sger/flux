@@ -229,14 +229,52 @@ impl Compiler {
     // Module Constants helper to emit any Value as a constant
     pub(super) fn emit_constant_value(&mut self, obj: Value) {
         match obj {
-            Value::Boolean(true) => self.emit(OpCode::OpTrue, &[]),
-            Value::Boolean(false) => self.emit(OpCode::OpFalse, &[]),
-            Value::None => self.emit(OpCode::OpNone, &[]),
+            Value::Boolean(true) => {
+                self.emit(OpCode::OpTrue, &[]);
+            }
+            Value::Boolean(false) => {
+                self.emit(OpCode::OpFalse, &[]);
+            }
+            Value::None => {
+                self.emit(OpCode::OpNone, &[]);
+            }
             _ => {
                 let idx = self.add_constant(obj);
-                self.emit(OpCode::OpConstant, &[idx])
+                self.emit_constant_index(idx);
             }
-        };
+        }
+    }
+
+    pub(super) fn emit_constant_index(&mut self, idx: usize) {
+        if u16::try_from(idx).is_ok() {
+            self.emit(OpCode::OpConstant, &[idx]);
+        } else {
+            self.emit(OpCode::OpConstantLong, &[idx]);
+        }
+    }
+
+    pub(super) fn emit_closure_index(&mut self, idx: usize, num_free: usize) {
+        if u16::try_from(idx).is_ok() {
+            self.emit(OpCode::OpClosure, &[idx, num_free]);
+        } else {
+            self.emit(OpCode::OpClosureLong, &[idx, num_free]);
+        }
+    }
+
+    pub(super) fn emit_array_count(&mut self, count: usize) {
+        if u16::try_from(count).is_ok() {
+            self.emit(OpCode::OpArray, &[count]);
+        } else {
+            self.emit(OpCode::OpArrayLong, &[count]);
+        }
+    }
+
+    pub(super) fn emit_hash_count(&mut self, count: usize) {
+        if u16::try_from(count).is_ok() {
+            self.emit(OpCode::OpHash, &[count]);
+        } else {
+            self.emit(OpCode::OpHashLong, &[count]);
+        }
     }
 
     pub(super) fn enter_scope(&mut self) {
