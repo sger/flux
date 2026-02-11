@@ -1,4 +1,4 @@
-use crate::runtime::{builtin_function::BuiltinFunction, value::Value};
+use crate::runtime::{RuntimeContext, builtin_function::BuiltinFunction, value::Value};
 
 mod array_ops;
 mod hash_ops;
@@ -22,7 +22,7 @@ use type_check::{
     builtin_is_none, builtin_is_some, builtin_is_string, builtin_type_of,
 };
 
-fn builtin_print(args: Vec<Value>) -> Result<Value, String> {
+fn builtin_print(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     for arg in args {
         match &arg {
             Value::String(s) => println!("{}", s), // Raw string
@@ -189,6 +189,18 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "is_some",
         func: builtin_is_some,
+    },
+    BuiltinFunction {
+        name: "map",
+        func: builtin_map,
+    },
+    BuiltinFunction {
+        name: "filter",
+        func: builtin_filter,
+    },
+    BuiltinFunction {
+        name: "fold",
+        func: builtin_fold,
     },
 ];
 

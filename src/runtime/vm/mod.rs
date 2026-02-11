@@ -75,15 +75,40 @@ impl VM {
 
     fn run_inner(&mut self) -> Result<(), String> {
         while self.current_frame().ip < self.current_frame().instructions().len() {
-            let ip = self.current_frame().ip;
-            let op = OpCode::from(self.current_frame().instructions()[ip]);
-            if self.trace {
-                self.trace_instruction(ip, op);
-            }
+            self.execute_current_instruction(None)?;
+        }
+        Ok(())
+    }
 
-            let advance_ip = self.dispatch_instruction(ip, op)?;
-            if advance_ip {
-                self.current_frame_mut().ip += 1;
+    fn execute_current_instruction(
+        &mut self,
+        invoke_target_frame: Option<usize>,
+    ) -> Result<(), String> {
+        let ip = self.current_frame().ip;
+        let op = OpCode::from(self.current_frame().instructions()[ip]);
+        if self.trace {
+            self.trace_instruction(ip, op);
+        }
+
+        let frame_before = self.frame_index;
+        let advance_ip = self.dispatch_instruction(ip, op)?;
+        if advance_ip {
+            match invoke_target_frame {
+                None => {
+                    self.current_frame_mut().ip += 1;
+                }
+                Some(target) => {
+                    if self.frame_index > frame_before {
+                        // New frame was pushed; advance caller frame IP.
+                        self.frames[frame_before].ip += 1;
+                    } else if self.frame_index == frame_before {
+                        self.current_frame_mut().ip += 1;
+                    } else if self.frame_index >= target {
+                        // Deeper frame returned; advance resumed frame IP.
+                        self.current_frame_mut().ip += 1;
+                    }
+                    // If frame_index < target, target frame returned; do not advance caller IP.
+                }
             }
         }
         Ok(())
