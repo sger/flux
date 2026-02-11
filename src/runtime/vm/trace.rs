@@ -1,5 +1,5 @@
 use crate::{
-    bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16},
+    bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16, read_u32},
     runtime::frame::Frame,
     syntax::{
         diagnostics::{
@@ -182,6 +182,10 @@ impl VM {
                 2 => {
                     operands.push(read_u16(instructions, offset) as usize);
                     offset += 2;
+                }
+                4 => {
+                    operands.push(read_u32(instructions, offset) as usize);
+                    offset += 4;
                 }
                 _ => {}
             }

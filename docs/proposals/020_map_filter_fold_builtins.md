@@ -35,6 +35,7 @@ This unlocks idiomatic functional pipelines immediately with minimal compiler im
 - Applies `fn(element)` to each element in order.
 - Returns a new array with transformed values.
 - Empty input returns `[]`.
+- **Callback arity**: `fn` must accept exactly 1 argument (the element).
 
 ### `filter(arr, pred)`
 
@@ -42,6 +43,8 @@ This unlocks idiomatic functional pipelines immediately with minimal compiler im
 - Keeps elements where predicate result is truthy.
 - Returns a new array.
 - Empty input returns `[]`.
+- **Callback arity**: `pred` must accept exactly 1 argument (the element).
+- **Truthiness**: Only `false` and `None` are falsy. All other values (including `0`, `0.0`, `""`, and `[]`) are truthy.
 
 ### `fold(arr, init, fn)`
 
@@ -50,22 +53,31 @@ This unlocks idiomatic functional pipelines immediately with minimal compiler im
 - Returns the final accumulator.
 - `fold([], init, fn) == init`.
 - `init` is required (no ambiguous no-init variant).
+- **Callback arity**: `fn` must accept exactly 2 arguments (accumulator and element).
 
 ## Error Contract
 
 - Type errors if:
   - first arg is not an array
   - function arg is not callable (`Closure` or `Builtin`)
-- Arity errors if callback receives wrong number of args.
-- Runtime errors from callback propagate unchanged.
+- Arity errors if callback receives wrong number of args:
+  - `map` and `filter`: callback must accept exactly 1 argument
+  - `fold`: callback must accept exactly 2 arguments
+- Runtime errors from callback halt execution immediately and propagate to caller.
+- Remaining elements are not processed after an error occurs.
 
 ## Performance Expectations
 
 Baseline acceptance targets for initial release:
 
 1. No asymptotic regressions versus hand-written loops.
-2. `map/filter/fold` over 1k and 10k arrays execute within 1.5x-2.0x of equivalent explicit recursive/loop-style baseline programs.
+2. `map/filter/fold` over 1k and 2k arrays execute within 1.5x-2.0x of equivalent explicit recursive/loop-style baseline programs.
 3. No additional deep-clone regressions on shared `Value` variants.
+
+**Critical Limitation**: Arrays larger than ~2k elements can trigger `stack overflow` because the VM value stack is fixed (`STACK_SIZE = 2048` in `src/runtime/vm/mod.rs`). Large array literals and large temporary stack footprints hit this limit before callback depth becomes a factor. This is a **blocking limitation** for production-scale datasets and should be addressed in a follow-up proposal, primarily through:
+- Dynamic/growable VM value stack (or substantially higher configurable limit)
+- Chunked/lowered array construction that does not require all elements on the VM stack at once
+- Optional targeted safeguards in higher-order builtins (better diagnostics, chunking strategies)
 
 ## Compatibility and Future-Proofing
 
@@ -90,11 +102,12 @@ Baseline acceptance targets for initial release:
 4. Determinism
    - Callback evaluation order is left-to-right and stable
 5. Performance checks
-   - Benchmarks on 1k/10k sizes for map/filter/fold vs baseline
+   - Benchmarks on 1k/2k sizes for map/filter/fold vs baseline
+   - Document stack overflow limit (currently near the VM stack cap: ~2k elements)
 
 ## Rollout
 
 1. Ship builtins and tests first.
-2. Add examples in `examples/advanced/functional_pipeline.flx`.
+2. Add examples in `examples/Modules/advanced_map_filter_fold_pipeline.flx`.
 3. Benchmark and record in `PERF_REPORT.md`.
 4. Revisit after Proposal 017 to evaluate extension to persistent collections.

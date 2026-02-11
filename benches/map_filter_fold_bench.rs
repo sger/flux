@@ -87,6 +87,11 @@ fn build_scenarios() -> Vec<Scenario> {
             key_ops: 1_000,
         },
         Scenario {
+            name: "map_2k",
+            source: build_map_program(2_000),
+            key_ops: 2_000,
+        },
+        Scenario {
             name: "filter_100",
             source: build_filter_program(100),
             key_ops: 100,
@@ -95,6 +100,11 @@ fn build_scenarios() -> Vec<Scenario> {
             name: "filter_1k",
             source: build_filter_program(1_000),
             key_ops: 1_000,
+        },
+        Scenario {
+            name: "filter_2k",
+            source: build_filter_program(2_000),
+            key_ops: 2_000,
         },
         Scenario {
             name: "fold_100",
@@ -107,6 +117,11 @@ fn build_scenarios() -> Vec<Scenario> {
             key_ops: 1_000,
         },
         Scenario {
+            name: "fold_2k",
+            source: build_fold_program(2_000),
+            key_ops: 2_000,
+        },
+        Scenario {
             name: "map_filter_fold_chain_100",
             source: build_chain_program(100),
             key_ops: 300,
@@ -115,6 +130,11 @@ fn build_scenarios() -> Vec<Scenario> {
             name: "map_filter_fold_chain_1k",
             source: build_chain_program(1_000),
             key_ops: 3_000,
+        },
+        Scenario {
+            name: "map_filter_fold_chain_2k",
+            source: build_chain_program(2_000),
+            key_ops: 6_000,
         },
     ]
 }

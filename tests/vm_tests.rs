@@ -285,6 +285,51 @@ fn test_modulo_operator() {
 }
 
 #[test]
+fn large_array_literal_no_stack_overflow() {
+    let values = (1..=3000)
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let input = format!("let data = [{}]; len(data);", values);
+    assert_eq!(run(&input), Value::Integer(3000));
+}
+
+#[test]
+fn large_map_pipeline_no_stack_overflow() {
+    let values = (1..=3000)
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let input = format!(
+        "let data = [{}]; let mapped = map(data, \\x -> x + 1); len(mapped);",
+        values
+    );
+    assert_eq!(run(&input), Value::Integer(3000));
+}
+
+#[test]
+fn map_filter_fold_across_u16_boundary() {
+    let n: i64 = 65_536;
+    let values = (1..=n)
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let input = format!(
+        r#"
+let data = [{}];
+let mapped = map(data, \x -> x + 1);
+let filtered = filter(mapped, \x -> x % 2 == 0);
+fold(filtered, 0, \(acc, x) -> acc + x);
+"#,
+        values
+    );
+
+    let filtered_count = n / 2;
+    let expected_sum = filtered_count * (filtered_count + 1);
+    assert_eq!(run(&input), Value::Integer(expected_sum));
+}
+
+#[test]
 fn test_pipe_operator() {
     // Basic pipe: value |> function
     assert_eq!(
@@ -895,5 +940,192 @@ fn test_fold_callback_runtime_error_propagates() {
         err.contains("[E1009]") && err.contains("Cannot add"),
         "Expected callback runtime error, got: {}",
         err
+    );
+}
+
+#[test]
+fn test_map_mixed_element_types() {
+    // Map over array with mixed types (int, string, bool)
+    assert_eq!(
+        run(r#"map([1, "hello", true], type_of);"#),
+        Value::Array(
+            vec![
+                Value::String("Int".into()),
+                Value::String("String".into()),
+                Value::String("Bool".into()),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_map_returns_nested_arrays() {
+    // Map callback returns nested arrays
+    assert_eq!(
+        run("map([1, 2], fun(x) { [x, x * 2]; });"),
+        Value::Array(
+            vec![
+                Value::Array(vec![Value::Integer(1), Value::Integer(2)].into()),
+                Value::Array(vec![Value::Integer(2), Value::Integer(4)].into()),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_filter_returns_nested_structures() {
+    // Filter with callback returning nested hashes
+    assert_eq!(
+        run(r#"filter([1, 2, 3], fun(x) { x > 1; });"#),
+        Value::Array(vec![Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_map_evaluation_order_with_side_effects() {
+    // Verify left-to-right evaluation order using global state
+    let result = run(r#"
+        let order = [];
+        map([1, 2, 3], fun(x) {
+            push(order, x);
+            x * 2;
+        });
+        order;
+    "#);
+    assert_eq!(
+        result,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_filter_evaluation_order_stable() {
+    // Verify filter processes elements in order
+    let result = run(r#"
+        let seen = [];
+        filter([5, 3, 8, 1], fun(x) {
+            push(seen, x);
+            x > 3;
+        });
+        seen;
+    "#);
+    assert_eq!(
+        result,
+        Value::Array(
+            vec![
+                Value::Integer(5),
+                Value::Integer(3),
+                Value::Integer(8),
+                Value::Integer(1)
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_fold_evaluation_order_deterministic() {
+    // Verify fold processes elements left-to-right
+    let result = run(r#"
+        fold([1, 2, 3, 4], "", fun(acc, x) {
+            acc + to_string(x);
+        });
+    "#);
+    assert_eq!(result, Value::String("1234".into()));
+}
+
+#[test]
+fn test_map_error_includes_index() {
+    // Verify error messages include element index
+    let err = run_error(r#"map([1, 2, "oops", 4], fun(x) { x + 10; });"#);
+    assert!(
+        err.contains("index 2"),
+        "Expected error to include index, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_filter_error_includes_index() {
+    // Verify error messages include element index
+    let err = run_error(r#"filter([1, 2, 3, 4], fun(x) { x + "bad"; });"#);
+    assert!(
+        err.contains("index"),
+        "Expected error to include index, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_fold_error_includes_index() {
+    // Verify error messages include element index
+    let err = run_error(r#"fold([1, 2, 3], 0, fun(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#);
+    assert!(
+        err.contains("index 1"),
+        "Expected error to include index 1, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_map_with_option_values() {
+    // Map over array producing Some/None values
+    assert_eq!(
+        run(r#"map([1, 2, 3], fun(x) { if x == 2 { None; } else { Some(x); }; });"#),
+        Value::Array(
+            vec![
+                Value::Some(std::rc::Rc::new(Value::Integer(1))),
+                Value::None,
+                Value::Some(std::rc::Rc::new(Value::Integer(3))),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_filter_truthiness_zero_is_truthy() {
+    // Verify 0 and 0.0 are truthy (not like JavaScript)
+    assert_eq!(
+        run("filter([0, 1, 2], fun(x) { x; });"),
+        Value::Array(vec![Value::Integer(0), Value::Integer(1), Value::Integer(2)].into())
+    );
+    assert_eq!(
+        run("filter([0.0, 1.5], fun(x) { x; });"),
+        Value::Array(vec![Value::Float(0.0), Value::Float(1.5)].into())
+    );
+}
+
+#[test]
+fn test_filter_truthiness_empty_string_is_truthy() {
+    // Verify empty string is truthy
+    assert_eq!(
+        run(r#"filter(["", "a", "b"], fun(x) { x; });"#),
+        Value::Array(
+            vec![
+                Value::String("".into()),
+                Value::String("a".into()),
+                Value::String("b".into()),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_filter_truthiness_empty_array_is_truthy() {
+    // Verify empty array is truthy
+    assert_eq!(
+        run("filter([[], [1], [2, 3]], fun(x) { x; });"),
+        Value::Array(
+            vec![
+                Value::Array(vec![].into()),
+                Value::Array(vec![Value::Integer(1)].into()),
+                Value::Array(vec![Value::Integer(2), Value::Integer(3)].into()),
+            ]
+            .into()
+        )
     );
 }

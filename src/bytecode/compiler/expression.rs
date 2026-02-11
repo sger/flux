@@ -32,15 +32,15 @@ impl Compiler {
         match expression {
             Expression::Integer { value, .. } => {
                 let idx = self.add_constant(Value::Integer(*value));
-                self.emit(OpCode::OpConstant, &[idx]);
+                self.emit_constant_index(idx);
             }
             Expression::Float { value, .. } => {
                 let idx = self.add_constant(Value::Float(*value));
-                self.emit(OpCode::OpConstant, &[idx]);
+                self.emit_constant_index(idx);
             }
             Expression::String { value, .. } => {
                 let idx = self.add_constant(Value::String(value.clone().into()));
-                self.emit(OpCode::OpConstant, &[idx]);
+                self.emit_constant_index(idx);
             }
             Expression::InterpolatedString { parts, .. } => {
                 self.compile_interpolated_string(parts)?;
@@ -175,7 +175,7 @@ impl Compiler {
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
                 }
-                self.emit(OpCode::OpArray, &[elements.len()]);
+                self.emit_array_count(elements.len());
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
@@ -185,7 +185,7 @@ impl Compiler {
                     self.compile_non_tail_expression(key)?;
                     self.compile_non_tail_expression(value)?;
                 }
-                self.emit(OpCode::OpHash, &[pairs.len() * 2]);
+                self.emit_hash_count(pairs.len() * 2);
             }
             Expression::Index { left, index, .. } => {
                 self.compile_non_tail_expression(left)?;
@@ -302,7 +302,7 @@ impl Compiler {
                 // Emit the member name as a string constant (the hash key)
                 let member_str = self.sym(member).to_string();
                 let member_idx = self.add_constant(Value::String(member_str.into()));
-                self.emit(OpCode::OpConstant, &[member_idx]);
+                self.emit_constant_index(member_idx);
 
                 // Use index operation to access the member from the hash
                 self.emit(OpCode::OpIndex, &[]);
@@ -394,7 +394,7 @@ impl Compiler {
             Some(FunctionDebugInfo::new(None, files, locations)),
         ))));
 
-        self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
+        self.emit_closure_index(fn_idx, free_symbols.len());
 
         Ok(())
     }
@@ -406,7 +406,7 @@ impl Compiler {
         if parts.is_empty() {
             // Empty interpolated string - just push an empty string
             let idx = self.add_constant(Value::String(String::new().into()));
-            self.emit(OpCode::OpConstant, &[idx]);
+            self.emit_constant_index(idx);
             return Ok(());
         }
 
@@ -414,7 +414,7 @@ impl Compiler {
         match &parts[0] {
             StringPart::Literal(s) => {
                 let idx = self.add_constant(Value::String(s.clone().into()));
-                self.emit(OpCode::OpConstant, &[idx]);
+                self.emit_constant_index(idx);
             }
             StringPart::Interpolation(expression) => {
                 self.compile_non_tail_expression(expression)?;
@@ -427,7 +427,7 @@ impl Compiler {
             match part {
                 StringPart::Literal(s) => {
                     let idx = self.add_constant(Value::String(s.clone().into()));
-                    self.emit(OpCode::OpConstant, &[idx]);
+                    self.emit_constant_index(idx);
                 }
                 StringPart::Interpolation(expression) => {
                     self.compile_non_tail_expression(expression)?;

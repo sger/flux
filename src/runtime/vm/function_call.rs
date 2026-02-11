@@ -38,6 +38,7 @@ impl VM {
         let frame = Frame::new(closure, self.sp - num_args);
         let num_locals = frame.closure.function.num_locals;
         self.push_frame(frame);
+        self.ensure_stack_capacity(self.sp + num_locals)?;
         self.sp += num_locals;
         Ok(())
     }
@@ -78,6 +79,7 @@ impl VM {
         }
 
         // Reset stack pointer and instruction pointer
+        self.ensure_stack_capacity(base_pointer + closure.function.num_locals)?;
         self.sp = base_pointer + closure.function.num_locals;
         self.current_frame_mut().ip = 0;
         self.current_frame_mut().closure = closure;
@@ -133,6 +135,7 @@ impl VM {
                 let frame = Frame::new(closure, self.sp - num_args);
                 let num_locals = frame.closure.function.num_locals;
                 self.push_frame(frame);
+                self.ensure_stack_capacity(self.sp + num_locals)?;
                 self.sp += num_locals;
 
                 // Track frame index so we know when the closure returns
