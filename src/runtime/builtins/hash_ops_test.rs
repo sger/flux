@@ -1,10 +1,21 @@
 use std::collections::HashMap;
 
-use crate::runtime::{hash_key::HashKey, value::Value};
+use crate::{
+    bytecode::bytecode::Bytecode,
+    runtime::{hash_key::HashKey, value::Value, vm::VM},
+};
 
 use super::hash_ops::{
     builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values,
 };
+
+fn test_vm() -> VM {
+    VM::new(Bytecode {
+        instructions: vec![],
+        constants: vec![],
+        debug_info: None,
+    })
+}
 
 #[test]
 fn keys_and_values_return_arrays() {
@@ -12,8 +23,8 @@ fn keys_and_values_return_arrays() {
     map.insert(HashKey::String("a".to_string()), Value::Integer(1));
     map.insert(HashKey::Integer(2), Value::String("b".to_string().into()));
 
-    let keys = builtin_keys(vec![Value::Hash(map.clone().into())]).unwrap();
-    let values = builtin_values(vec![Value::Hash(map.into())]).unwrap();
+    let keys = builtin_keys(&mut test_vm(), vec![Value::Hash(map.clone().into())]).unwrap();
+    let values = builtin_values(&mut test_vm(), vec![Value::Hash(map.into())]).unwrap();
 
     match keys {
         Value::Array(items) => {
@@ -37,17 +48,24 @@ fn has_key_and_merge_work() {
     let mut map = HashMap::new();
     map.insert(HashKey::String("k".to_string()), Value::Integer(1));
 
-    let has = builtin_has_key(vec![
-        Value::Hash(map.clone().into()),
-        Value::String("k".to_string().into()),
-    ])
+    let has = builtin_has_key(
+        &mut test_vm(),
+        vec![
+            Value::Hash(map.clone().into()),
+            Value::String("k".to_string().into()),
+        ],
+    )
     .unwrap();
     assert_eq!(has, Value::Boolean(true));
 
     let mut map2 = HashMap::new();
     map2.insert(HashKey::String("k".to_string()), Value::Integer(2));
 
-    let merged = builtin_merge(vec![Value::Hash(map.into()), Value::Hash(map2.into())]).unwrap();
+    let merged = builtin_merge(
+        &mut test_vm(),
+        vec![Value::Hash(map.into()), Value::Hash(map2.into())],
+    )
+    .unwrap();
     match merged {
         Value::Hash(map) => {
             assert_eq!(
@@ -65,10 +83,13 @@ fn delete_removes_existing_key_and_keeps_missing() {
     map.insert(HashKey::String("k".to_string()), Value::Integer(1));
     map.insert(HashKey::String("x".to_string()), Value::Integer(2));
 
-    let deleted = builtin_delete(vec![
-        Value::Hash(map.clone().into()),
-        Value::String("k".to_string().into()),
-    ])
+    let deleted = builtin_delete(
+        &mut test_vm(),
+        vec![
+            Value::Hash(map.clone().into()),
+            Value::String("k".to_string().into()),
+        ],
+    )
     .unwrap();
 
     match deleted {
@@ -82,10 +103,13 @@ fn delete_removes_existing_key_and_keeps_missing() {
         _ => panic!("expected hash"),
     }
 
-    let deleted_missing = builtin_delete(vec![
-        Value::Hash(map.into()),
-        Value::String("missing".to_string().into()),
-    ])
+    let deleted_missing = builtin_delete(
+        &mut test_vm(),
+        vec![
+            Value::Hash(map.into()),
+            Value::String("missing".to_string().into()),
+        ],
+    )
     .unwrap();
 
     match deleted_missing {

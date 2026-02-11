@@ -141,7 +141,10 @@ pub(super) fn builtin_reverse(
     }
 }
 
-pub(super) fn builtin_contains(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_contains(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "contains", "contains(arr, elem)")?;
     let arr = arg_array(
         &args,
