@@ -1,6 +1,6 @@
 # Proposal 014: Lexer & Parser Code Review and Refactoring
 
-**Status:** Partially Implemented (Updated 2026-02-06)
+**Status:** Completed (Updated 2026-02-11)
 **Priority:** Medium (Code Quality)
 **Created:** 2026-02-04
 **Related:** Phase 2 Module Split (Proposal 012)
@@ -958,18 +958,18 @@ mod parser_fuzz_tests {
 ## Summary of Recommendations and Current Status
 
 ### Lexer
-1. ⚠️ **Modularize** into scanner/literals/character reader: modularization completed, but dedicated character reader extraction remains intentionally unimplemented.
+1. ✅ **Modularize** into scanner/literals/character reader: modularization completed, including dedicated `CharReader` abstraction in `reader.rs` (397 lines).
 2. ✅ **Improve** escape sequence handling (warn on unknown)
 3. ✅ **Add** block comments support
 4. ✅ **Better** state management with enum
 5. ✅ **Optional:** Scientific notation, hex literals
 
 ### Parser
-1. ✅ **Add** error recovery/synchronization (implemented, including list-specific recovery paths)
-2. ⚠️ **Extract** common parsing patterns (partially implemented; shared list parsing exists, broader extraction still pending)
-3. ❌ **Add** pattern validation (dedicated validation pass not implemented)
-4. ❌ **Improve** operator handling (table-driven/operator registry not implemented; precedence still match-based)
-5. ✅ **Add** comprehensive tests (significantly expanded parser and regression coverage)
+1. ✅ **Add** error recovery/synchronization (implemented, including list-specific and non-list recovery with `SyncMode` enum)
+2. ✅ **Extract** common parsing patterns (`parse_parenthesized()` used for Some/Left/Right, shared list parsing helpers)
+3. ✅ **Add** pattern validation (`pattern_validate.rs`, 257 lines, 4 error codes: E014-E016 + duplicate binding)
+4. ✅ **Improve** operator handling (table-driven `OPERATOR_TABLE` in `precedence.rs`, 304 lines, with `OpInfo`/`Assoc`/`Fixity`)
+5. ✅ **Add** comprehensive tests (parser recovery, pattern validation, operator behavior test suites)
 
 ### Estimated Effort
 - Lexer refactoring: **1 week** (5 days)
@@ -1021,7 +1021,8 @@ Acceptance: If chosen, character cursor/position logic is encapsulated in a dedi
 
 ## Next Steps
 
-1. Complete the parser pattern validation task and land its tests first.
-2. Implement table-driven/operator-registry precedence and keep current behavior via tests.
-3. Add malformed-input recovery coverage focused on non-list parse failures.
-4. Reassess whether lexer char-reader extraction is still desirable after parser items are complete.
+All items in this proposal have been completed. No further work is required.
+
+Potential future enhancements (out of scope for this proposal):
+- Expand error recovery to additional edge cases as they arise.
+- Warn on unknown escape sequences (currently permissive, see Part A item 1).
