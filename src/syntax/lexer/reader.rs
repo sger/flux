@@ -142,7 +142,8 @@ impl CharReader {
     }
 
     pub(super) fn peek2_byte(&self) -> Option<u8> {
-        self.bytes().get(self.read_position + 1).copied()
+        let idx = self.read_position.checked_add(1)?;
+        self.bytes().get(idx).copied()
     }
 
     pub(super) fn peek_n(&self, n: usize) -> Option<char> {
