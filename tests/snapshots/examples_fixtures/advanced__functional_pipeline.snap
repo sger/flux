@@ -3,77 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E001]: DUPLICATE NAME
-
-Duplicate binding: `map` is already defined.
-
-  --> examples/advanced/functional_pipeline.flx:25:1
-   |
-25 | fun map(arr, f) {
-   | ^^^^^^^^^^^^^^^^^
-26 |     if len(arr) == 0 {
-   | ^^^^^^^^^^^^^^^^^^^^^^
-27 |         []
-   | ^^^^^^^^^^
-28 |     } else {
-   | ^^^^^^^^^^^^
-29 |         concat([f(first(arr))], map(rest(arr), f))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-30 |     }
-   | ^^^^^
-31 | }
-   | ^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  --> examples/advanced/functional_pipeline.flx:0:1
-  |
-
-
---> compiler error[E001]: DUPLICATE NAME
-
-Duplicate binding: `filter` is already defined.
-
-  --> examples/advanced/functional_pipeline.flx:34:1
-   |
-34 | fun filter(arr, pred) {
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-35 |     if len(arr) == 0 {
-   | ^^^^^^^^^^^^^^^^^^^^^^
-36 |         []
-   | ^^^^^^^^^^
-37 |     } else {
-   | ^^^^^^^^^^^^
-38 |         let head = first(arr);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-39 |         let tail = filter(rest(arr), pred);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-40 |         if pred(head) {
-   | ^^^^^^^^^^^^^^^^^^^^^^^
-41 |             concat([head], tail)
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-42 |         } else {
-   | ^^^^^^^^^^^^^^^^
-43 |             tail
-   | ^^^^^^^^^^^^^^^^
-44 |         }
-   | ^^^^^^^^^
-45 |     }
-   | ^^^^^
-46 | }
-   | ^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  --> examples/advanced/functional_pipeline.flx:0:1
-  |
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/Analytics/Rules.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Modules.Analytics.Rules` doesn't match file path `examples/Modules/Analytics/Rules.flx`.
+
+  --> examples/Modules/Analytics/Rules.flx:1:1
+  |
+1 | module Modules.Analytics.Rules {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>
