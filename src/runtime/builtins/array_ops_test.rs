@@ -1,13 +1,28 @@
-use crate::runtime::value::Value;
+use crate::{
+    bytecode::bytecode::Bytecode,
+    runtime::{value::Value, vm::VM},
+};
 
 use super::array_ops::{
     builtin_concat, builtin_contains, builtin_first, builtin_last, builtin_len, builtin_push,
     builtin_rest, builtin_reverse, builtin_slice, builtin_sort,
 };
 
+fn test_vm() -> VM {
+    VM::new(Bytecode {
+        instructions: vec![],
+        constants: vec![],
+        debug_info: None,
+    })
+}
+
 #[test]
 fn len_works_for_string_and_array() {
-    let result = builtin_len(vec![Value::String("abc".to_string().into())]).unwrap();
+    let result = builtin_len(
+        &mut test_vm(),
+        vec![Value::String("abc".to_string().into())],
+    )
+    .unwrap();
     assert_eq!(result, Value::Integer(3));
 
     let result = builtin_len(vec![Value::Array(

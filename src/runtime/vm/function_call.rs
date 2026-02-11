@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use crate::runtime::RuntimeContext;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 use crate::syntax::diagnostics::NOT_A_FUNCTION;
 
@@ -17,7 +18,7 @@ impl VM {
                 }
 
                 self.sp -= num_args + 1;
-                let result = (builtin.func)(args)?;
+                let result = (builtin.func)(self, args)?;
                 self.push(result)?;
                 // Advance past the OpCall operand since builtins don't push a new frame.
                 self.current_frame_mut().ip += 1;
@@ -101,5 +102,62 @@ impl VM {
             }
             _ => Err("not a function".to_string()),
         }
+    }
+
+    /// Invokes a callable Value (closure or builtin) with the given arguments
+    /// and returns the result synchronously.
+    ///
+    /// Used by higher-order builtins (map, filter, fold) to call user-provided
+    /// functions from within the builtin implementation.
+    pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
+        match callee {
+            Value::Builtin(builtin) => (builtin.func)(self, args),
+            Value::Closure(closure) => {
+                let num_args = args.len();
+                if num_args != closure.function.num_parameters {
+                    return Err(format!(
+                        "wrong number of arguments: want={}, got={}",
+                        closure.function.num_parameters, num_args
+                    ));
+                }
+
+                // Push the closure onto the stack (callee slot)
+                self.push(Value::Closure(closure.clone()))?;
+
+                // Push arguments onto the stack
+                for arg in args {
+                    self.push(arg)?;
+                }
+
+                // Push a new frame
+                let frame = Frame::new(closure, self.sp - num_args);
+                let num_locals = frame.closure.function.num_locals;
+                self.push_frame(frame);
+                self.sp += num_locals;
+
+                // Track frame index so we know when the closure returns
+                let target_frame_index = self.frame_index;
+
+                // Run the dispatch loop until this frame returns
+                while self.frame_index >= target_frame_index {
+                    if self.frame_index == target_frame_index
+                        && self.current_frame().ip >= self.current_frame().instructions().len()
+                    {
+                        return Err("callable exited without return".to_string());
+                    }
+                    self.execute_current_instruction(Some(target_frame_index))?;
+                }
+
+                // The return value is on the stack (pushed by OpReturnValue/OpReturn)
+                self.pop()
+            }
+            _ => Err(format!("not callable: {}", callee.type_name())),
+        }
+    }
+}
+
+impl RuntimeContext for VM {
+    fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
+        VM::invoke_value(self, callee, args)
     }
 }
