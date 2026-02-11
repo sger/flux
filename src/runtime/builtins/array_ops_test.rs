@@ -262,14 +262,20 @@ fn fold_with_builtin_callback_and_empty_input() {
 fn map_filter_fold_reject_non_callable_callback() {
     let map_err = builtin_map(
         &mut test_vm(),
-        vec![Value::Array(vec![Value::Integer(1)].into()), Value::Integer(42)],
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Integer(42),
+        ],
     )
     .unwrap_err();
     assert!(map_err.contains("to be Function"));
 
     let filter_err = builtin_filter(
         &mut test_vm(),
-        vec![Value::Array(vec![Value::Integer(1)].into()), Value::Boolean(true)],
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            Value::Boolean(true),
+        ],
     )
     .unwrap_err();
     assert!(filter_err.contains("to be Function"));
