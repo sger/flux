@@ -18,41 +18,8 @@
 // [HELLO, WORLD, FLUX]
 
 // =============================================================================
-// Higher-Order Function Utilities
+// Higher-Order Function Utilities (map, filter, fold are now builtins)
 // =============================================================================
-
-// Map: apply function to each element
-fun map(arr, f) {
-    if len(arr) == 0 {
-        []
-    } else {
-        concat([f(first(arr))], map(rest(arr), f))
-    }
-}
-
-// Filter: keep elements that satisfy predicate
-fun filter(arr, pred) {
-    if len(arr) == 0 {
-        []
-    } else {
-        let head = first(arr);
-        let tail = filter(rest(arr), pred);
-        if pred(head) {
-            concat([head], tail)
-        } else {
-            tail
-        }
-    }
-}
-
-// Reduce/fold: combine elements with accumulator
-fun reduce(arr, initial, f) {
-    if len(arr) == 0 {
-        initial
-    } else {
-        reduce(rest(arr), f(initial, first(arr)), f)
-    }
-}
 
 // =============================================================================
 // Example 1: Pipeline with Builtin Functions
@@ -84,11 +51,11 @@ let bigNums = filter(numbers, \x -> x > 3);
 print("Filtered: " + to_string(bigNums));  // [4, 5, 6]
 
 // Sum all numbers using reduce with lambda
-let sum = reduce(numbers, 0, \(acc, x) -> acc + x);
+let sum = fold(numbers, 0, \(acc, x) -> acc + x);
 print("Sum: " + to_string(sum));  // 21
 
 // Product of all numbers
-let product = reduce(numbers, 1, \(acc, x) -> acc * x);
+let product = fold(numbers, 1, \(acc, x) -> acc * x);
 print("Product: " + to_string(product));  // 720
 
 // =============================================================================

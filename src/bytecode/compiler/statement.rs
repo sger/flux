@@ -277,7 +277,7 @@ impl Compiler {
                 locations,
             )),
         ))));
-        self.emit(OpCode::OpClosure, &[fn_idx, free_symbols.len()]);
+        self.emit_closure_index(fn_idx, free_symbols.len());
 
         match symbol.symbol_scope {
             SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),

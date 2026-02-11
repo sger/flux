@@ -49,6 +49,10 @@ pub enum OpCode {
     OpUnwrapRight = 43,
     OpTailCall = 44,
     OpConsumeLocal = 45,
+    OpConstantLong = 46,
+    OpClosureLong = 47,
+    OpArrayLong = 48,
+    OpHashLong = 49,
 }
 
 impl From<u8> for OpCode {
@@ -100,6 +104,10 @@ impl From<u8> for OpCode {
             43 => OpCode::OpUnwrapRight,
             44 => OpCode::OpTailCall,
             45 => OpCode::OpConsumeLocal,
+            46 => OpCode::OpConstantLong,
+            47 => OpCode::OpClosureLong,
+            48 => OpCode::OpArrayLong,
+            49 => OpCode::OpHashLong,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -121,6 +129,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpSetGlobal
         | OpCode::OpArray
         | OpCode::OpHash => vec![2],
+        OpCode::OpConstantLong | OpCode::OpArrayLong | OpCode::OpHashLong => vec![4],
         OpCode::OpGetLocal
         | OpCode::OpConsumeLocal
         | OpCode::OpSetLocal
@@ -129,6 +138,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetFree
         | OpCode::OpGetBuiltin => vec![1],
         OpCode::OpClosure => vec![2, 1],
+        OpCode::OpClosureLong => vec![4, 1],
         _ => vec![],
     }
 }
@@ -147,6 +157,12 @@ pub fn make(op: OpCode, operands: &[usize]) -> Instructions {
                 instruction.push((*operand >> 8) as u8);
                 instruction.push(*operand as u8);
             }
+            4 => {
+                instruction.push((*operand >> 24) as u8);
+                instruction.push((*operand >> 16) as u8);
+                instruction.push((*operand >> 8) as u8);
+                instruction.push(*operand as u8);
+            }
             _ => {}
         }
     }
@@ -156,6 +172,13 @@ pub fn make(op: OpCode, operands: &[usize]) -> Instructions {
 
 pub fn read_u16(instructions: &[u8], offset: usize) -> u16 {
     ((instructions[offset] as u16) << 8) | (instructions[offset + 1] as u16)
+}
+
+pub fn read_u32(instructions: &[u8], offset: usize) -> u32 {
+    ((instructions[offset] as u32) << 24)
+        | ((instructions[offset + 1] as u32) << 16)
+        | ((instructions[offset + 2] as u32) << 8)
+        | (instructions[offset + 3] as u32)
 }
 
 pub fn read_u8(instructions: &[u8], offset: usize) -> u8 {
@@ -182,6 +205,10 @@ pub fn disassemble(instructions: &Instructions) -> String {
                 2 => {
                     operands.push(read_u16(instructions, offset) as usize);
                     offset += 2;
+                }
+                4 => {
+                    operands.push(read_u32(instructions, offset) as usize);
+                    offset += 4;
                 }
                 _ => {}
             }

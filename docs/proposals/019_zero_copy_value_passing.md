@@ -72,13 +72,15 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Update push/pop and `OpGet*` handlers to operate on `Value`.
 - **Done when:** VM tests pass and clone-heavy access paths no longer deep-copy collections.
 
-### 019.5 Builtin Call Path: Borrowed Args [DONE]
+### 019.5 Builtin Call Path: Borrowed Args [PARTIAL]
 
-- Change builtin invocation path to pass borrowed slices:
-  - `&[Value]` instead of `Vec<Value>`
-- Remove per-call argument vector allocation in VM dispatch.
-- Update builtin signatures and callsites accordingly.
-- **Done when:** builtin tests pass and no `to_vec()` arg-copy remains in hot call path.
+- Current state:
+  - Removed old `to_vec()` clone-heavy path in VM dispatch.
+  - Builtins still receive owned `Vec<Value>` values (moved out of stack slots).
+- Remaining work:
+  - Introduce borrowed-slice builtin ABI (`&[Value]`) for read-only builtins.
+  - Keep an owned-args path for ownership-sensitive builtins.
+- **Done when:** builtin tests pass and eligible builtins avoid per-call arg vector allocation.
 
 ### 019.6 Closure Capture Path [DONE]
 
