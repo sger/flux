@@ -69,13 +69,7 @@ mod tests {
         let ins = make(OpCode::OpConstantLong, &[70_000]);
         assert_eq!(
             ins,
-            vec![
-                OpCode::OpConstantLong as u8,
-                0x00,
-                0x01,
-                0x11,
-                0x70
-            ]
+            vec![OpCode::OpConstantLong as u8, 0x00, 0x01, 0x11, 0x70]
         );
     }
 

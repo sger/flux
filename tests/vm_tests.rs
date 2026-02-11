@@ -1046,7 +1046,9 @@ fn test_filter_error_includes_index() {
 #[test]
 fn test_fold_error_includes_index() {
     // Verify error messages include element index
-    let err = run_error(r#"fold([1, 2, 3], 0, fun(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#);
+    let err = run_error(
+        r#"fold([1, 2, 3], 0, fun(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#,
+    );
     assert!(
         err.contains("index 1"),
         "Expected error to include index 1, got: {}",
@@ -1120,7 +1122,10 @@ fn test_map_large_array_5k() {
     // Test that the growable stack handles 5k elements
     let program = format!(
         "let big = [{}]; let doubled = map(big, fun(x) {{ x * 2; }}); len(doubled);",
-        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        (0..5000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     assert_eq!(run(&program), Value::Integer(5000));
 }
@@ -1130,7 +1135,10 @@ fn test_filter_large_array_5k() {
     // Test filter with 5k elements
     let program = format!(
         "let big = [{}]; let filtered = filter(big, fun(x) {{ x % 2 == 0; }}); len(filtered);",
-        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        (0..5000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     assert_eq!(run(&program), Value::Integer(2500));
 }
@@ -1140,7 +1148,10 @@ fn test_fold_large_array_5k() {
     // Test fold with 5k elements
     let program = format!(
         "let big = [{}]; fold(big, 0, fun(acc, x) {{ acc + 1; }});",
-        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        (0..5000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     assert_eq!(run(&program), Value::Integer(5000));
 }
@@ -1153,7 +1164,10 @@ fn test_chained_operations_large_array() {
          let mapped = map(data, fun(x) {{ x * 2; }}); \
          let filtered = filter(mapped, fun(x) {{ x % 3 == 0; }}); \
          len(filtered);",
-        (0..1000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        (0..1000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     );
     let result = run(&program);
     assert!(matches!(result, Value::Integer(_)));
