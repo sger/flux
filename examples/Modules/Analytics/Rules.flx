@@ -1,0 +1,12 @@
+module Modules.Analytics.Rules {
+    let PASSING_SCORE = 40
+    let CURVE_DELTA = 5
+
+    fun passing_score() {
+        PASSING_SCORE
+    }
+
+    fun curve_delta() {
+        CURVE_DELTA
+    }
+}

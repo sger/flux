@@ -1,12 +1,15 @@
 use std::rc::Rc;
 
-use crate::runtime::value::Value;
+use crate::runtime::{RuntimeContext, value::Value};
 
 use super::helpers::{
     arg_array, arg_int, arg_string, check_arity, check_arity_range, format_hint, type_error,
 };
 
-pub(super) fn builtin_len(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_len(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 1, "len", "len(value)")?;
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
@@ -21,7 +24,10 @@ pub(super) fn builtin_len(args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_first(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_first(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 1, "first", "first(arr)")?;
     let arr = arg_array(&args, 0, "first", "argument", "first(arr)")?;
     if arr.is_empty() {
@@ -31,7 +37,10 @@ pub(super) fn builtin_first(args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_last(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 1, "last", "last(arr)")?;
     let arr = arg_array(&args, 0, "last", "argument", "last(arr)")?;
     if arr.is_empty() {
@@ -41,7 +50,10 @@ pub(super) fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_rest(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_rest(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 1, "rest", "rest(arr)")?;
     let arr = arg_array(&args, 0, "rest", "argument", "rest(arr)")?;
     if arr.is_empty() {
@@ -51,7 +63,10 @@ pub(super) fn builtin_rest(args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_push(mut args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_push(
+    _ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "push", "push(arr, elem)")?;
     let elem = args.swap_remove(1);
     let arr_obj = args.swap_remove(0);
@@ -71,7 +86,10 @@ pub(super) fn builtin_push(mut args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_concat(mut args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_concat(
+    _ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "concat", "concat(a, b)")?;
     let b_obj = args.swap_remove(1);
     let a_obj = args.swap_remove(0);
@@ -102,7 +120,10 @@ pub(super) fn builtin_concat(mut args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_reverse(mut args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_reverse(
+    _ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 1, "reverse", "reverse(arr)")?;
 
     match args.swap_remove(0) {
@@ -120,7 +141,10 @@ pub(super) fn builtin_reverse(mut args: Vec<Value>) -> Result<Value, String> {
     }
 }
 
-pub(super) fn builtin_contains(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_contains(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 2, "contains", "contains(arr, elem)")?;
     let arr = arg_array(
         &args,
@@ -134,7 +158,10 @@ pub(super) fn builtin_contains(args: Vec<Value>) -> Result<Value, String> {
     Ok(Value::Boolean(found))
 }
 
-pub(super) fn builtin_slice(args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_slice(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity(&args, 3, "slice", "slice(arr, start, end)")?;
     let arr = arg_array(
         &args,
@@ -174,7 +201,10 @@ pub(super) fn builtin_slice(args: Vec<Value>) -> Result<Value, String> {
 /// sort(arr) or sort(arr, order) - Return a new sorted array
 /// order: "asc" (default) or "desc"
 /// Only works with integers/floats
-pub(super) fn builtin_sort(mut args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn builtin_sort(
+    _ctx: &mut dyn RuntimeContext,
+    mut args: Vec<Value>,
+) -> Result<Value, String> {
     check_arity_range(&args, 1, 2, "sort", "sort(arr, order)")?;
 
     // Determine sort order (default: ascending)
@@ -236,4 +266,115 @@ pub(super) fn builtin_sort(mut args: Vec<Value>) -> Result<Value, String> {
         if descending { cmp.reverse() } else { cmp }
     });
     Ok(Value::Array(arr))
+}
+
+/// map(arr, fn) - Apply fn to each element, return new array of results
+///
+/// Callback signature: fn(element) - must accept exactly 1 argument
+/// Elements are processed in left-to-right order
+pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 2, "map", "map(arr, fun)")?;
+    let arr = arg_array(&args, 0, "map", "first argument", "map(arr, fun)")?;
+    let func = args[1].clone();
+
+    match &func {
+        Value::Closure(_) | Value::Builtin(_) => {}
+        other => {
+            return Err(type_error(
+                "map",
+                "second argument",
+                "Function",
+                other.type_name(),
+                "map(arr, fn)",
+            ));
+        }
+    }
+
+    let mut results = Vec::with_capacity(arr.len());
+    for (idx, item) in arr.iter().enumerate() {
+        let result = ctx
+            .invoke_value(func.clone(), vec![item.clone()])
+            .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
+        results.push(result);
+    }
+    Ok(Value::Array(results.into()))
+}
+
+/// filter(arr, pred) - Keep elements where pred returns truthy
+///
+/// Callback signature: pred(element) - must accept exactly 1 argument
+/// Truthiness: Only `Boolean(false)` and `None` are falsy; all other values are truthy
+/// Elements are processed in left-to-right order
+pub(super) fn builtin_filter(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    check_arity(&args, 2, "filter", "filter(arr, pred)")?;
+    let arr = arg_array(&args, 0, "filter", "first argument", "filter(arr, pred)")?;
+    let func = args[1].clone();
+
+    match &func {
+        Value::Closure(_) | Value::Builtin(_) => {}
+        other => {
+            return Err(type_error(
+                "filter",
+                "second argument",
+                "Function",
+                other.type_name(),
+                "filter(arr, pred)",
+            ));
+        }
+    }
+
+    let mut results = Vec::new();
+    for (idx, item) in arr.iter().enumerate() {
+        let result = ctx
+            .invoke_value(func.clone(), vec![item.clone()])
+            .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
+        if result.is_truthy() {
+            results.push(item.clone());
+        }
+    }
+    Ok(Value::Array(results.into()))
+}
+
+/// fold(arr, initial, fn) - Reduce array to single value
+///
+/// Callback signature: fn(accumulator, element) - must accept exactly 2 arguments
+/// Left fold (foldl) semantics: processes elements in left-to-right order
+/// Returns initial value unchanged if array is empty
+pub(super) fn builtin_fold(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    check_arity(&args, 3, "fold", "fold(arr, initial, fun)")?;
+    let arr = arg_array(
+        &args,
+        0,
+        "fold",
+        "first argument",
+        "fold(arr, initial, fun)",
+    )?;
+    let mut acc = args[1].clone();
+    let func = args[2].clone();
+
+    match &func {
+        Value::Closure(_) | Value::Builtin(_) => {}
+        other => {
+            return Err(type_error(
+                "fold",
+                "third argument",
+                "Function",
+                other.type_name(),
+                "fold(arr, initial, fun)",
+            ));
+        }
+    }
+
+    for (idx, item) in arr.iter().enumerate() {
+        acc = ctx
+            .invoke_value(func.clone(), vec![acc, item.clone()])
+            .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
+    }
+    Ok(acc)
 }

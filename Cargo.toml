@@ -29,3 +29,7 @@ harness = false
 [[bench]]
 name = "zero_copy_value_bench"
 harness = false
+
+[[bench]]
+name = "map_filter_fold_bench"
+harness = false

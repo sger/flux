@@ -25,4 +25,8 @@ pub mod leak_detector;
 pub mod value;
 pub mod vm;
 
-pub type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
+pub trait RuntimeContext {
+    fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+}
+
+pub type BuiltinFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;

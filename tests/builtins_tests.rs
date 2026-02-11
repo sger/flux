@@ -2,13 +2,23 @@ use std::collections::HashMap;
 
 const PI: f64 = std::f64::consts::PI;
 
+use flux::bytecode::bytecode::Bytecode;
 use flux::runtime::builtins::get_builtin;
 use flux::runtime::hash_key::HashKey;
 use flux::runtime::value::Value;
+use flux::runtime::vm::VM;
+
+fn test_vm() -> VM {
+    VM::new(Bytecode {
+        instructions: vec![],
+        constants: vec![],
+        debug_info: None,
+    })
+}
 
 fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     let builtin = get_builtin(name).unwrap_or_else(|| panic!("missing builtin: {}", name));
-    (builtin.func)(args)
+    (builtin.func)(&mut test_vm(), args)
 }
 
 fn make_test_hash() -> Value {
