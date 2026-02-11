@@ -8,8 +8,9 @@ mod string_ops;
 mod type_check;
 
 use array_ops::{
-    builtin_concat, builtin_contains, builtin_first, builtin_last, builtin_len, builtin_push,
-    builtin_rest, builtin_reverse, builtin_slice, builtin_sort,
+    builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_fold, builtin_last,
+    builtin_len, builtin_map, builtin_push, builtin_rest, builtin_reverse, builtin_slice,
+    builtin_sort,
 };
 use hash_ops::{builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values};
 use numeric_ops::{builtin_abs, builtin_max, builtin_min};
