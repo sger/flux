@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     bytecode::{
@@ -18,6 +18,7 @@ use crate::{
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         position::{Position, Span},
+        statement::Statement,
         symbol::Symbol,
     },
 };
@@ -78,7 +79,7 @@ impl Compiler {
             Expression::Prefix {
                 operator, right, ..
             } => {
-                self.compile_expression(right)?;
+                self.compile_non_tail_expression(right)?;
                 match operator.as_str() {
                     "!" => self.emit(OpCode::OpBang, &[]),
                     "-" => self.emit(OpCode::OpMinus, &[]),
@@ -99,39 +100,39 @@ impl Compiler {
                 ..
             } => {
                 if operator == "<" {
-                    self.compile_expression(right)?;
-                    self.compile_expression(left)?;
+                    self.compile_non_tail_expression(right)?;
+                    self.compile_non_tail_expression(left)?;
                     self.emit(OpCode::OpGreaterThan, &[]);
                     return Ok(());
                 }
 
                 if operator == "<=" {
-                    self.compile_expression(left)?;
-                    self.compile_expression(right)?;
+                    self.compile_non_tail_expression(left)?;
+                    self.compile_non_tail_expression(right)?;
                     self.emit(OpCode::OpLessThanOrEqual, &[]);
                     return Ok(());
                 }
                 // a && b: if a is falsy, result is a (short-circuit); otherwise result is b
                 // OpJumpNotTruthy: peeks value, jumps if falsy (keeps value), pops if truthy
                 if operator == "&&" {
-                    self.compile_expression(left)?;
+                    self.compile_non_tail_expression(left)?;
                     let jump_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
-                    self.compile_expression(right)?;
+                    self.compile_non_tail_expression(right)?;
                     self.change_operand(jump_pos, self.current_instructions().len());
                     return Ok(());
                 }
                 // a || b: if a is truthy, result is a (short-circuit); otherwise result is b
                 // OpJumpTruthy: peeks value, jumps if truthy (keeps value), pops if falsy
                 if operator == "||" {
-                    self.compile_expression(left)?;
+                    self.compile_non_tail_expression(left)?;
                     let jump_pos = self.emit(OpCode::OpJumpTruthy, &[9999]);
-                    self.compile_expression(right)?;
+                    self.compile_non_tail_expression(right)?;
                     self.change_operand(jump_pos, self.current_instructions().len());
                     return Ok(());
                 }
 
-                self.compile_expression(left)?;
-                self.compile_expression(right)?;
+                self.compile_non_tail_expression(left)?;
+                self.compile_non_tail_expression(right)?;
 
                 match operator.as_str() {
                     "+" => self.emit(OpCode::OpAdd, &[]),
@@ -171,8 +172,8 @@ impl Compiler {
                 self.compile_function_literal(parameters, body)?;
             }
             Expression::Array { elements, .. } => {
-                for el in elements {
-                    self.compile_expression(el)?;
+                for element in elements {
+                    self.compile_non_tail_expression(element)?;
                 }
                 self.emit(OpCode::OpArray, &[elements.len()]);
             }
@@ -181,14 +182,14 @@ impl Compiler {
                 sorted_pairs.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
 
                 for (key, value) in sorted_pairs {
-                    self.compile_expression(key)?;
-                    self.compile_expression(value)?;
+                    self.compile_non_tail_expression(key)?;
+                    self.compile_non_tail_expression(value)?;
                 }
                 self.emit(OpCode::OpHash, &[pairs.len() * 2]);
             }
             Expression::Index { left, index, .. } => {
-                self.compile_expression(left)?;
-                self.compile_expression(index)?;
+                self.compile_non_tail_expression(left)?;
+                self.compile_non_tail_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
             }
             // Note: Pipe operator (|>) is handled at parse time by transforming
@@ -199,13 +200,33 @@ impl Compiler {
                 arguments,
                 ..
             } => {
-                self.compile_expression(function)?;
+                // Check if this is a self recursive tail call
+                let is_self_tail_call = self.in_tail_position && self.is_self_call(function);
 
-                for arg in arguments {
-                    self.compile_expression(arg)?;
+                self.compile_non_tail_expression(function)?;
+
+                let mut consumable_counts: HashMap<Symbol, usize> = HashMap::new();
+
+                if is_self_tail_call {
+                    for argument in arguments {
+                        self.collect_consumable_param_uses(argument, &mut consumable_counts);
+                    }
                 }
 
-                self.emit(OpCode::OpCall, &[arguments.len()]);
+                for argument in arguments {
+                    if is_self_tail_call {
+                        self.compile_tail_call_argument(argument, &consumable_counts)?;
+                    } else {
+                        self.compile_non_tail_expression(argument)?;
+                    }
+                }
+
+                // Emit OpTailCall for self recursive tail calls otherwise OpCall
+                if is_self_tail_call {
+                    self.emit(OpCode::OpTailCall, &[arguments.len()]);
+                } else {
+                    self.emit(OpCode::OpCall, &[arguments.len()]);
+                }
             }
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
@@ -276,7 +297,7 @@ impl Compiler {
                 self.check_private_member(member_str, expr_span, None)?;
 
                 // Compile the object (e.g., the module identifier)
-                self.compile_expression(object)?;
+                self.compile_non_tail_expression(object)?;
 
                 // Emit the member name as a string constant (the hash key)
                 let member_str = self.sym(member).to_string();
@@ -292,16 +313,16 @@ impl Compiler {
                 self.emit(OpCode::OpNone, &[]);
             }
             Expression::Some { value, .. } => {
-                self.compile_expression(value)?;
+                self.compile_non_tail_expression(value)?;
                 self.emit(OpCode::OpSome, &[]);
             }
             // Either type expressions
             Expression::Left { value, .. } => {
-                self.compile_expression(value)?;
+                self.compile_non_tail_expression(value)?;
                 self.emit(OpCode::OpLeft, &[]);
             }
             Expression::Right { value, .. } => {
-                self.compile_expression(value)?;
+                self.compile_non_tail_expression(value)?;
                 self.emit(OpCode::OpRight, &[]);
             }
             Expression::Match {
@@ -339,7 +360,9 @@ impl Compiler {
             self.symbol_table.define(*param, Span::default());
         }
 
-        self.compile_block(body)?;
+        self.with_function_context(parameters.len(), |compiler| {
+            compiler.compile_block_with_tail(body)
+        })?;
 
         if self.is_last_instruction(OpCode::OpPop) {
             self.replace_last_pop_with_return();
@@ -350,6 +373,13 @@ impl Compiler {
         }
 
         let free_symbols = self.symbol_table.free_symbols.clone();
+
+        for free in &free_symbols {
+            if free.symbol_scope == SymbolScope::Local {
+                self.mark_captured_in_current_function(free.index);
+            }
+        }
+
         let num_locals = self.symbol_table.num_definitions;
         let (instructions, locations, files) = self.leave_scope();
 
@@ -386,8 +416,8 @@ impl Compiler {
                 let idx = self.add_constant(Value::String(s.clone().into()));
                 self.emit(OpCode::OpConstant, &[idx]);
             }
-            StringPart::Interpolation(expr) => {
-                self.compile_expression(expr)?;
+            StringPart::Interpolation(expression) => {
+                self.compile_non_tail_expression(expression)?;
                 self.emit(OpCode::OpToString, &[]);
             }
         }
@@ -399,8 +429,8 @@ impl Compiler {
                     let idx = self.add_constant(Value::String(s.clone().into()));
                     self.emit(OpCode::OpConstant, &[idx]);
                 }
-                StringPart::Interpolation(expr) => {
-                    self.compile_expression(expr)?;
+                StringPart::Interpolation(expression) => {
+                    self.compile_non_tail_expression(expression)?;
                     self.emit(OpCode::OpToString, &[]);
                 }
             }
@@ -416,11 +446,16 @@ impl Compiler {
         consequence: &Block,
         alternative: &Option<Block>,
     ) -> CompileResult<()> {
-        self.compile_expression(condition)?;
+        self.compile_non_tail_expression(condition)?;
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
 
-        self.compile_block(consequence)?;
+        // Consequence branch inherits tail position
+        if self.in_tail_position {
+            self.compile_block_with_tail(consequence)?;
+        } else {
+            self.compile_block(consequence)?;
+        }
 
         if self.is_last_instruction(OpCode::OpPop) {
             self.remove_last_pop();
@@ -433,8 +468,13 @@ impl Compiler {
         // (OpJumpNotTruthy keeps value on stack when jumping for short-circuit support)
         self.emit(OpCode::OpPop, &[]);
 
+        // Alternative branch also inherits tail position
         if let Some(alt) = alternative {
-            self.compile_block(alt)?;
+            if self.in_tail_position {
+                self.compile_block_with_tail(alt)?;
+            } else {
+                self.compile_block(alt)?;
+            }
 
             if self.is_last_instruction(OpCode::OpPop) {
                 self.remove_last_pop();
@@ -455,7 +495,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Compile scrutinee once and store it in a temp symbol.
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
-        self.compile_expression(scrutinee)?;
+        self.compile_non_tail_expression(scrutinee)?;
         let temp_symbol = self.symbol_table.define_temp();
         match temp_symbol.symbol_scope {
             SymbolScope::Global => {
@@ -496,11 +536,15 @@ impl Compiler {
 
             // Guard runs only after a successful pattern match and in the arm binding scope.
             if let Some(guard) = &arm.guard {
-                self.compile_expression(guard)?;
+                self.compile_non_tail_expression(guard)?;
                 arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
             }
 
-            self.compile_expression(&arm.body)?;
+            if self.in_tail_position {
+                self.with_tail_position(true, |compiler| compiler.compile_expression(&arm.body))?;
+            } else {
+                self.compile_expression(&arm.body)?;
+            }
             self.leave_block_scope();
 
             // Jump to end after executing this arm's body.
@@ -546,7 +590,7 @@ impl Compiler {
                 // OpEqual compares and pushes boolean: [result]
                 // OpJumpNotTruthy jumps when false (no match), continues when true (match)
                 self.load_symbol(scrutinee);
-                self.compile_expression(expression)?;
+                self.compile_non_tail_expression(expression)?;
                 self.emit(OpCode::OpEqual, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
@@ -769,5 +813,212 @@ impl Compiler {
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
         Ok(())
+    }
+
+    fn compile_non_tail_expression(&mut self, expression: &Expression) -> CompileResult<()> {
+        self.with_tail_position(false, |compiler| compiler.compile_expression(expression))
+    }
+
+    fn compile_tail_call_argument(
+        &mut self,
+        expression: &Expression,
+        consumable_counts: &HashMap<Symbol, usize>,
+    ) -> CompileResult<()> {
+        match expression {
+            Expression::Identifier { name, .. } => {
+                if self.try_emit_consumed_param(*name, consumable_counts) {
+                    Ok(())
+                } else {
+                    self.compile_non_tail_expression(expression)
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.compile_non_tail_expression(function)?;
+
+                for arg in arguments {
+                    if let Expression::Identifier { name, .. } = arg {
+                        if !self.try_emit_consumed_param(*name, consumable_counts) {
+                            self.compile_non_tail_expression(arg)?;
+                        }
+                    } else {
+                        self.compile_non_tail_expression(arg)?;
+                    }
+                }
+                self.emit(OpCode::OpCall, &[arguments.len()]);
+                Ok(())
+            }
+            _ => self.compile_non_tail_expression(expression),
+        }
+    }
+
+    fn try_emit_consumed_param(
+        &mut self,
+        name: Symbol,
+        consumable_counts: &HashMap<Symbol, usize>,
+    ) -> bool {
+        if consumable_counts.get(&name).copied().unwrap_or(0) != 1 {
+            return false;
+        }
+        if let Some(symbol) = self.symbol_table.resolve(name)
+            && self.is_consumable_tail_param(&symbol)
+        {
+            self.emit(OpCode::OpConsumeLocal, &[symbol.index]);
+            return true;
+        }
+        false
+    }
+
+    fn collect_consumable_param_uses_statement(
+        &mut self,
+        statement: &Statement,
+        counts: &mut HashMap<Symbol, usize>,
+    ) {
+        match statement {
+            Statement::Expression { expression, .. } => {
+                self.collect_consumable_param_uses(expression, counts);
+            }
+            Statement::Let { value, .. } | Statement::Assign { value, .. } => {
+                self.collect_consumable_param_uses(value, counts)
+            }
+            Statement::Return { value, .. } => {
+                if let Some(value) = value {
+                    self.collect_consumable_param_uses(value, counts);
+                }
+            }
+            Statement::Function { body, .. } | Statement::Module { body, .. } => {
+                for statement in &body.statements {
+                    self.collect_consumable_param_uses_statement(statement, counts);
+                }
+            }
+            Statement::Import { .. } => {}
+        }
+    }
+
+    fn collect_consumable_param_uses(
+        &mut self,
+        expression: &Expression,
+        counts: &mut HashMap<Symbol, usize>,
+    ) {
+        match expression {
+            Expression::Identifier { name, .. } => {
+                if let Some(symbol) = self.symbol_table.resolve(*name)
+                    && self.is_consumable_tail_param(&symbol)
+                {
+                    *counts.entry(*name).or_insert(0) += 1;
+                }
+            }
+            Expression::Prefix { right, .. } => self.collect_consumable_param_uses(right, counts),
+            Expression::Infix { left, right, .. } => {
+                self.collect_consumable_param_uses(left, counts);
+                self.collect_consumable_param_uses(right, counts);
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.collect_consumable_param_uses(condition, counts);
+                for statement in &consequence.statements {
+                    self.collect_consumable_param_uses_statement(statement, counts);
+                }
+                if let Some(alt) = alternative {
+                    for statement in &alt.statements {
+                        self.collect_consumable_param_uses_statement(statement, counts);
+                    }
+                }
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                self.collect_consumable_param_uses(function, counts);
+
+                for argument in arguments {
+                    self.collect_consumable_param_uses(argument, counts);
+                }
+            }
+            Expression::Array { elements, .. } => {
+                for element in elements {
+                    self.collect_consumable_param_uses(element, counts);
+                }
+            }
+            Expression::Index { left, index, .. } => {
+                self.collect_consumable_param_uses(left, counts);
+                self.collect_consumable_param_uses(index, counts);
+            }
+            Expression::Hash { pairs, .. } => {
+                for (key, value) in pairs {
+                    self.collect_consumable_param_uses(key, counts);
+                    self.collect_consumable_param_uses(value, counts);
+                }
+            }
+            Expression::MemberAccess { object, .. } => {
+                self.collect_consumable_param_uses(object, counts);
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.collect_consumable_param_uses(scrutinee, counts);
+
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_consumable_param_uses(guard, counts);
+                    }
+                    self.collect_consumable_param_uses(&arm.body, counts);
+                }
+            }
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let StringPart::Interpolation(expression) = part {
+                        self.collect_consumable_param_uses(expression, counts);
+                    }
+                }
+            }
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => self.collect_consumable_param_uses(value, counts),
+            Expression::Function { .. }
+            | Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::Boolean { .. }
+            | Expression::None { .. } => {}
+        }
+    }
+
+    /// Check if an expression is a self recursive call
+    fn is_self_call(&mut self, expression: &Expression) -> bool {
+        match expression {
+            Expression::Identifier { name, .. } => {
+                if let Some(symbol) = self.symbol_table.resolve(*name) {
+                    symbol.symbol_scope == SymbolScope::Function
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn is_consumable_tail_param(&self, symbol: &Binding) -> bool {
+        if symbol.symbol_scope != SymbolScope::Local {
+            return false;
+        }
+        if self
+            .current_function_captured_locals()
+            .is_some_and(|captured| captured.contains(&symbol.index))
+        {
+            return false;
+        }
+        match self.current_function_param_count() {
+            Some(num_params) => symbol.index < num_params,
+            None => false,
+        }
     }
 }

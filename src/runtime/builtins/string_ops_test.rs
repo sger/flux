@@ -7,13 +7,13 @@ use super::string_ops::{
 
 #[test]
 fn to_string_converts_values() {
-    let result = builtin_to_string(&[Value::Integer(42)]).unwrap();
+    let result = builtin_to_string(vec![Value::Integer(42)]).unwrap();
     assert_eq!(result, Value::String("42".to_string().into()));
 }
 
 #[test]
 fn split_empty_delim_splits_chars() {
-    let result = builtin_split(&[
+    let result = builtin_split(vec![
         Value::String("ab".to_string().into()),
         Value::String("".to_string().into()),
     ])
@@ -33,7 +33,7 @@ fn split_empty_delim_splits_chars() {
 
 #[test]
 fn join_rejects_non_string_elements() {
-    let err = builtin_join(&[
+    let err = builtin_join(vec![
         Value::Array(vec![Value::Integer(1)].into()),
         Value::String(",".to_string().into()),
     ])
@@ -43,16 +43,16 @@ fn join_rejects_non_string_elements() {
 
 #[test]
 fn trim_upper_lower_chars() {
-    let trimmed = builtin_trim(&[Value::String("  hi ".to_string().into())]).unwrap();
+    let trimmed = builtin_trim(vec![Value::String("  hi ".to_string().into())]).unwrap();
     assert_eq!(trimmed, Value::String("hi".to_string().into()));
 
-    let upper = builtin_upper(&[Value::String("hi".to_string().into())]).unwrap();
+    let upper = builtin_upper(vec![Value::String("hi".to_string().into())]).unwrap();
     assert_eq!(upper, Value::String("HI".to_string().into()));
 
-    let lower = builtin_lower(&[Value::String("HI".to_string().into())]).unwrap();
+    let lower = builtin_lower(vec![Value::String("HI".to_string().into())]).unwrap();
     assert_eq!(lower, Value::String("hi".to_string().into()));
 
-    let chars = builtin_chars(&[Value::String("ab".to_string().into())]).unwrap();
+    let chars = builtin_chars(vec![Value::String("ab".to_string().into())]).unwrap();
     assert_eq!(
         chars,
         Value::Array(
@@ -67,7 +67,7 @@ fn trim_upper_lower_chars() {
 
 #[test]
 fn substring_extracts_range() {
-    let result = builtin_substring(&[
+    let result = builtin_substring(vec![
         Value::String("hello".to_string().into()),
         Value::Integer(1),
         Value::Integer(4),
@@ -79,21 +79,21 @@ fn substring_extracts_range() {
 
 #[test]
 fn starts_ends_and_replace_work() {
-    let starts = builtin_starts_with(&[
+    let starts = builtin_starts_with(vec![
         Value::String("hello".to_string().into()),
         Value::String("he".to_string().into()),
     ])
     .unwrap();
     assert_eq!(starts, Value::Boolean(true));
 
-    let ends = builtin_ends_with(&[
+    let ends = builtin_ends_with(vec![
         Value::String("hello".to_string().into()),
         Value::String("lo".to_string().into()),
     ])
     .unwrap();
     assert_eq!(ends, Value::Boolean(true));
 
-    let replaced = builtin_replace(&[
+    let replaced = builtin_replace(vec![
         Value::String("banana".to_string().into()),
         Value::String("na".to_string().into()),
         Value::String("X".to_string().into()),

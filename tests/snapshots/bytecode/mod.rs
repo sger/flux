@@ -15,7 +15,8 @@ fn compile_to_string(input: &str) -> String {
         return output;
     }
 
-    let mut compiler = Compiler::new_with_file_path("test.flx");
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("test.flx", interner);
     if let Err(diags) = compiler.compile(&program) {
         let mut output = String::from("Compile Errors:\n");
         for diag in &diags {
