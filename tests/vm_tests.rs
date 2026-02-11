@@ -665,3 +665,235 @@ fn test_either_in_hash() {
         ))))
     );
 }
+
+#[test]
+fn test_builtin_map() {
+    assert_eq!(
+        run("map([1, 2, 3], fun(x) { x * 2; });"),
+        Value::Array(vec![Value::Integer(2), Value::Integer(4), Value::Integer(6)].into())
+    );
+}
+
+#[test]
+fn test_builtin_map_with_closure() {
+    assert_eq!(
+        run("let factor = 3; map([1, 2, 3], fun(x) { x * factor; });"),
+        Value::Array(vec![Value::Integer(3), Value::Integer(6), Value::Integer(9)].into())
+    );
+}
+
+#[test]
+fn test_builtin_map_empty() {
+    assert_eq!(run("map([], fun(x) { x; });"), Value::Array(vec![].into()));
+}
+
+#[test]
+fn test_builtin_map_with_builtin_callback() {
+    assert_eq!(
+        run("map([1, 2, 3], to_string);"),
+        Value::Array(
+            vec![
+                Value::String("1".into()),
+                Value::String("2".into()),
+                Value::String("3".into()),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_builtin_filter() {
+    assert_eq!(
+        run("filter([1, 2, 3, 4, 5], fun(x) { x > 2; });"),
+        Value::Array(vec![Value::Integer(3), Value::Integer(4), Value::Integer(5)].into())
+    );
+}
+
+#[test]
+fn test_builtin_filter_none_pass() {
+    assert_eq!(
+        run("filter([1, 2, 3], fun(x) { x > 10; });"),
+        Value::Array(vec![].into())
+    );
+}
+
+#[test]
+fn test_builtin_filter_all_pass() {
+    assert_eq!(
+        run("filter([1, 2, 3], fun(x) { x > 0; });"),
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_builtin_fold_sum() {
+    assert_eq!(
+        run("fold([1, 2, 3, 4], 0, fun(acc, x) { acc + x; });"),
+        Value::Integer(10)
+    );
+}
+
+#[test]
+fn test_builtin_fold_string_concat() {
+    assert_eq!(
+        run(r#"fold(["a", "b", "c"], "", fun(acc, x) { acc + x; });"#),
+        Value::String("abc".into())
+    );
+}
+
+#[test]
+fn test_builtin_fold_empty() {
+    assert_eq!(
+        run("fold([], 42, fun(acc, x) { acc + x; });"),
+        Value::Integer(42)
+    );
+}
+
+#[test]
+fn test_map_filter_chain() {
+    assert_eq!(
+        run(r#"
+            let nums = [1, 2, 3, 4, 5, 6];
+            let doubled = map(nums, fun(x) { x * 2; });
+            filter(doubled, fun(x) { x > 6; });
+        "#),
+        Value::Array(vec![Value::Integer(8), Value::Integer(10), Value::Integer(12)].into())
+    );
+}
+
+#[test]
+fn test_map_fold_chain() {
+    assert_eq!(
+        run(r#"
+            let nums = [1, 2, 3];
+            let doubled = map(nums, fun(x) { x * 2; });
+            fold(doubled, 0, fun(acc, x) { acc + x; });
+        "#),
+        Value::Integer(12)
+    );
+}
+
+#[test]
+fn test_map_with_lambda() {
+    assert_eq!(
+        run(r#"map([1, 2, 3], \x -> x + 10);"#),
+        Value::Array(vec![Value::Integer(11), Value::Integer(12), Value::Integer(13)].into())
+    );
+}
+
+#[test]
+fn test_filter_with_lambda() {
+    assert_eq!(
+        run(r#"filter([1, 2, 3, 4], \x -> x > 2);"#),
+        Value::Array(vec![Value::Integer(3), Value::Integer(4)].into())
+    );
+}
+
+#[test]
+fn test_fold_with_lambda() {
+    assert_eq!(
+        run(r#"fold([1, 2, 3], 0, \(a, b) -> a + b);"#),
+        Value::Integer(6)
+    );
+}
+
+#[test]
+fn test_map_type_error_not_array() {
+    let err = run_error("map(42, fun(x) { x; });");
+    assert!(
+        err.contains("Array"),
+        "Expected Array type error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_map_type_error_not_function() {
+    let err = run_error("map([1, 2], 42);");
+    assert!(
+        err.contains("Function"),
+        "Expected Function type error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_filter_type_error() {
+    let err = run_error("filter(42, fun(x) { x; });");
+    assert!(
+        err.contains("Array"),
+        "Expected Array type error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_fold_type_error() {
+    let err = run_error("fold(42, 0, fun(a, x) { a + x; });");
+    assert!(
+        err.contains("Array"),
+        "Expected Array type error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_map_callback_arity_error_propagates() {
+    let err = run_error("map([1], fun(a, b) { a + b; });");
+    assert!(
+        err.contains("wrong number of arguments"),
+        "Expected callback arity error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_filter_callback_arity_error_propagates() {
+    let err = run_error("filter([1], fun(a, b) { a > b; });");
+    assert!(
+        err.contains("wrong number of arguments"),
+        "Expected callback arity error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_fold_callback_arity_error_propagates() {
+    let err = run_error("fold([1], 0, fun(a) { a; });");
+    assert!(
+        err.contains("wrong number of arguments"),
+        "Expected callback arity error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_map_callback_runtime_error_propagates() {
+    let err = run_error("map([1], fun(x) { x + true; });");
+    assert!(
+        err.contains("[E1009]") && err.contains("Cannot add"),
+        "Expected callback runtime error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_filter_callback_runtime_error_propagates() {
+    let err = run_error("filter([1], fun(x) { x + true; });");
+    assert!(
+        err.contains("[E1009]") && err.contains("Cannot add"),
+        "Expected callback runtime error, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_fold_callback_runtime_error_propagates() {
+    let err = run_error("fold([1], 0, fun(acc, x) { acc + true; });");
+    assert!(
+        err.contains("[E1009]") && err.contains("Cannot add"),
+        "Expected callback runtime error, got: {}",
+        err
+    );
+}

@@ -36,10 +36,12 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let baseline_root =
-        PathBuf::from(env::var("PERF_BASELINE_DIR").unwrap_or_else(|_| "baseline_criterion".to_string()));
-    let current_root =
-        PathBuf::from(env::var("PERF_CURRENT_DIR").unwrap_or_else(|_| "target/criterion".to_string()));
+    let baseline_root = PathBuf::from(
+        env::var("PERF_BASELINE_DIR").unwrap_or_else(|_| "baseline_criterion".to_string()),
+    );
+    let current_root = PathBuf::from(
+        env::var("PERF_CURRENT_DIR").unwrap_or_else(|_| "target/criterion".to_string()),
+    );
 
     let baseline = collect_baseline_stats(&baseline_root)?;
     let current = collect_current_stats(&current_root)?;
@@ -67,7 +69,8 @@ fn run() -> Result<(), String> {
             .ok_or_else(|| format!("missing baseline stats for benchmark: {name}"))?;
         let baseline_ms = baseline_stats.mean_ns / 1_000_000.0;
         let current_ms = current_stats.mean_ns / 1_000_000.0;
-        let change_percent = ((current_stats.mean_ns - baseline_stats.mean_ns) / baseline_stats.mean_ns) * 100.0;
+        let change_percent =
+            ((current_stats.mean_ns - baseline_stats.mean_ns) / baseline_stats.mean_ns) * 100.0;
         rows.push(ReportRow {
             name: name.clone(),
             baseline_mean_ms: baseline_ms,
@@ -143,7 +146,8 @@ fn collect_baseline_stats(root: &Path) -> Result<BTreeMap<String, BenchStats>, S
             ));
         }
 
-        let (name, bytes_count) = parse_benchmark_meta(&benchmark_path.join("benchmark.json"), &fallback_name)?;
+        let (name, bytes_count) =
+            parse_benchmark_meta(&benchmark_path.join("benchmark.json"), &fallback_name)?;
         let candidate = BenchStats {
             mean_ns,
             bytes_per_second: bytes_per_second(bytes_count, mean_ns),
@@ -169,7 +173,10 @@ fn collect_baseline_stats(root: &Path) -> Result<BTreeMap<String, BenchStats>, S
 
 fn collect_current_stats(root: &Path) -> Result<BTreeMap<String, BenchStats>, String> {
     if !root.exists() || !root.is_dir() {
-        return Err(format!("current criterion directory not found: {}", root.display()));
+        return Err(format!(
+            "current criterion directory not found: {}",
+            root.display()
+        ));
     }
 
     let mut stats: BTreeMap<String, BenchStats> = BTreeMap::new();
@@ -206,7 +213,8 @@ fn collect_current_stats(root: &Path) -> Result<BTreeMap<String, BenchStats>, St
             ));
         }
 
-        let (name, bytes_count) = parse_benchmark_meta(&benchmark_path.join("benchmark.json"), &fallback_name)?;
+        let (name, bytes_count) =
+            parse_benchmark_meta(&benchmark_path.join("benchmark.json"), &fallback_name)?;
         stats.insert(
             name,
             BenchStats {
@@ -228,7 +236,8 @@ fn collect_current_stats(root: &Path) -> Result<BTreeMap<String, BenchStats>, St
 }
 
 fn gather_estimates_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = fs::read_dir(root).map_err(|e| format!("failed to read dir {}: {e}", root.display()))?;
+    let entries =
+        fs::read_dir(root).map_err(|e| format!("failed to read dir {}: {e}", root.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
         let path = entry.path();
@@ -237,7 +246,9 @@ fn gather_estimates_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<(), Str
             .map_err(|e| format!("failed to read metadata {}: {e}", path.display()))?;
         if metadata.is_dir() {
             gather_estimates_files(&path, out)?;
-        } else if metadata.is_file() && path.file_name().and_then(|x| x.to_str()) == Some("estimates.json") {
+        } else if metadata.is_file()
+            && path.file_name().and_then(|x| x.to_str()) == Some("estimates.json")
+        {
             out.push(path);
         }
     }
@@ -249,7 +260,8 @@ fn parse_benchmark_meta(path: &Path, fallback_name: &str) -> Result<(String, Opt
         return Ok((fallback_name.to_string(), None));
     }
 
-    let raw = fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let raw =
+        fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
     let name = extract_json_string(&raw, "full_id")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| fallback_name.to_string());
@@ -330,9 +342,13 @@ fn take_number_prefix(s: &str) -> Option<&str> {
 }
 
 fn relative_as_posix(root: &Path, path: &Path) -> Result<String, String> {
-    let rel = path
-        .strip_prefix(root)
-        .map_err(|_| format!("failed to strip prefix {} from {}", root.display(), path.display()))?;
+    let rel = path.strip_prefix(root).map_err(|_| {
+        format!(
+            "failed to strip prefix {} from {}",
+            root.display(),
+            path.display()
+        )
+    })?;
     Ok(rel
         .components()
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
@@ -395,7 +411,10 @@ fn build_perf_report(rows: &[ReportRow], baseline_root: &Path, current_root: &Pa
     let ident_tok = find_row(&sorted_rows, "lexer/tokenize/identifier_heavy");
     let ident_loop = find_row(&sorted_rows, "lexer/next_token_loop/identifier_heavy");
     let string_tok = find_row(&sorted_rows, "lexer/tokenize/string_escape_interp_heavy");
-    let string_loop = find_row(&sorted_rows, "lexer/next_token_loop/string_escape_interp_heavy");
+    let string_loop = find_row(
+        &sorted_rows,
+        "lexer/next_token_loop/string_escape_interp_heavy",
+    );
 
     format!(
         "# PERF Report\n\n\
@@ -435,6 +454,9 @@ Current directory: `{}`\n\n\
         format_row_markdown(ident_tok, "lexer/tokenize/identifier_heavy"),
         format_row_markdown(ident_loop, "lexer/next_token_loop/identifier_heavy"),
         format_row_markdown(string_tok, "lexer/tokenize/string_escape_interp_heavy"),
-        format_row_markdown(string_loop, "lexer/next_token_loop/string_escape_interp_heavy"),
+        format_row_markdown(
+            string_loop,
+            "lexer/next_token_loop/string_escape_interp_heavy"
+        ),
     )
 }

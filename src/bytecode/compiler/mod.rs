@@ -84,25 +84,33 @@ impl Compiler {
         symbol_table.define_builtin(14, interner.intern("trim"));
         symbol_table.define_builtin(15, interner.intern("upper"));
         symbol_table.define_builtin(16, interner.intern("lower"));
-        symbol_table.define_builtin(17, interner.intern("chars"));
-        symbol_table.define_builtin(18, interner.intern("substring"));
-        symbol_table.define_builtin(19, interner.intern("keys"));
-        symbol_table.define_builtin(20, interner.intern("values"));
-        symbol_table.define_builtin(21, interner.intern("has_key"));
-        symbol_table.define_builtin(22, interner.intern("merge"));
-        symbol_table.define_builtin(23, interner.intern("abs"));
-        symbol_table.define_builtin(24, interner.intern("min"));
-        symbol_table.define_builtin(25, interner.intern("max"));
-        // Type Checking Builtins (5.5)
-        symbol_table.define_builtin(26, interner.intern("type_of"));
-        symbol_table.define_builtin(27, interner.intern("is_int"));
-        symbol_table.define_builtin(28, interner.intern("is_float"));
-        symbol_table.define_builtin(29, interner.intern("is_string"));
-        symbol_table.define_builtin(30, interner.intern("is_bool"));
-        symbol_table.define_builtin(31, interner.intern("is_array"));
-        symbol_table.define_builtin(32, interner.intern("is_hash"));
-        symbol_table.define_builtin(33, interner.intern("is_none"));
-        symbol_table.define_builtin(34, interner.intern("is_some"));
+        symbol_table.define_builtin(17, interner.intern("starts_with"));
+        symbol_table.define_builtin(18, interner.intern("ends_with"));
+        symbol_table.define_builtin(19, interner.intern("replace"));
+        symbol_table.define_builtin(20, interner.intern("chars"));
+        symbol_table.define_builtin(21, interner.intern("substring"));
+        symbol_table.define_builtin(22, interner.intern("keys"));
+        symbol_table.define_builtin(23, interner.intern("values"));
+        symbol_table.define_builtin(24, interner.intern("has_key"));
+        symbol_table.define_builtin(25, interner.intern("merge"));
+        symbol_table.define_builtin(26, interner.intern("delete"));
+        symbol_table.define_builtin(27, interner.intern("abs"));
+        symbol_table.define_builtin(28, interner.intern("min"));
+        symbol_table.define_builtin(29, interner.intern("max"));
+        // Type Checking Builtins
+        symbol_table.define_builtin(30, interner.intern("type_of"));
+        symbol_table.define_builtin(31, interner.intern("is_int"));
+        symbol_table.define_builtin(32, interner.intern("is_float"));
+        symbol_table.define_builtin(33, interner.intern("is_string"));
+        symbol_table.define_builtin(34, interner.intern("is_bool"));
+        symbol_table.define_builtin(35, interner.intern("is_array"));
+        symbol_table.define_builtin(36, interner.intern("is_hash"));
+        symbol_table.define_builtin(37, interner.intern("is_none"));
+        symbol_table.define_builtin(38, interner.intern("is_some"));
+        // Higher-order builtins
+        symbol_table.define_builtin(39, interner.intern("map"));
+        symbol_table.define_builtin(40, interner.intern("filter"));
+        symbol_table.define_builtin(41, interner.intern("fold"));
 
         Self {
             constants: Vec::new(),
