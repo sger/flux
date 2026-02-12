@@ -24,12 +24,16 @@ use type_check::{
 };
 
 fn builtin_print(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    for arg in args {
-        match &arg {
-            Value::String(s) => println!("{}", s), // Raw string
-            _ => println!("{}", arg),
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 {
+            print!(" ");
+        }
+        match arg {
+            Value::String(s) => print!("{}", s), // Raw string
+            _ => print!("{}", arg),
         }
     }
+    println!();
     Ok(Value::None)
 }
 

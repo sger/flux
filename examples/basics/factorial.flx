@@ -1,0 +1,11 @@
+// factorial.flx
+fun factorial(n, acc) {
+    if n == 0 {
+        acc;
+    } else {
+        factorial(n - 1, n * acc);  // Tail call!
+    }
+}
+
+let result = !!(2 + 3);  // Will be optimized
+print("Result:", result);

@@ -1,13 +1,17 @@
 use flux::{
     ast::constant_fold,
-    syntax::{expression::Expression, lexer::Lexer, parser::Parser},
+    syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement},
 };
 
 fn parse_and_fold(input: &str) -> Expression {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
+    assert!(
+        parser.errors.is_empty(),
+        "Parse errors: {:?}",
+        parser.errors
+    );
 
     let folded = constant_fold(program);
     assert_eq!(folded.statements.len(), 1, "Expected single statement");
@@ -16,6 +20,21 @@ fn parse_and_fold(input: &str) -> Expression {
         flux::syntax::statement::Statement::Expression { expression, .. } => expression.clone(),
         _ => panic!("Expected expression statement"),
     }
+}
+
+fn parse_and_fold_statement(input: &str) -> Statement {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "Parse errors: {:?}",
+        parser.errors
+    );
+
+    let folded = constant_fold(program);
+    assert_eq!(folded.statements.len(), 1, "Expected single statement");
+    folded.statements[0].clone()
 }
 
 #[test]
@@ -70,6 +89,25 @@ fn skips_division_by_zero() {
     match result {
         Expression::Infix { .. } => {} // Still an infix expression
         _ => panic!("Expected Infix (not folded), got {:?}", result),
+    }
+}
+
+#[test]
+fn skip_modulo_by_zero() {
+    let result = parse_and_fold("10 % 0");
+
+    match result {
+        Expression::Infix { .. } => {} // Still an infix expression
+        _ => panic!("Expected Infix (not folded), got {:?}", result),
+    }
+}
+
+#[test]
+fn fold_nested_integer_arithmetic() {
+    // (3 * 4) + 1 → 12 + 1 → 13 (bottom-up)
+    match parse_and_fold("3 * 4 + 1;") {
+        Expression::Integer { value, .. } => assert_eq!(value, 13),
+        other => panic!("expected Integer, got {:?}", other),
     }
 }
 
@@ -192,5 +230,91 @@ fn folds_complex_expression() {
     match result {
         Expression::Integer { value, .. } => assert_eq!(value, 20),
         _ => panic!("Expected Integer(20), got {:?}", result),
+    }
+}
+
+#[test]
+fn fold_boolean_and() {
+    match parse_and_fold("true && false;") {
+        Expression::Boolean { value, .. } => assert!(!value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_boolean_or() {
+    match parse_and_fold("false || true;") {
+        Expression::Boolean { value, .. } => assert!(value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_integer_less_than() {
+    match parse_and_fold("1 < 2;") {
+        Expression::Boolean { value, .. } => assert!(value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_integer_equality() {
+    match parse_and_fold("3 == 3;") {
+        Expression::Boolean { value, .. } => assert!(value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_integer_inequality() {
+    match parse_and_fold("3 != 4;") {
+        Expression::Boolean { value, .. } => assert!(value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_negate_integer() {
+    match parse_and_fold("-42;") {
+        Expression::Integer { value, .. } => assert_eq!(value, -42),
+        other => panic!("expected Integer, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_negate_float() {
+    match parse_and_fold("-2.5;") {
+        Expression::Float { value, .. } => assert!((value - (-2.5)).abs() < f64::EPSILON),
+        other => panic!("expected Float, got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_not_boolean() {
+    match parse_and_fold("!true;") {
+        Expression::Boolean { value, .. } => assert!(!value),
+        other => panic!("expected Boolean, got {:?}", other),
+    }
+}
+
+#[test]
+fn preserves_identifier_plus_literal() {
+    // x + 1 cannot be folded
+    match parse_and_fold("x + 1;") {
+        Expression::Infix { .. } => {}
+        other => panic!("expected Infix (preserved), got {:?}", other),
+    }
+}
+
+#[test]
+fn fold_inside_let_binding() {
+    let result = parse_and_fold_statement("let x = 1 + 2;");
+
+    match result {
+        Statement::Let { value, .. } => match value {
+            Expression::Integer { value, .. } => assert_eq!(value, 3),
+            other => panic!("expected Integer, got {:?}", other),
+        },
+        other => panic!("expected Let, got {:?}", other),
     }
 }

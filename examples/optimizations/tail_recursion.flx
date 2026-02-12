@@ -1,0 +1,58 @@
+// Tail Recursion Examples
+// Shows the difference between tail-recursive and non-tail-recursive functions
+
+// ✓ TAIL RECURSIVE - Last operation is the recursive call
+fun factorial_tail(n, acc) {
+    if n == 0 {
+        acc;
+    } else {
+        factorial_tail(n - 1, n * acc);  // TAIL CALL (last operation)
+    }
+}
+
+// ✓ TAIL RECURSIVE - Both branches end with tail calls or returns
+fun fibonacci_tail(n, a, b) {
+    if n == 0 {
+        a;  // Return value
+    } else {
+        if n == 1 {
+            b;  // Return value
+        } else {
+            fibonacci_tail(n - 1, b, a + b);  // TAIL CALL
+        }
+    }
+}
+
+// ✗ NOT TAIL RECURSIVE - Multiplication happens AFTER the call
+fun factorial_non_tail(n) {
+    if n == 0 {
+        1;
+    } else {
+        n * factorial_non_tail(n - 1);  // NOT tail (multiplication after)
+    }
+}
+
+// ✗ NOT TAIL RECURSIVE - Addition happens AFTER the call
+fun fibonacci_non_tail(n) {
+    if n <= 1 {
+        n;
+    } else {
+        fibonacci_non_tail(n - 1) + fibonacci_non_tail(n - 2);  // NOT tail
+    }
+}
+
+// Test the functions
+let result1 = factorial_tail(5, 1);
+let result2 = fibonacci_tail(10, 0, 1);
+
+print("Factorial(5):", result1);
+print("Fibonacci(10):", result2);
+
+// Try the analysis:
+// cargo run -- analyze-tail-calls examples/optimizations/tail_recursion.flx
+//
+// Output will show:
+//   ✓ factorial_tail - TAIL CALL FOUND
+//   ✓ fibonacci_tail - TAIL CALL FOUND
+//   ✗ factorial_non_tail - NOT in tail position
+//   ✗ fibonacci_non_tail - NOT in tail position

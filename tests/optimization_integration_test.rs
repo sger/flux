@@ -23,7 +23,7 @@ fn constant_folding_reduces_constants() {
 
     // Compile with optimization
     let mut compiler_opt = Compiler::new_with_interner("test.flx", interner);
-    compiler_opt.compile_with_opts(&program, true).unwrap();
+    compiler_opt.compile_with_opts(&program, true, false).unwrap();
     let bytecode_opt = compiler_opt.bytecode();
 
     // Optimized version should have fewer constants
@@ -77,7 +77,7 @@ fn compile_with_opts_false_is_same_as_compile() {
     let bc1 = compiler1.bytecode();
 
     let mut compiler2 = Compiler::new_with_interner("test.flx", interner);
-    compiler2.compile_with_opts(&program, false).unwrap();
+    compiler2.compile_with_opts(&program, false, false).unwrap();
     let bc2 = compiler2.bytecode();
 
     // Should produce identical bytecode
