@@ -2,7 +2,7 @@ use super::builders::DiagnosticBuilder;
 use super::rendering;
 use super::types::*;
 use super::{ErrorCode, ErrorType, format_message};
-use crate::syntax::position::{Position, Span};
+use crate::diagnostics::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::{env, fs};
@@ -28,16 +28,16 @@ pub struct Diagnostic {
 #[macro_export]
 macro_rules! ice {
     ($msg:expr) => {{
-        $crate::syntax::diagnostics::Diagnostic {
-            severity: $crate::syntax::diagnostics::Severity::Error,
+        $crate::diagnostics::Diagnostic {
+            severity: $crate::diagnostics::Severity::Error,
             title: "INTERNAL COMPILER ERROR".to_string(),
             code: None,
-            error_type: Some($crate::syntax::diagnostics::ErrorType::Compiler),
+            error_type: Some($crate::diagnostics::ErrorType::Compiler),
             message: Some($msg.to_string()),
             file: None,
             span: None,
             labels: Vec::new(),
-            hints: vec![$crate::syntax::diagnostics::Hint::text(format!(
+            hints: vec![$crate::diagnostics::Hint::text(format!(
                 "{}:{} ({})",
                 file!(),
                 line!(),

@@ -1,3 +1,5 @@
+use crate::diagnostics::position::Span;
+
 use super::builders::DiagnosticBuilder;
 use super::types::{ErrorCode, ErrorType};
 
@@ -185,7 +187,6 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
 
 use super::diagnostic::Diagnostic;
 use super::registry::diag_enhanced;
-use crate::syntax::position::Span;
 
 /// Create an "invalid operation" runtime error
 pub fn invalid_operation(

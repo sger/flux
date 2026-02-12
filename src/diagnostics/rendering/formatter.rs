@@ -1,6 +1,6 @@
 //! Text formatting utilities for diagnostics
 
-use crate::syntax::diagnostics::Diagnostic;
+use crate::diagnostics::Diagnostic;
 use std::borrow::Cow;
 
 /// Render multiple diagnostics with double newline separation

@@ -656,7 +656,7 @@ pub const DUPLICATE_PATTERN_BINDING: ErrorCode = ErrorCode {
 
 use super::diagnostic::Diagnostic;
 use super::registry::diag_enhanced;
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 // Parser Errors
 

@@ -1,6 +1,6 @@
 //! Related diagnostic types for cross-file references
 
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 /// Kind of related diagnostic
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

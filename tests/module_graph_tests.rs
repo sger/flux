@@ -6,10 +6,8 @@ use std::{
 
 use flux::{
     bytecode::compiler::Compiler,
-    syntax::{
-        diagnostics::Diagnostic, interner::Interner, lexer::Lexer, module_graph::ModuleGraph,
-        parser::Parser, program::Program,
-    },
+    diagnostics::Diagnostic,
+    syntax::{interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser, program::Program},
 };
 
 fn temp_root(label: &str) -> PathBuf {
@@ -43,7 +41,7 @@ fn parse_program(source: &str) -> (Program, Interner) {
     (program, interner)
 }
 
-fn first_code(diags: Vec<flux::syntax::diagnostics::Diagnostic>) -> String {
+fn first_code(diags: Vec<flux::diagnostics::Diagnostic>) -> String {
     diags
         .first()
         .and_then(|d| d.code().map(|s| s.to_string()))

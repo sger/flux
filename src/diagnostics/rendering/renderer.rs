@@ -4,11 +4,11 @@
 //! diagnostics, including headers, messages, locations, source snippets, suggestions,
 //! hints, and related diagnostics.
 
-use crate::syntax::diagnostics::types::{
+use crate::diagnostics::position::Span;
+use crate::diagnostics::types::{
     ErrorType, Hint, HintChain, HintKind, InlineSuggestion, RelatedDiagnostic, RelatedKind,
     Severity,
 };
-use crate::syntax::position::Span;
 use std::borrow::Cow;
 use std::collections::HashMap;
 

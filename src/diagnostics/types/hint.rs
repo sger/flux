@@ -1,6 +1,6 @@
 //! Hint types for providing guidance and additional context in diagnostics
 
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 /// Kind of hint to display
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

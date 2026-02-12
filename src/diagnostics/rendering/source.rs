@@ -4,8 +4,8 @@
 //! including carets, labels, and inline suggestions.
 
 use super::colors::Colors;
-use crate::syntax::diagnostics::types::{Label, LabelStyle};
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
+use crate::diagnostics::types::{Label, LabelStyle};
 
 /// Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;

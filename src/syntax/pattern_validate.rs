@@ -1,15 +1,18 @@
 use std::collections::HashSet;
 
-use crate::syntax::{
-    block::Block,
+use crate::{
     diagnostics::{
-        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH, NON_EXHAUSTIVE_MATCH,
+        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH,
+        NON_EXHAUSTIVE_MATCH, position::Span,
     },
-    expression::{Expression, MatchArm, Pattern, StringPart},
-    interner::Interner,
-    program::Program,
-    statement::Statement,
-    symbol::Symbol,
+    syntax::{
+        block::Block,
+        expression::{Expression, MatchArm, Pattern, StringPart},
+        interner::Interner,
+        program::Program,
+        statement::Statement,
+        symbol::Symbol,
+    },
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -176,7 +179,7 @@ fn validate_expression_patterns(
 
 fn validate_match_arms(
     arms: &[MatchArm],
-    match_span: crate::syntax::position::Span,
+    match_span: Span,
     ctx: &PatternValidationContext<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {

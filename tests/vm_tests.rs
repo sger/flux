@@ -5,7 +5,7 @@ use flux::bytecode::{
 };
 use flux::runtime::value::Value;
 use flux::runtime::vm::VM;
-use flux::syntax::diagnostics::render_diagnostics;
+use flux::diagnostics::render_diagnostics;
 use flux::syntax::lexer::Lexer;
 use flux::syntax::parser::Parser;
 

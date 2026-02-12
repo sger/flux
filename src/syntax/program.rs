@@ -1,6 +1,9 @@
 use std::fmt;
 
-use crate::syntax::{interner::Interner, position::Span, statement::Statement};
+use crate::{
+    diagnostics::position::Span,
+    syntax::{interner::Interner, statement::Statement},
+};
 
 #[derive(Debug, Clone)]
 pub struct Program {

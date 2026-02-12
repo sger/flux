@@ -7,7 +7,7 @@ use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
     RelatedKind, Severity, render_display_path,
 };
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;

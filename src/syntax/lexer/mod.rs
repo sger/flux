@@ -16,8 +16,8 @@ use std::rc::Rc;
 use reader::CharReader;
 use state::LexerState;
 
+use crate::diagnostics::position::Position;
 use crate::syntax::interner::Interner;
-use crate::syntax::position::Position;
 use crate::syntax::symbol::Symbol;
 use crate::syntax::token::Token;
 use crate::syntax::token_type::{TokenType, lookup_ident};

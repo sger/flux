@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use flux::diagnostics::position::Position;
     use flux::syntax::{
         expression::Expression, interner::Interner, lexer::Lexer, parser::Parser,
-        position::Position, program::Program, statement::Statement,
+        program::Program, statement::Statement,
     };
 
     const SEMICOLON_VERIFICATION_PROGRAM: &str = r#"fun f(a, b, c, d) {

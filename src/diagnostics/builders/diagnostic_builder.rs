@@ -3,10 +3,8 @@
 //! This trait provides a fluent API for constructing diagnostics. It's implemented
 //! by the Diagnostic struct and can be extended for custom diagnostic types.
 
-use crate::syntax::diagnostics::{
-    ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic,
-};
-use crate::syntax::position::{Position, Span};
+use crate::diagnostics::position::{Position, Span};
+use crate::diagnostics::{ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic};
 
 /// Builder trait for constructing diagnostics with a fluent API
 ///
@@ -16,8 +14,8 @@ use crate::syntax::position::{Position, Span};
 ///
 /// # Example
 /// ```
-/// use flux::syntax::diagnostics::{diag_enhanced, UNEXPECTED_TOKEN, DiagnosticBuilder};
-/// # use flux::syntax::position::{Position, Span};
+/// use flux::diagnostics::{diag_enhanced, UNEXPECTED_TOKEN, DiagnosticBuilder};
+/// # use flux::diagnostics::position::{Position, Span};
 /// # let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 ///
 /// let diag = diag_enhanced(&UNEXPECTED_TOKEN)

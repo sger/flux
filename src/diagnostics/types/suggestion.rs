@@ -1,6 +1,6 @@
 //! Inline suggestions for code fixes
 
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 /// An inline suggestion that shows how to fix the code
 #[derive(Debug, Clone, PartialEq, Eq)]

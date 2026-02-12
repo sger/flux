@@ -9,13 +9,10 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
+    diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
     runtime::{value::Value, vm::VM},
     syntax::{
-        diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
-        formatter::format_source,
-        lexer::Lexer,
-        linter::Linter,
-        module_graph::ModuleGraph,
+        formatter::format_source, lexer::Lexer, linter::Linter, module_graph::ModuleGraph,
         parser::Parser,
     },
 };

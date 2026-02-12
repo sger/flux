@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use crate::syntax::diagnostics::{
+use crate::diagnostics::position::{Position, Span};
+use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, NOT_A_FUNCTION, Severity,
-    diag_enhanced, format_message, format_message_named, lookup_error_code,
+    diag_enhanced, format_message, format_message_named, lookup_error_code, render_display_path,
 };
-use crate::syntax::position::{Position, Span};
 
 #[test]
 fn format_message_replaces_placeholders() {
@@ -59,7 +59,7 @@ fn render_display_path_strips_cwd_prefix() {
     path.push("main.rs");
 
     let path_str = path.to_string_lossy();
-    let display = crate::syntax::diagnostics::render_display_path(path_str.as_ref());
+    let display = render_display_path(path_str.as_ref());
 
     assert_eq!(display.as_ref(), "src/main.rs");
 }

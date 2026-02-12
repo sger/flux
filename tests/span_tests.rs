@@ -1,4 +1,5 @@
-use flux::syntax::{lexer::Lexer, parser::Parser, position::Position};
+use flux::diagnostics::position::Position;
+use flux::syntax::{lexer::Lexer, parser::Parser};
 
 #[test]
 fn span_covers_simple_infix() {

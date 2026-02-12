@@ -1,10 +1,7 @@
 mod diagnostics_env;
 
-use flux::syntax::{
-    diagnostics::{
-        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic,
-        render_diagnostics_multi,
-    },
+use flux::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic, render_diagnostics_multi,
     position::{Position, Span},
 };
 
