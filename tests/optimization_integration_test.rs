@@ -23,7 +23,9 @@ fn constant_folding_reduces_constants() {
 
     // Compile with optimization
     let mut compiler_opt = Compiler::new_with_interner("test.flx", interner);
-    compiler_opt.compile_with_opts(&program, true, false).unwrap();
+    compiler_opt
+        .compile_with_opts(&program, true, false)
+        .unwrap();
     let bytecode_opt = compiler_opt.bytecode();
 
     // Optimized version should have fewer constants

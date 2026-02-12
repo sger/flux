@@ -43,7 +43,7 @@ fn desugars_double_negation() {
 
     // Should desugar to just: true
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, true),
+        Expression::Boolean { value, .. } => assert!(value),
         _ => panic!("Expected Boolean(true), got {:?}", result),
     }
 }
@@ -143,7 +143,7 @@ fn desugars_triple_negation() {
         } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
-                Expression::Boolean { value, .. } => assert_eq!(*value, false),
+                Expression::Boolean { value, .. } => assert!(!(*value)),
                 _ => panic!("Expected !false"),
             }
         }
@@ -213,7 +213,7 @@ fn does_not_desugar_single_negation() {
         } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
-                Expression::Boolean { value, .. } => assert_eq!(*value, true),
+                Expression::Boolean { value, .. } => assert!(*value),
                 _ => panic!("Expected Boolean"),
             }
         }
