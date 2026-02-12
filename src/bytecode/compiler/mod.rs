@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::collect_free_vars_in_program,
+    ast::{TailCall, collect_free_vars_in_program, find_tail_calls},
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
@@ -52,6 +52,8 @@ pub struct Compiler {
     pub(super) captured_local_indices: Vec<HashSet<usize>>,
     // Program-level free-variable analysis result for the latest compile pass.
     pub free_vars: HashSet<Symbol>,
+    // Program-level tail-position analysis result for the latest optimized compile pass.
+    pub tail_calls: Vec<TailCall>,
 }
 
 #[cfg(test)]
@@ -134,6 +136,7 @@ impl Compiler {
             function_param_counts: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
+            tail_calls: Vec::new(),
         }
     }
 
@@ -169,30 +172,53 @@ impl Compiler {
         self.interner.resolve(s)
     }
 
-    /// Compile with optional optimization passes.
+    /// Compile with optional optimization and analysis passes.
     ///
-    /// If `optimize` is true, applies the following transformations before compilation:
+    /// # Parameters
+    /// - `optimize`: If true, applies AST transformations (desugar, constant fold, rename)
+    /// - `analyze`: If true, collects analysis data (free vars, tail calls)
+    ///
+    /// # Transformations (when optimize=true)
     /// 1. Desugaring: Eliminates syntactic sugar (!!x → x, !(a==b) → a!=b)
     /// 2. Constant folding: Evaluates compile-time constants (2+3 → 5)
-    /// 3. Free-variable analysis: Collects free symbols on the transformed AST
+    /// 3. Rename pass: Applies identifier renaming map (currently identity/no-op)
     ///
-    /// This requires cloning the program.
+    /// # Analysis (when analyze=true)
+    /// 4. Free-variable analysis: Collects free symbols in the AST
+    /// 5. Tail-position analysis: Collects call expressions in tail position
+    ///
+    /// This requires cloning the program if optimize or analyze is enabled.
     pub fn compile_with_opts(
         &mut self,
         program: &Program,
         optimize: bool,
+        analyze: bool,
     ) -> Result<(), Vec<Diagnostic>> {
-        if optimize {
-            use crate::ast::{constant_fold, desugar};
-            // Apply transformations in order: desugar first, then constant fold
+        // Apply optimizations if requested
+        let program_to_compile = if optimize {
+            use crate::ast::{constant_fold, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold(desugared);
-            self.free_vars = collect_free_vars_in_program(&optimized);
-            self.compile(&optimized)
+            // Rename pass (currently no-op, reserved for future alpha-conversion)
+            rename(optimized, HashMap::new())
+        } else if analyze {
+            // Need to clone for analysis even without optimization
+            program.clone()
+        } else {
+            // Borrow directly if no transformations needed
+            program.clone()
+        };
+
+        // Collect analysis data if requested
+        if analyze {
+            self.free_vars = collect_free_vars_in_program(&program_to_compile);
+            self.tail_calls = find_tail_calls(&program_to_compile);
         } else {
             self.free_vars.clear();
-            self.compile(program)
+            self.tail_calls.clear();
         }
+
+        self.compile(&program_to_compile)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {

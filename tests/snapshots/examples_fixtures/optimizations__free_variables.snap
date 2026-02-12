@@ -1,0 +1,52 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/optimizations/free_variables.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `undefined_var`.
+
+  --> examples/optimizations/free_variables.flx:9:19
+  |
+9 | let result1 = x + undefined_var;
+  |                   ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let undefined_var = ...;
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `missing`.
+
+  --> examples/optimizations/free_variables.flx:16:21
+   |
+16 |     let c = a + b + missing;
+   |                     ^^^^^^^
+
+Hint:
+  Define it first: let missing = ...;
+
+
+Help:
+  Did you mean `is_int`?
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `unknown`.
+
+  --> examples/optimizations/free_variables.flx:28:5
+   |
+28 |     unknown + 1;
+   |     ^^^^^^^
+
+Hint:
+  Define it first: let unknown = ...;
+
+Found 3 errors.
+== stdout ==
+<not executed>
