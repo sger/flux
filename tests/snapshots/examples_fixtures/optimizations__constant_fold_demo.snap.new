@@ -1,0 +1,11 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/optimizations/constant_fold_demo.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

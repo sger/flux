@@ -1,6 +1,5 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/lint/complexity_warnings.flx
 == compile ==
