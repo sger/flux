@@ -133,7 +133,7 @@ fn folds_string_concatenation() {
 fn folds_boolean_and() {
     let result = parse_and_fold("true && false;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, false),
+        Expression::Boolean { value, .. } => assert!(!value),
         _ => panic!("Expected Boolean(false), got {:?}", result),
     }
 }
@@ -142,7 +142,7 @@ fn folds_boolean_and() {
 fn folds_boolean_or() {
     let result = parse_and_fold("true || false;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, true),
+        Expression::Boolean { value, .. } => assert!(value),
         _ => panic!("Expected Boolean(true), got {:?}", result),
     }
 }
@@ -151,7 +151,7 @@ fn folds_boolean_or() {
 fn folds_integer_comparison_equal() {
     let result = parse_and_fold("5 == 5;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, true),
+        Expression::Boolean { value, .. } => assert!(value),
         _ => panic!("Expected Boolean(true), got {:?}", result),
     }
 }
@@ -160,7 +160,7 @@ fn folds_integer_comparison_equal() {
 fn folds_integer_comparison_not_equal() {
     let result = parse_and_fold("5 != 3;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, true),
+        Expression::Boolean { value, .. } => assert!(value),
         _ => panic!("Expected Boolean(true), got {:?}", result),
     }
 }
@@ -169,7 +169,7 @@ fn folds_integer_comparison_not_equal() {
 fn folds_integer_comparison_less_than() {
     let result = parse_and_fold("3 < 5;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, true),
+        Expression::Boolean { value, .. } => assert!(value),
         _ => panic!("Expected Boolean(true), got {:?}", result),
     }
 }
@@ -185,10 +185,10 @@ fn folds_prefix_negation_integer() {
 
 #[test]
 fn folds_prefix_negation_float() {
-    let result = parse_and_fold("-3.14;");
+    let result = parse_and_fold("-3.15;");
     match result {
-        Expression::Float { value, .. } => assert!((value + 3.14).abs() < 0.0001),
-        _ => panic!("Expected Float(-3.14), got {:?}", result),
+        Expression::Float { value, .. } => assert!((value + 3.15).abs() < 0.0001),
+        _ => panic!("Expected Float(-3.15), got {:?}", result),
     }
 }
 
@@ -196,7 +196,7 @@ fn folds_prefix_negation_float() {
 fn folds_prefix_not_boolean() {
     let result = parse_and_fold("!true;");
     match result {
-        Expression::Boolean { value, .. } => assert_eq!(value, false),
+        Expression::Boolean { value, .. } => assert!(!value),
         _ => panic!("Expected Boolean(false), got {:?}", result),
     }
 }

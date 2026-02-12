@@ -7,7 +7,10 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     diagnostics::Diagnostic,
-    syntax::{interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser, program::Program},
+    syntax::{
+        interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
+        program::Program,
+    },
 };
 
 fn temp_root(label: &str) -> PathBuf {

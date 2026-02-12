@@ -20,12 +20,16 @@ fn compile_with_opts_applies_all_transformations() {
 
     // Compile WITHOUT optimization
     let mut compiler_no_opt = Compiler::new_with_interner("test.flx", interner.clone());
-    compiler_no_opt.compile_with_opts(&program, false, false).unwrap();
+    compiler_no_opt
+        .compile_with_opts(&program, false, false)
+        .unwrap();
     let bytecode_no_opt = compiler_no_opt.bytecode();
 
     // Compile WITH optimization AND analysis
     let mut compiler_opt = Compiler::new_with_interner("test.flx", interner);
-    compiler_opt.compile_with_opts(&program, true, true).unwrap();
+    compiler_opt
+        .compile_with_opts(&program, true, true)
+        .unwrap();
     let bytecode_opt = compiler_opt.bytecode();
 
     // 1. Constant folding should reduce constants
@@ -107,9 +111,10 @@ fn optimization_pipeline_order_is_correct() {
     // The bytecode should just be OpFalse
 
     // Check that we don't have the intermediate values (2, 2) as constants
-    let has_integer_2 = bytecode.constants.iter().any(|c| {
-        matches!(c, flux::runtime::value::Value::Integer(2))
-    });
+    let has_integer_2 = bytecode
+        .constants
+        .iter()
+        .any(|c| matches!(c, flux::runtime::value::Value::Integer(2)));
 
     assert!(
         !has_integer_2,

@@ -41,7 +41,11 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
         (program, interner)
     }
