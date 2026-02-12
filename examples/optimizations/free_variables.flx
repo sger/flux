@@ -1,0 +1,44 @@
+// Free Variables Example
+// Demonstrates variables that are referenced but not defined
+
+// ✓ DEFINED - These variables are properly defined
+let x = 10;
+let y = 20;
+
+// ✗ FREE VARIABLE - 'undefined_var' is not defined anywhere
+let result1 = x + undefined_var;
+
+// ✓ DEFINED - 'a' is a parameter
+fun example_function(a) {
+    let b = 5;
+
+    // ✗ FREE VARIABLE - 'missing' is not defined
+    let c = a + b + missing;
+
+    c;
+}
+
+// ✓ CLOSURE - 'x' is from outer scope (not free, it's captured)
+let closure = fun() {
+    x + y;  // x and y are defined in outer scope
+};
+
+// ✗ FREE VARIABLE - 'unknown' is not defined
+fun another_example() {
+    unknown + 1;
+}
+
+// Try the analysis:
+// cargo run -- analyze-free-vars examples/optimizations/free_variables.flx
+//
+// Expected output:
+//   Free variables found:
+//     • undefined_var
+//     • missing
+//     • unknown
+//
+// Note: The compiler will also catch these as E004: UNDEFINED VARIABLE errors
+// But the analysis tool shows ALL free variables at once, which is useful for:
+//   - Understanding closure captures
+//   - Finding missing imports
+//   - Code review

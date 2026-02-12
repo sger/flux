@@ -4,6 +4,7 @@ use std::{
 };
 
 use flux::{
+    ast::{collect_free_vars_in_program, find_tail_calls},
     bytecode::{
         bytecode_cache::{BytecodeCache, hash_bytes, hash_cache_key, hash_file},
         compiler::Compiler,
@@ -25,6 +26,7 @@ fn main() {
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
+    let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -43,6 +45,9 @@ fn main() {
     }
     if enable_optimize {
         args.retain(|arg| arg != "--optimize" && arg != "-O");
+    }
+    if enable_analyze {
+        args.retain(|arg| arg != "--analyze" && arg != "-A");
     }
     let max_errors = match extract_max_errors(&mut args) {
         Some(value) => value,
@@ -66,6 +71,7 @@ fn main() {
             no_cache,
             roots_only,
             enable_optimize,
+            enable_analyze,
             max_errors,
             &roots,
         );
@@ -94,6 +100,7 @@ fn main() {
                 no_cache,
                 roots_only,
                 enable_optimize,
+                enable_analyze,
                 max_errors,
                 &roots,
             )
@@ -114,7 +121,7 @@ fn main() {
                 eprintln!("Usage: flux bytecode <file.flx>");
                 return;
             }
-            show_bytecode(&args[2], enable_optimize, max_errors);
+            show_bytecode(&args[2], enable_optimize, enable_analyze, max_errors);
         }
         "lint" => {
             if args.len() < 3 {
@@ -150,6 +157,20 @@ fn main() {
             }
             show_cache_info_file(&args[2]);
         }
+        "analyze-free-vars" | "free-vars" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux analyze-free-vars <file.flx>");
+                return;
+            }
+            analyze_free_vars(&args[2], max_errors);
+        }
+        "analyze-tail-calls" | "analyze-tails-calls" | "tail-calls" => {
+            if args.len() < 3 {
+                eprintln!("Usage: flux analyze-tail-calls <file.flx>");
+                return;
+            }
+            analyze_tail_calls(&args[2], max_errors);
+        }
         _ => {}
     }
 }
@@ -168,6 +189,8 @@ Usage:
   flux fmt [--check] <file.flx>
   flux cache-info <file.flx>
   flux cache-info-file <file.fxc>
+  flux analyze-free-vars <file.flx>
+  flux analyze-tail-calls <file.flx>
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 
@@ -176,11 +199,17 @@ Flags:
   --trace            Print VM instruction trace
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
-  --optimize, -O     Enable constant folding optimization
+  --optimize, -O     Enable AST optimizations (desugar + constant fold)
+  --analyze, -A      Enable analysis passes (free vars + tail calls)
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
-  --roots-only  Use only explicitly provided --root values
-  -h, --help  Show this help message
+  --roots-only       Use only explicitly provided --root values
+  -h, --help         Show this help message
+
+Optimization & Analysis:
+  --optimize         Apply transformations (faster bytecode)
+  --analyze          Collect analysis data (free vars, tail calls)
+  -O -A              Both optimization and analysis
 "
     );
 }
@@ -194,6 +223,7 @@ fn run_file(
     no_cache: bool,
     roots_only: bool,
     enable_optimize: bool,
+    enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
 ) {
@@ -264,7 +294,7 @@ fn run_file(
             let mut compile_errors: Vec<Diagnostic> = Vec::new();
             for node in graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
-                if let Err(mut diags) = compiler.compile_with_opts(&node.program, enable_optimize) {
+                if let Err(mut diags) = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze) {
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -434,7 +464,7 @@ fn show_tokens(path: &str) {
     }
 }
 
-fn show_bytecode(path: &str, enable_optimize: bool, max_errors: usize) {
+fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_errors: usize) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -453,7 +483,7 @@ fn show_bytecode(path: &str, enable_optimize: bool, max_errors: usize) {
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
-            if let Err(diags) = compiler.compile_with_opts(&program, enable_optimize) {
+            if let Err(diags) = compiler.compile_with_opts(&program, enable_optimize, enable_analyze) {
                 let report = DiagnosticsAggregator::new(&diags)
                     .with_default_source(path, source.as_str())
                     .with_file_headers(false)
@@ -536,6 +566,94 @@ fn fmt_file(path: &str, check: bool) {
 
             if let Err(err) = fs::write(path, formatted) {
                 eprintln!("Error writing {}: {}", path, err);
+            }
+        }
+        Err(e) => eprintln!("Error reading {}: {}", path, e),
+    }
+}
+
+fn analyze_free_vars(path: &str, max_errors: usize) {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+
+            if !parser.errors.is_empty() {
+                let report = DiagnosticsAggregator::new(&parser.errors)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
+                std::process::exit(1);
+            }
+
+            let interner = parser.take_interner();
+            let free_vars = collect_free_vars_in_program(&program);
+
+            if free_vars.is_empty() {
+                println!("✓ No free variables found in {}", path);
+            } else {
+                println!("Free variables in {}:", path);
+                println!("{}", "─".repeat(50));
+                let mut vars: Vec<_> = free_vars
+                    .iter()
+                    .map(|sym| interner.resolve(*sym))
+                    .collect();
+                vars.sort();
+                for var in vars {
+                    println!("  • {}", var);
+                }
+                println!("\nTotal: {} free variable(s)", free_vars.len());
+                println!("\nℹ️  Free variables are identifiers that are referenced but not defined.");
+                println!("   This may indicate undefined variables or missing imports.");
+            }
+        }
+        Err(e) => eprintln!("Error reading {}: {}", path, e),
+    }
+}
+
+fn analyze_tail_calls(path: &str, max_errors: usize) {
+    match fs::read_to_string(path) {
+        Ok(source) => {
+            let lexer = Lexer::new(&source);
+            let mut parser = Parser::new(lexer);
+            let program = parser.parse_program();
+
+            if !parser.errors.is_empty() {
+                let report = DiagnosticsAggregator::new(&parser.errors)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
+                std::process::exit(1);
+            }
+
+            let tail_calls = find_tail_calls(&program);
+
+            if tail_calls.is_empty() {
+                println!("✓ No tail calls found in {}", path);
+                println!("\nℹ️  Tail calls are function calls in tail position that can be optimized.");
+            } else {
+                println!("Tail calls in {}:", path);
+                println!("{}", "─".repeat(50));
+
+                // Group by line
+                let lines: Vec<_> = source.lines().collect();
+                for (idx, call) in tail_calls.iter().enumerate() {
+                    let line_num = call.span.start.line;
+                    let line_text = if line_num > 0 && line_num <= lines.len() {
+                        lines[line_num - 1].trim()
+                    } else {
+                        "<unknown>"
+                    };
+
+                    println!("  {}. Line {}: {}", idx + 1, line_num, line_text);
+                }
+
+                println!("\nTotal: {} tail call(s)", tail_calls.len());
+                println!("\n✓ These calls are eligible for tail call optimization (TCO).");
+                println!("  The Flux compiler automatically optimizes tail calls to avoid stack overflow.");
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),

@@ -69,7 +69,7 @@ let f = fun() { x + y; };
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let _ = compiler.compile_with_opts(&program, true);
+    let _ = compiler.compile_with_opts(&program, true, true);
 
     let x = compiler.interner.intern("x");
     let y = compiler.interner.intern("y");
@@ -82,6 +82,22 @@ let f = fun() { x + y; };
 fn compile_with_opts_skips_free_var_collection_without_optimization() {
     let (program, interner) = parse_program("let f = fun() { missing; };");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let _ = compiler.compile_with_opts(&program, false);
+    let _ = compiler.compile_with_opts(&program, false, false);
     assert!(compiler.free_vars.is_empty());
+}
+
+#[test]
+fn compile_with_opts_collects_tail_calls_when_optimized() {
+    let (program, interner) = parse_program("fun f(n) { f(n - 1); }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, true, true).unwrap();
+    assert_eq!(compiler.tail_calls.len(), 1);
+}
+
+#[test]
+fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
+    let (program, interner) = parse_program("fun f(n) { f(n - 1); }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, false, false).unwrap();
+    assert!(compiler.tail_calls.is_empty());
 }
