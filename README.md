@@ -160,6 +160,46 @@ cargo run -- cache-info path/to/file.flx
 cargo run -- cache-info-file path/to/file.fxc
 ```
 
+## VS Code Syntax Highlighting (.flx)
+
+A local VS Code extension is included at `tools/vscode-flux`.
+
+Build the VSIX package:
+
+```bash
+python3 tools/vscode-flux/scripts/build-vsix.py
+```
+
+This generates:
+
+`tools/vscode-flux/dist/flux-language-0.0.1.vsix`
+
+Install it in VS Code:
+
+1. Open Extensions panel.
+2. Click `...` (top-right).
+3. Select `Install from VSIX...`.
+4. Choose `tools/vscode-flux/dist/flux-language-0.0.1.vsix`.
+5. Run `Developer: Reload Window`.
+
+Notes:
+- WSL/Remote: install in the remote extension host (`WSL: <distro>`), not only local Windows host.
+- macOS: same VSIX works unchanged.
+
+## Zed Syntax Highlighting (.flx)
+
+A starter Zed dev extension is included at `tools/zed-flux`.
+
+Install it in Zed:
+
+1. Open Command Palette.
+2. Run `Extensions: Install Dev Extension`.
+3. Select `tools/zed-flux`.
+4. Open a `.flx` file (or set language mode to `Flux` once).
+
+This starter currently uses Zed's built-in JavaScript grammar for best-effort highlighting.
+For full accuracy, a dedicated `tree-sitter-flux` grammar should be added later.
+
 ## Running Examples
 
 Use the helper script to run any example with the right module roots:
