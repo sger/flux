@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    ast::collect_free_vars_in_program,
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
@@ -49,6 +50,8 @@ pub struct Compiler {
     pub(super) function_param_counts: Vec<usize>,
     // For each active function scope track local indexes captured by nested closures.
     pub(super) captured_local_indices: Vec<HashSet<usize>>,
+    // Program-level free-variable analysis result for the latest compile pass.
+    pub free_vars: HashSet<Symbol>,
 }
 
 #[cfg(test)]
@@ -130,6 +133,7 @@ impl Compiler {
             in_tail_position: false,
             function_param_counts: Vec::new(),
             captured_local_indices: Vec::new(),
+            free_vars: HashSet::new(),
         }
     }
 
@@ -170,6 +174,7 @@ impl Compiler {
     /// If `optimize` is true, applies the following transformations before compilation:
     /// 1. Desugaring: Eliminates syntactic sugar (!!x → x, !(a==b) → a!=b)
     /// 2. Constant folding: Evaluates compile-time constants (2+3 → 5)
+    /// 3. Free-variable analysis: Collects free symbols on the transformed AST
     ///
     /// This requires cloning the program.
     pub fn compile_with_opts(
@@ -182,8 +187,10 @@ impl Compiler {
             // Apply transformations in order: desugar first, then constant fold
             let desugared = desugar(program.clone());
             let optimized = constant_fold(desugared);
+            self.free_vars = collect_free_vars_in_program(&optimized);
             self.compile(&optimized)
         } else {
+            self.free_vars.clear();
             self.compile(program)
         }
     }

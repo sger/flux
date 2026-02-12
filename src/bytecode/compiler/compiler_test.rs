@@ -59,3 +59,29 @@ fn compile_function_decl_emits_function_constant() {
             .any(|obj| matches!(obj, Value::Function(_)))
     );
 }
+
+#[test]
+fn compile_with_opts_collects_program_free_vars_when_optimized() {
+    let (program, interner) = parse_program(
+        r#"
+let x = 1;
+let f = fun() { x + y; };
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let _ = compiler.compile_with_opts(&program, true);
+
+    let x = compiler.interner.intern("x");
+    let y = compiler.interner.intern("y");
+
+    assert!(compiler.free_vars.contains(&y));
+    assert!(!compiler.free_vars.contains(&x));
+}
+
+#[test]
+fn compile_with_opts_skips_free_var_collection_without_optimization() {
+    let (program, interner) = parse_program("let f = fun() { missing; };");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let _ = compiler.compile_with_opts(&program, false);
+    assert!(compiler.free_vars.is_empty());
+}
