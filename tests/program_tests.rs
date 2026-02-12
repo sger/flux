@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use flux::diagnostics::position::Span;
     use flux::syntax::{
-        expression::Expression, interner::Interner, position::Span, program::Program,
-        statement::Statement,
+        expression::Expression, interner::Interner, program::Program, statement::Statement,
     };
 
     #[test]

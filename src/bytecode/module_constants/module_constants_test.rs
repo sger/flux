@@ -4,14 +4,9 @@ use crate::{
     bytecode::module_constants::{
         ConstEvalError, analyze_module_constants, eval_const_expr, topological_sort_constants,
     },
+    diagnostics::position::{Position, Span},
     runtime::value::Value,
-    syntax::{
-        block::Block,
-        expression::Expression,
-        interner::Interner,
-        position::{Position, Span},
-        statement::Statement,
-    },
+    syntax::{block::Block, expression::Expression, interner::Interner, statement::Statement},
 };
 
 fn pos(line: usize, column: usize) -> Position {

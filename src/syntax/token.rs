@@ -1,11 +1,11 @@
 use std::fmt;
 use std::rc::Rc;
 
+use crate::diagnostics::position::{Position, Span};
 use crate::syntax::interner::Interner;
 use crate::syntax::lexeme::Lexeme;
 use crate::syntax::symbol::Symbol;
 
-use super::position::{Position, Span};
 use super::token_type::TokenType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,7 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::syntax::{expression::Expression, symbol::Symbol};
+use crate::{
+    ast::{Visitor, visit},
+    syntax::{expression::Expression, symbol::Symbol},
+};
 
 /// Find all constant references in an expression.
 ///
@@ -11,44 +14,31 @@ pub fn find_constant_refs(
     expression: &Expression,
     known_constants: &HashSet<Symbol>,
 ) -> Vec<Symbol> {
-    let mut refs = HashSet::new();
-    collect_constant_refs(expression, known_constants, &mut refs);
-    refs.into_iter().collect()
+    let mut collector = ConstRefCollector {
+        known_constants,
+        refs: HashSet::new(),
+    };
+    collector.visit_expr(expression);
+    collector.refs.into_iter().collect()
 }
 
-fn collect_constant_refs(
-    expr: &Expression,
-    known_constants: &HashSet<Symbol>,
-    refs: &mut HashSet<Symbol>,
-) {
-    match expr {
-        Expression::Identifier { name, .. } => {
-            if known_constants.contains(name) {
-                refs.insert(*name);
+struct ConstRefCollector<'a> {
+    known_constants: &'a HashSet<Symbol>,
+    refs: HashSet<Symbol>,
+}
+
+impl<'ast> Visitor<'ast> for ConstRefCollector<'_> {
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        // walk_expr routes bare Identifier fields (function parameters,
+        // MemberAccess.member) through visit_identifier (no-op), not
+        // visit_expr, so only expression-position identifiers match here.
+        match expr {
+            Expression::Identifier { name, .. } if self.known_constants.contains(name) => {
+                self.refs.insert(*name);
             }
+            _ => {}
         }
-        Expression::Infix { left, right, .. } => {
-            collect_constant_refs(left, known_constants, refs);
-            collect_constant_refs(right, known_constants, refs);
-        }
-        Expression::Prefix { right, .. } => {
-            collect_constant_refs(right, known_constants, refs);
-        }
-        Expression::Array { elements, .. } => {
-            for elem in elements {
-                collect_constant_refs(elem, known_constants, refs);
-            }
-        }
-        Expression::Hash { pairs, .. } => {
-            for (key, value) in pairs {
-                collect_constant_refs(key, known_constants, refs);
-                collect_constant_refs(value, known_constants, refs);
-            }
-        }
-        Expression::Some { value, .. } => {
-            collect_constant_refs(value, known_constants, refs);
-        }
-        _ => {}
+        visit::walk_expr(self, expr);
     }
 }
 

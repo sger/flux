@@ -6,8 +6,8 @@ use std::{
 
 use crate::{
     bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
+    diagnostics::position::{Position, Span},
     runtime::{compiled_function::CompiledFunction, value::Value},
-    syntax::position::{Position, Span},
 };
 
 use super::cache_serialization::{

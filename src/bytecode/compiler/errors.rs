@@ -1,9 +1,6 @@
-use crate::syntax::{
-    diagnostics::{
-        DUPLICATE_NAME, Diagnostic, DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
-        OUTER_ASSIGNMENT, PRIVATE_MEMBER, UNDEFINED_VARIABLE,
-    },
-    position::Span,
+use crate::diagnostics::{
+    DUPLICATE_NAME, Diagnostic, DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
+    OUTER_ASSIGNMENT, PRIVATE_MEMBER, UNDEFINED_VARIABLE, position::Span,
 };
 
 use super::{CompileResult, Compiler, suggestions::find_similar_names};

@@ -1,11 +1,12 @@
-use crate::syntax::{
-    diagnostics::{Diagnostic, compiler_errors::unexpected_token},
-    interner::Interner,
-    lexer::Lexer,
-    position::{Position, Span},
-    program::Program,
-    token::Token,
-    token_type::TokenType,
+use crate::{
+    diagnostics::{
+        Diagnostic,
+        position::{Position, Span},
+        unexpected_token,
+    },
+    syntax::{
+        interner::Interner, lexer::Lexer, program::Program, token::Token, token_type::TokenType,
+    },
 };
 
 mod expression;

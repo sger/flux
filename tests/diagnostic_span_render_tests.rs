@@ -1,10 +1,8 @@
 mod diagnostics_env;
 
-use flux::syntax::{
-    diagnostics::{
-        Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind,
-        InlineSuggestion, Label, LabelStyle,
-    },
+use flux::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, Hint, HintChain, HintKind,
+    InlineSuggestion, Label, LabelStyle,
     position::{Position, Span},
 };
 
@@ -619,7 +617,7 @@ fn multiple_hint_chains() {
 
 #[test]
 fn make_warning_from_code() {
-    use flux::syntax::diagnostics::{ErrorCode, ErrorType};
+    use flux::diagnostics::{ErrorCode, ErrorType};
 
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 

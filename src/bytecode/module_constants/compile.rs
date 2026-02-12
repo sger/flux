@@ -3,8 +3,9 @@
 use std::collections::HashMap;
 
 use crate::{
+    diagnostics::position::Position,
     runtime::value::Value,
-    syntax::{block::Block, interner::Interner, position::Position, symbol::Symbol},
+    syntax::{block::Block, interner::Interner, symbol::Symbol},
 };
 
 use super::{analysis::analyze_module_constants, error::ConstEvalError, eval::eval_const_expr};

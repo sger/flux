@@ -1,0 +1,31 @@
+// Desugaring demonstration
+// Shows syntactic sugar elimination with --optimize flag
+
+// Rule 1: Double negation elimination
+let a = !!true;           // Desugars to: true
+let b = !!!false;         // Desugars to: !false
+let c = !!!!5;            // Desugars to: 5
+
+// Rule 2: Negated equality becomes inequality
+let x = 10;
+let y = 20;
+let d = !(x == y);        // Desugars to: x != y
+
+// Rule 3: Negated inequality becomes equality
+let e = !(x != y);        // Desugars to: x == y
+
+// Complex example: desugaring + constant folding
+let f = !!(2 + 3);        // Desugars to: (2 + 3)
+                          // Then folds to: 5
+
+// Nested example
+let g = !(!(5 == 5));     // Desugars to: 5 == 5
+                          // Then folds to: true
+
+print("a (!!true):", a);
+print("b (!!!false):", b);
+print("c (!!!!5):", c);
+print("d (!(x == y)):", d);
+print("e (!(x != y)):", e);
+print("f (!!(2 + 3)):", f);
+print("g (!(!(5 == 5))):", g);

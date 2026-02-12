@@ -1,9 +1,9 @@
-mod diagnostics_env;
-
-use flux::syntax::{
-    diagnostics::{Diagnostic, DiagnosticBuilder},
+use flux::diagnostics::{
+    Diagnostic, DiagnosticBuilder,
     position::{Position, Span},
 };
+
+mod diagnostics_env;
 
 #[test]
 fn render_uses_span_for_caret() {

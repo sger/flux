@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
+use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
-use crate::syntax::diagnostics::NOT_A_FUNCTION;
 
 use super::VM;
 

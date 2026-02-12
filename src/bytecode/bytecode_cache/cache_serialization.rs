@@ -5,8 +5,8 @@ use std::{
 
 use crate::{
     bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
+    diagnostics::position::{Position, Span},
     runtime::{compiled_function::CompiledFunction, value::Value},
-    syntax::position::{Position, Span},
 };
 
 pub(super) fn write_u16(writer: &mut File, value: u16) -> std::io::Result<()> {

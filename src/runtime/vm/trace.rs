@@ -1,12 +1,11 @@
 use crate::{
     bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16, read_u32},
-    runtime::frame::Frame,
-    syntax::{
-        diagnostics::{
-            Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType, render_display_path,
-        },
+    diagnostics::{
+        Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType,
         position::{Position, Span},
+        render_display_path,
     },
+    runtime::frame::Frame,
 };
 
 use super::VM;

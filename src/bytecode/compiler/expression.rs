@@ -5,19 +5,19 @@ use crate::{
         binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
         symbol_scope::SymbolScope,
     },
+    diagnostics::{
+        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
+        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
+        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
+        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        position::{Position, Span},
+    },
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
-        diagnostics::{
-            Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
-            ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
-            ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-            ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
-            UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
-        },
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
-        position::{Position, Span},
         statement::Statement,
         symbol::Symbol,
     },
@@ -342,8 +342,6 @@ impl Compiler {
         parameters: &[Symbol],
         body: &Block,
     ) -> CompileResult<()> {
-        use crate::syntax::diagnostics::DUPLICATE_PARAMETER;
-
         if let Some(name) = Self::find_duplicate_name(parameters) {
             let name_str = self.sym(name);
             return Err(Self::boxed(Diagnostic::make_error(
