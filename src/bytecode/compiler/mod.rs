@@ -165,9 +165,12 @@ impl Compiler {
         self.interner.resolve(s)
     }
 
-    /// Compile with optional constant folding optimization.
+    /// Compile with optional optimization passes.
     ///
-    /// If `optimize` is true, applies constant folding before compilation.
+    /// If `optimize` is true, applies the following transformations before compilation:
+    /// 1. Desugaring: Eliminates syntactic sugar (!!x → x, !(a==b) → a!=b)
+    /// 2. Constant folding: Evaluates compile-time constants (2+3 → 5)
+    ///
     /// This requires cloning the program.
     pub fn compile_with_opts(
         &mut self,
@@ -175,8 +178,10 @@ impl Compiler {
         optimize: bool,
     ) -> Result<(), Vec<Diagnostic>> {
         if optimize {
-            use crate::ast::constant_fold;
-            let optimized = constant_fold(program.clone());
+            use crate::ast::{constant_fold, desugar};
+            // Apply transformations in order: desugar first, then constant fold
+            let desugared = desugar(program.clone());
+            let optimized = constant_fold(desugared);
             self.compile(&optimized)
         } else {
             self.compile(program)
