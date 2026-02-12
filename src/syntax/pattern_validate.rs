@@ -1,16 +1,15 @@
 use std::collections::HashSet;
 
 use crate::{
+    ast::{Visitor, visit},
     diagnostics::{
         CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH,
         NON_EXHAUSTIVE_MATCH, position::Span,
     },
     syntax::{
-        block::Block,
-        expression::{Expression, MatchArm, Pattern, StringPart},
+        expression::{Expression, MatchArm, Pattern},
         interner::Interner,
         program::Program,
-        statement::Statement,
         symbol::Symbol,
     },
 };
@@ -30,17 +29,37 @@ impl<'a> PatternValidationContext<'a> {
     }
 }
 
+struct PatternValidator<'a> {
+    ctx: PatternValidationContext<'a>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl<'ast> Visitor<'ast> for PatternValidator<'_> {
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        if let Expression::Match { arms, span, .. } = expr {
+            validate_match_arms(arms, *span, &self.ctx, &mut self.diagnostics);
+
+            for arm in arms {
+                validate_pattern(&arm.pattern, &self.ctx, &mut self.diagnostics);
+            }
+        }
+
+        visit::walk_expr(self, expr);
+    }
+}
+
 pub fn validate_program_patterns(
     program: &Program,
     file_path: &str,
     interner: &Interner,
 ) -> Vec<Diagnostic> {
     let ctx = PatternValidationContext::new(file_path, interner);
-    let mut diagnostics = Vec::new();
-    for statement in &program.statements {
-        validate_statement_patterns(statement, &ctx, &mut diagnostics);
-    }
-    diagnostics
+    let mut validator = PatternValidator {
+        ctx,
+        diagnostics: Vec::new(),
+    };
+    validator.visit_program(program);
+    validator.diagnostics
 }
 
 pub fn validate_pattern(
@@ -50,131 +69,6 @@ pub fn validate_pattern(
 ) {
     let mut bindings = HashSet::new();
     validate_pattern_bindings(pattern, ctx, diagnostics, &mut bindings);
-}
-
-fn validate_statement_patterns(
-    statement: &Statement,
-    ctx: &PatternValidationContext<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    match statement {
-        Statement::Let { value, .. } | Statement::Assign { value, .. } => {
-            validate_expression_patterns(value, ctx, diagnostics);
-        }
-        Statement::Return { value, .. } => {
-            if let Some(value) = value {
-                validate_expression_patterns(value, ctx, diagnostics);
-            }
-        }
-        Statement::Expression { expression, .. } => {
-            validate_expression_patterns(expression, ctx, diagnostics);
-        }
-        Statement::Function { body, .. } | Statement::Module { body, .. } => {
-            validate_block_patterns(body, ctx, diagnostics);
-        }
-        Statement::Import { .. } => {}
-    }
-}
-
-fn validate_block_patterns(
-    block: &Block,
-    ctx: &PatternValidationContext<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for statement in &block.statements {
-        validate_statement_patterns(statement, ctx, diagnostics);
-    }
-}
-
-fn validate_expression_patterns(
-    expression: &Expression,
-    ctx: &PatternValidationContext<'_>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    match expression {
-        Expression::Prefix { right, .. } => {
-            validate_expression_patterns(right, ctx, diagnostics);
-        }
-        Expression::Infix { left, right, .. } => {
-            validate_expression_patterns(left, ctx, diagnostics);
-            validate_expression_patterns(right, ctx, diagnostics);
-        }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
-            validate_expression_patterns(condition, ctx, diagnostics);
-            validate_block_patterns(consequence, ctx, diagnostics);
-            if let Some(alt) = alternative {
-                validate_block_patterns(alt, ctx, diagnostics);
-            }
-        }
-        Expression::Function { body, .. } => {
-            validate_block_patterns(body, ctx, diagnostics);
-        }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
-            validate_expression_patterns(function, ctx, diagnostics);
-            for argument in arguments {
-                validate_expression_patterns(argument, ctx, diagnostics);
-            }
-        }
-        Expression::Array { elements, .. } => {
-            for element in elements {
-                validate_expression_patterns(element, ctx, diagnostics);
-            }
-        }
-        Expression::Index { left, index, .. } => {
-            validate_expression_patterns(left, ctx, diagnostics);
-            validate_expression_patterns(index, ctx, diagnostics);
-        }
-        Expression::Hash { pairs, .. } => {
-            for (key, value) in pairs {
-                validate_expression_patterns(key, ctx, diagnostics);
-                validate_expression_patterns(value, ctx, diagnostics);
-            }
-        }
-        Expression::MemberAccess { object, .. } => {
-            validate_expression_patterns(object, ctx, diagnostics);
-        }
-        Expression::Match {
-            scrutinee,
-            arms,
-            span,
-        } => {
-            validate_expression_patterns(scrutinee, ctx, diagnostics);
-            validate_match_arms(arms, *span, ctx, diagnostics);
-            for arm in arms {
-                if let Some(guard) = &arm.guard {
-                    validate_expression_patterns(guard, ctx, diagnostics);
-                }
-                validate_expression_patterns(&arm.body, ctx, diagnostics);
-            }
-        }
-        Expression::Some { value, .. }
-        | Expression::Left { value, .. }
-        | Expression::Right { value, .. } => {
-            validate_expression_patterns(value, ctx, diagnostics);
-        }
-        Expression::InterpolatedString { parts, .. } => {
-            for part in parts {
-                if let StringPart::Interpolation(expr) = part {
-                    validate_expression_patterns(expr, ctx, diagnostics);
-                }
-            }
-        }
-        Expression::Identifier { .. }
-        | Expression::Integer { .. }
-        | Expression::Float { .. }
-        | Expression::String { .. }
-        | Expression::Boolean { .. }
-        | Expression::None { .. } => {}
-    }
 }
 
 fn validate_match_arms(
@@ -215,10 +109,6 @@ fn validate_match_arms(
             ctx.file_path.to_string(),
             match_span,
         ));
-    }
-
-    for arm in arms {
-        validate_pattern(&arm.pattern, ctx, diagnostics);
     }
 }
 
