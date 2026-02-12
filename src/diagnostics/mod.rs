@@ -8,6 +8,7 @@ pub mod builders;
 pub mod compiler_errors;
 pub mod diagnostic;
 pub mod format;
+pub mod position;
 pub mod registry;
 pub mod rendering;
 pub mod runtime_errors;
