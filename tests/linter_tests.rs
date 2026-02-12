@@ -84,6 +84,20 @@ fn tracks_nested_pattern_bindings() {
 }
 
 #[test]
+fn tracks_guard_expression_usage() {
+    // Pattern binding used in guard should be marked as used
+    let output = lint("match Some(5) { Some(x) if x > 3 -> 10, _ -> 0 }");
+    assert!(!output.contains("W001"), "x should be tracked as used in guard");
+}
+
+#[test]
+fn tracks_identifiers_in_guard() {
+    // Variables referenced in guard should be marked as used
+    let output = lint("let threshold = 5; match Some(10) { Some(x) if x > threshold -> x, _ -> 0 }");
+    assert!(!output.contains("W001"), "threshold should be tracked as used in guard");
+}
+
+#[test]
 fn warns_on_dead_code_after_return() {
     let output = lint("fun f() { return 1; 2; } f();");
     assert!(output.contains("W008:DEAD CODE"));

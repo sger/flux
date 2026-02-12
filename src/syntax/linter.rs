@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use crate::{
+    ast::{Visitor, visit},
     diagnostics::{
         Diagnostic, DiagnosticBuilder,
         position::{Position, Span},
     },
     syntax::{
         Identifier,
-        expression::{Expression, Pattern, StringPart},
+        expression::{Expression, Pattern},
         interner::Interner,
         module_graph::is_valid_module_name,
         program::Program,
@@ -62,176 +63,6 @@ impl<'a> Linter<'a> {
         self.interner.resolve(s)
     }
 
-    fn lint_statement(&mut self, statement: &Statement) {
-        match statement {
-            Statement::Let { name, value, span } => {
-                self.lint_expression(value);
-                self.define_binding(*name, span.start, BindingKind::Let);
-            }
-            Statement::Assign {
-                name,
-                value,
-                span: _,
-            } => {
-                self.mark_used(*name);
-                self.lint_expression(value);
-            }
-            Statement::Return { value, .. } => {
-                if let Some(expr) = value {
-                    self.lint_expression(expr);
-                }
-            }
-            Statement::Expression { expression, .. } => {
-                self.lint_expression(expression);
-            }
-            Statement::Function {
-                name,
-                parameters,
-                body,
-                span,
-                ..
-            } => {
-                self.check_function_complexity(Some(*name), parameters, body, span.start);
-                let name_str = self.sym(*name);
-                if !is_snake_case(name_str) {
-                    self.push_warning(
-                        "FUNCTION NAME STYLE",
-                        "W005",
-                        span.start,
-                        format!("`{}` should be snake_case.", name),
-                    );
-                }
-                self.define_binding(*name, span.start, BindingKind::Function);
-                self.enter_scope();
-                for param in parameters {
-                    self.define_binding(*param, span.start, BindingKind::Param);
-                }
-                self.lint_block_statements(&body.statements);
-                self.finish_scope();
-            }
-            Statement::Module { name, body, span } => {
-                self.define_binding(*name, span.start, BindingKind::Function);
-                self.enter_scope();
-                self.lint_block_statements(&body.statements);
-                self.finish_scope();
-            }
-            Statement::Import { name, alias, span } => {
-                let name_str = self.sym(*name);
-                if !is_valid_module_name(name_str) {
-                    self.push_warning(
-                        "IMPORT NAME STYLE",
-                        "W006",
-                        span.start,
-                        format!(
-                            "`{}` should use UpperCamelCase segments separated by dots.",
-                            name
-                        ),
-                    );
-                }
-                let binding = alias.unwrap_or(*name);
-                self.define_binding(binding, span.start, BindingKind::Import);
-            }
-        }
-    }
-
-    fn lint_expression(&mut self, expression: &Expression) {
-        match expression {
-            Expression::Identifier { name, .. } => {
-                self.mark_used(*name);
-            }
-            Expression::Integer { .. }
-            | Expression::Float { .. }
-            | Expression::String { .. }
-            | Expression::Boolean { .. }
-            | Expression::None { .. } => {}
-            Expression::InterpolatedString { parts, .. } => {
-                for part in parts {
-                    if let StringPart::Interpolation(expr) = part {
-                        self.lint_expression(expr);
-                    }
-                }
-            }
-            Expression::Prefix { right, .. } => self.lint_expression(right),
-            Expression::Infix { left, right, .. } => {
-                self.lint_expression(left);
-                self.lint_expression(right);
-            }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
-                self.lint_expression(condition);
-                self.lint_block_statements(&consequence.statements);
-                if let Some(alt) = alternative {
-                    self.lint_block_statements(&alt.statements);
-                }
-            }
-            Expression::Function {
-                parameters,
-                body,
-                span,
-            } => {
-                self.check_function_complexity(None, parameters, body, span.start);
-                self.enter_scope();
-                for param in parameters {
-                    self.define_binding(*param, span.start, BindingKind::Param);
-                }
-                self.lint_block_statements(&body.statements);
-                self.finish_scope();
-            }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
-                self.lint_expression(function);
-                for arg in arguments {
-                    self.lint_expression(arg);
-                }
-            }
-            Expression::Array { elements, .. } => {
-                for el in elements {
-                    self.lint_expression(el);
-                }
-            }
-            Expression::Index { left, index, .. } => {
-                self.lint_expression(left);
-                self.lint_expression(index);
-            }
-            Expression::Hash { pairs, .. } => {
-                for (k, v) in pairs {
-                    self.lint_expression(k);
-                    self.lint_expression(v);
-                }
-            }
-            Expression::MemberAccess { object, .. } => {
-                self.lint_expression(object);
-            }
-            Expression::Some { value, .. } => {
-                self.lint_expression(value);
-            }
-            Expression::Left { value, .. } => {
-                self.lint_expression(value);
-            }
-            Expression::Right { value, .. } => {
-                self.lint_expression(value);
-            }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
-                self.lint_expression(scrutinee);
-                for arm in arms {
-                    self.enter_scope();
-                    self.extract_pattern_bindings(&arm.pattern);
-                    self.lint_expression(&arm.body);
-                    self.finish_scope();
-                }
-            }
-        }
-    }
-
     fn enter_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
@@ -247,7 +78,7 @@ impl<'a> Linter<'a> {
                     "Unreachable code after return.".to_string(),
                 );
             }
-            self.lint_statement(statement);
+            self.visit_stmt(statement);
             if matches!(statement, Statement::Return { .. }) {
                 unreachable = true;
             }
@@ -396,6 +227,125 @@ impl<'a> Linter<'a> {
                     label, line_count, MAX_FUNCTION_LINES
                 ),
             );
+        }
+    }
+}
+
+impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
+    fn visit_program(&mut self, program: &'ast Program) {
+        self.lint_block_statements(&program.statements);
+    }
+
+    fn visit_block(&mut self, block: &'ast super::block::Block) {
+        self.lint_block_statements(&block.statements);
+    }
+
+    fn visit_stmt(&mut self, stmt: &'ast Statement) {
+        match stmt {
+            Statement::Let { name, value, span } => {
+                self.visit_expr(value);
+                self.define_binding(*name, span.start, BindingKind::Let);
+            }
+            Statement::Assign {
+                name,
+                value,
+                span: _,
+            } => {
+                self.mark_used(*name);
+                self.visit_expr(value);
+            }
+            Statement::Function {
+                name,
+                parameters,
+                body,
+                span,
+            } => {
+                self.check_function_complexity(Some(*name), parameters, body, span.start);
+                let name_str = self.sym(*name);
+                if !is_snake_case(name_str) {
+                    self.push_warning(
+                        "FUNCTION NAME STYLE",
+                        "W005",
+                        span.start,
+                        format!("`{}` should be snake_case.", name),
+                    );
+                }
+                self.define_binding(*name, span.start, BindingKind::Function);
+                self.enter_scope();
+                for param in parameters {
+                    self.define_binding(*param, span.start, BindingKind::Param);
+                }
+                self.lint_block_statements(&body.statements);
+                self.finish_scope();
+            }
+            Statement::Module { name, body, span } => {
+                self.define_binding(*name, span.start, BindingKind::Function);
+                self.enter_scope();
+                self.lint_block_statements(&body.statements);
+                self.finish_scope();
+            }
+            Statement::Import { name, alias, span } => {
+                let name_str = self.sym(*name);
+                if !is_valid_module_name(name_str) {
+                    self.push_warning(
+                        "IMPORT NAME STYLE",
+                        "W006",
+                        span.start,
+                        format!(
+                            "`{}` should use UpperCamelCase segments separated by dots.",
+                            name
+                        ),
+                    );
+                }
+                let binding = alias.unwrap_or(*name);
+                self.define_binding(binding, span.start, BindingKind::Import);
+            }
+            // Return and Expression: walk_stmt recurses into child expressions
+            Statement::Return { .. } | Statement::Expression { .. } => {
+                visit::walk_stmt(self, stmt);
+            }
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        match expr {
+            Expression::Identifier { name, .. } => {
+                self.mark_used(*name);
+            }
+            Expression::Function {
+                parameters,
+                body,
+                span,
+            } => {
+                self.check_function_complexity(None, parameters, body, span.start);
+                self.enter_scope();
+                for param in parameters {
+                    self.define_binding(*param, span.start, BindingKind::Param);
+                }
+                self.lint_block_statements(&body.statements);
+                self.finish_scope();
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.visit_expr(scrutinee);
+                for arm in arms {
+                    self.enter_scope();
+                    self.extract_pattern_bindings(&arm.pattern);
+
+                    // Visit guard expression if present
+                    if let Some(guard) = &arm.guard {
+                        self.visit_expr(guard);
+                    }
+
+                    self.visit_expr(&arm.body);
+                    self.finish_scope();
+                }
+            }
+            // All other variants: walk_expr handles recursion into children.
+            // walk_expr exhaustively destructures Expression, so adding a new
+            // variant will cause a compile error there.
+            _ => visit::walk_expr(self, expr),
         }
     }
 }
