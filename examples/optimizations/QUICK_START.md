@@ -151,7 +151,6 @@ cargo run -- tokens <file.flx>             # View tokens
 
 - **README.md** - Detailed explanation
 - **../../OPTIMIZATION_GUIDE.md** - Complete optimization guide
-- **../../CLAUDE.md** - Architecture documentation
 
 ## 💡 Pro Tips
 
