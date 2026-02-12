@@ -186,6 +186,20 @@ Notes:
 - WSL/Remote: install in the remote extension host (`WSL: <distro>`), not only local Windows host.
 - macOS: same VSIX works unchanged.
 
+## Zed Syntax Highlighting (.flx)
+
+A starter Zed dev extension is included at `tools/zed-flux`.
+
+Install it in Zed:
+
+1. Open Command Palette.
+2. Run `Extensions: Install Dev Extension`.
+3. Select `tools/zed-flux`.
+4. Open a `.flx` file (or set language mode to `Flux` once).
+
+This starter currently uses Zed's built-in JavaScript grammar for best-effort highlighting.
+For full accuracy, a dedicated `tree-sitter-flux` grammar should be added later.
+
 ## Running Examples
 
 Use the helper script to run any example with the right module roots:
