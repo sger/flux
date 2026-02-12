@@ -294,7 +294,9 @@ fn run_file(
             let mut compile_errors: Vec<Diagnostic> = Vec::new();
             for node in graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
-                if let Err(mut diags) = compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze) {
+                if let Err(mut diags) =
+                    compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
+                {
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -483,7 +485,9 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
-            if let Err(diags) = compiler.compile_with_opts(&program, enable_optimize, enable_analyze) {
+            if let Err(diags) =
+                compiler.compile_with_opts(&program, enable_optimize, enable_analyze)
+            {
                 let report = DiagnosticsAggregator::new(&diags)
                     .with_default_source(path, source.as_str())
                     .with_file_headers(false)
@@ -596,16 +600,15 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
             } else {
                 println!("Free variables in {}:", path);
                 println!("{}", "─".repeat(50));
-                let mut vars: Vec<_> = free_vars
-                    .iter()
-                    .map(|sym| interner.resolve(*sym))
-                    .collect();
+                let mut vars: Vec<_> = free_vars.iter().map(|sym| interner.resolve(*sym)).collect();
                 vars.sort();
                 for var in vars {
                     println!("  • {}", var);
                 }
                 println!("\nTotal: {} free variable(s)", free_vars.len());
-                println!("\nℹ️  Free variables are identifiers that are referenced but not defined.");
+                println!(
+                    "\nℹ️  Free variables are identifiers that are referenced but not defined."
+                );
                 println!("   This may indicate undefined variables or missing imports.");
             }
         }
@@ -633,7 +636,9 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
 
             if tail_calls.is_empty() {
                 println!("✓ No tail calls found in {}", path);
-                println!("\nℹ️  Tail calls are function calls in tail position that can be optimized.");
+                println!(
+                    "\nℹ️  Tail calls are function calls in tail position that can be optimized."
+                );
             } else {
                 println!("Tail calls in {}:", path);
                 println!("{}", "─".repeat(50));
@@ -653,7 +658,9 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
 
                 println!("\nTotal: {} tail call(s)", tail_calls.len());
                 println!("\n✓ These calls are eligible for tail call optimization (TCO).");
-                println!("  The Flux compiler automatically optimizes tail calls to avoid stack overflow.");
+                println!(
+                    "  The Flux compiler automatically optimizes tail calls to avoid stack overflow."
+                );
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),

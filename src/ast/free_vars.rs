@@ -59,7 +59,9 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
             Statement::Let {
-                name, value, span: _,
+                name,
+                value,
+                span: _,
             } => {
                 // Visit value before defining the binding (value can't reference itself).
                 self.visit_expr(value);
@@ -157,7 +159,11 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
+        assert!(
+            parser.errors.is_empty(),
+            "parser errors: {:?}",
+            parser.errors
+        );
         let interner = parser.take_interner();
 
         collect_free_vars_in_program(&program)
