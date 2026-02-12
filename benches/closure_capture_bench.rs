@@ -3,7 +3,8 @@ use std::fmt::Write;
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use flux::bytecode::{bytecode::Bytecode, compiler::Compiler};
 use flux::runtime::vm::VM;
-use flux::syntax::{diagnostics::render_diagnostics, lexer::Lexer, parser::Parser};
+use flux::diagnostics::render_diagnostics;
+use flux::syntax::{lexer::Lexer, parser::Parser};
 
 struct Scenario {
     name: &'static str,

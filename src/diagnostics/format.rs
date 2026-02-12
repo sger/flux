@@ -2,7 +2,7 @@
 ///
 /// # Example
 /// ```
-/// use flux::syntax::diagnostics::format_message;
+/// use flux::diagnostics::format_message;
 /// let msg = format_message("Expected {}, got {}.", &["Int", "String"]);
 /// assert_eq!(msg, "Expected Int, got String.");
 /// ```
@@ -18,7 +18,7 @@ pub fn format_message(template: &str, values: &[&str]) -> String {
 ///
 /// # Example
 /// ```
-/// use flux::syntax::diagnostics::format_message_named;
+/// use flux::diagnostics::format_message_named;
 /// let msg = format_message_named("Cannot access {member} in {module}.",
 ///     &[("member", "foo"), ("module", "Bar")]);
 /// ```

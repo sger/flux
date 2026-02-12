@@ -1,14 +1,14 @@
-use crate::syntax::{
-    Identifier,
-    block::Block,
+use crate::{
     diagnostics::{
         Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
-        compiler_errors::{missing_comma, unexpected_token},
+        missing_comma,
+        position::{Position, Span},
+        unexpected_token,
     },
-    expression::Expression,
-    position::{Position, Span},
-    precedence::Precedence,
-    token_type::TokenType,
+    syntax::{
+        Identifier, block::Block, expression::Expression, precedence::Precedence,
+        token_type::TokenType,
+    },
 };
 
 use super::Parser;

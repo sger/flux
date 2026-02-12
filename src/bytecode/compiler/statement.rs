@@ -5,15 +5,15 @@ use crate::{
         compiler::Compiler, debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
     },
+    diagnostics::{
+        DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
+        INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        position::{Position, Span},
+    },
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
-        diagnostics::{
-            DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
-            INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
-        },
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
-        position::{Position, Span},
         statement::Statement,
         symbol::Symbol,
     },

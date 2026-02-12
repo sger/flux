@@ -1,6 +1,9 @@
 use std::fmt;
 
-use crate::syntax::{Identifier, block::Block, interner::Interner, position::Span};
+use crate::{
+    diagnostics::position::Span,
+    syntax::{Identifier, block::Block, interner::Interner},
+};
 
 #[derive(Debug, Clone)]
 pub enum StringPart {

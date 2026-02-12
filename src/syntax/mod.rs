@@ -20,7 +20,3 @@ pub mod token;
 pub mod token_type;
 
 pub type Identifier = symbol::Symbol;
-
-// Re-exports: diagnostics and position now live at crate::diagnostics
-pub use crate::diagnostics;
-pub use crate::diagnostics::position;

@@ -1,5 +1,5 @@
 use crate::bytecode::symbol_scope::SymbolScope;
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 use crate::syntax::symbol::Symbol;
 
 #[derive(Debug, Clone, PartialEq)]

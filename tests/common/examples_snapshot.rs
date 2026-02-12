@@ -1,14 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use flux::diagnostics::{Diagnostic, DiagnosticsAggregator};
 use flux::{
     bytecode::compiler::Compiler,
-    syntax::{
-        diagnostics::{Diagnostic, DiagnosticsAggregator},
-        lexer::Lexer,
-        module_graph::ModuleGraph,
-        parser::Parser,
-    },
+    syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
 
 pub struct FixtureSnapshotCase {

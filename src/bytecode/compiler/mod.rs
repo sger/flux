@@ -8,15 +8,14 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
+    diagnostics::{
+        CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code,
+        position::{Position, Span},
+    },
     runtime::value::Value,
     syntax::{
-        diagnostics::{CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code},
-        interner::Interner,
-        pattern_validate::validate_program_patterns,
-        position::{Position, Span},
-        program::Program,
-        statement::Statement,
-        symbol::Symbol,
+        interner::Interner, pattern_validate::validate_program_patterns, program::Program,
+        statement::Statement, symbol::Symbol,
     },
 };
 

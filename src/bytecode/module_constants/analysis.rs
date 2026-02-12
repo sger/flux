@@ -2,8 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::syntax::{
-    block::Block, expression::Expression, position::Position, statement::Statement, symbol::Symbol,
+use crate::{
+    diagnostics::position::Position,
+    syntax::{block::Block, expression::Expression, statement::Statement, symbol::Symbol},
 };
 
 use super::dependency::{find_constant_refs, topological_sort_constants};

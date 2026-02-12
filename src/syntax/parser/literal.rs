@@ -1,9 +1,14 @@
-use crate::syntax::{
-    diagnostics::compiler_errors::{invalid_float, invalid_integer, unterminated_interpolation},
-    expression::{Expression, StringPart},
-    position::{Position, Span},
-    precedence::Precedence,
-    token_type::TokenType,
+use crate::{
+    diagnostics::{
+        invalid_float, invalid_integer,
+        position::{Position, Span},
+        unterminated_interpolation,
+    },
+    syntax::{
+        expression::{Expression, StringPart},
+        precedence::Precedence,
+        token_type::TokenType,
+    },
 };
 
 use super::Parser;

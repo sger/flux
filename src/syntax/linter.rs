@@ -1,15 +1,19 @@
 use std::collections::HashMap;
 
-use crate::syntax::{
-    Identifier,
-    diagnostics::{Diagnostic, DiagnosticBuilder},
-    expression::{Expression, Pattern, StringPart},
-    interner::Interner,
-    module_graph::is_valid_module_name,
-    position::{Position, Span},
-    program::Program,
-    statement::Statement,
-    symbol::Symbol,
+use crate::{
+    diagnostics::{
+        Diagnostic, DiagnosticBuilder,
+        position::{Position, Span},
+    },
+    syntax::{
+        Identifier,
+        expression::{Expression, Pattern, StringPart},
+        interner::Interner,
+        module_graph::is_valid_module_name,
+        program::Program,
+        statement::Statement,
+        symbol::Symbol,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

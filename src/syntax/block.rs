@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::syntax::{position::Span, statement::Statement};
+use crate::{diagnostics::position::Span, syntax::statement::Statement};
 
 #[derive(Debug, Clone)]
 pub struct Block {

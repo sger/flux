@@ -2,7 +2,7 @@
 mod tests {
     use flux::bytecode::{binding::Binding, symbol_scope::SymbolScope, symbol_table::SymbolTable};
     use flux::syntax::interner::Interner;
-    use flux::syntax::position::Span;
+    use flux::diagnostics::position::Span;
 
     fn assert_symbol(
         interner: &Interner,

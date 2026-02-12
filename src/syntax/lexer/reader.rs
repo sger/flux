@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use crate::syntax::position::Position;
+use crate::diagnostics::position::Position;
 
 #[derive(Debug, Clone)]
 pub(super) struct CharReader {
@@ -331,8 +331,9 @@ impl CharReader {
 
 #[cfg(test)]
 mod tests {
+    use crate::diagnostics::position::Position;
+
     use super::CharReader;
-    use crate::syntax::position::Position;
 
     #[test]
     fn tracks_line_and_column_across_newlines() {
