@@ -1,0 +1,42 @@
+{
+  "name": "flux-language",
+  "displayName": "Flux Language",
+  "description": "Syntax highlighting and language configuration for Flux (.flx)",
+  "version": "0.0.1",
+  "publisher": "flux-local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "flux",
+    "flx",
+    "language",
+    "syntax"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "flux",
+        "aliases": [
+          "Flux",
+          "flux"
+        ],
+        "extensions": [
+          ".flx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "flux",
+        "scopeName": "source.flux",
+        "path": "./syntaxes/flux.tmLanguage.json"
+      }
+    ]
+  }
+}
