@@ -1,0 +1,106 @@
+// Examples that trigger complexity warnings (W011, W012)
+
+// W011: HIGH CYCLOMATIC COMPLEXITY
+// This function has 12 branches (complexity = 12, threshold = 10)
+fun high_complexity(x) {
+    match x {
+        1 -> "one",
+        2 -> "two",
+        3 -> "three",
+        4 -> "four",
+        5 -> "five",
+        6 -> "six",
+        7 -> "seven",
+        8 -> "eight",
+        9 -> "nine",
+        10 -> "ten",
+        11 -> "eleven",
+        _ -> "other",
+    };
+}
+
+// W012: DEEP NESTING
+// This function has 5 levels of nesting (max = 4)
+fun deep_nesting(x) {
+    if x > 0 {
+        if x > 1 {
+            if x > 2 {
+                if x > 3 {
+                    if x > 4 {
+                        "very deep";
+                    } else {
+                        "level 4";
+                    }
+                } else {
+                    "level 3";
+                }
+            } else {
+                "level 2";
+            }
+        } else {
+            "level 1";
+        }
+    } else {
+        "zero or negative";
+    }
+}
+
+// Both W011 and W012
+// High complexity AND deep nesting
+fun both_issues(x) {
+    if x > 0 {
+        if x > 10 {
+            if x > 20 {
+                if x > 30 {
+                    if x > 40 {
+                        match x {
+                            41 -> "41",
+                            42 -> "42",
+                            43 -> "43",
+                            44 -> "44",
+                            45 -> "45",
+                            46 -> "46",
+                            47 -> "47",
+                            48 -> "48",
+                            49 -> "49",
+                            50 -> "50",
+                            _ -> "other",
+                        };
+                    } else { "40 or less"; }
+                } else { "30 or less"; }
+            } else { "20 or less"; }
+        } else { "10 or less"; }
+    } else { "zero or negative"; }
+}
+
+// Good code - no warnings
+fun simple_function(x) {
+    if x > 0 {
+        "positive";
+    } else {
+        "negative or zero";
+    }
+}
+
+// Lambda with high complexity (W011)
+let complex_lambda = \x -> match x {
+    1 -> 1,
+    2 -> 2,
+    3 -> 3,
+    4 -> 4,
+    5 -> 5,
+    6 -> 6,
+    7 -> 7,
+    8 -> 8,
+    9 -> 9,
+    10 -> 10,
+    11 -> 11,
+    _ -> 0,
+};
+
+// Call functions to avoid unused warnings
+high_complexity(5);
+deep_nesting(3);
+both_issues(45);
+simple_function(1);
+complex_lambda(7);

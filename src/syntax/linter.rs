@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{Visitor, visit},
+    ast::{Visitor, complexity::analyze_complexity, visit},
     diagnostics::{
         Diagnostic, DiagnosticBuilder,
         position::{Position, Span},
@@ -41,6 +41,8 @@ pub struct Linter<'a> {
 
 const MAX_FUNCTION_LINES: usize = 50;
 const MAX_FUNCTION_PARAMS: usize = 5;
+const MAX_CYCLOMATIC_COMPLEXITY: usize = 10;
+const MAX_NESTING_DEPTH: usize = 4;
 
 impl<'a> Linter<'a> {
     pub fn new(file: Option<String>, interner: &'a Interner) -> Self {
@@ -53,7 +55,14 @@ impl<'a> Linter<'a> {
     }
 
     pub fn lint(mut self, program: &Program) -> Vec<Diagnostic> {
-        self.lint_block_statements(&program.statements);
+        // Analyze complexity metrics for all functions
+        let complexity_metrics = analyze_complexity(program);
+        for metric in complexity_metrics {
+            self.check_complexity_metrics(&metric);
+        }
+
+        // Then do regular linting
+        self.visit_program(program);
         self.finish_scope();
         self.warnings
     }
@@ -100,25 +109,25 @@ impl<'a> Linter<'a> {
                         "UNUSED VARIABLE",
                         "W001",
                         info.position,
-                        format!("`{}` is never used.", name),
+                        format!("`{}` is never used.", self.sym(name)),
                     ),
                     BindingKind::Param => self.push_warning(
                         "UNUSED PARAMETER",
                         "W002",
                         info.position,
-                        format!("`{}` is never used.", name),
+                        format!("`{}` is never used.", self.sym(name)),
                     ),
                     BindingKind::Import => self.push_warning(
                         "UNUSED IMPORT",
                         "W003",
                         info.position,
-                        format!("`{}` is never used.", name),
+                        format!("`{}` is never used.", self.sym(name)),
                     ),
                     BindingKind::Function => self.push_warning(
                         "UNUSED FUNCTION",
                         "W007",
                         info.position,
-                        format!("`{}` is never called.", name),
+                        format!("`{}` is never called.", self.sym(name)),
                     ),
                 }
             }
@@ -191,6 +200,40 @@ impl<'a> Linter<'a> {
             diag = diag.with_file(file.clone());
         }
         self.warnings.push(diag);
+    }
+
+    fn check_complexity_metrics(&mut self, metrics: &crate::ast::complexity::FunctionMetrics) {
+        let name_str = if let Some(name) = metrics.name {
+            self.sym(name).to_string()
+        } else {
+            "<anonymous>".to_string()
+        };
+
+        // W011: High cyclomatic complexity
+        if metrics.cyclomatic_complexity > MAX_CYCLOMATIC_COMPLEXITY {
+            self.push_warning(
+                "HIGH CYCLOMATIC COMPLEXITY",
+                "W011",
+                metrics.span.start,
+                format!(
+                    "Function `{}` has cyclomatic complexity {} (max {}).",
+                    name_str, metrics.cyclomatic_complexity, MAX_CYCLOMATIC_COMPLEXITY
+                ),
+            );
+        }
+
+        // W012: Deep nesting
+        if metrics.max_nesting_depth > MAX_NESTING_DEPTH {
+            self.push_warning(
+                "DEEP NESTING",
+                "W012",
+                metrics.span.start,
+                format!(
+                    "Function `{}` has nesting depth {} (max {}).",
+                    name_str, metrics.max_nesting_depth, MAX_NESTING_DEPTH
+                ),
+            );
+        }
     }
 
     fn check_function_complexity(
@@ -267,7 +310,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                         "FUNCTION NAME STYLE",
                         "W005",
                         span.start,
-                        format!("`{}` should be snake_case.", name),
+                        format!("`{}` should be snake_case.", name_str),
                     );
                 }
                 self.define_binding(*name, span.start, BindingKind::Function);
