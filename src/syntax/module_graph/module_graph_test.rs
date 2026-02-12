@@ -1,16 +1,14 @@
 use std::path::{Path, PathBuf};
 
 use crate::syntax::{
-    block::Block,
-    diagnostics::{
-        IMPORT_NOT_FOUND, INVALID_MODULE_ALIAS, INVALID_MODULE_NAME, MULTIPLE_MODULES,
-        SCRIPT_NOT_IMPORTABLE,
-    },
-    expression::Expression,
-    interner::Interner,
-    position::{Position, Span},
-    program::Program,
+    block::Block, expression::Expression, interner::Interner, program::Program,
     statement::Statement,
+};
+
+use crate::diagnostics::{
+    IMPORT_NOT_FOUND, INVALID_MODULE_ALIAS, INVALID_MODULE_NAME, MULTIPLE_MODULES,
+    SCRIPT_NOT_IMPORTABLE,
+    position::{Position, Span},
 };
 
 use super::{

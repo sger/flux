@@ -1,17 +1,18 @@
-use crate::syntax::{
-    block::Block,
+use crate::{
     diagnostics::{
-        DiagnosticBuilder,
-        compiler_errors::{
-            invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
-            unexpected_token,
-        },
+        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
+        position::{Position, Span},
+        unexpected_token,
     },
-    expression::{Expression, MatchArm, Pattern},
-    position::{Position, Span},
-    precedence::{Fixity, Precedence, infix_op, postfix_op, prefix_op, rhs_precedence_for_infix},
-    statement::Statement,
-    token_type::TokenType,
+    syntax::{
+        block::Block,
+        expression::{Expression, MatchArm, Pattern},
+        precedence::{
+            Fixity, Precedence, infix_op, postfix_op, prefix_op, rhs_precedence_for_infix,
+        },
+        statement::Statement,
+        token_type::TokenType,
+    },
 };
 
 use super::Parser;

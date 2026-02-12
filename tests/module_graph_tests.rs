@@ -6,9 +6,10 @@ use std::{
 
 use flux::{
     bytecode::compiler::Compiler,
+    diagnostics::Diagnostic,
     syntax::{
-        diagnostics::Diagnostic, interner::Interner, lexer::Lexer, module_graph::ModuleGraph,
-        parser::Parser, program::Program,
+        interner::Interner, lexer::Lexer, module_graph::ModuleGraph, parser::Parser,
+        program::Program,
     },
 };
 
@@ -43,7 +44,7 @@ fn parse_program(source: &str) -> (Program, Interner) {
     (program, interner)
 }
 
-fn first_code(diags: Vec<flux::syntax::diagnostics::Diagnostic>) -> String {
+fn first_code(diags: Vec<flux::diagnostics::Diagnostic>) -> String {
     diags
         .first()
         .and_then(|d| d.code().map(|s| s.to_string()))

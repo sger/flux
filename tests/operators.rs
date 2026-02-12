@@ -1,5 +1,5 @@
+use flux::diagnostics::Diagnostic;
 use flux::syntax::{
-    diagnostics::Diagnostic,
     expression::Expression,
     interner::Interner,
     lexer::Lexer,

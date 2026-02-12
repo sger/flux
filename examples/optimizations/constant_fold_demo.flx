@@ -1,0 +1,39 @@
+// Constant folding optimization example
+// These constant expressions will be folded at compile-time
+
+// Integer arithmetic
+let a = 2 + 3 * 4;          // Folded to: 14
+let b = (10 + 5) * 2;       // Folded to: 30
+let c = 100 / 4 - 5;        // Folded to: 20
+
+// Float arithmetic
+let pi_approx = 3.14 * 2.0; // Folded to: 6.28
+let ratio = 22.0 / 7.0;     // Folded to: 3.142857...
+
+// String concatenation
+let greeting = "Hello" + " " + "World";  // Folded to: "Hello World"
+
+// Boolean logic
+let always_true = true || false;   // Folded to: true
+let always_false = false && true;  // Folded to: false
+
+// Comparisons
+let is_equal = 5 == 5;       // Folded to: true
+let is_less = 3 < 10;        // Folded to: true
+let is_greater = 7 > 2;      // Folded to: true
+
+// Negation
+let negative = -42;          // Folded to: -42
+let not_true = !true;        // Folded to: false
+
+// Complex nested expressions
+let complex = (2 + 3) * (4 - 1) + 10 / 2;  // Folded to: 20
+
+// Note: Expressions with variables are NOT folded
+let x = 10;
+let y = x + 5;  // NOT folded (x is a variable)
+
+print("Constant folding demo - all constants were optimized at compile-time!");
+print("a =", a);
+print("greeting =", greeting);
+print("complex =", complex);

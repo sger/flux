@@ -6,8 +6,8 @@ use crate::{
         op_code::{Instructions, OpCode, make},
         symbol_scope::SymbolScope,
     },
+    diagnostics::position::Span,
     runtime::value::Value,
-    syntax::position::Span,
 };
 
 use super::Compiler;

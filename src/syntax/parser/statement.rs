@@ -1,8 +1,6 @@
-use crate::syntax::{
-    diagnostics::{DiagnosticBuilder, compiler_errors::unknown_keyword},
-    precedence::Precedence,
-    statement::Statement,
-    token_type::TokenType,
+use crate::{
+    diagnostics::{DiagnosticBuilder, unknown_keyword},
+    syntax::{precedence::Precedence, statement::Statement, token_type::TokenType},
 };
 
 use super::{Parser, helpers::SyncMode};

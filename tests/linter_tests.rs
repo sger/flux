@@ -84,6 +84,27 @@ fn tracks_nested_pattern_bindings() {
 }
 
 #[test]
+fn tracks_guard_expression_usage() {
+    // Pattern binding used in guard should be marked as used
+    let output = lint("match Some(5) { Some(x) if x > 3 -> 10, _ -> 0 }");
+    assert!(
+        !output.contains("W001"),
+        "x should be tracked as used in guard"
+    );
+}
+
+#[test]
+fn tracks_identifiers_in_guard() {
+    // Variables referenced in guard should be marked as used
+    let output =
+        lint("let threshold = 5; match Some(10) { Some(x) if x > threshold -> x, _ -> 0 }");
+    assert!(
+        !output.contains("W001"),
+        "threshold should be tracked as used in guard"
+    );
+}
+
+#[test]
 fn warns_on_dead_code_after_return() {
     let output = lint("fun f() { return 1; 2; } f();");
     assert!(output.contains("W008:DEAD CODE"));
@@ -105,4 +126,85 @@ fn warns_on_function_too_long() {
     source.push_str("big();\n");
     let output = lint(&source);
     assert!(output.contains("W009:FUNCTION TOO LONG"));
+}
+
+#[test]
+fn warns_on_high_cyclomatic_complexity() {
+    // Many match arms = high complexity
+    let source = r#"
+        fun complex(x) {
+            match x {
+                1 -> 1,
+                2 -> 2,
+                3 -> 3,
+                4 -> 4,
+                5 -> 5,
+                6 -> 6,
+                7 -> 7,
+                8 -> 8,
+                9 -> 9,
+                10 -> 10,
+                11 -> 11,
+                _ -> 0,
+            };
+        }
+        complex(5);
+    "#;
+    let output = lint(source);
+    assert!(output.contains("W011:HIGH CYCLOMATIC COMPLEXITY"));
+}
+
+#[test]
+fn warns_on_deep_nesting() {
+    // 5 levels of nesting
+    let source = r#"
+        fun deeply_nested(x) {
+            if x > 0 {
+                if x > 1 {
+                    if x > 2 {
+                        if x > 3 {
+                            if x > 4 {
+                                1;
+                            } else { 0; }
+                        } else { 0; }
+                    } else { 0; }
+                } else { 0; }
+            } else { 0; }
+        }
+        deeply_nested(5);
+    "#;
+    let output = lint(source);
+    assert!(output.contains("W012:DEEP NESTING"));
+}
+
+#[test]
+fn no_warn_on_reasonable_complexity() {
+    let source = "fun simple(x) { if x > 0 { 1; } else { 0; } } simple(1);";
+    let output = lint(source);
+    assert!(!output.contains("W011"));
+    assert!(!output.contains("W012"));
+}
+
+#[test]
+fn warns_on_lambda_complexity() {
+    // Lambda with high complexity should also be warned
+    let source = r#"
+        let f = \x -> match x {
+            1 -> 1,
+            2 -> 2,
+            3 -> 3,
+            4 -> 4,
+            5 -> 5,
+            6 -> 6,
+            7 -> 7,
+            8 -> 8,
+            9 -> 9,
+            10 -> 10,
+            11 -> 11,
+            _ -> 0,
+        };
+        f(1);
+    "#;
+    let output = lint(source);
+    assert!(output.contains("W011:HIGH CYCLOMATIC COMPLEXITY"));
 }

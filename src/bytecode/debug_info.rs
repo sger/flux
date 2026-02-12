@@ -1,4 +1,4 @@
-use crate::syntax::position::Span;
+use crate::diagnostics::position::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
