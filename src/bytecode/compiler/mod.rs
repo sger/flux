@@ -165,6 +165,24 @@ impl Compiler {
         self.interner.resolve(s)
     }
 
+    /// Compile with optional constant folding optimization.
+    ///
+    /// If `optimize` is true, applies constant folding before compilation.
+    /// This requires cloning the program.
+    pub fn compile_with_opts(
+        &mut self,
+        program: &Program,
+        optimize: bool,
+    ) -> Result<(), Vec<Diagnostic>> {
+        if optimize {
+            use crate::ast::constant_fold;
+            let optimized = constant_fold(program.clone());
+            self.compile(&optimized)
+        } else {
+            self.compile(program)
+        }
+    }
+
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
         self.file_scope_symbols.clear();

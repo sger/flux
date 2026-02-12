@@ -24,6 +24,7 @@ fn main() {
     let trace = args.iter().any(|arg| arg == "--trace");
     let no_cache = args.iter().any(|arg| arg == "--no-cache");
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
+    let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -39,6 +40,9 @@ fn main() {
     }
     if roots_only {
         args.retain(|arg| arg != "--roots-only");
+    }
+    if enable_optimize {
+        args.retain(|arg| arg != "--optimize" && arg != "-O");
     }
     let max_errors = match extract_max_errors(&mut args) {
         Some(value) => value,
@@ -61,6 +65,7 @@ fn main() {
             trace,
             no_cache,
             roots_only,
+            enable_optimize,
             max_errors,
             &roots,
         );
@@ -88,6 +93,7 @@ fn main() {
                 trace,
                 no_cache,
                 roots_only,
+                enable_optimize,
                 max_errors,
                 &roots,
             )
@@ -108,7 +114,7 @@ fn main() {
                 eprintln!("Usage: flux bytecode <file.flx>");
                 return;
             }
-            show_bytecode(&args[2], max_errors);
+            show_bytecode(&args[2], enable_optimize, max_errors);
         }
         "lint" => {
             if args.len() < 3 {
@@ -166,12 +172,13 @@ Usage:
   flux run <file.flx> --root <path> [--root <path> ...]
 
 Flags:
-  --verbose   Show cache status (hit/miss/store)
-  --trace  Print VM instruction trace
-  --leak-detector  Print approximate allocation stats after run
-  --no-cache  Disable bytecode cache for this run
-  --max-errors <n>  Limit displayed errors (default: 50)
-  --root <path>  Add a module root (can be repeated)
+  --verbose          Show cache status (hit/miss/store)
+  --trace            Print VM instruction trace
+  --leak-detector    Print approximate allocation stats after run
+  --no-cache         Disable bytecode cache for this run
+  --optimize, -O     Enable constant folding optimization
+  --max-errors <n>   Limit displayed errors (default: 50)
+  --root <path>      Add a module root (can be repeated)
   --roots-only  Use only explicitly provided --root values
   -h, --help  Show this help message
 "
@@ -186,6 +193,7 @@ fn run_file(
     trace: bool,
     no_cache: bool,
     roots_only: bool,
+    enable_optimize: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
 ) {
@@ -256,7 +264,7 @@ fn run_file(
             let mut compile_errors: Vec<Diagnostic> = Vec::new();
             for node in graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
-                if let Err(mut diags) = compiler.compile(&node.program) {
+                if let Err(mut diags) = compiler.compile_with_opts(&node.program, enable_optimize) {
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -426,7 +434,7 @@ fn show_tokens(path: &str) {
     }
 }
 
-fn show_bytecode(path: &str, max_errors: usize) {
+fn show_bytecode(path: &str, enable_optimize: bool, max_errors: usize) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -445,7 +453,7 @@ fn show_bytecode(path: &str, max_errors: usize) {
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
-            if let Err(diags) = compiler.compile(&program) {
+            if let Err(diags) = compiler.compile_with_opts(&program, enable_optimize) {
                 let report = DiagnosticsAggregator::new(&diags)
                     .with_default_source(path, source.as_str())
                     .with_file_headers(false)
