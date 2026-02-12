@@ -4,10 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::syntax::{
-    diagnostics::Diagnostic, interner::Interner,
-    module_graph::module_resolution::parse_program_with_interner, position::Position,
-    program::Program,
+use crate::{
+    diagnostics::{Diagnostic, position::Position},
+    syntax::{
+        interner::Interner, module_graph::module_resolution::parse_program_with_interner,
+        program::Program,
+    },
 };
 
 mod module_binding;

@@ -1,11 +1,8 @@
 use std::fmt;
 
-use crate::syntax::{
-    Identifier,
-    block::Block,
-    expression::Expression,
-    interner::Interner,
-    position::{Position, Span},
+use crate::{
+    diagnostics::position::{Position, Span},
+    syntax::{Identifier, block::Block, expression::Expression, interner::Interner},
 };
 
 #[derive(Debug, Clone)]

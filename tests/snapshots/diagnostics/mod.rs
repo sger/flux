@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
-use flux::syntax::{
-    diagnostics::{Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType},
+use flux::diagnostics::{
+    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType,
     position::{Position, Span},
 };
 use insta::assert_snapshot;

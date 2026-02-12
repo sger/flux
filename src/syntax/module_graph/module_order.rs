@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::syntax::{
-    diagnostics::{Diagnostic, IMPORT_CYCLE},
+use crate::diagnostics::{
     position::{Position, Span},
+    {Diagnostic, IMPORT_CYCLE},
 };
 
 use super::{ModuleId, ModuleNode};
