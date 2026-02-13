@@ -115,6 +115,16 @@ impl Compiler {
         symbol_table.define_builtin(39, interner.intern("map"));
         symbol_table.define_builtin(40, interner.intern("filter"));
         symbol_table.define_builtin(41, interner.intern("fold"));
+        // List builtins (persistent cons-cell lists)
+        symbol_table.define_builtin(42, interner.intern("hd"));
+        symbol_table.define_builtin(43, interner.intern("tl"));
+        symbol_table.define_builtin(44, interner.intern("is_list"));
+        symbol_table.define_builtin(45, interner.intern("to_list"));
+        symbol_table.define_builtin(46, interner.intern("to_array"));
+        // Map builtins (persistent HAMT maps)
+        symbol_table.define_builtin(47, interner.intern("put"));
+        symbol_table.define_builtin(48, interner.intern("get"));
+        symbol_table.define_builtin(49, interner.intern("is_map"));
 
         Self {
             constants: Vec::new(),
