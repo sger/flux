@@ -3,7 +3,10 @@ use std::any::type_name;
 use crate::runtime::{
     RuntimeContext,
     builtins::helpers::type_error,
-    gc::{gc_handle::GcHandle, hamt::is_hamt},
+    gc::{
+        gc_handle::GcHandle,
+        hamt::{hamt_iter, is_hamt},
+    },
     hash_key::HashKey,
     value::Value,
 };
@@ -40,12 +43,13 @@ fn arg_hamt(
 }
 
 pub(super) fn builtin_keys(
-    _ctx: &mut dyn RuntimeContext,
+    ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
     check_arity(&args, 1, "keys", "keys(h)")?;
-    let hash = arg_hash(&args, 0, "keys", "argument", "keys(h)")?;
-    let keys: Vec<Value> = hash.keys().map(hash_key_to_object).collect();
+    let handle = arg_hamt(ctx, &args, 0, "keys", "argument", "keys(h)")?;
+    let pairs = hamt_iter(ctx.gc_heap(), handle);
+    let keys: Vec<Value> = pairs.iter().map(|(k, _)| hash_key_to_object(k)).collect();
     Ok(Value::Array(keys.into()))
 }
 
