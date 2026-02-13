@@ -53,6 +53,11 @@ pub enum OpCode {
     OpClosureLong = 47,
     OpArrayLong = 48,
     OpHashLong = 49,
+    OpCons = 50,
+    OpIsCons = 51,
+    OpIsEmptyList = 52,
+    OpConsHead = 53,
+    OpConsTail = 54,
 }
 
 impl From<u8> for OpCode {
@@ -108,6 +113,11 @@ impl From<u8> for OpCode {
             47 => OpCode::OpClosureLong,
             48 => OpCode::OpArrayLong,
             49 => OpCode::OpHashLong,
+            50 => OpCode::OpCons,
+            51 => OpCode::OpIsCons,
+            52 => OpCode::OpIsEmptyList,
+            53 => OpCode::OpConsHead,
+            54 => OpCode::OpConsTail,
             _ => panic!("Unknown opcode {}", byte),
         }
     }

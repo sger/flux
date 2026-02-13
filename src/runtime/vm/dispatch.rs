@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::op_code::{OpCode, read_u8, read_u16, read_u32},
-    runtime::{builtins::BUILTINS, leak_detector, value::Value},
+    runtime::{builtins::BUILTINS, gc::HeapObject, leak_detector, value::Value},
 };
 
 use super::VM;
@@ -249,6 +249,41 @@ impl VM {
             OpCode::OpToString => {
                 let value = self.pop()?;
                 self.push(Value::String(value.to_string_value().into()))?;
+            }
+            OpCode::OpCons => {
+                let tail = self.pop()?;
+                let head = self.pop()?;
+                let handle = self.gc_alloc(HeapObject::Cons { head, tail });
+                self.push(Value::Gc(handle))?;
+            }
+            OpCode::OpIsCons => {
+                let value = self.pop()?;
+                let is_cons = matches!(&value, Value::Gc(h) if matches!(self.gc_heap.get(*h), HeapObject::Cons { .. }));
+                self.push(Value::Boolean(is_cons))?;
+            }
+            OpCode::OpIsEmptyList => {
+                let value = self.pop()?;
+                self.push(Value::Boolean(value == Value::None))?;
+            }
+            OpCode::OpConsHead => {
+                let value = self.pop()?;
+                match &value {
+                    Value::Gc(h) => match self.gc_heap.get(*h) {
+                        HeapObject::Cons { head, .. } => self.push(head.clone())?,
+                        other => return Err(format!("head: expected list, got {:?}", other)),
+                    },
+                    _ => return Err(format!("head: expected list, got {}", value.type_name())),
+                }
+            }
+            OpCode::OpConsTail => {
+                let value = self.pop()?;
+                match &value {
+                    Value::Gc(h) => match self.gc_heap.get(*h) {
+                        HeapObject::Cons { tail, .. } => self.push(tail.clone())?,
+                        other => return Err(format!("tail: expected list, got {:?}", other)),
+                    },
+                    _ => return Err(format!("tail: expected list, got {}", value.type_name())),
+                }
             }
         }
 
