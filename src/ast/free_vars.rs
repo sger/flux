@@ -50,7 +50,14 @@ impl FreeVarCollector {
             | Pattern::Right { pattern, .. } => {
                 self.extract_pattern_bindings(pattern);
             }
-            Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
+            Pattern::Cons { head, tail, .. } => {
+                self.extract_pattern_bindings(head);
+                self.extract_pattern_bindings(tail);
+            }
+            Pattern::Wildcard { .. }
+            | Pattern::Literal { .. }
+            | Pattern::None { .. }
+            | Pattern::EmptyList { .. } => {}
         }
     }
 }

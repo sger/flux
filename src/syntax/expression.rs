@@ -13,13 +13,40 @@ pub enum StringPart {
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
-    Wildcard { span: Span },
-    Literal { expression: Expression, span: Span },
-    Identifier { name: Identifier, span: Span },
-    None { span: Span },
-    Some { pattern: Box<Pattern>, span: Span },
-    Left { pattern: Box<Pattern>, span: Span },
-    Right { pattern: Box<Pattern>, span: Span },
+    Wildcard {
+        span: Span,
+    },
+    Literal {
+        expression: Expression,
+        span: Span,
+    },
+    Identifier {
+        name: Identifier,
+        span: Span,
+    },
+    None {
+        span: Span,
+    },
+    Some {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Left {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Right {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Cons {
+        head: Box<Pattern>,
+        tail: Box<Pattern>,
+        span: Span,
+    },
+    EmptyList {
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +149,11 @@ pub enum Expression {
         value: Box<Expression>,
         span: Span,
     },
+    Cons {
+        head: Box<Expression>,
+        tail: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl fmt::Display for Expression {
@@ -213,6 +245,7 @@ impl fmt::Display for Expression {
             Expression::Some { value, .. } => write!(f, "Some({})", value),
             Expression::Left { value, .. } => write!(f, "Left({})", value),
             Expression::Right { value, .. } => write!(f, "Right({})", value),
+            Expression::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
         }
     }
 }
@@ -240,6 +273,7 @@ impl Expression {
             | Expression::Some { span, .. } => *span,
             // Either type expressions
             Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
+            Expression::Cons { span, .. } => *span,
         }
     }
 }
@@ -368,6 +402,13 @@ impl Expression {
             Expression::Right { value, .. } => {
                 format!("Right({})", value.display_with(interner))
             }
+            Expression::Cons { head, tail, .. } => {
+                format!(
+                    "[{} | {}]",
+                    head.display_with(interner),
+                    tail.display_with(interner)
+                )
+            }
         }
     }
 }
@@ -389,6 +430,14 @@ impl Pattern {
             Pattern::Right { pattern, .. } => {
                 format!("Right({})", pattern.display_with(interner))
             }
+            Pattern::Cons { head, tail, .. } => {
+                format!(
+                    "[{} | {}]",
+                    head.display_with(interner),
+                    tail.display_with(interner)
+                )
+            }
+            Pattern::EmptyList { .. } => "[]".to_string(),
         }
     }
 }
@@ -403,6 +452,8 @@ impl fmt::Display for Pattern {
             Pattern::Some { pattern, .. } => write!(f, "Some({})", pattern),
             Pattern::Left { pattern, .. } => write!(f, "Left({})", pattern),
             Pattern::Right { pattern, .. } => write!(f, "Right({})", pattern),
+            Pattern::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
+            Pattern::EmptyList { .. } => write!(f, "[]"),
         }
     }
 }
@@ -417,6 +468,7 @@ impl Pattern {
             | Pattern::Some { span, .. }
             | Pattern::Left { span, .. }
             | Pattern::Right { span, .. } => *span,
+            Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }
 }

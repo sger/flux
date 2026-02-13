@@ -235,6 +235,11 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             value: Box::new(folder.fold_expr(*value)),
             span,
         },
+        Expression::Cons { head, tail, span } => Expression::Cons {
+            head: Box::new(folder.fold_expr(*head)),
+            tail: Box::new(folder.fold_expr(*tail)),
+            span,
+        },
     }
 }
 
@@ -262,6 +267,12 @@ pub fn fold_pat<F: Folder + ?Sized>(folder: &mut F, pat: Pattern) -> Pattern {
             pattern: Box::new(folder.fold_pat(*pattern)),
             span,
         },
+        Pattern::Cons { head, tail, span } => Pattern::Cons {
+            head: Box::new(folder.fold_pat(*head)),
+            tail: Box::new(folder.fold_pat(*tail)),
+            span,
+        },
+        Pattern::EmptyList { span } => Pattern::EmptyList { span },
     }
 }
 

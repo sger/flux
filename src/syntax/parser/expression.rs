@@ -365,6 +365,37 @@ impl Parser {
     // Collections
     pub(super) fn parse_array(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+
+        // Check for empty array: []
+        if self.consume_if_peek(TokenType::RBracket) {
+            return Some(Expression::Array {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Parse the first element
+        self.next_token();
+        let first = self.parse_expression(Precedence::Lowest)?;
+
+        // Check for cons syntax: [head | tail]
+        if self.is_peek_token(TokenType::Bar) {
+            self.next_token();
+            self.next_token();
+            let tail = self.parse_expression(Precedence::Lowest)?;
+
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::Cons {
+                head: Box::new(first),
+                tail: Box::new(tail),
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Otherwise, parse remaining elements as normal array using
+        // parse_expression_list_rest which has missing comma recovery.
         let elements = self.parse_expression_list(TokenType::RBracket)?;
         Some(Expression::Array {
             elements,

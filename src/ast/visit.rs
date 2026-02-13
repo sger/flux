@@ -240,6 +240,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         Expression::Right { value, span: _ } => {
             visitor.visit_expr(value);
         }
+        Expression::Cons { head, tail, .. } => {
+            visitor.visit_expr(head);
+            visitor.visit_expr(tail);
+        }
     }
 }
 
@@ -265,6 +269,11 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
         Pattern::Right { pattern, span: _ } => {
             visitor.visit_pat(pattern);
         }
+        Pattern::Cons { head, tail, .. } => {
+            visitor.visit_pat(head);
+            visitor.visit_pat(tail);
+        }
+        Pattern::EmptyList { .. } => {}
     }
 }
 
