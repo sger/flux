@@ -724,9 +724,69 @@ impl Compiler {
             }
             Pattern::Cons { head, tail, .. } => {
                 // Check if scrutinee is a non-empty cons cell
-                // self.load_symbol(scrutinee);
-                // self.emit(OpCode::OpIsCons, &[]);
-                // let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsCons, &[]);
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                // Check head pattern
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsHead, &[]);
+
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[head_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[head_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                match head.as_ref() {
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {}
+                    _ => {
+                        let head_jumps = self.compile_pattern_check(&head_symbol, head)?;
+                        jumps.extend(head_jumps);
+                    }
+                }
+
+                // Check tail pattern
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsTail, &[]);
+
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[tail_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                match tail.as_ref() {
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {}
+                    _ => {
+                        let tail_jumps = self.compile_pattern_check(&tail_symbol, tail)?;
+                        jumps.extend(tail_jumps);
+                    }
+                }
+
+                Ok(jumps)
             }
         }
     }
@@ -824,6 +884,52 @@ impl Compiler {
                     }
                 }
                 self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            Pattern::EmptyList { .. } => {}
+            Pattern::Cons { head, tail, .. } => {
+                // Bind head
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsHead, &[]);
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[head_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[head_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                self.compile_pattern_bind(&head_symbol, head)?;
+
+                // Bind tail
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsTail, &[]);
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[tail_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                self.compile_pattern_bind(&tail_symbol, tail)?;
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
@@ -998,6 +1104,10 @@ impl Compiler {
             Expression::Some { value, .. }
             | Expression::Left { value, .. }
             | Expression::Right { value, .. } => self.collect_consumable_param_uses(value, counts),
+            Expression::Cons { head, tail, .. } => {
+                self.collect_consumable_param_uses(head, counts);
+                self.collect_consumable_param_uses(tail, counts);
+            }
             Expression::Function { .. }
             | Expression::Integer { .. }
             | Expression::Float { .. }
