@@ -1,9 +1,16 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use crate::{
     bytecode::{bytecode::Bytecode, op_code::OpCode},
     runtime::{
-        closure::Closure, compiled_function::CompiledFunction, frame::Frame, leak_detector,
+        closure::Closure,
+        compiled_function::CompiledFunction,
+        frame::Frame,
+        gc::{
+            GcHandle, GcHeap, HeapObject,
+            hamt::{hamt_empty, hamt_insert},
+        },
+        leak_detector,
         value::Value,
     },
 };
@@ -28,6 +35,7 @@ pub struct VM {
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
+    pub(crate) gc_heap: GcHeap,
 }
 
 impl VM {
@@ -45,11 +53,40 @@ impl VM {
             frames: vec![main_frame],
             frame_index: 0,
             trace: false,
+            gc_heap: GcHeap::new(),
         }
     }
 
     pub fn set_trace(&mut self, enabled: bool) {
         self.trace = enabled;
+    }
+
+    pub fn set_gc_enabled(&mut self, enabled: bool) {
+        self.gc_heap.set_enabled(enabled);
+    }
+
+    pub fn set_gc_threshold(&mut self, threshold: usize) {
+        self.gc_heap.set_threshold(threshold);
+    }
+
+    /// Allocates a heap object, triggering GC if the threshold is reached.
+    pub(crate) fn gc_alloc(&mut self, object: HeapObject) -> GcHandle {
+        if self.gc_heap.should_collect() {
+            self.collect_gc();
+        }
+        self.gc_heap.alloc(object)
+    }
+
+    fn collect_gc(&mut self) {
+        self.gc_heap.collect(
+            &self.stack,
+            self.sp,
+            &self.globals,
+            &self.constants,
+            &self.last_popped,
+            &self.frames,
+            self.frame_index,
+        );
     }
 
     pub fn run(&mut self) -> Result<(), String> {
@@ -125,8 +162,8 @@ impl VM {
         Value::Array(Rc::new(elements))
     }
 
-    fn build_hash(&self, start: usize, end: usize) -> Result<Value, String> {
-        let mut hash = HashMap::new();
+    fn build_hash(&mut self, start: usize, end: usize) -> Result<Value, String> {
+        let mut root = hamt_empty(&mut self.gc_heap);
         let mut i = start;
         while i < end {
             let key = &self.stack[i];
@@ -136,11 +173,11 @@ impl VM {
                 .to_hash_key()
                 .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
-            hash.insert(hash_key, value.clone());
+            hamt_insert(&mut self.gc_heap, root, hash_key, value.clone());
             i += 2;
         }
         leak_detector::record_hash();
-        Ok(Value::Hash(hash.into()))
+        Ok(Value::Gc(root))
     }
 
     fn current_frame(&self) -> &Frame {
