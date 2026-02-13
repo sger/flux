@@ -173,7 +173,7 @@ impl VM {
                 .to_hash_key()
                 .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
-            hamt_insert(&mut self.gc_heap, root, hash_key, value.clone());
+            root = hamt_insert(&mut self.gc_heap, root, hash_key, value.clone());
             i += 2;
         }
         leak_detector::record_hash();
