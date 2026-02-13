@@ -1,13 +1,25 @@
-use crate::runtime::{RuntimeContext, value::Value};
+use crate::runtime::{
+    RuntimeContext,
+    gc::{HeapObject, hamt::is_hamt},
+    value::Value,
+};
 
 use super::helpers::check_arity;
 
 pub(super) fn builtin_type_of(
-    _ctx: &mut dyn RuntimeContext,
+    ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
     check_arity(&args, 1, "type_of", "type_of(x)")?;
-    Ok(Value::String(args[0].type_name().to_string().into()))
+    let name = match &args[0] {
+        Value::Gc(h) => match ctx.gc_heap().get(*h) {
+            HeapObject::Cons { .. } => "List",
+            HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => "Map",
+        },
+        other => other.type_name(),
+    };
+
+    Ok(Value::String(name.to_string().into()))
 }
 
 pub(super) fn builtin_is_int(
@@ -51,11 +63,15 @@ pub(super) fn builtin_is_array(
 }
 
 pub(super) fn builtin_is_hash(
-    _ctx: &mut dyn RuntimeContext,
+    ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
     check_arity(&args, 1, "is_hash", "is_hash(x)")?;
-    Ok(Value::Boolean(matches!(args[0], Value::Hash(_))))
+    let result = match &args[0] {
+        Value::Gc(h) => is_hamt(ctx.gc_heap(), *h),
+        _ => false,
+    };
+    Ok(Value::Boolean(result))
 }
 
 pub(super) fn builtin_is_none(

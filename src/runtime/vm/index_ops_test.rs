@@ -1,8 +1,11 @@
-use std::collections::HashMap;
-
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{hash_key::HashKey, value::Value, vm::VM},
+    runtime::{
+        gc::hamt::{hamt_empty, hamt_insert},
+        hash_key::HashKey,
+        value::Value,
+        vm::VM,
+    },
 };
 
 fn new_vm() -> VM {
@@ -52,9 +55,14 @@ fn array_index_negative() {
 #[test]
 fn hash_index_missing_key() {
     let mut vm = new_vm();
-    let mut map = HashMap::new();
-    map.insert(HashKey::String("k".to_string()), Value::Integer(1));
-    let hash = Value::Hash(map.into());
+    let mut root = hamt_empty(&mut vm.gc_heap);
+    root = hamt_insert(
+        &mut vm.gc_heap,
+        root,
+        HashKey::String("k".to_string()),
+        Value::Integer(1),
+    );
+    let hash = Value::Gc(root);
 
     vm.execute_index_expression(hash, Value::String("missing".to_string().into()))
         .unwrap();

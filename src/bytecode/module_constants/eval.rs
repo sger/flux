@@ -38,27 +38,13 @@ pub fn eval_const_expr(
             Ok(Value::Array(values.into()))
         }
 
-        Expression::Hash { pairs, .. } => {
-            let mut map = HashMap::with_capacity(pairs.len());
-            for (key, value) in pairs {
-                let k = eval_const_expr(key, defined, interner)?;
-                let v = eval_const_expr(value, defined, interner)?;
-
-                let hash_key = match &k {
-                    Value::Integer(i) => HashKey::Integer(*i),
-                    Value::Boolean(b) => HashKey::Boolean(*b),
-                    Value::String(s) => HashKey::String(s.to_string()),
-                    _ => {
-                        return Err(ConstEvalError::new(
-                            "E040",
-                            "Hash keys must be integers, booleans, or strings.",
-                        ));
-                    }
-                };
-                map.insert(hash_key, v);
-            }
-            Ok(Value::Hash(map.into()))
-        }
+        Expression::Hash { .. } => Err(ConstEvalError::new(
+            "E040",
+            "Hash literals are not supported in module constants.",
+        )
+        .with_hint(
+            "Hash maps require the runtime GC heap and cannot be evaluated at compile time.",
+        )),
 
         Expression::Identifier { name, .. } => defined.get(name).cloned().ok_or_else(|| {
             let name_str = interner.resolve(*name);

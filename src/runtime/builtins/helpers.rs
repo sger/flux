@@ -1,5 +1,4 @@
-use crate::runtime::{hash_key::HashKey, value::Value};
-use std::collections::HashMap;
+use crate::runtime::value::Value;
 
 pub(super) fn format_hint(signature: &str) -> String {
     format!("\n\nHint:\n  {}", signature)
@@ -119,25 +118,6 @@ pub(super) fn arg_int(
             name,
             label,
             "Integer",
-            other.type_name(),
-            signature,
-        )),
-    }
-}
-
-pub(super) fn arg_hash<'a>(
-    args: &'a [Value],
-    index: usize,
-    name: &str,
-    label: &str,
-    signature: &str,
-) -> Result<&'a HashMap<HashKey, Value>, String> {
-    match &args[index] {
-        Value::Hash(h) => Ok(h),
-        other => Err(type_error(
-            name,
-            label,
-            "Hash",
             other.type_name(),
             signature,
         )),
