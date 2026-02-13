@@ -210,11 +210,6 @@ impl GcHeap {
                             i += 1;
                         }
                     }
-                    Value::Hash(pairs) => {
-                        for value in pairs.values() {
-                            worklist.push(WorkItem::Value(value.clone()));
-                        }
-                    }
                     Value::Closure(closure) => {
                         let mut i = 0;
                         let len = closure.free.len();

@@ -1,4 +1,12 @@
-use crate::runtime::{RuntimeContext, hash_key::HashKey, value::Value};
+use std::any::type_name;
+
+use crate::runtime::{
+    RuntimeContext,
+    builtins::helpers::type_error,
+    gc::{gc_handle::GcHandle, hamt::is_hamt},
+    hash_key::HashKey,
+    value::Value,
+};
 
 use super::helpers::{arg_hash, check_arity, format_hint};
 
@@ -7,6 +15,27 @@ fn hash_key_to_object(key: &HashKey) -> Value {
         HashKey::Integer(v) => Value::Integer(*v),
         HashKey::Boolean(v) => Value::Boolean(*v),
         HashKey::String(v) => Value::String(v.clone().into()),
+    }
+}
+
+/// Extracts a GcHandle from an argument, validating that it points to a HAMT node.
+fn arg_hamt(
+    ctx: &dyn RuntimeContext,
+    args: &[Value],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<GcHandle, String> {
+    match &args[index] {
+        Value::Gc(h) if is_hamt(ctx.gc_heap(), *h) => Ok(*h),
+        other => Err(type_error(
+            name,
+            label,
+            "Hash",
+            other.type_name(),
+            signature,
+        )),
     }
 }
 
@@ -47,12 +76,13 @@ pub(super) fn builtin_has_key(
 }
 
 pub(super) fn builtin_merge(
-    _ctx: &mut dyn RuntimeContext,
+    ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
     check_arity(&args, 2, "merge", "merge(h1, h2)")?;
-    let h1 = arg_hash(&args, 0, "merge", "first argument", "merge(h1, h2)")?;
-    let h2 = arg_hash(&args, 1, "merge", "second argument", "merge(h1, h2)")?;
+    let h1 = arg_hamt(ctx, &args, 0, "merge", "first argument", "merge(h1, h2)")?;
+    let h2 = arg_hamt(ctx, &args, 1, "merge", "second argument", "merge(h1, h2)")?;
+
     let mut result = h1.clone();
     for (k, v) in h2.iter() {
         result.insert(k.clone(), v.clone());

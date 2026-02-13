@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, rc::Rc};
+use std::{fmt, rc::Rc};
 
 use crate::runtime::{
     builtin_function::BuiltinFunction, closure::Closure, compiled_function::CompiledFunction,
@@ -65,8 +65,6 @@ pub enum Value {
     Builtin(BuiltinFunction),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
-    /// Hash map keyed by hashable values.
-    Hash(Rc<HashMap<HashKey, Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
 }
@@ -89,11 +87,6 @@ impl fmt::Display for Value {
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", items.join(", "))
-            }
-            Value::Hash(pairs) => {
-                let items: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
-                write!(f, "{{{}}}", items.join(", "))
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
@@ -119,7 +112,6 @@ impl Value {
             Value::Closure(_) => "Closure",
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
-            Value::Hash(_) => "Hash",
             Value::Gc(_) => "Gc",
         }
     }
@@ -169,11 +161,6 @@ impl Value {
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[{}]", items.join(", "))
-            }
-            Value::Hash(pairs) => {
-                let items: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
-                format!("{{{}}}", items.join(", "))
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }
@@ -236,7 +223,6 @@ mod tests {
             "ReturnValue"
         );
         assert_eq!(Value::Array(Rc::new(vec![])).type_name(), "Array");
-        assert_eq!(Value::Hash(Rc::new(HashMap::new())).type_name(), "Hash");
     }
 
     #[test]
@@ -272,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clone_shares_rc_for_array_and_hash() {
+    fn test_clone_shares_rc_for_array() {
         let array = Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)]));
         let array_clone = array.clone();
         match (array, array_clone) {
@@ -282,18 +268,13 @@ mod tests {
             }
             _ => panic!("expected array values"),
         }
+    }
 
-        let mut map = HashMap::new();
-        map.insert(HashKey::String("k".to_string()), Value::Integer(42));
-        let hash = Value::Hash(Rc::new(map));
-        let hash_clone = hash.clone();
-        match (hash, hash_clone) {
-            (Value::Hash(left), Value::Hash(right)) => {
-                assert!(Rc::ptr_eq(&left, &right));
-                assert_eq!(Rc::strong_count(&left), 2);
-            }
-            _ => panic!("expected hash values"),
-        }
+    #[test]
+    fn test_clone_shares_gc_handle() {
+        let gc = Value::Gc(GcHandle::new_for_test(42));
+        let gc_clone = gc.clone();
+        assert_eq!(gc, gc_clone);
     }
 
     #[test]
