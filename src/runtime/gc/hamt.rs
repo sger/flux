@@ -381,9 +381,88 @@ pub fn hamt_delete_at(
     }
 }
 
+fn hamt_iter_collect(heap: &GcHeap, handle: GcHandle, result: &mut Vec<(HashKey, Value)>) {
+    match heap.get(handle) {
+        HeapObject::HamtNode { children, .. } => {
+            for entry in children {
+                match entry {
+                    HamtEntry::Leaf(k, v) => result.push((k.clone(), v.clone())),
+                    HamtEntry::Node(child) => hamt_iter_collect(heap, *child, result),
+                    HamtEntry::Collision(col) => hamt_iter_collect(heap, *col, result),
+                }
+            }
+        }
+        HeapObject::HamtCollision { entries, .. } => {
+            for (k, v) in entries {
+                result.push((k.clone(), v.clone()));
+            }
+        }
+        _ => {}
+    }
+}
+
+pub fn hamt_iter(heap: &GcHeap, root: GcHandle) -> Vec<(HashKey, Value)>) {
+    let mut result = Vec::new();
+    hamt_iter_collect(heap, root, &mut result);
+    result
+}
+
+fn hamt_count(heap: &GcHeap, handle: GcHandle) -> usize {
+    match heap.get(handle) {
+        HeapObject::HamtNode { children, .. } => {
+            let mut count = 0;
+            for entry in children  {
+                match entry {
+                    HamtEntry::Leaf(_, _) => count += 1,
+                    HamtEntry::Node(child) => count += hamt_count(heap, *child),
+                    HamtEntry::Collision(col) => count += hamt_count(heap, *col),
+                }
+            }
+            count
+        }
+        HeapObject::HamtCollision { entries, .. } => entries.len(),
+        _ => 0,
+    }
+}
+
+pub fn hamt_len(heap: &GcHeap, root: GcHandle) -> usize {
+    hamt_count(heap, root)
+}
+
 pub fn is_hamt(heap: &GcHeap, handle: GcHandle) -> bool {
     matches!(
         heap.get(handle),
         HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. }
     )
+}
+
+/// Deep equality comparison of two HAMT trees.
+/// Two maps are equal if they have the same key-value pairs.
+pub fn hamt_equal(heap: &GcHeap, a: GcHandle, b: GcHandle) -> bool {
+    if a==b {
+        return true;
+    }
+
+    let pairs_a = hamt_iter(heap, a);
+    let pairs_b = hamt_iter(heap, b);
+
+    if pairs_a.len() != pairs_b.len() {
+        return false;
+    }
+
+    // Check every key-value pair from a exists in b
+    for (ka, va) in &pairs_a  {
+        match hamt_lookup(heap, b, ka) {
+            Some(vb) if vb == *va => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Format a HAMT as a string like `{"a": 1, "b": 2}`.
+pub fn format_hamt(heap: &GcHeap, root: GcHandle) -> String {
+    let pairs = hamt_iter(heap, root);
+    let items: Vec<String> = pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+    format!("{{{}}}", items.join(", "))
 }
