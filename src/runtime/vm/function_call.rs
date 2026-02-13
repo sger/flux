@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
+use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;
@@ -162,5 +163,13 @@ impl VM {
 impl RuntimeContext for VM {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         VM::invoke_value(self, callee, args)
+    }
+
+    fn gc_heap(&self) -> &GcHeap {
+        &self.gc_heap
+    }
+
+    fn gc_heap_mut(&mut self) -> &mut GcHeap {
+        &mut self.gc_heap
     }
 }

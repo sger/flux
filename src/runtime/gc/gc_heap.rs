@@ -52,9 +52,9 @@ impl GcHeap {
     /// Creates a new heap with a custom GC allocation threshold.
     ///
     /// Unlike [`Self::set_threshold`], this does not clamp to `MIN_GC_THRESHOLD`.
-    pub fn with_threshold(threshhold: usize) -> Self {
+    pub fn with_threshold(threshold: usize) -> Self {
         let mut heap = Self::new();
-        heap.gc_threshold = threshhold;
+        heap.gc_threshold = threshold;
         heap
     }
 
