@@ -6,6 +6,7 @@ use crate::runtime::{
     gc::{
         gc_handle::GcHandle, hamt_entry::HamtEntry, heap_entry::HeapEntry, heap_object::HeapObject,
     },
+    leak_detector,
     value::Value,
 };
 
@@ -31,6 +32,11 @@ pub struct GcHeap {
 }
 
 impl GcHeap {
+    /// Creates a new GC heap with default collection settings.
+    ///
+    /// Defaults:
+    /// - threshold: `10_000` allocations
+    /// - GC enabled: `true`
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -43,26 +49,38 @@ impl GcHeap {
         }
     }
 
+    /// Creates a new heap with a custom GC allocation threshold.
+    ///
+    /// Unlike [`Self::set_threshold`], this does not clamp to `MIN_GC_THRESHOLD`.
     pub fn with_threshold(threshhold: usize) -> Self {
         let mut heap = Self::new();
         heap.gc_threshold = threshhold;
         heap
     }
 
+    /// Enables or disables automatic collection checks.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.gc_enabled = enabled
     }
 
+    /// Sets the allocation threshold that triggers collection.
+    ///
+    /// Values below `MIN_GC_THRESHOLD` are clamped upward.
     pub fn set_threshold(&mut self, threshhold: usize) {
         self.gc_threshold = threshhold.max(MIN_GC_THRESHOLD)
     }
 
+    /// Returns `true` when GC is enabled and the threshold was reached.
     pub fn should_collect(&self) -> bool {
         self.gc_enabled && self.allocation_count >= self.gc_threshold
     }
 
+    /// Allocates a new heap object and returns a stable handle to it.
+    ///
+    /// Freed slots are reused through the internal free-list before growing
+    /// the storage vector.
     pub fn alloc(&mut self, object: HeapObject) -> GcHandle {
-        // leak_detector::rec
+        leak_detector::record_gc_alloc();
         self.allocation_count += 1;
         self.total_allocations += 1;
 
@@ -81,6 +99,9 @@ impl GcHeap {
         }
     }
 
+    /// Returns an immutable reference to a live object by handle.
+    ///
+    /// Panics if the handle points to a free slot or is out of bounds.
     pub fn get(&self, handle: GcHandle) -> &HeapObject {
         &self.entries[handle.0 as usize]
             .as_ref()
@@ -88,6 +109,7 @@ impl GcHeap {
             .object
     }
 
+    /// Returns the number of currently live heap entries.
     pub fn live_count(&self) -> usize {
         let mut live = 0;
         let mut i = 0;
@@ -103,14 +125,20 @@ impl GcHeap {
         live
     }
 
+    /// Returns the total number of allocations performed by this heap.
     pub fn total_allocations(&self) -> usize {
         self.total_allocations
     }
 
+    /// Returns the total number of completed GC cycles.
     pub fn total_collections(&self) -> usize {
         self.total_collections
     }
 
+    /// Runs a full stop-the-world mark-and-sweep collection.
+    ///
+    /// The VM provides root sets from stack, globals, constants, the last popped
+    /// value, and active frame closures.
     pub fn collect(
         &mut self,
         stack: &[Value],
@@ -165,6 +193,7 @@ impl GcHeap {
                 WorkItem::Handle(handle) => self.mark_handle(handle, &mut worklist),
                 WorkItem::Value(value) => match value {
                     Value::Gc(handle) => {
+                        // Follow heap references lazily through dedicated handle items.
                         worklist.push(WorkItem::Handle(handle));
                     }
                     Value::Some(inner)
@@ -213,7 +242,7 @@ impl GcHeap {
             return;
         }
 
-        // Mark first.
+        // Mark first so cycles/shared nodes are visited once.
         match self.entries[idx].as_mut() {
             Some(entry) => {
                 if entry.marked {
@@ -224,7 +253,7 @@ impl GcHeap {
             None => return,
         }
 
-        // Then enqueue children.
+        // Then enqueue children after releasing the mutable mark borrow.
         let object = match self.entries[idx].as_ref() {
             Some(entry) => &entry.object,
             None => return,

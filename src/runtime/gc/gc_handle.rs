@@ -7,6 +7,7 @@
 pub struct GcHandle(pub(crate) u32);
 
 impl GcHandle {
+    /// Returns the raw heap slot index backing this handle.
     pub fn index(self) -> u32 {
         self.0
     }
