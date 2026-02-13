@@ -134,15 +134,23 @@ fn validate_pattern_bindings(
         | Pattern::Right { pattern, .. } => {
             validate_pattern_bindings(pattern, ctx, diagnostics, bindings);
         }
-        Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
+        Pattern::Cons { head, tail, .. } => {
+            validate_pattern_bindings(head, ctx, diagnostics, bindings);
+            validate_pattern_bindings(tail, ctx, diagnostics, bindings);
+        }
+        Pattern::Wildcard { .. }
+        | Pattern::Literal { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. } => {}
     }
 }
 
 fn is_catchall(pattern: &Pattern) -> bool {
-    matches!(
-        pattern,
-        Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-    )
+    match pattern {
+        Pattern::Wildcard { .. } | Pattern::Identifier { .. } => true,
+        Pattern::EmptyList { .. } | Pattern::Cons { .. } => false,
+        _ => false,
+    }
 }
 
 fn is_unconditional_catchall_arm(arm: &MatchArm) -> bool {

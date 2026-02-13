@@ -332,6 +332,11 @@ impl Compiler {
             } => {
                 self.compile_match_expression(scrutinee, arms, *span)?;
             }
+            Expression::Cons { head, tail, .. } => {
+                self.compile_non_tail_expression(head)?;
+                self.compile_non_tail_expression(tail)?;
+                self.emit(OpCode::OpCons, &[]);
+            }
         }
         self.current_span = previous_span;
         Ok(())
@@ -710,6 +715,18 @@ impl Compiler {
                 // TODO: Implement proper binding
                 self.emit(OpCode::OpTrue, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+            }
+            Pattern::EmptyList { .. } => {
+                // Check if scrutinee is an empty list
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsEmptyList, &[]);
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+            }
+            Pattern::Cons { head, tail, .. } => {
+                // Check if scrutinee is a non-empty cons cell
+                // self.load_symbol(scrutinee);
+                // self.emit(OpCode::OpIsCons, &[]);
+                // let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
             }
         }
     }
