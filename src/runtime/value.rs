@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt, rc::Rc};
 
 use crate::runtime::{
     builtin_function::BuiltinFunction, closure::Closure, compiled_function::CompiledFunction,
-    hash_key::HashKey,
+    gc::gc_handle::GcHandle, hash_key::HashKey,
 };
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
@@ -67,6 +67,8 @@ pub enum Value {
     Array(Rc<Vec<Value>>),
     /// Hash map keyed by hashable values.
     Hash(Rc<HashMap<HashKey, Value>>),
+    /// GC-managed heap object (cons cell, HAMT map node).
+    Gc(GcHandle),
 }
 
 impl fmt::Display for Value {
@@ -93,6 +95,7 @@ impl fmt::Display for Value {
                     pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
             }
+            Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
     }
 }
@@ -117,6 +120,7 @@ impl Value {
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
             Value::Hash(_) => "Hash",
+            Value::Gc(_) => "Gc",
         }
     }
 
@@ -171,6 +175,7 @@ impl Value {
                     pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 format!("{{{}}}", items.join(", "))
             }
+            Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }
     }
 }
