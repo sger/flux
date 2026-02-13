@@ -20,6 +20,7 @@ pub mod builtins;
 pub mod closure;
 pub mod compiled_function;
 pub mod frame;
+pub mod gc;
 pub mod hash_key;
 pub mod leak_detector;
 pub mod value;
