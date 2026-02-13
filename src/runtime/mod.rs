@@ -28,6 +28,8 @@ pub mod vm;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+    fn gc_heap(&self) -> &gc::GcHeap;
+    fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
 }
 
 pub type BuiltinFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
