@@ -401,7 +401,7 @@ fn hamt_iter_collect(heap: &GcHeap, handle: GcHandle, result: &mut Vec<(HashKey,
     }
 }
 
-pub fn hamt_iter(heap: &GcHeap, root: GcHandle) -> Vec<(HashKey, Value)>) {
+pub fn hamt_iter(heap: &GcHeap, root: GcHandle) -> Vec<(HashKey, Value)> {
     let mut result = Vec::new();
     hamt_iter_collect(heap, root, &mut result);
     result
@@ -411,7 +411,7 @@ fn hamt_count(heap: &GcHeap, handle: GcHandle) -> usize {
     match heap.get(handle) {
         HeapObject::HamtNode { children, .. } => {
             let mut count = 0;
-            for entry in children  {
+            for entry in children {
                 match entry {
                     HamtEntry::Leaf(_, _) => count += 1,
                     HamtEntry::Node(child) => count += hamt_count(heap, *child),
@@ -439,7 +439,7 @@ pub fn is_hamt(heap: &GcHeap, handle: GcHandle) -> bool {
 /// Deep equality comparison of two HAMT trees.
 /// Two maps are equal if they have the same key-value pairs.
 pub fn hamt_equal(heap: &GcHeap, a: GcHandle, b: GcHandle) -> bool {
-    if a==b {
+    if a == b {
         return true;
     }
 
@@ -451,7 +451,7 @@ pub fn hamt_equal(heap: &GcHeap, a: GcHandle, b: GcHandle) -> bool {
     }
 
     // Check every key-value pair from a exists in b
-    for (ka, va) in &pairs_a  {
+    for (ka, va) in &pairs_a {
         match hamt_lookup(heap, b, ka) {
             Some(vb) if vb == *va => {}
             _ => return false,
