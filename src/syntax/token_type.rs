@@ -96,6 +96,7 @@ define_tokens! {
 
         // Pipe operator
         Pipe => "|>",
+        Bar  => "|",
 
         // Delimiters
         LParen    => "(",
