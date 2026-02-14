@@ -1,5 +1,6 @@
 use std::{
-    env, fs,
+    collections::HashSet,
+    env, fs, io,
     path::{Path, PathBuf},
 };
 
@@ -10,11 +11,11 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator},
-    runtime::{value::Value, vm::VM},
+    diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span},
+    runtime::{gc::GcHeap, value::Value, vm::VM},
     syntax::{
-        formatter::format_source, lexer::Lexer, linter::Linter, module_graph::ModuleGraph,
-        parser::Parser,
+        formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
+        module_graph::ModuleGraph, parser::Parser,
     },
 };
 
@@ -28,6 +29,7 @@ fn main() {
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let no_gc = args.iter().any(|arg| arg == "--no-gc");
+    let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -52,6 +54,9 @@ fn main() {
     }
     if no_gc {
         args.retain(|arg| arg != "--no-gc");
+    }
+    if gc_telemetry {
+        args.retain(|arg| arg != "--gc-telemetry");
     }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
@@ -84,6 +89,7 @@ fn main() {
             &roots,
             no_gc,
             gc_threshold,
+            gc_telemetry,
         );
         return;
     }
@@ -115,6 +121,7 @@ fn main() {
                 &roots,
                 no_gc,
                 gc_threshold,
+                gc_telemetry,
             )
         }
         "tokens" => {
@@ -183,6 +190,9 @@ fn main() {
             }
             analyze_tail_calls(&args[2], max_errors);
         }
+        "repl" => {
+            repl(trace);
+        }
         _ => {}
     }
 }
@@ -203,6 +213,7 @@ Usage:
   flux cache-info-file <file.fxc>
   flux analyze-free-vars <file.flx>
   flux analyze-tail-calls <file.flx>
+  flux repl
   flux <file.flx> --root <path> [--root <path> ...]
   flux run <file.flx> --root <path> [--root <path> ...]
 
@@ -216,6 +227,7 @@ Flags:
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
+  --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -240,6 +252,7 @@ fn run_file(
     extra_roots: &[std::path::PathBuf],
     no_gc: bool,
     gc_threshold: Option<usize>,
+    gc_telemetry: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -268,6 +281,16 @@ fn run_file(
                         eprintln!("{}", err);
                         std::process::exit(1);
                     }
+                    #[cfg(feature = "gc-telemetry")]
+                    if gc_telemetry {
+                        println!("\n{}", vm.gc_telemetry_report());
+                    }
+                    #[cfg(not(feature = "gc-telemetry"))]
+                    if gc_telemetry {
+                        eprintln!(
+                            "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
+                        );
+                    }
                     if leak_detector {
                         print_leak_stats();
                     }
@@ -282,37 +305,72 @@ fn run_file(
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
 
-            if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
-                std::process::exit(1);
+            // --- Collect all diagnostics into a single pool ---
+            let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
+
+            // Entry file parse errors: collect but do NOT exit early.
+            let entry_has_errors = !parser.errors.is_empty();
+            if entry_has_errors {
+                for diag in &mut parser.errors {
+                    if diag.file().is_none() {
+                        diag.set_file(path.to_string());
+                    }
+                }
+                all_diagnostics.append(&mut parser.errors);
             }
 
             let interner = parser.take_interner();
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
-            let (graph, interner) = match ModuleGraph::build_with_entry_and_roots(
+            // --- Build module graph (always returns, may have diagnostics) ---
+            let graph_result = ModuleGraph::build_with_entry_and_roots(
                 entry_path, &program, interner, &roots,
-            ) {
-                Ok(result) => result,
-                Err(diags) => {
-                    let report = DiagnosticsAggregator::new(&diags)
-                        .with_file_headers(false)
-                        .with_max_errors(Some(max_errors))
-                        .report();
-                    eprintln!("{}", report.rendered);
-                    std::process::exit(1);
-                }
-            };
+            );
+            all_diagnostics.extend(graph_result.diagnostics);
 
-            let mut compiler = Compiler::new_with_interner(path, interner);
-            let mut compile_errors: Vec<Diagnostic> = Vec::new();
+            // Track all failed modules (parse + validation failures from graph).
+            let mut failed: HashSet<PathBuf> = graph_result.failed_modules;
+            if entry_has_errors
+                && let Ok(canon) = std::fs::canonicalize(entry_path)
+            {
+                failed.insert(canon);
+            }
+
+            let is_multimodule = graph_result.graph.module_count() > 1;
+            let graph = graph_result.graph;
+
+            // --- Compile valid modules, suppress cascade ---
+            let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+            let entry_canonical = std::fs::canonicalize(entry_path).ok();
             for node in graph.topo_order() {
+                // Skip entry if it had parse errors (it is in topo_order but
+                // should not be compiled).
+                if entry_has_errors
+                    && let Some(ref canon) = entry_canonical
+                    && &node.path == canon
+                {
+                    continue;
+                }
+
+                // Cascade suppression: skip if any dependency failed.
+                let failed_dep = node.imports.iter().find(|e| failed.contains(&e.target_path));
+                if let Some(dep) = failed_dep {
+                    failed.insert(node.path.clone());
+                    // GHC-style skip note
+                    all_diagnostics.push(Diagnostic::make_note(
+                        "MODULE SKIPPED",
+                        format!(
+                            "Module `{}` was skipped because its dependency `{}` has errors.",
+                            node.path.to_string_lossy(),
+                            dep.name,
+                        ),
+                        node.path.to_string_lossy().to_string(),
+                        Span::default(),
+                    ));
+                    continue;
+                }
+
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 if let Err(mut diags) =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
@@ -322,13 +380,16 @@ fn run_file(
                             diag.set_file(node.path.to_string_lossy().to_string());
                         }
                     }
-                    compile_errors.append(&mut diags);
-                    break;
+                    all_diagnostics.append(&mut diags);
+                    continue;
                 }
             }
-            if !compile_errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&compile_errors)
-                    .with_file_headers(false)
+
+            // --- One unified report ---
+            if !all_diagnostics.is_empty() {
+                let report = DiagnosticsAggregator::new(&all_diagnostics)
+                    .with_default_source(path, source.as_str())
+                    .with_file_headers(is_multimodule)
                     .with_max_errors(Some(max_errors))
                     .report();
                 eprintln!("{}", report.rendered);
@@ -369,6 +430,16 @@ fn run_file(
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
+            }
+            #[cfg(feature = "gc-telemetry")]
+            if gc_telemetry {
+                println!("\n{}", vm.gc_telemetry_report());
+            }
+            #[cfg(not(feature = "gc-telemetry"))]
+            if gc_telemetry {
+                eprintln!(
+                    "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
+                );
             }
             if leak_detector {
                 print_leak_stats();
@@ -809,4 +880,157 @@ fn hex_string(bytes: &[u8; 32]) -> String {
         out.push_str(&format!("{:02x}", b));
     }
     out
+}
+
+fn repl(trace: bool) {
+    use io::Write;
+
+    println!("Flux REPL v{} (type :help for help, :quit to exit)", env!("CARGO_PKG_VERSION"));
+
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+
+    // Bootstrap compiler to register builtins in the symbol table.
+    let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
+    let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
+    let mut globals: Vec<Value> = vec![Value::None; 65536];
+    let mut gc_heap = GcHeap::new();
+
+    loop {
+        print!("flux> ");
+        io::stdout().flush().unwrap();
+
+        let input = match read_repl_input(&mut reader) {
+            Some(input) => input,
+            None => break, // EOF
+        };
+
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        match trimmed {
+            ":quit" | ":q" => break,
+            ":help" | ":h" => {
+                print_repl_help();
+                continue;
+            }
+            _ => {}
+        }
+
+        // --- Parse ---
+        let lexer = Lexer::new_with_interner(&input, interner);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        if !parser.errors.is_empty() {
+            let report = DiagnosticsAggregator::new(&parser.errors)
+                .with_default_source("<repl>", &input)
+                .with_file_headers(false)
+                .report();
+            eprintln!("{}", report.rendered);
+            interner = parser.take_interner();
+            continue;
+        }
+
+        interner = parser.take_interner();
+
+        // --- Compile ---
+        let mut compiler = Compiler::new_with_state(symbol_table, constants, interner);
+        compiler.set_file_path("<repl>");
+
+        if let Err(errs) = compiler.compile(&program) {
+            let report = DiagnosticsAggregator::new(&errs)
+                .with_default_source("<repl>", &input)
+                .with_file_headers(false)
+                .report();
+            eprintln!("{}", report.rendered);
+            let state = compiler.take_state();
+            symbol_table = state.0;
+            constants = state.1;
+            interner = state.2;
+            continue;
+        }
+
+        let bytecode = compiler.bytecode();
+        let state = compiler.take_state();
+        symbol_table = state.0;
+        constants = state.1;
+        interner = state.2;
+
+        // --- Execute ---
+        let mut vm = VM::new(bytecode);
+        vm.set_trace(trace);
+        std::mem::swap(&mut vm.globals, &mut globals);
+        std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
+
+        match vm.run() {
+            Ok(()) => {
+                let result = vm.last_popped_stack_elem();
+                if !matches!(result, Value::None) {
+                    println!("{}", result);
+                }
+            }
+            Err(err) => {
+                eprintln!("{}", err);
+            }
+        }
+
+        // Persist VM state for next iteration
+        std::mem::swap(&mut vm.globals, &mut globals);
+        std::mem::swap(&mut vm.gc_heap, &mut gc_heap);
+    }
+
+    println!("Goodbye!");
+}
+
+fn read_repl_input(reader: &mut impl io::BufRead) -> Option<String> {
+    use io::Write;
+
+    let mut input = String::new();
+    let mut depth: i32 = 0;
+
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => {
+                if input.is_empty() {
+                    return None;
+                }
+                return Some(input);
+            }
+            Ok(_) => {
+                for ch in line.chars() {
+                    match ch {
+                        '{' | '(' | '[' => depth += 1,
+                        '}' | ')' | ']' => depth -= 1,
+                        _ => {}
+                    }
+                }
+                input.push_str(&line);
+
+                if depth <= 0 {
+                    return Some(input);
+                }
+
+                print!("  ... ");
+                io::stdout().flush().unwrap();
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+fn print_repl_help() {
+    println!(
+        "\
+Commands:
+  :quit, :q    Exit the REPL
+  :help, :h    Show this help message
+
+Enter Flux expressions or statements.
+Multi-line input: unmatched braces trigger continuation prompt.
+Expression results are printed automatically."
+    );
 }

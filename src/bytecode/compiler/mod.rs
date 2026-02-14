@@ -163,6 +163,12 @@ impl Compiler {
         compiler
     }
 
+    /// Consumes the compiler and returns persistent state for REPL reuse.
+    /// Pairs with `new_with_state()` to bootstrap the next REPL iteration.
+    pub fn take_state(self) -> (SymbolTable, Vec<Value>, Interner) {
+        (self.symbol_table, self.constants, self.interner)
+    }
+
     pub fn set_file_path(&mut self, file_path: impl Into<String>) {
         // Keep diagnostics anchored to the module currently being compiled.
         self.file_path = file_path.into();

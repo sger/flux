@@ -145,28 +145,28 @@ pub fn build_transcript(
 
         let interner = parser.take_interner();
 
-        match ModuleGraph::build_with_entry_and_roots(fixture, &program, interner, &roots) {
-            Ok((graph, interner)) => {
-                let mut compiler = Compiler::new_with_interner(fixture_rel, interner);
-                for node in graph.topo_order() {
-                    compiler.set_file_path(node.path.to_string_lossy().to_string());
-                    if let Err(mut diags) = compiler.compile(&node.program) {
-                        for diag in &mut diags {
-                            if diag.file().is_none() {
-                                diag.set_file(node.path.to_string_lossy().to_string());
-                            }
+        let graph_result =
+            ModuleGraph::build_with_entry_and_roots(fixture, &program, interner, &roots);
+        if !graph_result.diagnostics.is_empty() {
+            diagnostics.extend(graph_result.diagnostics);
+            compile_status = String::from("failed (module)");
+        } else {
+            let mut compiler =
+                Compiler::new_with_interner(fixture_rel, graph_result.interner);
+            for node in graph_result.graph.topo_order() {
+                compiler.set_file_path(node.path.to_string_lossy().to_string());
+                if let Err(mut diags) = compiler.compile(&node.program) {
+                    for diag in &mut diags {
+                        if diag.file().is_none() {
+                            diag.set_file(node.path.to_string_lossy().to_string());
                         }
-                        diagnostics.append(&mut diags);
-                        break;
                     }
-                }
-                if !diagnostics.is_empty() {
-                    compile_status = String::from("failed (compile)");
+                    diagnostics.append(&mut diags);
+                    break;
                 }
             }
-            Err(mut diags) => {
-                diagnostics.append(&mut diags);
-                compile_status = String::from("failed (module)");
+            if !diagnostics.is_empty() {
+                compile_status = String::from("failed (compile)");
             }
         }
     } else {
