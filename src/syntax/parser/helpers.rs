@@ -397,11 +397,16 @@ impl Parser {
                 continue;
             }
 
+            let context = match end {
+                TokenType::RParen => "argument",
+                TokenType::RBracket => "array element",
+                _ => "item",
+            };
             self.errors.push(unexpected_token(
                 self.peek_token.span(),
                 format!(
-                    "Expected `,` or `{}` after list item, got {}.",
-                    end, self.peek_token.token_type
+                    "Expected `,` or `{}` after {}, got {}.",
+                    end, context, self.peek_token.token_type
                 ),
             ));
             if self.check_list_error_limit(diag_start, end, "list") {
@@ -421,6 +426,20 @@ impl Parser {
             }
 
             if self.consume_if_peek(end) {
+                return Some(list);
+            }
+
+            // If recovery stopped at a statement boundary, the closing
+            // delimiter was simply forgotten. Return what we have and let the
+            // parser continue from the next statement without a second error.
+            if matches!(
+                self.peek_token.token_type,
+                TokenType::Semicolon
+                    | TokenType::Let
+                    | TokenType::Fun
+                    | TokenType::Import
+                    | TokenType::Module
+            ) {
                 return Some(list);
             }
 
@@ -471,6 +490,22 @@ impl Parser {
             let token_type = self.peek_token.token_type;
 
             if at_top_level && (token_type == TokenType::Comma || token_type == end) {
+                break;
+            }
+
+            // A semicolon or statement keyword at top level means the unclosed
+            // delimiter was simply forgotten — stop recovering here so we don't
+            // cascade errors all the way to EOF.
+            if at_top_level
+                && matches!(
+                    token_type,
+                    TokenType::Semicolon
+                        | TokenType::Let
+                        | TokenType::Fun
+                        | TokenType::Import
+                        | TokenType::Module
+                )
+            {
                 break;
             }
 

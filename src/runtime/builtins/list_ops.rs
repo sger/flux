@@ -9,7 +9,7 @@ use crate::runtime::{
     value::Value,
 };
 
-use super::helpers::{check_arity, type_error};
+use super::helpers::{check_arity, format_hint, type_error};
 
 /// hd(list) - Returns the head (first element) of a cons list.
 pub(super) fn builtin_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
@@ -25,6 +25,10 @@ pub(super) fn builtin_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
                 "hd(list)",
             )),
         },
+        Value::Array(_) => Err(format!(
+            "hd expects a List, got Array. Use first(arr) for arrays or to_list(arr) to convert{}",
+            format_hint("hd(list)")
+        )),
         _ => Err(type_error(
             "hd",
             "argument",
@@ -49,6 +53,10 @@ pub(super) fn builtin_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
                 "tl(list)",
             )),
         },
+        Value::Array(_) => Err(format!(
+            "tl expects a List, got Array. Use rest(arr) for arrays or to_list(arr) to convert{}",
+            format_hint("tl(list)")
+        )),
         _ => Err(type_error(
             "tl",
             "argument",
