@@ -1,0 +1,119 @@
+// Test: Persistent lists with modules
+// Run with: cargo run -- --root examples examples/advanced/using_list_module.flx
+// Expected output:
+// === Range and basic operations ===
+// [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+// 55
+// === Take and Drop ===
+// [1, 2, 3]
+// [8, 9, 10]
+// === Pipeline: filter, map, sum ===
+// Evens: [2, 4, 6, 8, 10]
+// Squared evens: [4, 16, 36, 64, 100]
+// (Note: print() with multiple args uses space separator)
+// Sum of squared evens: 220
+// === Zip ===
+// [["Alice", 95], ["Bob", 87], ["Charlie", 92]]
+// === Any / All ===
+// Any negative? false
+// All positive? true
+// Any > 5? true
+// All > 5? false
+// === Flatten ===
+// [1, 2, 3, 4, 5, 6, 7, 8, 9]
+// === Combining with maps ===
+// {"Charlie": "A", "Alice": "A", "Bob": "B"}
+
+import Modules.ListUtils as L
+
+// =============================================================================
+// Range and basic list operations
+// =============================================================================
+
+print("=== Range and basic operations ===");
+
+let nums = L.range(1, 10);
+print(nums);          // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+print(L.sum(nums));   // 55
+
+// =============================================================================
+// Take and Drop
+// =============================================================================
+
+print("=== Take and Drop ===");
+
+print(L.take(nums, 3));   // [1, 2, 3]
+print(L.drop(nums, 7));   // [8, 9, 10]
+
+// =============================================================================
+// Pipeline: filter → map → sum
+// =============================================================================
+
+print("=== Pipeline: filter, map, sum ===");
+
+let evens = filter(nums, \x -> x % 2 == 0);
+print("Evens:", evens);  // [2, 4, 6, 8, 10]
+
+let squared = map(evens, \x -> x * x);
+print("Squared evens:", squared);  // [4, 16, 36, 64, 100]
+
+print("Sum of squared evens: " + to_string(L.sum(squared)));  // 220
+
+// =============================================================================
+// Zip: pair names with scores
+// =============================================================================
+
+print("=== Zip ===");
+
+let names = to_list(["Alice", "Bob", "Charlie"]);
+let scores = to_list([95, 87, 92]);
+let paired = L.zip(names, scores);
+print(to_array(paired));  // [["Alice", 95], ["Bob", 87], ["Charlie", 92]]
+
+// =============================================================================
+// Any / All predicates
+// =============================================================================
+
+print("=== Any / All ===");
+
+let data = to_list([1, 2, 3, 4, 5]);
+print("Any negative? " + to_string(L.any(data, \x -> x < 0)));   // false
+print("All positive? " + to_string(L.all(data, \x -> x > 0)));   // true
+print("Any > 5? " + to_string(L.any(nums, \x -> x > 5)));        // true
+print("All > 5? " + to_string(L.all(nums, \x -> x > 5)));        // false
+
+// =============================================================================
+// Flatten nested lists
+// =============================================================================
+
+print("=== Flatten ===");
+
+let groups = to_list([
+    L.range(1, 3),
+    L.range(4, 6),
+    L.range(7, 9),
+]);
+print(L.flatten(groups));  // [1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+// =============================================================================
+// Combining lists with maps: grade lookup
+// =============================================================================
+
+print("=== Combining with maps ===");
+
+fun grade(score) {
+    if score >= 90 {
+        "A"
+    } else {
+        if score >= 80 {
+            "B"
+        } else {
+            if score >= 70 { "C" } else { "F" }
+        }
+    }
+}
+
+// Build a name → grade map from zipped pairs
+// Use first/last to extract from [name, score] pairs
+let grades = fold(paired, {}, \(acc, pair) -> put(acc, first(pair), grade(last(pair))));
+print(grades);  // {"Charlie": "A", "Alice": "A", "Bob": "B"}

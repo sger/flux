@@ -1031,3 +1031,234 @@ fn test_builtin_is_some_false() {
     let result = call("is_some", vec![Value::None]).unwrap();
     assert_eq!(result, Value::Boolean(false));
 }
+
+// ── List builtin tests ──────────────────────────────────────────────────
+
+fn make_test_list(vm: &mut VM, elems: &[Value]) -> Value {
+    let mut list = Value::None;
+    for elem in elems.iter().rev() {
+        let handle = vm.gc_heap_mut().alloc(flux::runtime::gc::HeapObject::Cons {
+            head: elem.clone(),
+            tail: list,
+        });
+        list = Value::Gc(handle);
+    }
+    list
+}
+
+#[test]
+fn test_builtin_list_constructor() {
+    let mut vm = test_vm();
+    let result = call_vm(
+        &mut vm,
+        "list",
+        vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+    )
+    .unwrap();
+    // Verify via to_array round-trip
+    let arr = call_vm(&mut vm, "to_array", vec![result]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_builtin_list_empty() {
+    let mut vm = test_vm();
+    let result = call_vm(&mut vm, "list", vec![]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_len_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(10), Value::Integer(20), Value::Integer(30)]);
+    let result = call_vm(&mut vm, "len", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn test_builtin_len_empty_list() {
+    let result = call("len", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::Integer(0));
+}
+
+#[test]
+fn test_builtin_len_map() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "len", vec![map]).unwrap();
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn test_builtin_first_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(10), Value::Integer(20)]);
+    let result = call_vm(&mut vm, "first", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(10));
+}
+
+#[test]
+fn test_builtin_first_empty_list() {
+    let result = call("first", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_last_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(10), Value::Integer(20), Value::Integer(30)]);
+    let result = call_vm(&mut vm, "last", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(30));
+}
+
+#[test]
+fn test_builtin_last_empty_list() {
+    let result = call("last", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_rest_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(1), Value::Integer(2), Value::Integer(3)]);
+    let rest = call_vm(&mut vm, "rest", vec![list]).unwrap();
+    let arr = call_vm(&mut vm, "to_array", vec![rest]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_builtin_rest_empty_list() {
+    let result = call("rest", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_reverse_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(1), Value::Integer(2), Value::Integer(3)]);
+    let reversed = call_vm(&mut vm, "reverse", vec![list]).unwrap();
+    let arr = call_vm(&mut vm, "to_array", vec![reversed]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
+    );
+}
+
+#[test]
+fn test_builtin_reverse_empty_list() {
+    let result = call("reverse", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_contains_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(1), Value::Integer(2), Value::Integer(3)]);
+    let found = call_vm(&mut vm, "contains", vec![list.clone(), Value::Integer(2)]).unwrap();
+    assert_eq!(found, Value::Boolean(true));
+    let not_found = call_vm(&mut vm, "contains", vec![list, Value::Integer(99)]).unwrap();
+    assert_eq!(not_found, Value::Boolean(false));
+}
+
+#[test]
+fn test_builtin_contains_empty_list() {
+    let result = call("contains", vec![Value::None, Value::Integer(1)]).unwrap();
+    assert_eq!(result, Value::Boolean(false));
+}
+
+// ── HAMT builtin tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_builtin_put() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let updated = call_vm(
+        &mut vm,
+        "put",
+        vec![map.clone(), Value::String("email".into()), Value::String("a@b.com".into())],
+    )
+    .unwrap();
+    // Original unchanged
+    let orig_len = call_vm(&mut vm, "len", vec![map.clone()]).unwrap();
+    assert_eq!(orig_len, Value::Integer(3));
+    // New map has 4 entries
+    let new_len = call_vm(&mut vm, "len", vec![updated]).unwrap();
+    assert_eq!(new_len, Value::Integer(4));
+}
+
+#[test]
+fn test_builtin_get() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let found = call_vm(&mut vm, "get", vec![map.clone(), Value::String("name".into())]).unwrap();
+    assert_eq!(found, Value::Some(std::rc::Rc::new(Value::String("Alice".into()))));
+    let not_found = call_vm(&mut vm, "get", vec![map, Value::String("missing".into())]).unwrap();
+    assert_eq!(not_found, Value::None);
+}
+
+#[test]
+fn test_builtin_is_map() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "is_map", vec![map]).unwrap();
+    assert_eq!(result, Value::Boolean(true));
+    let result2 = call_vm(&mut vm, "is_map", vec![Value::Integer(1)]).unwrap();
+    assert_eq!(result2, Value::Boolean(false));
+}
+
+#[test]
+fn test_hamt_structural_sharing() {
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
+    let root1 = hamt_empty(heap);
+    let root2 = hamt_insert(heap, root1, HashKey::String("a".into()), Value::Integer(1));
+    let root3 = hamt_insert(heap, root2, HashKey::String("b".into()), Value::Integer(2));
+    // root2 still has only "a"
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("a".into())),
+        Some(Value::Integer(1))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("b".into())),
+        None
+    );
+    // root3 has both
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("a".into())),
+        Some(Value::Integer(1))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("b".into())),
+        Some(Value::Integer(2))
+    );
+}
+
+#[test]
+fn test_hamt_10k_sequential_inserts() {
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
+    let mut root = hamt_empty(heap);
+    for i in 0..10_000i64 {
+        root = hamt_insert(heap, root, HashKey::Integer(i), Value::Integer(i * 2));
+    }
+    assert_eq!(hamt_len(vm.gc_heap(), root), 10_000);
+    // Spot check a few entries
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(0)),
+        Some(Value::Integer(0))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(5000)),
+        Some(Value::Integer(10_000))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(9999)),
+        Some(Value::Integer(19_998))
+    );
+}

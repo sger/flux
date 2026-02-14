@@ -1174,3 +1174,86 @@ fn test_chained_operations_large_array() {
     let result = run(&program);
     assert!(matches!(result, Value::Integer(_)));
 }
+
+// ── List (cons cell) end-to-end tests ───────────────────────────────────
+
+#[test]
+fn test_cons_syntax() {
+    let result = run("[1 | [2 | [3 | None]]];");
+    // Returns a Gc handle (cons cell)
+    assert!(matches!(result, Value::Gc(_)));
+}
+
+#[test]
+fn test_cons_hd_tl() {
+    assert_eq!(run("hd([1 | [2 | None]]);"), Value::Integer(1));
+    assert_eq!(run("hd(tl([1 | [2 | None]]));"), Value::Integer(2));
+}
+
+#[test]
+fn test_list_constructor() {
+    assert_eq!(run("hd(list(10, 20, 30));"), Value::Integer(10));
+    assert_eq!(run("hd(tl(list(10, 20, 30)));"), Value::Integer(20));
+    assert_eq!(run("hd(tl(tl(list(10, 20, 30))));"), Value::Integer(30));
+}
+
+#[test]
+fn test_list_len() {
+    assert_eq!(run("len(list(1, 2, 3));"), Value::Integer(3));
+    assert_eq!(run("len(list());"), Value::Integer(0));
+}
+
+#[test]
+fn test_list_first_rest() {
+    assert_eq!(run("first(list(10, 20));"), Value::Integer(10));
+    assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
+}
+
+#[test]
+fn test_list_to_array_round_trip() {
+    let result = run("to_array(to_list([1, 2, 3]));");
+    assert_eq!(
+        result,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_list_reverse() {
+    let result = run("to_array(reverse(list(1, 2, 3)));");
+    assert_eq!(
+        result,
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
+    );
+}
+
+#[test]
+fn test_list_contains() {
+    assert_eq!(
+        run("contains(list(1, 2, 3), 2);"),
+        Value::Boolean(true)
+    );
+    assert_eq!(
+        run("contains(list(1, 2, 3), 99);"),
+        Value::Boolean(false)
+    );
+}
+
+#[test]
+fn test_list_pattern_match() {
+    assert_eq!(
+        run("let xs = list(10, 20, 30); match xs { [h | t] -> h, _ -> 0 };"),
+        Value::Integer(10)
+    );
+    assert_eq!(
+        run("let xs = list(); match xs { [h | t] -> h, _ -> 0 };"),
+        Value::Integer(0)
+    );
+}
+
+#[test]
+fn test_list_is_list() {
+    assert_eq!(run("is_list(list(1, 2));"), Value::Boolean(true));
+    assert_eq!(run("is_list(list());"), Value::Boolean(true));
+    assert_eq!(run("is_list([1, 2]);"), Value::Boolean(false));
+}

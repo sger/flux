@@ -31,6 +31,12 @@ pub struct GcHeap {
     total_allocations: usize,
 }
 
+impl Default for GcHeap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GcHeap {
     /// Creates a new GC heap with default collection settings.
     ///
@@ -139,6 +145,7 @@ impl GcHeap {
     ///
     /// The VM provides root sets from stack, globals, constants, the last popped
     /// value, and active frame closures.
+    #[allow(clippy::too_many_arguments)]
     pub fn collect(
         &mut self,
         stack: &[Value],
