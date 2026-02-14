@@ -29,6 +29,8 @@ pub struct GcHeap {
     gc_enabled: bool,
     total_collections: usize,
     total_allocations: usize,
+    #[cfg(feature = "gc-telemetry")]
+    telemetry: super::telemetry::GcTelemetry,
 }
 
 impl Default for GcHeap {
@@ -52,6 +54,8 @@ impl GcHeap {
             gc_enabled: true,
             total_collections: 0,
             total_allocations: 0,
+            #[cfg(feature = "gc-telemetry")]
+            telemetry: super::telemetry::GcTelemetry::new(),
         }
     }
 
@@ -90,19 +94,29 @@ impl GcHeap {
         self.allocation_count += 1;
         self.total_allocations += 1;
 
+        #[cfg(feature = "gc-telemetry")]
+        let alloc_kind = super::telemetry::ObjectKind::from_object(&object);
+        #[cfg(feature = "gc-telemetry")]
+        let alloc_size = object.shallow_size_bytes();
+
         let entry = HeapEntry {
             object,
             marked: false,
         };
 
-        if let Some(idx) = self.free_list.pop() {
+        let handle = if let Some(idx) = self.free_list.pop() {
             self.entries[idx as usize] = Some(entry);
             GcHandle(idx)
         } else {
             let idx = self.entries.len() as u32;
             self.entries.push(Some(entry));
             GcHandle(idx)
-        }
+        };
+
+        #[cfg(feature = "gc-telemetry")]
+        self.telemetry.record_alloc(alloc_kind, alloc_size);
+
+        handle
     }
 
     /// Returns an immutable reference to a live object by handle.
@@ -156,6 +170,19 @@ impl GcHeap {
         frames: &[Frame],
         frame_index: usize,
     ) {
+        #[cfg(feature = "gc-telemetry")]
+        {
+            let bytes_before = self.total_live_bytes();
+            self.telemetry.begin_cycle(self.gc_threshold, bytes_before);
+            let frame_count = if !frames.is_empty() {
+                frame_index.min(frames.len() - 1) + 1
+            } else {
+                0
+            };
+            let roots_count = sp + globals.len() + constants.len() + 1 + frame_count;
+            self.telemetry.set_roots_scanned(roots_count);
+        }
+
         self.mark_slice(&stack[..sp]);
         self.mark_slice(globals);
         self.mark_slice(constants);
@@ -180,6 +207,18 @@ impl GcHeap {
         self.allocation_count = 0;
 
         self.adapt_threshold(collected, live_before);
+
+        #[cfg(feature = "gc-telemetry")]
+        {
+            let bytes_after = self.total_live_bytes();
+            self.telemetry.end_cycle(
+                live_before,
+                live_after,
+                collected,
+                bytes_after,
+                self.gc_threshold,
+            );
+        }
     }
 
     fn mark_slice(&mut self, roots: &[Value]) {
@@ -196,6 +235,9 @@ impl GcHeap {
         worklist.push(WorkItem::Value(root.clone()));
 
         while let Some(item) = worklist.pop() {
+            #[cfg(feature = "gc-telemetry")]
+            self.telemetry.update_peak_mark_stack(worklist.len() + 1);
+
             match item {
                 WorkItem::Handle(handle) => self.mark_handle(handle, &mut worklist),
                 WorkItem::Value(value) => match value {
@@ -307,6 +349,12 @@ impl GcHeap {
         while i < len {
             if let Some(entry) = &mut self.entries[i] {
                 if entry.marked {
+                    #[cfg(feature = "gc-telemetry")]
+                    {
+                        let kind = super::telemetry::ObjectKind::from_object(&entry.object);
+                        let size = entry.object.shallow_size_bytes();
+                        self.telemetry.record_survival(kind, size);
+                    }
                     entry.marked = false;
                 } else {
                     self.entries[i] = None;
@@ -315,6 +363,86 @@ impl GcHeap {
             }
             i += 1;
         }
+    }
+
+    /// Compute the total live bytes across all live heap entries.
+    #[cfg(feature = "gc-telemetry")]
+    fn total_live_bytes(&self) -> usize {
+        let mut total = 0;
+        for e in self.entries.iter().flatten() {
+            total += e.object.shallow_size_bytes();
+        }
+        total
+    }
+
+    /// Returns a reference to the telemetry collector.
+    #[cfg(feature = "gc-telemetry")]
+    pub fn telemetry(&self) -> &super::telemetry::GcTelemetry {
+        &self.telemetry
+    }
+
+    /// Produces a point-in-time heap snapshot.
+    #[cfg(feature = "gc-telemetry")]
+    pub fn heap_snapshot(&self, largest_n: usize) -> super::telemetry::HeapSnapshot {
+        use super::telemetry::{HeapSnapshot, ObjectKind};
+
+        let capacity = self.entries.len();
+        let free_list_len = self.free_list.len();
+        let live_count = self.live_count();
+
+        let fragmentation = if capacity > 0 {
+            1.0 - (live_count as f64 / capacity as f64)
+        } else {
+            0.0
+        };
+        let utilization = if capacity > 0 {
+            live_count as f64 / capacity as f64
+        } else {
+            0.0
+        };
+
+        let mut counts = [0usize; 3];
+        let mut bytes = [0usize; 3];
+        let mut total_live_bytes = 0usize;
+        let mut all_objects: Vec<(u32, ObjectKind, usize)> = Vec::new();
+
+        for (i, entry) in self.entries.iter().enumerate() {
+            if let Some(e) = entry {
+                let kind = ObjectKind::from_object(&e.object);
+                let size = e.object.shallow_size_bytes();
+                let idx = kind as usize;
+                counts[idx] += 1;
+                bytes[idx] += size;
+                total_live_bytes += size;
+                all_objects.push((i as u32, kind, size));
+            }
+        }
+
+        all_objects.sort_by(|a, b| b.2.cmp(&a.2));
+        all_objects.truncate(largest_n);
+
+        let kind_breakdown: Vec<(ObjectKind, usize, usize)> = ObjectKind::ALL
+            .iter()
+            .map(|&k| (k, counts[k as usize], bytes[k as usize]))
+            .collect();
+
+        HeapSnapshot {
+            capacity,
+            live_count,
+            free_list_len,
+            fragmentation,
+            utilization,
+            kind_breakdown,
+            largest_objects: all_objects,
+            total_live_bytes,
+        }
+    }
+
+    /// Produce a full formatted telemetry report.
+    #[cfg(feature = "gc-telemetry")]
+    pub fn telemetry_report(&self) -> String {
+        let snapshot = self.heap_snapshot(10);
+        self.telemetry.report_full(&snapshot)
     }
 
     fn adapt_threshold(&mut self, collected: usize, total_before: usize) {
@@ -632,5 +760,101 @@ mod tests {
         let stack = vec![arr];
         heap.collect(&stack, 1, &[], &[], &Value::None, &[], 0);
         assert_eq!(heap.live_count(), 1);
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    #[test]
+    fn test_telemetry_alloc_tracking() {
+        let mut heap = GcHeap::new();
+        for i in 0..10 {
+            heap.alloc(HeapObject::Cons {
+                head: Value::Integer(i),
+                tail: Value::None,
+            });
+        }
+        assert_eq!(heap.telemetry().total_alloc_count(), 10);
+        assert!(
+            heap.telemetry()
+                .kind_stats(crate::runtime::gc::telemetry::ObjectKind::Cons)
+                .alloc_bytes
+                > 0
+        );
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    #[test]
+    fn test_telemetry_collection_cycle() {
+        let mut heap = GcHeap::new();
+        for i in 0..100 {
+            heap.alloc(HeapObject::Cons {
+                head: Value::Integer(i),
+                tail: Value::None,
+            });
+        }
+        heap.collect(&[], 0, &[], &[], &Value::None, &[], 0);
+        assert_eq!(heap.telemetry().cycles().len(), 1);
+        let cycle = &heap.telemetry().cycles()[0];
+        assert_eq!(cycle.live_before, 100);
+        assert_eq!(cycle.live_after, 0);
+        assert_eq!(cycle.collected_count, 100);
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    #[test]
+    fn test_telemetry_survival_tracking() {
+        let mut heap = GcHeap::new();
+        let h = heap.alloc(HeapObject::Cons {
+            head: Value::Integer(42),
+            tail: Value::None,
+        });
+        for i in 0..50 {
+            heap.alloc(HeapObject::Cons {
+                head: Value::Integer(i),
+                tail: Value::None,
+            });
+        }
+        let stack = vec![Value::Gc(h)];
+        heap.collect(&stack, 1, &[], &[], &Value::None, &[], 0);
+        let cons_stats = heap
+            .telemetry()
+            .kind_stats(crate::runtime::gc::telemetry::ObjectKind::Cons);
+        assert_eq!(cons_stats.survival_count, 1);
+        assert!(cons_stats.survival_bytes > 0);
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    #[test]
+    fn test_heap_snapshot() {
+        let mut heap = GcHeap::new();
+        for i in 0..20 {
+            heap.alloc(HeapObject::Cons {
+                head: Value::Integer(i),
+                tail: Value::None,
+            });
+        }
+        let snap = heap.heap_snapshot(5);
+        assert_eq!(snap.live_count, 20);
+        assert_eq!(snap.capacity, 20);
+        assert_eq!(snap.free_list_len, 0);
+        assert!(snap.utilization > 0.99);
+        assert_eq!(snap.largest_objects.len(), 5);
+        assert!(snap.total_live_bytes > 0);
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    #[test]
+    fn test_telemetry_report_does_not_panic() {
+        let mut heap = GcHeap::new();
+        for i in 0..10 {
+            heap.alloc(HeapObject::Cons {
+                head: Value::Integer(i),
+                tail: Value::None,
+            });
+        }
+        heap.collect(&[], 0, &[], &[], &Value::None, &[], 0);
+        let report = heap.telemetry_report();
+        assert!(report.contains("GC Allocation Stats"));
+        assert!(report.contains("GC Cycles"));
+        assert!(report.contains("Heap Snapshot"));
     }
 }

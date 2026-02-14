@@ -2,10 +2,7 @@ use std::rc::Rc;
 
 use crate::runtime::{
     RuntimeContext,
-    gc::{
-        HeapObject,
-        hamt::hamt_len,
-    },
+    gc::{HeapObject, hamt::hamt_len},
     value::Value,
 };
 
@@ -14,10 +11,7 @@ use super::helpers::{
 };
 use super::list_ops;
 
-pub(super) fn builtin_len(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "len", "len(value)")?;
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
@@ -91,13 +85,11 @@ pub(super) fn builtin_last(
         }
         Value::None => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
-            HeapObject::Cons { .. } => {
-                match list_ops::collect_list(ctx, &args[0]) {
-                    Some(elems) if elems.is_empty() => Ok(Value::None),
-                    Some(elems) => Ok(elems.into_iter().last().unwrap()),
-                    None => Err("last: malformed list".to_string()),
-                }
-            }
+            HeapObject::Cons { .. } => match list_ops::collect_list(ctx, &args[0]) {
+                Some(elems) if elems.is_empty() => Ok(Value::None),
+                Some(elems) => Ok(elems.into_iter().last().unwrap()),
+                None => Err("last: malformed list".to_string()),
+            },
             _ => Err(type_error(
                 "last",
                 "argument",
@@ -271,8 +263,8 @@ pub(super) fn builtin_contains(
         Value::None => Ok(Value::Boolean(false)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
-                let elements = list_ops::collect_list(ctx, &args[0])
-                    .ok_or("contains: malformed list")?;
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("contains: malformed list")?;
                 let found = elements.iter().any(|item| item == elem);
                 Ok(Value::Boolean(found))
             }
@@ -440,8 +432,8 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         Value::None => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
-                let elements = list_ops::collect_list(ctx, &args[0])
-                    .ok_or("map: malformed list")?;
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("map: malformed list")?;
                 let mut results = Vec::with_capacity(elements.len());
                 for (idx, item) in elements.into_iter().enumerate() {
                     let result = ctx
@@ -520,8 +512,8 @@ pub(super) fn builtin_filter(
         Value::None => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
-                let elements = list_ops::collect_list(ctx, &args[0])
-                    .ok_or("filter: malformed list")?;
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("filter: malformed list")?;
                 let mut results = Vec::new();
                 for (idx, item) in elements.into_iter().enumerate() {
                     let result = ctx
@@ -599,8 +591,8 @@ pub(super) fn builtin_fold(
         Value::None => Ok(acc),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
-                let elements = list_ops::collect_list(ctx, &args[0])
-                    .ok_or("fold: malformed list")?;
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("fold: malformed list")?;
                 for (idx, item) in elements.into_iter().enumerate() {
                     acc = ctx
                         .invoke_value(func.clone(), vec![acc, item])

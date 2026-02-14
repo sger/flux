@@ -1229,14 +1229,8 @@ fn test_list_reverse() {
 
 #[test]
 fn test_list_contains() {
-    assert_eq!(
-        run("contains(list(1, 2, 3), 2);"),
-        Value::Boolean(true)
-    );
-    assert_eq!(
-        run("contains(list(1, 2, 3), 99);"),
-        Value::Boolean(false)
-    );
+    assert_eq!(run("contains(list(1, 2, 3), 2);"), Value::Boolean(true));
+    assert_eq!(run("contains(list(1, 2, 3), 99);"), Value::Boolean(false));
 }
 
 #[test]

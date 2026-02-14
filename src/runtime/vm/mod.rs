@@ -35,7 +35,7 @@ pub struct VM {
     frames: Vec<Frame>,
     frame_index: usize,
     trace: bool,
-    pub(crate) gc_heap: GcHeap,
+    pub gc_heap: GcHeap,
 }
 
 impl VM {
@@ -67,6 +67,12 @@ impl VM {
 
     pub fn set_gc_threshold(&mut self, threshold: usize) {
         self.gc_heap.set_threshold(threshold);
+    }
+
+    /// Returns the GC telemetry report, if compiled with the `gc-telemetry` feature.
+    #[cfg(feature = "gc-telemetry")]
+    pub fn gc_telemetry_report(&self) -> String {
+        self.gc_heap.telemetry_report()
     }
 
     /// Allocates a heap object, triggering GC if the threshold is reached.

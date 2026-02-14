@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -61,14 +61,26 @@ pub struct ModuleGraph {
     order: Vec<ModuleId>,
 }
 
+/// Result of building a module graph. Always returns whatever graph could be
+/// constructed (possibly empty) alongside any diagnostics collected during
+/// module discovery, parsing, validation, and topological sorting.
+pub struct GraphBuildResult {
+    pub graph: ModuleGraph,
+    pub interner: Interner,
+    pub diagnostics: Vec<Diagnostic>,
+    /// Canonical paths of modules that failed to parse or validate.
+    pub failed_modules: HashSet<PathBuf>,
+}
+
 impl ModuleGraph {
     pub fn build_with_entry_and_roots(
         entry_path: &Path,
         entry_program: &Program,
         interner: Interner,
         roots: &[PathBuf],
-    ) -> Result<(Self, Interner), Vec<Diagnostic>> {
+    ) -> GraphBuildResult {
         let mut diagnostics = Vec::new();
+        let mut failed_modules: HashSet<PathBuf> = HashSet::new();
         let (entry_id, entry_path) = ModuleId::from_path(entry_path);
         let roots = normalize_roots(roots);
 
@@ -78,7 +90,7 @@ impl ModuleGraph {
 
         while let Some(path) = pending.pop() {
             let (id, canonical_path) = ModuleId::from_path(&path);
-            if nodes.contains_key(&id) {
+            if nodes.contains_key(&id) || failed_modules.contains(&canonical_path) {
                 continue;
             }
 
@@ -94,6 +106,7 @@ impl ModuleGraph {
                     Ok(program) => program,
                     Err(mut diags) => {
                         diagnostics.append(&mut diags);
+                        failed_modules.insert(canonical_path);
                         continue;
                     }
                 }
@@ -103,6 +116,7 @@ impl ModuleGraph {
                 validate_file_kind(&canonical_path, &program, id == entry_id, &roots, &interner)
             {
                 diagnostics.append(&mut diags);
+                failed_modules.insert(canonical_path);
                 continue;
             }
 
@@ -133,20 +147,26 @@ impl ModuleGraph {
             );
         }
 
-        if !diagnostics.is_empty() {
-            return Err(diagnostics);
-        }
+        // Topological sort on successfully parsed modules only.
+        // On cycle, push the diagnostic and use an empty order (nothing compiles).
+        let order = match topo_order(&nodes, &entry_id) {
+            Ok(order) => order,
+            Err(diag) => {
+                diagnostics.push(*diag);
+                Vec::new()
+            }
+        };
 
-        let order = topo_order(&nodes, &entry_id).map_err(|diag| vec![*diag])?;
-
-        Ok((
-            Self {
+        GraphBuildResult {
+            graph: Self {
                 entry: entry_id,
                 nodes,
                 order,
             },
             interner,
-        ))
+            diagnostics,
+            failed_modules,
+        }
     }
 
     pub fn topo_order(&self) -> Vec<&ModuleNode> {
@@ -165,6 +185,11 @@ impl ModuleGraph {
             .collect();
         files.sort();
         files
+    }
+
+    /// Returns the number of modules in the graph (including the entry).
+    pub fn module_count(&self) -> usize {
+        self.nodes.len()
     }
 }
 
