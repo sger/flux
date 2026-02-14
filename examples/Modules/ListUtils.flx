@@ -1,0 +1,85 @@
+// Module: ListUtils
+// Utilities for working with persistent linked lists
+
+module Modules.ListUtils {
+    // Create a range list: range(1, 5) → [1, 2, 3, 4, 5]
+    fun range(start, stop) {
+        if start > stop {
+            None
+        } else {
+            [start | range(start + 1, stop)]
+        }
+    }
+
+    // Sum all elements in a list
+    fun sum(lst) {
+        fold(lst, 0, \(acc, x) -> acc + x)
+    }
+
+    // Take the first n elements
+    fun take(lst, n) {
+        if n <= 0 {
+            None
+        } else {
+            match lst {
+                [h | t] -> [h | take(t, n - 1)],
+                _ -> None,
+            }
+        }
+    }
+
+    // Drop the first n elements
+    fun drop(lst, n) {
+        if n <= 0 {
+            lst
+        } else {
+            match lst {
+                [h | t] -> drop(t, n - 1),
+                _ -> None,
+            }
+        }
+    }
+
+    // Append two lists
+    fun append(a, b) {
+        match a {
+            [h | t] -> [h | append(t, b)],
+            _ -> b,
+        }
+    }
+
+    // Flatten a list of lists into a single list
+    fun flatten(lst) {
+        match lst {
+            [h | t] -> append(h, flatten(t)),
+            _ -> None,
+        }
+    }
+
+    // Zip two lists into a list of pairs (arrays)
+    fun zip(a, b) {
+        match a {
+            [ha | ta] -> match b {
+                [hb | tb] -> [[ha, hb] | zip(ta, tb)],
+                _ -> None,
+            },
+            _ -> None,
+        }
+    }
+
+    // Check if any element satisfies the predicate
+    fun any(lst, pred) {
+        match lst {
+            [h | t] -> if pred(h) { true } else { any(t, pred) },
+            _ -> false,
+        }
+    }
+
+    // Check if all elements satisfy the predicate
+    fun all(lst, pred) {
+        match lst {
+            [h | t] -> if pred(h) { all(t, pred) } else { false },
+            _ -> true,
+        }
+    }
+}

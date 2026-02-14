@@ -125,6 +125,7 @@ impl Compiler {
         symbol_table.define_builtin(47, interner.intern("put"));
         symbol_table.define_builtin(48, interner.intern("get"));
         symbol_table.define_builtin(49, interner.intern("is_map"));
+        symbol_table.define_builtin(50, interner.intern("list"));
 
         Self {
             constants: Vec::new(),

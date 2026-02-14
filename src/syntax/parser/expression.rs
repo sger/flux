@@ -394,9 +394,10 @@ impl Parser {
             });
         }
 
-        // Otherwise, parse remaining elements as normal array using
-        // parse_expression_list_rest which has missing comma recovery.
-        let elements = self.parse_expression_list(TokenType::RBracket)?;
+        // Otherwise, parse remaining elements as normal array.
+        // `first` is already parsed; delegate to the "with_first" variant
+        // which provides the same missing-comma recovery as parse_expression_list.
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
         Some(Expression::Array {
             elements,
             span: Span::new(start, self.current_token.end_position),
@@ -610,6 +611,31 @@ impl Parser {
                 let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
                 Some(Pattern::Right {
                     pattern: Box::new(inner_pattern),
+                    span: Span::new(start, self.current_token.end_position),
+                })
+            }
+            TokenType::LBracket => {
+                // Empty list pattern: []
+                if self.is_peek_token(TokenType::RBracket) {
+                    self.next_token(); // consume ]
+                    return Some(Pattern::EmptyList {
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+                // Cons pattern: [head | tail]
+                self.next_token(); // advance to head pattern
+                let head = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::Bar) {
+                    return None;
+                }
+                self.next_token(); // advance to tail pattern
+                let tail = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RBracket) {
+                    return None;
+                }
+                Some(Pattern::Cons {
+                    head: Box::new(head),
+                    tail: Box::new(tail),
                     span: Span::new(start, self.current_token.end_position),
                 })
             }

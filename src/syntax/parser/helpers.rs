@@ -291,46 +291,75 @@ impl Parser {
     }
 
     pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
-        let mut list = Vec::new();
+        if self.consume_if_peek(end) {
+            return Some(vec![]);
+        }
+        self.parse_expression_list_core(vec![], end, true)
+    }
+
+    /// Like `parse_expression_list`, but the first element has already been
+    /// parsed by the caller. Provides identical error recovery (missing-comma
+    /// detection, error limiting, etc.).
+    pub(super) fn parse_expression_list_with_first(
+        &mut self,
+        first: Expression,
+        end: TokenType,
+    ) -> Option<Vec<Expression>> {
+        self.parse_expression_list_core(vec![first], end, false)
+    }
+
+    /// Core loop for comma-separated expression lists.
+    ///
+    /// When `advance_first` is true, the loop starts by advancing and parsing
+    /// the first expression (normal path). When false, the first element is
+    /// already in `list` and the loop starts at the "after expression" phase.
+    fn parse_expression_list_core(
+        &mut self,
+        mut list: Vec<Expression>,
+        end: TokenType,
+        advance_first: bool,
+    ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
-
-        if self.consume_if_peek(end) {
-            return Some(list);
-        }
+        let mut need_advance = advance_first;
 
         loop {
-            self.next_token();
+            // === Phase A: advance to next token and parse expression ===
+            if need_advance {
+                self.next_token();
 
-            // Allow trailing comma in list contexts: f(a, ), [a, ], ...
-            if self.is_current_token(end) {
-                return Some(list);
-            }
-
-            if self.is_current_token(TokenType::Comma) {
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    "Expected expression after `,`, got `,`.",
-                ));
-                if self.check_list_error_limit(diag_start, end, "list") {
+                // Allow trailing comma in list contexts: f(a, ), [a, ], ...
+                if self.is_current_token(end) {
                     return Some(list);
                 }
-                continue;
-            }
 
-            if self.is_current_token(TokenType::Eof) {
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    format!("Expected `{}` before end of file.", end),
-                ));
-                if self.check_list_error_limit(diag_start, end, "list") {
-                    return Some(list);
+                if self.is_current_token(TokenType::Comma) {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        "Expected expression after `,`, got `,`.",
+                    ));
+                    if self.check_list_error_limit(diag_start, end, "list") {
+                        return Some(list);
+                    }
+                    continue;
                 }
-                return None;
+
+                if self.is_current_token(TokenType::Eof) {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!("Expected `{}` before end of file.", end),
+                    ));
+                    if self.check_list_error_limit(diag_start, end, "list") {
+                        return Some(list);
+                    }
+                    return None;
+                }
+
+                list.push(self.parse_expression(Precedence::Lowest)?);
             }
+            need_advance = true;
 
-            list.push(self.parse_expression(Precedence::Lowest)?);
-
+            // === Phase B: handle separator after expression ===
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume comma
 

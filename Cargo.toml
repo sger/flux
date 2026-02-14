@@ -33,3 +33,7 @@ harness = false
 [[bench]]
 name = "map_filter_fold_bench"
 harness = false
+
+[[bench]]
+name = "hamt_bench"
+harness = false
