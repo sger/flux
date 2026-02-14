@@ -29,6 +29,8 @@ impl VM {
             "E1008" // DIVISION_BY_ZERO_RUNTIME
         } else if title.contains("not a function") {
             "E1001" // NOT_A_FUNCTION
+        } else if title.contains("expected") || title.contains("expects") {
+            "E1004" // RUNTIME_TYPE_ERROR
         } else {
             "EXXX" // Unmigrated error - needs proper error code
         };
@@ -252,7 +254,14 @@ pub(super) fn strip_ansi(input: &str) -> String {
 
 fn split_hint(message: &str) -> (&str, Option<&str>) {
     if let Some(index) = message.find("\nHint:") {
-        (&message[..index], Some(&message[index..]))
+        // Skip past the "Hint:" prefix since the diagnostic renderer adds its own
+        let hint_start = index + "\nHint:".len();
+        let hint_content = message[hint_start..].trim_start();
+        if hint_content.is_empty() {
+            (&message[..index], None)
+        } else {
+            (&message[..index], Some(hint_content))
+        }
     } else {
         (message, None)
     }
