@@ -9,9 +9,9 @@ failed (module)
 
 Cannot find module `Modules.ListUtils` to import.
 
-  --> examples/advanced/using_list_module.flx:26:1
+  --> examples/advanced/using_list_module.flx:27:1
    |
-26 | import Modules.ListUtils as L
+27 | import Modules.ListUtils as L
    | ^
 
 Hint:

@@ -15,7 +15,7 @@ Expected `)` before end of file.
 
 --> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected `,` or `)` after list item, got EOF.
+Expected `,` or `)` after argument, got EOF.
 
   --> examples/errors/syntax_error.flx:7:1
   |
