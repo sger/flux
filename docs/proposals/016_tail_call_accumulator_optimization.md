@@ -1,6 +1,6 @@
 # Proposal 016: Tail-Call Accumulator Optimization
 
-**Status:** Proposed
+**Status:** Complete
 **Priority:** Medium (Performance)
 **Created:** 2026-02-08
 **Related:** Proposal 010 (GC), Proposal 019 (Zero-Copy Value Passing)
