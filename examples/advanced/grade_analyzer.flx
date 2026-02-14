@@ -1,0 +1,117 @@
+// Student Grade Analyzer
+// Demonstrates multi-module imports, persistent maps, higher-order functions,
+// pattern matching, and pipe operator.
+// Run with: cargo run -- --root examples examples/advanced/grade_analyzer.flx
+// Expected output:
+// === Student Grade Analysis ===
+// Alice: avg=91.5, grade=A, passed=true
+// Bob: avg=78.75, grade=C, passed=true
+// Charlie: avg=95.5, grade=A, passed=true
+// Diana: avg=68.75, grade=D, passed=true
+// Eve: avg=53.75, grade=F, passed=false
+// === Grade Distribution ===
+// (map with grade counts, key order may vary)
+// === Summary ===
+// Passed: 4
+// Failed: 1
+// === Bonus: Map Utilities ===
+// (demonstrates from_pairs, invert, group_by)
+
+import Modules.StudentGrades as SG
+import Modules.MapUtils as M
+import Modules.ListUtils as L
+
+// =============================================================================
+// Create Student Data
+// =============================================================================
+
+let students = [
+    SG.make_student("Alice", [92, 88, 95, 91]),
+    SG.make_student("Bob", [78, 82, 75, 80]),
+    SG.make_student("Charlie", [95, 98, 92, 97]),
+    SG.make_student("Diana", [65, 70, 68, 72]),
+    SG.make_student("Eve", [55, 60, 48, 52]),
+]
+
+// =============================================================================
+// Run Analysis
+// =============================================================================
+
+print("=== Student Grade Analysis ===")
+let results = SG.analyze(students)
+
+// Print each student's results
+fun show(results, name) {
+    let r = M.val(results, name)
+    let avg = to_string(M.val(r, "average"))
+    let grade = M.val(r, "grade")
+    let passed = to_string(M.val(r, "passed"))
+    print(name + ": avg=" + avg + ", grade=" + grade + ", passed=" + passed)
+}
+
+show(results, "Alice")
+show(results, "Bob")
+show(results, "Charlie")
+show(results, "Diana")
+show(results, "Eve")
+
+// =============================================================================
+// Grade Distribution
+// =============================================================================
+
+print("=== Grade Distribution ===")
+let dist = SG.grade_distribution(results)
+print(dist)
+
+// =============================================================================
+// Pass/Fail Summary
+// =============================================================================
+
+print("=== Summary ===")
+print("Passed: " + to_string(SG.count_passed(results)))
+print("Failed: " + to_string(SG.count_failed(results)))
+
+// =============================================================================
+// Bonus: Map Utilities
+// =============================================================================
+
+print("=== Bonus: Map Utilities ===")
+
+// Create a grade-to-points mapping from pairs
+let grade_points = M.from_pairs([["A", 4], ["B", 3], ["C", 2], ["D", 1], ["F", 0]])
+print("Grade points:", grade_points)
+
+// Invert the map: points -> grade
+let points_to_grade = M.invert(grade_points)
+print("Points to grade:", points_to_grade)
+
+// Group students by their letter grade
+let by_grade = M.group_by(keys(results), \name -> M.val(M.val(results, name), "grade"))
+print("Students by grade:", by_grade)
+
+// Double all point values using map_values
+let doubled_points = M.map_values(grade_points, \v -> v * 2)
+print("Doubled points:", doubled_points)
+
+// Filter to only passing grades (value >= 1)
+let passing_grades = M.filter_entries(grade_points, \(k, v) -> v >= 1)
+print("Passing grades:", passing_grades)
+
+// =============================================================================
+// Bonus: List Operations with ListUtils
+// =============================================================================
+
+print("=== Bonus: List Operations ===")
+
+// Create a range and compute sum
+let nums = L.range(1, 10)
+print("Range 1..10:", nums)
+print("Sum: " + to_string(L.sum(nums)))
+
+// Take and drop
+print("First 3:", L.take(nums, 3))
+print("Last 3:", L.drop(nums, 7))
+
+// Pipeline: range -> filter evens -> map square -> sum
+let even_squares_sum = L.sum(map(filter(nums, \x -> x % 2 == 0), \x -> x * x))
+print("Sum of squared evens (1..10): " + to_string(even_squares_sum))
