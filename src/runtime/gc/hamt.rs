@@ -223,9 +223,7 @@ fn hamt_insert_at(
         }
         _ => {
             // Not a HAMT node — shouldn't happen, but create a new leaf
-            let mut root = hamt_empty(heap);
-            root = hamt_insert_at(heap, node, key, value, hash, depth);
-            root
+            hamt_insert_at(heap, node, key, value, hash, depth)
         }
     }
 }

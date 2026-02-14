@@ -3,6 +3,7 @@ use crate::runtime::{RuntimeContext, builtin_function::BuiltinFunction, value::V
 mod array_ops;
 mod hash_ops;
 mod helpers;
+pub(crate) mod list_ops;
 mod numeric_ops;
 mod string_ops;
 mod type_check;
@@ -12,7 +13,13 @@ use array_ops::{
     builtin_len, builtin_map, builtin_push, builtin_rest, builtin_reverse, builtin_slice,
     builtin_sort,
 };
-use hash_ops::{builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values};
+use hash_ops::{
+    builtin_delete, builtin_get, builtin_has_key, builtin_is_map, builtin_keys, builtin_merge,
+    builtin_put, builtin_values,
+};
+use list_ops::{
+    builtin_hd, builtin_is_list, builtin_list, builtin_tl, builtin_to_array, builtin_to_list,
+};
 use numeric_ops::{builtin_abs, builtin_max, builtin_min};
 use string_ops::{
     builtin_chars, builtin_ends_with, builtin_join, builtin_lower, builtin_replace, builtin_split,
@@ -23,13 +30,14 @@ use type_check::{
     builtin_is_none, builtin_is_some, builtin_is_string, builtin_type_of,
 };
 
-fn builtin_print(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+fn builtin_print(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     for (i, arg) in args.iter().enumerate() {
         if i > 0 {
             print!(" ");
         }
         match arg {
             Value::String(s) => print!("{}", s), // Raw string
+            Value::Gc(_) => print!("{}", list_ops::format_value(ctx, arg)),
             _ => print!("{}", arg),
         }
     }
@@ -206,6 +214,44 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "fold",
         func: builtin_fold,
+    },
+    // List builtins (persistent cons-cell lists)
+    BuiltinFunction {
+        name: "hd",
+        func: builtin_hd,
+    },
+    BuiltinFunction {
+        name: "tl",
+        func: builtin_tl,
+    },
+    BuiltinFunction {
+        name: "is_list",
+        func: builtin_is_list,
+    },
+    BuiltinFunction {
+        name: "to_list",
+        func: builtin_to_list,
+    },
+    BuiltinFunction {
+        name: "to_array",
+        func: builtin_to_array,
+    },
+    // Map builtins (persistent HAMT maps)
+    BuiltinFunction {
+        name: "put",
+        func: builtin_put,
+    },
+    BuiltinFunction {
+        name: "get",
+        func: builtin_get,
+    },
+    BuiltinFunction {
+        name: "is_map",
+        func: builtin_is_map,
+    },
+    BuiltinFunction {
+        name: "list",
+        func: builtin_list,
     },
 ];
 

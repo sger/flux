@@ -27,6 +27,7 @@ fn main() {
     let roots_only = args.iter().any(|arg| arg == "--roots-only");
     let enable_optimize = args.iter().any(|arg| arg == "--optimize" || arg == "-O");
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
+    let no_gc = args.iter().any(|arg| arg == "--no-gc");
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -49,6 +50,13 @@ fn main() {
     if enable_analyze {
         args.retain(|arg| arg != "--analyze" && arg != "-A");
     }
+    if no_gc {
+        args.retain(|arg| arg != "--no-gc");
+    }
+    let gc_threshold = match extract_gc_threshold(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
     let max_errors = match extract_max_errors(&mut args) {
         Some(value) => value,
         None => return,
@@ -74,6 +82,8 @@ fn main() {
             enable_analyze,
             max_errors,
             &roots,
+            no_gc,
+            gc_threshold,
         );
         return;
     }
@@ -103,6 +113,8 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 &roots,
+                no_gc,
+                gc_threshold,
             )
         }
         "tokens" => {
@@ -226,6 +238,8 @@ fn run_file(
     enable_analyze: bool,
     max_errors: usize,
     extra_roots: &[std::path::PathBuf],
+    no_gc: bool,
+    gc_threshold: Option<usize>,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -244,6 +258,12 @@ fn run_file(
                     }
                     let mut vm = VM::new(bytecode);
                     vm.set_trace(trace);
+                    if no_gc {
+                        vm.set_gc_enabled(false);
+                    }
+                    if let Some(threshold) = gc_threshold {
+                        vm.set_gc_threshold(threshold);
+                    }
                     if let Err(err) = vm.run() {
                         eprintln!("{}", err);
                         std::process::exit(1);
@@ -340,6 +360,12 @@ fn run_file(
 
             let mut vm = VM::new(bytecode);
             vm.set_trace(trace);
+            if no_gc {
+                vm.set_gc_enabled(false);
+            }
+            if let Some(threshold) = gc_threshold {
+                vm.set_gc_threshold(threshold);
+            }
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
@@ -358,6 +384,33 @@ fn print_leak_stats() {
         "\nLeak stats (approx):\n  compiled_functions: {}\n  closures: {}\n  arrays: {}\n  hashes: {}\n  somes: {}",
         stats.compiled_functions, stats.closures, stats.arrays, stats.hashes, stats.somes
     );
+}
+
+fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {
+    let mut threshold = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--gc-threshold" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --gc-threshold <n>");
+                return None;
+            }
+            let value = args.remove(i + 1);
+            args.remove(i);
+            match value.parse::<usize>() {
+                Ok(parsed) => {
+                    threshold = Some(parsed);
+                }
+                Err(_) => {
+                    eprintln!("Error: --gc-threshold expects a non-negative integer.");
+                    return None;
+                }
+            }
+            continue;
+        }
+        i += 1;
+    }
+    Some(threshold)
 }
 
 fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
