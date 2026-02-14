@@ -23,4 +23,4 @@ message b
 1 | let y = 2;
   |     ^
 
-Found 2 warnings.
+Found 2 warnings across 2 modules.

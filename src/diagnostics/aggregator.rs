@@ -26,7 +26,7 @@ impl DiagnosticCounts {
     }
 
     pub fn summary_line(&self) -> Option<String> {
-        format_summary(self)
+        format_summary(self, 1)
     }
 }
 
@@ -269,7 +269,12 @@ impl<'a> DiagnosticsAggregator<'a> {
         // Default to always showing file headers for consistent output.
         let show_file_headers = self.show_file_headers.unwrap_or(true);
 
-        let summary = format_summary(&counts);
+        let file_count = unique
+            .iter()
+            .filter_map(|d| effective_file(d.diag, default_file))
+            .collect::<HashSet<_>>()
+            .len();
+        let summary = format_summary(&counts, file_count);
         let mut rendered = String::new();
 
         let mut groups: Vec<String> = Vec::new();
@@ -403,7 +408,7 @@ fn count_severity(diags: &[IndexedDiagnostic<'_>]) -> DiagnosticCounts {
     counts
 }
 
-fn format_summary(counts: &DiagnosticCounts) -> Option<String> {
+fn format_summary(counts: &DiagnosticCounts, file_count: usize) -> Option<String> {
     let total = counts.total();
     if total <= 1 && !(counts.errors > 0 && counts.warnings > 0) {
         return None;
@@ -427,7 +432,15 @@ fn format_summary(counts: &DiagnosticCounts) -> Option<String> {
         parts.push(format!("{} help{}", counts.helps, plural(counts.helps)));
     }
 
-    Some(format!("Found {}.", join_parts(&parts)))
+    let parts_str = join_parts(&parts);
+    if file_count > 1 {
+        Some(format!(
+            "Found {} across {} modules.",
+            parts_str, file_count
+        ))
+    } else {
+        Some(format!("Found {}.", parts_str))
+    }
 }
 
 fn plural(count: usize) -> &'static str {

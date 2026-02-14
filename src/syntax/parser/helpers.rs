@@ -3,7 +3,7 @@ use crate::{
         Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
         missing_comma,
         position::{Position, Span},
-        unexpected_token,
+        unclosed_delimiter, unexpected_token,
     },
     syntax::{
         Identifier, block::Block, expression::Expression, precedence::Precedence,
@@ -282,6 +282,13 @@ impl Parser {
                 statements.push(statement);
             }
             self.next_token();
+        }
+
+        // Detect unclosed block: reached EOF without finding closing `}`
+        if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
+            self.reported_unclosed_brace = true;
+            self.errors
+                .push(unclosed_delimiter(Span::new(start, start)));
         }
 
         Block {

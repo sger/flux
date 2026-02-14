@@ -21,6 +21,7 @@ pub struct Parser {
     pub(super) peek2_token: Token,
     pub errors: Vec<Diagnostic>,
     pub(super) suppress_unterminated_string_error_at: Option<Position>,
+    pub(super) reported_unclosed_brace: bool,
 }
 
 impl Parser {
@@ -32,6 +33,7 @@ impl Parser {
             peek2_token: Token::new_static(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
             suppress_unterminated_string_error_at: None,
+            reported_unclosed_brace: false,
         };
         parser.prime();
         parser
