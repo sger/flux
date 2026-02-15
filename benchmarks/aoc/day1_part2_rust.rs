@@ -47,7 +47,12 @@ fn solve(path: &str) -> io::Result<i64> {
                 hits += count_zeros_right(pos, dist);
                 pos = (pos + dist).rem_euclid(100);
             }
-            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid rotation")),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid rotation",
+                ));
+            }
         }
     }
 

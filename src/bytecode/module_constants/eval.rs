@@ -30,13 +30,21 @@ pub fn eval_const_expr(
             Ok(Value::Some(std::rc::Rc::new(inner)))
         }
 
-        Expression::Array { elements, .. } => {
+        Expression::ArrayLiteral { elements, .. } => {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
                 values.push(eval_const_expr(element, defined, interner)?);
             }
             Ok(Value::Array(values.into()))
         }
+
+        Expression::EmptyList { .. } | Expression::ListLiteral { .. } => Err(ConstEvalError::new(
+            "E040",
+            "List literals are not supported in module constants.",
+        )
+        .with_hint(
+            "List literals allocate runtime cons cells; use array literals (#[...]) in constants.",
+        )),
 
         Expression::Hash { .. } => Err(ConstEvalError::new(
             "E040",

@@ -25,13 +25,13 @@ import Modules.ListUtils as L
 // Create Student Data
 // =============================================================================
 
-let students = [
-    SG.make_student("Alice", [92, 88, 95, 91]),
-    SG.make_student("Bob", [78, 82, 75, 80]),
-    SG.make_student("Charlie", [95, 98, 92, 97]),
-    SG.make_student("Diana", [65, 70, 68, 72]),
-    SG.make_student("Eve", [55, 60, 48, 52]),
-]
+let students = [|
+    SG.make_student("Alice", [|92, 88, 95, 91|]),
+    SG.make_student("Bob", [|78, 82, 75, 80|]),
+    SG.make_student("Charlie", [|95, 98, 92, 97|]),
+    SG.make_student("Diana", [|65, 70, 68, 72|]),
+    SG.make_student("Eve", [|55, 60, 48, 52|]),
+|]
 
 // =============================================================================
 // Run Analysis
@@ -78,7 +78,7 @@ print("Failed: " + to_string(SG.count_failed(results)))
 print("=== Bonus: Map Utilities ===")
 
 // Create a grade-to-points mapping from pairs
-let grade_points = M.from_pairs([["A", 4], ["B", 3], ["C", 2], ["D", 1], ["F", 0]])
+let grade_points = M.from_pairs([|["A", 4], [|"B", 3|], [|"C", 2|], [|"D", 1|], [|"F", 0|]|])
 print("Grade points:", grade_points)
 
 // Invert the map: points -> grade

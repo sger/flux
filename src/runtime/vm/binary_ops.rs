@@ -67,9 +67,7 @@ impl VM {
             (Value::String(l), Value::String(r)) if op == OpCode::OpAdd => {
                 self.push(Value::String(format!("{}{}", l, r).into()))
             }
-            _ => {
-                Err(self.invalid_binary_operation_error(op, &left, &right))
-            }
+            _ => Err(self.invalid_binary_operation_error(op, &left, &right)),
         }
     }
 
@@ -92,7 +90,8 @@ impl VM {
 
         // Special handling for String + Int/Float with hint chains
         if op == OpCode::OpAdd
-            && ((left.type_name() == "String" && matches!(right, Value::Integer(_) | Value::Float(_)))
+            && ((left.type_name() == "String"
+                && matches!(right, Value::Integer(_) | Value::Float(_)))
                 || (right.type_name() == "String"
                     && matches!(left, Value::Integer(_) | Value::Float(_))))
         {

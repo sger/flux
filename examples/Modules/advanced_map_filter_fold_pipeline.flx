@@ -7,8 +7,8 @@ import Modules.Math as Math
 
 print("Advanced module pipeline:")
 
-let scores = [18, 24, 35, 41, 50]
-let names = ["  alice", "Bob  ", "cHaRlIe"]
+let scores = [|18, 24, 35, 41, 50|]
+let names = [|"  alice", "Bob  ", "cHaRlIe"|]
 
 // Use module functions as callbacks
 let doubled = map(scores, T.double)

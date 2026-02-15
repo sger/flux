@@ -363,9 +363,8 @@ impl VM {
             }
             OpCode::OpGetBuiltin => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
-                let _ = get_builtin_by_index(idx).ok_or_else(|| {
-                    format!("invalid builtin index {}", idx)
-                })?;
+                let _ = get_builtin_by_index(idx)
+                    .ok_or_else(|| format!("invalid builtin index {}", idx))?;
                 self.push(Value::Builtin(idx as u8))?;
                 Ok(2)
             }
@@ -531,7 +530,7 @@ impl VM {
                     return Err(Self::stack_underflow_err());
                 }
                 let idx = self.sp - 1;
-                let is_empty = self.stack[idx] == Value::None;
+                let is_empty = matches!(self.stack[idx], Value::None | Value::EmptyList);
                 self.stack[idx] = Value::Boolean(is_empty);
                 Ok(1)
             }

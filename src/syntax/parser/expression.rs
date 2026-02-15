@@ -114,7 +114,8 @@ impl Parser {
             TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
-            TokenType::LBracket => self.parse_array(),
+            TokenType::LBracket => self.parse_list_literal(),
+            TokenType::Hash => self.parse_array_literal_prefixed(),
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Fun => self.parse_function_literal(),
@@ -363,13 +364,46 @@ impl Parser {
     }
 
     // Collections
-    pub(super) fn parse_array(&mut self) -> Option<Expression> {
+    pub(super) fn parse_list_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
 
-        // Check for empty array: []
-        if self.consume_if_peek(TokenType::RBracket) {
-            return Some(Expression::Array {
+        // Empty array shorthand: [||]
+        // Lexer tokenizes "||" as TokenType::Or.
+        if self.consume_if_peek(TokenType::Or) {
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::ArrayLiteral {
                 elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Array literal: [| ... |]
+        if self.consume_if_peek(TokenType::Bar) {
+            // Empty array: [||]
+            if self.consume_if_peek(TokenType::RBracket) {
+                return Some(Expression::ArrayLiteral {
+                    elements: vec![],
+                    span: Span::new(start, self.current_token.end_position),
+                });
+            }
+
+            self.next_token();
+            let first = self.parse_expression(Precedence::Lowest)?;
+            let elements = self.parse_expression_list_with_first(first, TokenType::Bar)?;
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::ArrayLiteral {
+                elements,
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Empty list: []
+        if self.consume_if_peek(TokenType::RBracket) {
+            return Some(Expression::EmptyList {
                 span: Span::new(start, self.current_token.end_position),
             });
         }
@@ -394,11 +428,34 @@ impl Parser {
             });
         }
 
-        // Otherwise, parse remaining elements as normal array.
+        // Otherwise, parse remaining elements as list literal.
         // `first` is already parsed; delegate to the "with_first" variant
         // which provides the same missing-comma recovery as parse_expression_list.
         let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
-        Some(Expression::Array {
+        Some(Expression::ListLiteral {
+            elements,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {
+        // Legacy syntax kept for compatibility: #[a, b, c]
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LBracket) {
+            return None;
+        }
+
+        if self.consume_if_peek(TokenType::RBracket) {
+            return Some(Expression::ArrayLiteral {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        self.next_token();
+        let first = self.parse_expression(Precedence::Lowest)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
         })

@@ -5,21 +5,21 @@ module Modules.FunctionalUtils {
     // Map: apply function to each element
     fun map(arr, f) {
         if len(arr) == 0 {
-            []
+            [||]
         } else {
-            concat([f(first(arr))], map(rest(arr), f))
+            concat([|f(first(arr))|], map(rest(arr), f))
         }
     }
 
     // Filter: keep elements that satisfy predicate
     fun filter(arr, pred) {
         if len(arr) == 0 {
-            []
+            [||]
         } else {
             let head = first(arr);
             let tail = filter(rest(arr), pred);
             if pred(head) {
-                concat([head], tail)
+                concat([|head|], tail)
             } else {
                 tail
             }

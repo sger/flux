@@ -1,23 +1,23 @@
 // Test: Advanced list processing with map, filter, fold
 // Expected output:
 // === Builtin map/filter/fold on lists ===
-// [2, 4, 6, 8, 10]
-// [4, 6, 8, 10]
+// [|2, 4, 6, 8, 10|]
+// [|4, 6, 8, 10|]
 // 15
 // === Chained pipeline ===
-// [8, 32, 72]
+// [|8, 32, 72|]
 // === Recursive alternatives ===
-// [2, 4, 6, 8, 10]
-// [6, 8, 10]
+// [|2, 4, 6, 8, 10|]
+// [|6, 8, 10|]
 // === Building maps from lists ===
 // {"bob": 3, "charlie": 7, "alice": 5}
 // === Flatten ===
-// [1, 2, 3, 4, 5, 6]
+// [|1, 2, 3, 4, 5, 6|]
 // === Zip ===
-// [["a", 1], ["b", 2], ["c", 3]]
+// [|["a", 1], [|"b", 2|], [|"c", 3|]|]
 // === Take / Drop ===
-// [1, 2, 3]
-// [4, 5]
+// [|1, 2, 3|]
+// [|4, 5|]
 
 // =============================================================================
 // Part 1: Builtin map/filter/fold Work Directly on Lists
@@ -25,15 +25,15 @@
 
 print("=== Builtin map/filter/fold on lists ===");
 
-let nums = to_list([1, 2, 3, 4, 5]);
+let nums = [1, 2, 3, 4, 5];
 
 // map on a list returns a list
 let doubled = map(nums, \x -> x * 2);
-print(doubled);  // [2, 4, 6, 8, 10]
+print(doubled);  // [|2, 4, 6, 8, 10|]
 
 // filter on a list returns a list
 let big = filter(doubled, \x -> x > 2);
-print(big);  // [4, 6, 8, 10]
+print(big);  // [|4, 6, 8, 10|]
 
 // fold on a list returns the accumulated value
 let total = fold(nums, 0, \(acc, x) -> acc + x);
@@ -48,12 +48,12 @@ print("=== Chained pipeline ===");
 // Pipeline: square, keep evens, double
 // 1→1, 2→4, 3→9, 4→16, 5→25, 6→36, 7→49
 // evens: 4, 16, 36 → doubled: 8, 32, 72
-let result = to_list([1, 2, 3, 4, 5, 6, 7])
+let result = [1, 2, 3, 4, 5, 6, 7]
     |> map(\x -> x * x)
     |> filter(\x -> x % 2 == 0)
     |> map(\x -> x * 2);
 
-print(result);  // [8, 32, 72]
+print(result);  // [|8, 32, 72|]
 
 // =============================================================================
 // Part 3: Recursive Alternatives via Pattern Matching
@@ -76,8 +76,8 @@ fun list_filter(lst, pred) {
     }
 }
 
-print(list_map(nums, \x -> x * 2));           // [2, 4, 6, 8, 10]
-print(list_filter(doubled, \x -> x > 5));      // [6, 8, 10]
+print(list_map(nums, \x -> x * 2));           // [|2, 4, 6, 8, 10|]
+print(list_filter(doubled, \x -> x > 5));      // [|6, 8, 10|]
 
 // =============================================================================
 // Part 4: Building Maps from Lists
@@ -86,7 +86,7 @@ print(list_filter(doubled, \x -> x > 5));      // [6, 8, 10]
 print("=== Building maps from lists ===");
 
 // Fold a list of words into a {word: length} map
-let words = to_list(["alice", "bob", "charlie"]);
+let words = ["alice", "bob", "charlie"];
 let lengths = fold(words, {}, \(acc, w) -> put(acc, w, len(w)));
 print(lengths);  // {"bob": 3, "charlie": 7, "alice": 5}
 
@@ -110,12 +110,12 @@ fun flatten(lst) {
     }
 }
 
-let nested = to_list([
-    to_list([1, 2]),
-    to_list([3, 4]),
-    to_list([5, 6]),
-]);
-print(flatten(nested));  // [1, 2, 3, 4, 5, 6]
+let nested = [
+    [1, 2],
+    [3, 4],
+    [5, 6],
+];
+print(flatten(nested));  // [|1, 2, 3, 4, 5, 6|]
 
 // =============================================================================
 // Part 6: Zip (pair elements from two lists)
@@ -133,10 +133,10 @@ fun zip(a, b) {
     }
 }
 
-let labels = to_list(["a", "b", "c"]);
-let vals = to_list([1, 2, 3]);
+let labels = ["a", "b", "c"];
+let vals = [1, 2, 3];
 let pairs = zip(labels, vals);
-print(to_array(pairs));  // [["a", 1], ["b", 2], ["c", 3]]
+print(to_array(pairs));  // [|["a", 1], [|"b", 2|], [|"c", 3|]|]
 
 // =============================================================================
 // Part 7: Take / Drop
@@ -166,6 +166,6 @@ fun drop(lst, n) {
     }
 }
 
-let items = to_list([1, 2, 3, 4, 5]);
-print(take(items, 3));  // [1, 2, 3]
-print(drop(items, 3));  // [4, 5]
+let items = [1, 2, 3, 4, 5];
+print(take(items, 3));  // [|1, 2, 3|]
+print(drop(items, 3));  // [|4, 5|]

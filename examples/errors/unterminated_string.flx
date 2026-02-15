@@ -1,5 +1,5 @@
 // Error Example: Unterminated string literal
-// Expected Error: [E031] Compiler error: expected expression
+// Expected Error: [|E031|] Compiler error: expected expression
 //
 // This demonstrates a string literal that is missing the closing quote.
 

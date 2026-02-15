@@ -3,8 +3,37 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/lambda.flx
 == compile ==
-ok
+failed (parse)
 == diagnostics ==
-<none>
+--> compiler error[E076]: UNCLOSED DELIMITER
+
+Expected a closing `}` to match this opening `{`.
+
+  --> examples/basics/lambda.flx:54:19
+   |
+54 | fun myMap(arr, f) {
+   |                   ^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ||.
+
+  --> examples/basics/lambda.flx:56:10
+   |
+56 |         [||]
+   |          ^^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found else.
+
+  --> examples/basics/lambda.flx:57:7
+   |
+57 |     } else {
+   |       ^^^^
+
+Found 3 errors.
 == stdout ==
 <not executed>

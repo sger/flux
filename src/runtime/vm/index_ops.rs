@@ -38,7 +38,9 @@ impl VM {
         if index < 0 || index as usize >= elements.len() {
             self.push(Value::None)
         } else {
-            self.push(Value::Some(std::rc::Rc::new(elements[index as usize].clone())))
+            self.push(Value::Some(std::rc::Rc::new(
+                elements[index as usize].clone(),
+            )))
         }
     }
 

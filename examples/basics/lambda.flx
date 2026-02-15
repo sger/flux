@@ -53,13 +53,13 @@ print("Higher-order functions:");
 // Custom map-like function
 fun myMap(arr, f) {
     if len(arr) == 0 {
-        []
+        [||]
     } else {
-        concat([f(first(arr))], myMap(rest(arr), f))
+        concat([|f(first(arr))|], myMap(rest(arr), f))
     }
 }
 
-let nums = [1, 2, 3];
+let nums = [|1, 2, 3|];
 let tripled = myMap(nums, \x -> x * 3);
 print(first(tripled));                    // 3
 print(first(rest(tripled)));              // 6

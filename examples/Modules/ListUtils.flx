@@ -2,7 +2,7 @@
 // Utilities for working with persistent linked lists
 
 module Modules.ListUtils {
-    // Create a range list: range(1, 5) → [1, 2, 3, 4, 5]
+    // Create a range list: range(1, 5) → [|1, 2, 3, 4, 5|]
     fun range(start, stop) {
         if start > stop {
             None

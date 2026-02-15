@@ -35,7 +35,7 @@ print("Escaped: \#{not interpolated}");
 print(to_string(42));
 print(to_string(3.14));
 print(to_string(true));
-print(to_string([1, 2, 3]));
+print(to_string([|1, 2, 3|]));
 
 // Empty interpolation parts
 let x = "value";
@@ -45,5 +45,5 @@ print("#{x}");
 print("Flag is #{true}");
 
 // Array in interpolation
-let arr = [1, 2, 3];
+let arr = [|1, 2, 3|];
 print("Array: #{arr}");

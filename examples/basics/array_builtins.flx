@@ -1,10 +1,10 @@
 // Test: Array builtin functions
 
-let arr = [1, 2, 3, 4, 5];
+let arr = [|1, 2, 3, 4, 5|];
 
 // len - get array length
 print(len(arr));      // 5
-print(len([]));       // 0
+print(len([||]));       // 0
 
 // first - get first element
 print(first(arr));    // 1
@@ -13,52 +13,52 @@ print(first(arr));    // 1
 print(last(arr));     // 5
 
 // rest - get all but first
-print(rest(arr));     // [2, 3, 4, 5]
+print(rest(arr));     // [|2, 3, 4, 5|]
 
 // push - add element (returns new array)
-print(push(arr, 6));  // [1, 2, 3, 4, 5, 6]
+print(push(arr, 6));  // [|1, 2, 3, 4, 5, 6|]
 
 // Edge cases with empty array
-print(first([]));     // None
-print(last([]));      // None
-print(rest([]));      // None
+print(first([||]));     // None
+print(last([||]));      // None
+print(rest([||]));      // None
 
 // =============================================================================
 // New Array Builtins (Milestone 5.1)
 // =============================================================================
 
 // concat - join two arrays
-let a = [1, 2, 3];
-let b = [4, 5, 6];
-print(concat(a, b));  // [1, 2, 3, 4, 5, 6]
+let a = [|1, 2, 3|];
+let b = [|4, 5, 6|];
+print(concat(a, b));  // [|1, 2, 3, 4, 5, 6|]
 
 // reverse - reverse array order
-print(reverse(arr));  // [5, 4, 3, 2, 1]
+print(reverse(arr));  // [|5, 4, 3, 2, 1|]
 
 // contains - check if element exists
-let fruits = ["apple", "banana", "cherry"];
+let fruits = [|"apple", "banana", "cherry"|];
 print(contains(fruits, "banana"));  // true
 print(contains(fruits, "grape"));   // false
 
 // slice - extract portion of array (start inclusive, end exclusive)
-let items = [10, 20, 30, 40, 50];
-print(slice(items, 1, 4));  // [20, 30, 40]
-print(slice(items, 0, 2));  // [10, 20]
+let items = [|10, 20, 30, 40, 50|];
+print(slice(items, 1, 4));  // [|20, 30, 40|]
+print(slice(items, 0, 2));  // [|10, 20|]
 
 // sort - ascending (default)
-let unsorted = [3, 1, 4, 1, 5, 9, 2, 6];
-print(sort(unsorted));         // [1, 1, 2, 3, 4, 5, 6, 9]
+let unsorted = [|3, 1, 4, 1, 5, 9, 2, 6|];
+print(sort(unsorted));         // [|1, 1, 2, 3, 4, 5, 6, 9|]
 
 // sort - explicit ascending
-print(sort(unsorted, "asc"));  // [1, 1, 2, 3, 4, 5, 6, 9]
+print(sort(unsorted, "asc"));  // [|1, 1, 2, 3, 4, 5, 6, 9|]
 
 // sort - descending
-print(sort(unsorted, "desc")); // [9, 6, 5, 4, 3, 2, 1, 1]
+print(sort(unsorted, "desc")); // [|9, 6, 5, 4, 3, 2, 1, 1|]
 
 // sort with floats
-let floats = [3.14, 1.41, 2.71];
-print(sort(floats));           // [1.41, 2.71, 3.14]
-print(sort(floats, "desc"));   // [3.14, 2.71, 1.41]
+let floats = [|3.14, 1.41, 2.71|];
+print(sort(floats));           // [|1.41, 2.71, 3.14|]
+print(sort(floats, "desc"));   // [|3.14, 2.71, 1.41|]
 
 // Practical example: Get top 3 scores
 fun topThree(scores) {
@@ -66,5 +66,5 @@ fun topThree(scores) {
     slice(sorted, 0, 3);
 }
 
-let scores = [85, 92, 78, 95, 88, 91];
-print(topThree(scores));  // [95, 92, 91]
+let scores = [|85, 92, 78, 95, 88, 91|];
+print(topThree(scores));  // [|95, 92, 91|]

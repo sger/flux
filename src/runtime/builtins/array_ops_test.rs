@@ -132,11 +132,7 @@ fn map_with_builtin_callback_and_empty_input() {
         .into(),
     );
 
-    let mapped = builtin_map(
-        &mut test_vm(),
-        vec![arr, builtin("len")],
-    )
-    .unwrap();
+    let mapped = builtin_map(&mut test_vm(), vec![arr, builtin("len")]).unwrap();
     assert_eq!(
         mapped,
         Value::Array(vec![Value::Integer(1), Value::Integer(5), Value::Integer(3)].into())
@@ -162,11 +158,7 @@ fn filter_truthiness_and_empty_input() {
         .into(),
     );
 
-    let filtered = builtin_filter(
-        &mut test_vm(),
-        vec![arr, builtin("first")],
-    )
-    .unwrap();
+    let filtered = builtin_filter(&mut test_vm(), vec![arr, builtin("first")]).unwrap();
     assert_eq!(
         filtered,
         Value::Array(
@@ -262,14 +254,20 @@ fn map_filter_fold_reject_non_callable_callback() {
 fn map_filter_fold_propagate_callback_arity_errors() {
     let map_err = builtin_map(
         &mut test_vm(),
-        vec![Value::Array(vec![Value::Integer(1)].into()), builtin("concat")],
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            builtin("concat"),
+        ],
     )
     .unwrap_err();
     assert!(map_err.contains("wrong number of arguments"));
 
     let filter_err = builtin_filter(
         &mut test_vm(),
-        vec![Value::Array(vec![Value::Integer(1)].into()), builtin("concat")],
+        vec![
+            Value::Array(vec![Value::Integer(1)].into()),
+            builtin("concat"),
+        ],
     )
     .unwrap_err();
     assert!(filter_err.contains("wrong number of arguments"));

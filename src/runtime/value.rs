@@ -53,6 +53,8 @@ pub enum Value {
     String(Rc<str>),
     /// Absence of value.
     None,
+    /// Empty persistent list literal `[]`.
+    EmptyList,
     /// Optional value wrapper.
     Some(Rc<Value>),
     /// Either-left wrapper.
@@ -82,6 +84,7 @@ impl fmt::Display for Value {
             Value::Boolean(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "\"{}\"", v),
             Value::None => write!(f, "None"),
+            Value::EmptyList => write!(f, "[]"),
             Value::Some(v) => write!(f, "Some({})", v),
             Value::Left(v) => write!(f, "Left({})", v),
             Value::Right(v) => write!(f, "Right({})", v),
@@ -91,7 +94,7 @@ impl fmt::Display for Value {
             Value::Builtin(_) => write!(f, "<builtin>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
-                write!(f, "[{}]", items.join(", "))
+                write!(f, "[|{}|]", items.join(", "))
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
@@ -110,6 +113,7 @@ impl Value {
             Value::Boolean(_) => "Bool",
             Value::String(_) => "String",
             Value::None => "None",
+            Value::EmptyList => "List",
             Value::Some(_) => "Some",
             Value::Left(_) => "Left",
             Value::Right(_) => "Right",
@@ -126,7 +130,10 @@ impl Value {
     ///
     /// Only `Boolean(false)` and `None` are falsy; all other values are truthy.
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Value::Uninit | Value::Boolean(false) | Value::None)
+        !matches!(
+            self,
+            Value::Uninit | Value::Boolean(false) | Value::None | Value::EmptyList
+        )
     }
 
     /// Converts this value into a hash-map key if the value is hashable.
@@ -158,6 +165,7 @@ impl Value {
             Value::Boolean(v) => v.to_string(),
             Value::String(v) => v.to_string(),
             Value::None => "None".to_string(),
+            Value::EmptyList => "[]".to_string(),
             Value::Some(v) => format!("Some({})", v.to_string_value()),
             Value::Left(_) => "Left({})".to_string(),
             Value::Right(_) => "Right({})".to_string(),
@@ -167,7 +175,7 @@ impl Value {
             Value::Builtin(_) => "<builtin>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
-                format!("[{}]", items.join(", "))
+                format!("[|{}|]", items.join(", "))
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }
@@ -185,7 +193,7 @@ mod tests {
         assert_eq!(Value::Boolean(true).to_string(), "true");
         assert_eq!(
             Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)])).to_string(),
-            "[1, 2]"
+            "[|1, 2|]"
         );
     }
 
@@ -196,6 +204,7 @@ mod tests {
         assert!(Value::Boolean(true).is_truthy());
         assert!(!Value::Boolean(false).is_truthy());
         assert!(!Value::None.is_truthy());
+        assert!(!Value::EmptyList.is_truthy());
     }
 
     #[test]
@@ -219,8 +228,15 @@ mod tests {
         assert_eq!(Value::Boolean(true).type_name(), "Bool");
         assert_eq!(Value::String("x".into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
-        assert_eq!(Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(), "Some");
-        assert_eq!(Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(), "Left");
+        assert_eq!(Value::EmptyList.type_name(), "List");
+        assert_eq!(
+            Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(),
+            "Some"
+        );
+        assert_eq!(
+            Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(),
+            "Left"
+        );
         assert_eq!(
             Value::Right(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "Right"
@@ -246,7 +262,7 @@ mod tests {
         assert_eq!(
             Value::Array(Rc::new(vec![Value::String("a".into()), Value::Integer(2)]))
                 .to_string_value(),
-            "[\"a\", 2]"
+            "[|\"a\", 2|]"
         );
     }
 
