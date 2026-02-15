@@ -81,8 +81,8 @@ let result2 = fib(10);        // 10th Fibonacci number = 55
 */
 
 /// Array operations demonstration
-let numbers = [1, 2, 3, 4, 5];
-let doubled = [];  // Will store doubled values
+let numbers = [|1, 2, 3, 4, 5|];
+let doubled = [||];  // Will store doubled values
 
 // Iterate and process (simulated - depends on language features)
 // let i = 0;

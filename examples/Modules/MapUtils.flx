@@ -10,7 +10,7 @@ module Modules.MapUtils {
         }
     }
 
-    // Convert an array of [key, value] pairs into a map
+    // Convert an array of [|key, value|] pairs into a map
     fun from_pairs(pairs) {
         fold(pairs, {}, \(acc, pair) -> put(acc, first(pair), last(pair)))
     }
@@ -48,7 +48,7 @@ module Modules.MapUtils {
     fun _add_group(acc, k, item) {
         match get(acc, k) {
             Some(existing) -> put(acc, k, push(existing, item)),
-            _ -> put(acc, k, [item]),
+            _ -> put(acc, k, [|item|]),
         }
     }
 

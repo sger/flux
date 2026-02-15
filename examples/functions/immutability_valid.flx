@@ -21,7 +21,7 @@ print(increment(5));    // 6 (local scope)
 print(counter);         // 0 (still unchanged)
 
 // Example 4: Functional style - transform data without mutation
-let numbers = [1, 2, 3, 4, 5];
+let numbers = [|1, 2, 3, 4, 5|];
 
 fun double(n) {
     return n * 2;

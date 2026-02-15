@@ -254,7 +254,9 @@ impl VM {
             return Err("stack overflow".to_string());
         }
 
-        let target_top = needed_top.saturating_add(extra_headroom).min(MAX_STACK_SIZE);
+        let target_top = needed_top
+            .saturating_add(extra_headroom)
+            .min(MAX_STACK_SIZE);
         let mut new_len = self.stack.len().max(1);
         while new_len < target_top {
             let grow_15 = new_len + (new_len / 2);

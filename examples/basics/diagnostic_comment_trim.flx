@@ -6,6 +6,6 @@
 //
 // Run with:  cargo run -- run examples/basics/diagnostic_comment_trim.flx
 
-let arr = [1, 2, 3];
+let arr = [|1, 2, 3|];
 print(len(arr))      // 3
 prnt(arr)             // <-- typo: should trigger an error

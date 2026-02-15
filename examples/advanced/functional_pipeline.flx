@@ -5,8 +5,8 @@
 // hello world
 // HELLO WORLD
 // Higher-order functions with lambdas:
-// Doubled: [2, 4, 6, 8, 10, 12]
-// Filtered: [4, 5, 6]
+// Doubled: [|2, 4, 6, 8, 10, 12|]
+// Filtered: [|4, 5, 6|]
 // Sum: 21
 // Product: 720
 // Function composition:
@@ -15,7 +15,7 @@
 // ALICE
 // BOB
 // Complex pipeline:
-// [HELLO, WORLD, FLUX]
+// [|HELLO, WORLD, FLUX|]
 
 // =============================================================================
 // Higher-Order Function Utilities (map, filter, fold are now builtins)
@@ -40,15 +40,15 @@ print(shouting);  // "HELLO WORLD"
 
 print("Higher-order functions with lambdas:");
 
-let numbers = [1, 2, 3, 4, 5, 6];
+let numbers = [|1, 2, 3, 4, 5, 6|];
 
 // Double all numbers using lambda
 let doubled = map(numbers, \x -> x * 2);
-print("Doubled: " + to_string(doubled));  // [2, 4, 6, 8, 10, 12]
+print("Doubled: " + to_string(doubled));  // [|2, 4, 6, 8, 10, 12|]
 
 // Filter numbers greater than 3
 let bigNums = filter(numbers, \x -> x > 3);
-print("Filtered: " + to_string(bigNums));  // [4, 5, 6]
+print("Filtered: " + to_string(bigNums));  // [|4, 5, 6|]
 
 // Sum all numbers using reduce with lambda
 let sum = fold(numbers, 0, \(acc, x) -> acc + x);
@@ -86,7 +86,7 @@ print("Result: " + to_string(transform(5)));  // 60
 print("Data pipeline:");
 
 // Process a list of names
-let names = ["alice", "bob"];
+let names = [|"alice", "bob"|];
 
 // Transform with pipe + builtins
 let name1 = first(names) |> upper;
@@ -101,8 +101,8 @@ print(name2);  // BOB
 
 print("Complex pipeline:");
 
-let words = ["hello", "world", "flux"];
+let words = [|"hello", "world", "flux"|];
 
 // Transform all words to uppercase using map + lambda
 let uppercased = map(words, \w -> w |> upper);
-print(to_string(uppercased));  // [HELLO, WORLD, FLUX]
+print(to_string(uppercased));  // [|HELLO, WORLD, FLUX|]

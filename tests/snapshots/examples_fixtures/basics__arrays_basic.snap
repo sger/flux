@@ -3,8 +3,15 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/arrays_basic.flx
 == compile ==
-ok
+failed (parse)
 == diagnostics ==
-<none>
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ||.
+
+  --> examples/basics/arrays_basic.flx:15:14
+   |
+15 | let empty = [||];
+   |              ^^
 == stdout ==
 <not executed>

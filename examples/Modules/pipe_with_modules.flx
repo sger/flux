@@ -20,14 +20,14 @@ print(greeting);  // Hello, World!
 
 // Chain string transformations
 let formatted = "data" |> StringUtils.bracket |> StringUtils.parenthesize;
-print(formatted);  // ([data])
+print(formatted);  // ([|data|])
 
 // Complex pipeline with multiple module functions
 let result3 = "value"
     |> StringUtils.quote
     |> StringUtils.bracket
     |> StringUtils.parenthesize;
-print(result3);  // (["value"])
+print(result3);  // ([|"value"|])
 
 // Pipe with additional arguments
 let wrapped = "content" |> StringUtils.wrap("<", ">");

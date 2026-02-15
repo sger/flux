@@ -13,14 +13,13 @@ impl VM {
     fn builtin_fixed_arity(name: &str) -> Option<usize> {
         match name {
             "len" | "first" | "last" | "rest" | "to_string" | "reverse" | "trim" | "upper"
-            | "lower" | "chars" | "keys" | "values" | "abs" | "type_of" | "is_int"
-            | "is_float" | "is_string" | "is_bool" | "is_array" | "is_hash" | "is_none"
-            | "is_some" | "hd" | "tl" | "is_list" | "to_list" | "to_array" | "is_map"
-            | "read_file" | "read_lines" | "parse_int" | "now_ms" | "time" | "sum"
-            | "product" | "parse_ints" => Some(1),
-            "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with"
-            | "has_key" | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put"
-            | "get" | "range" | "split_ints" => Some(2),
+            | "lower" | "chars" | "keys" | "values" | "abs" | "type_of" | "is_int" | "is_float"
+            | "is_string" | "is_bool" | "is_array" | "is_hash" | "is_none" | "is_some" | "hd"
+            | "tl" | "is_list" | "to_list" | "to_array" | "is_map" | "read_file" | "read_lines"
+            | "parse_int" | "now_ms" | "time" | "sum" | "product" | "parse_ints" => Some(1),
+            "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with" | "has_key"
+            | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put" | "get" | "range"
+            | "split_ints" => Some(2),
             "replace" | "substring" | "fold" => Some(3),
             "read_stdin" => Some(0),
             // Variadic / optional arity builtins remain on generic path.

@@ -110,8 +110,15 @@ pub enum Expression {
         arguments: Vec<Expression>,
         span: Span,
     },
-    Array {
+    ListLiteral {
         elements: Vec<Expression>,
+        span: Span,
+    },
+    ArrayLiteral {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+    EmptyList {
         span: Span,
     },
     Index {
@@ -213,10 +220,15 @@ impl fmt::Display for Expression {
                 let args: Vec<String> = arguments.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", function, args.join(", "))
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
                 let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", elems.join(", "))
             }
+            Expression::ArrayLiteral { elements, .. } => {
+                let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                write!(f, "[|{}|]", elems.join(", "))
+            }
+            Expression::EmptyList { .. } => write!(f, "[]"),
             Expression::Index { left, index, .. } => {
                 write!(f, "({}[{}])", left, index)
             }
@@ -264,7 +276,9 @@ impl Expression {
             | Expression::If { span, .. }
             | Expression::Function { span, .. }
             | Expression::Call { span, .. }
-            | Expression::Array { span, .. }
+            | Expression::ListLiteral { span, .. }
+            | Expression::ArrayLiteral { span, .. }
+            | Expression::EmptyList { span, .. }
             | Expression::Index { span, .. }
             | Expression::Hash { span, .. }
             | Expression::MemberAccess { span, .. }
@@ -341,11 +355,17 @@ impl Expression {
                     arguments.iter().map(|a| a.display_with(interner)).collect();
                 format!("{}({})", function.display_with(interner), args.join(", "))
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
                 let elems: Vec<String> =
                     elements.iter().map(|e| e.display_with(interner)).collect();
                 format!("[{}]", elems.join(", "))
             }
+            Expression::ArrayLiteral { elements, .. } => {
+                let elems: Vec<String> =
+                    elements.iter().map(|e| e.display_with(interner)).collect();
+                format!("[|{}|]", elems.join(", "))
+            }
+            Expression::EmptyList { .. } => "[]".to_string(),
             Expression::Index { left, index, .. } => {
                 format!(
                     "({}[{}])",

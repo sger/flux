@@ -161,28 +161,28 @@ fn test_recursive_fibonacci() {
 #[test]
 fn test_array_literals() {
     assert_eq!(
-        run("[1, 2, 3];"),
+        run("#[1, 2, 3];"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
-    assert_eq!(run("[];"), Value::Array(vec![].into()));
+    assert_eq!(run("#[];"), Value::Array(vec![].into()));
 }
 
 #[test]
 fn test_array_index() {
     assert_eq!(
-        run("[1, 2, 3][0];"),
+        run("#[1, 2, 3][0];"),
         Value::Some(std::rc::Rc::new(Value::Integer(1)))
     );
     assert_eq!(
-        run("[1, 2, 3][1];"),
+        run("#[1, 2, 3][1];"),
         Value::Some(std::rc::Rc::new(Value::Integer(2)))
     );
     assert_eq!(
-        run("[1, 2, 3][2];"),
+        run("#[1, 2, 3][2];"),
         Value::Some(std::rc::Rc::new(Value::Integer(3)))
     );
-    assert_eq!(run("[1, 2, 3][3];"), Value::None);
-    assert_eq!(run("[1, 2, 3][-1];"), Value::None);
+    assert_eq!(run("#[1, 2, 3][3];"), Value::None);
+    assert_eq!(run("#[1, 2, 3][-1];"), Value::None);
 }
 
 #[test]
@@ -214,19 +214,19 @@ fn test_hash_index() {
 #[test]
 fn test_builtin_len() {
     assert_eq!(run(r#"len("hello");"#), Value::Integer(5));
-    assert_eq!(run("len([1, 2, 3]);"), Value::Integer(3));
+    assert_eq!(run("len(#[1, 2, 3]);"), Value::Integer(3));
 }
 
 #[test]
 fn test_builtin_array_functions() {
-    assert_eq!(run("first([1, 2, 3]);"), Value::Integer(1));
-    assert_eq!(run("last([1, 2, 3]);"), Value::Integer(3));
+    assert_eq!(run("first(#[1, 2, 3]);"), Value::Integer(1));
+    assert_eq!(run("last(#[1, 2, 3]);"), Value::Integer(3));
     assert_eq!(
-        run("rest([1, 2, 3]);"),
+        run("rest(#[1, 2, 3]);"),
         Value::Array(vec![Value::Integer(2), Value::Integer(3),].into())
     );
     assert_eq!(
-        run("push([1, 2], 3);"),
+        run("push(#[1, 2], 3);"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3),].into())
     );
 }
@@ -292,7 +292,7 @@ fn large_array_literal_no_stack_overflow() {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    let input = format!("let data = [{}]; len(data);", values);
+    let input = format!("let data = #[{}]; len(data);", values);
     assert_eq!(run(&input), Value::Integer(3000));
 }
 
@@ -303,7 +303,7 @@ fn large_map_pipeline_no_stack_overflow() {
         .collect::<Vec<_>>()
         .join(", ");
     let input = format!(
-        "let data = [{}]; let mapped = map(data, \\x -> x + 1); len(mapped);",
+        "let data = #[{}]; let mapped = map(data, \\x -> x + 1); len(mapped);",
         values
     );
     assert_eq!(run(&input), Value::Integer(3000));
@@ -318,7 +318,7 @@ fn map_filter_fold_across_u16_boundary() {
         .join(", ");
     let input = format!(
         r#"
-let data = [{}];
+let data = #[{}];
 let mapped = map(data, \x -> x + 1);
 let filtered = filter(mapped, \x -> x % 2 == 0);
 fold(filtered, 0, \(acc, x) -> acc + x);
@@ -683,7 +683,7 @@ fn test_either_with_option() {
 fn test_either_in_arrays() {
     // Array of Either values
     assert_eq!(
-        run("[Left(1), Right(2), Left(3)];"),
+        run("#[Left(1), Right(2), Left(3)];"),
         Value::Array(
             vec![
                 Value::Left(std::rc::Rc::new(Value::Integer(1))),
@@ -700,21 +700,23 @@ fn test_either_in_hash() {
     // Hash with Either values
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["ok"];"#),
-        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(1)))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
+            Value::Integer(1)
+        ))))
     );
 
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
-        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::String(
-            "fail".to_string().into()
-        )))))
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
+            Value::String("fail".to_string().into())
+        ))))
     );
 }
 
 #[test]
 fn test_builtin_map() {
     assert_eq!(
-        run("map([1, 2, 3], fun(x) { x * 2; });"),
+        run("map(#[1, 2, 3], fun(x) { x * 2; });"),
         Value::Array(vec![Value::Integer(2), Value::Integer(4), Value::Integer(6)].into())
     );
 }
@@ -722,20 +724,20 @@ fn test_builtin_map() {
 #[test]
 fn test_builtin_map_with_closure() {
     assert_eq!(
-        run("let factor = 3; map([1, 2, 3], fun(x) { x * factor; });"),
+        run("let factor = 3; map(#[1, 2, 3], fun(x) { x * factor; });"),
         Value::Array(vec![Value::Integer(3), Value::Integer(6), Value::Integer(9)].into())
     );
 }
 
 #[test]
 fn test_builtin_map_empty() {
-    assert_eq!(run("map([], fun(x) { x; });"), Value::Array(vec![].into()));
+    assert_eq!(run("map(#[], fun(x) { x; });"), Value::Array(vec![].into()));
 }
 
 #[test]
 fn test_builtin_map_with_builtin_callback() {
     assert_eq!(
-        run("map([1, 2, 3], to_string);"),
+        run("map(#[1, 2, 3], to_string);"),
         Value::Array(
             vec![
                 Value::String("1".into()),
@@ -750,7 +752,7 @@ fn test_builtin_map_with_builtin_callback() {
 #[test]
 fn test_builtin_filter() {
     assert_eq!(
-        run("filter([1, 2, 3, 4, 5], fun(x) { x > 2; });"),
+        run("filter(#[1, 2, 3, 4, 5], fun(x) { x > 2; });"),
         Value::Array(vec![Value::Integer(3), Value::Integer(4), Value::Integer(5)].into())
     );
 }
@@ -758,7 +760,7 @@ fn test_builtin_filter() {
 #[test]
 fn test_builtin_filter_none_pass() {
     assert_eq!(
-        run("filter([1, 2, 3], fun(x) { x > 10; });"),
+        run("filter(#[1, 2, 3], fun(x) { x > 10; });"),
         Value::Array(vec![].into())
     );
 }
@@ -766,7 +768,7 @@ fn test_builtin_filter_none_pass() {
 #[test]
 fn test_builtin_filter_all_pass() {
     assert_eq!(
-        run("filter([1, 2, 3], fun(x) { x > 0; });"),
+        run("filter(#[1, 2, 3], fun(x) { x > 0; });"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
     );
 }
@@ -774,7 +776,7 @@ fn test_builtin_filter_all_pass() {
 #[test]
 fn test_builtin_fold_sum() {
     assert_eq!(
-        run("fold([1, 2, 3, 4], 0, fun(acc, x) { acc + x; });"),
+        run("fold(#[1, 2, 3, 4], 0, fun(acc, x) { acc + x; });"),
         Value::Integer(10)
     );
 }
@@ -782,7 +784,7 @@ fn test_builtin_fold_sum() {
 #[test]
 fn test_builtin_fold_string_concat() {
     assert_eq!(
-        run(r#"fold(["a", "b", "c"], "", fun(acc, x) { acc + x; });"#),
+        run(r#"fold(#["a", "b", "c"], "", fun(acc, x) { acc + x; });"#),
         Value::String("abc".into())
     );
 }
@@ -790,7 +792,7 @@ fn test_builtin_fold_string_concat() {
 #[test]
 fn test_builtin_fold_empty() {
     assert_eq!(
-        run("fold([], 42, fun(acc, x) { acc + x; });"),
+        run("fold(#[], 42, fun(acc, x) { acc + x; });"),
         Value::Integer(42)
     );
 }
@@ -799,7 +801,7 @@ fn test_builtin_fold_empty() {
 fn test_map_filter_chain() {
     assert_eq!(
         run(r#"
-            let nums = [1, 2, 3, 4, 5, 6];
+            let nums = #[1, 2, 3, 4, 5, 6];
             let doubled = map(nums, fun(x) { x * 2; });
             filter(doubled, fun(x) { x > 6; });
         "#),
@@ -811,7 +813,7 @@ fn test_map_filter_chain() {
 fn test_map_fold_chain() {
     assert_eq!(
         run(r#"
-            let nums = [1, 2, 3];
+            let nums = #[1, 2, 3];
             let doubled = map(nums, fun(x) { x * 2; });
             fold(doubled, 0, fun(acc, x) { acc + x; });
         "#),
@@ -822,7 +824,7 @@ fn test_map_fold_chain() {
 #[test]
 fn test_map_with_lambda() {
     assert_eq!(
-        run(r#"map([1, 2, 3], \x -> x + 10);"#),
+        run(r#"map(#[1, 2, 3], \x -> x + 10);"#),
         Value::Array(vec![Value::Integer(11), Value::Integer(12), Value::Integer(13)].into())
     );
 }
@@ -830,7 +832,7 @@ fn test_map_with_lambda() {
 #[test]
 fn test_filter_with_lambda() {
     assert_eq!(
-        run(r#"filter([1, 2, 3, 4], \x -> x > 2);"#),
+        run(r#"filter(#[1, 2, 3, 4], \x -> x > 2);"#),
         Value::Array(vec![Value::Integer(3), Value::Integer(4)].into())
     );
 }
@@ -838,7 +840,7 @@ fn test_filter_with_lambda() {
 #[test]
 fn test_fold_with_lambda() {
     assert_eq!(
-        run(r#"fold([1, 2, 3], 0, \(a, b) -> a + b);"#),
+        run(r#"fold(#[1, 2, 3], 0, \(a, b) -> a + b);"#),
         Value::Integer(6)
     );
 }
@@ -855,7 +857,7 @@ fn test_map_type_error_not_array() {
 
 #[test]
 fn test_map_type_error_not_function() {
-    let err = run_error("map([1, 2], 42);");
+    let err = run_error("map(#[1, 2], 42);");
     assert!(
         err.contains("Function"),
         "Expected Function type error, got: {}",
@@ -885,7 +887,7 @@ fn test_fold_type_error() {
 
 #[test]
 fn test_map_callback_arity_error_propagates() {
-    let err = run_error("map([1], fun(a, b) { a + b; });");
+    let err = run_error("map(#[1], fun(a, b) { a + b; });");
     assert!(
         err.contains("wrong number of arguments"),
         "Expected callback arity error, got: {}",
@@ -895,7 +897,7 @@ fn test_map_callback_arity_error_propagates() {
 
 #[test]
 fn test_filter_callback_arity_error_propagates() {
-    let err = run_error("filter([1], fun(a, b) { a > b; });");
+    let err = run_error("filter(#[1], fun(a, b) { a > b; });");
     assert!(
         err.contains("wrong number of arguments"),
         "Expected callback arity error, got: {}",
@@ -905,7 +907,7 @@ fn test_filter_callback_arity_error_propagates() {
 
 #[test]
 fn test_fold_callback_arity_error_propagates() {
-    let err = run_error("fold([1], 0, fun(a) { a; });");
+    let err = run_error("fold(#[1], 0, fun(a) { a; });");
     assert!(
         err.contains("wrong number of arguments"),
         "Expected callback arity error, got: {}",
@@ -915,7 +917,7 @@ fn test_fold_callback_arity_error_propagates() {
 
 #[test]
 fn test_map_callback_runtime_error_propagates() {
-    let err = run_error("map([1], fun(x) { x + true; });");
+    let err = run_error("map(#[1], fun(x) { x + true; });");
     assert!(
         err.contains("[E1009]") && err.contains("Cannot add"),
         "Expected callback runtime error, got: {}",
@@ -925,7 +927,7 @@ fn test_map_callback_runtime_error_propagates() {
 
 #[test]
 fn test_filter_callback_runtime_error_propagates() {
-    let err = run_error("filter([1], fun(x) { x + true; });");
+    let err = run_error("filter(#[1], fun(x) { x + true; });");
     assert!(
         err.contains("[E1009]") && err.contains("Cannot add"),
         "Expected callback runtime error, got: {}",
@@ -935,7 +937,7 @@ fn test_filter_callback_runtime_error_propagates() {
 
 #[test]
 fn test_fold_callback_runtime_error_propagates() {
-    let err = run_error("fold([1], 0, fun(acc, x) { acc + true; });");
+    let err = run_error("fold(#[1], 0, fun(acc, x) { acc + true; });");
     assert!(
         err.contains("[E1009]") && err.contains("Cannot add"),
         "Expected callback runtime error, got: {}",
@@ -947,7 +949,7 @@ fn test_fold_callback_runtime_error_propagates() {
 fn test_map_mixed_element_types() {
     // Map over array with mixed types (int, string, bool)
     assert_eq!(
-        run(r#"map([1, "hello", true], type_of);"#),
+        run(r#"map(#[1, "hello", true], type_of);"#),
         Value::Array(
             vec![
                 Value::String("Int".into()),
@@ -963,7 +965,7 @@ fn test_map_mixed_element_types() {
 fn test_map_returns_nested_arrays() {
     // Map callback returns nested arrays
     assert_eq!(
-        run("map([1, 2], fun(x) { [x, x * 2]; });"),
+        run("map(#[1, 2], fun(x) { #[x, x * 2]; });"),
         Value::Array(
             vec![
                 Value::Array(vec![Value::Integer(1), Value::Integer(2)].into()),
@@ -978,7 +980,7 @@ fn test_map_returns_nested_arrays() {
 fn test_filter_returns_nested_structures() {
     // Filter with callback returning nested hashes
     assert_eq!(
-        run(r#"filter([1, 2, 3], fun(x) { x > 1; });"#),
+        run(r#"filter(#[1, 2, 3], fun(x) { x > 1; });"#),
         Value::Array(vec![Value::Integer(2), Value::Integer(3)].into())
     );
 }
@@ -988,7 +990,7 @@ fn test_map_evaluation_order_with_side_effects() {
     // Verify left-to-right evaluation order by building a string
     let result = run(r#"
         fold(
-            map([1, 2, 3], fun(x) { x * 2; }),
+            map(#[1, 2, 3], fun(x) { x * 2; }),
             "",
             fun(acc, x) { acc + to_string(x / 2); }
         );
@@ -1001,7 +1003,7 @@ fn test_filter_evaluation_order_stable() {
     // Verify filter processes elements in left-to-right order
     let result = run(r#"
         fold(
-            filter([5, 3, 8, 1], fun(x) { x > 2; }),
+            filter(#[5, 3, 8, 1], fun(x) { x > 2; }),
             "",
             fun(acc, x) { acc + to_string(x); }
         );
@@ -1014,7 +1016,7 @@ fn test_filter_evaluation_order_stable() {
 fn test_fold_evaluation_order_deterministic() {
     // Verify fold processes elements left-to-right
     let result = run(r#"
-        fold([1, 2, 3, 4], "", fun(acc, x) {
+        fold(#[1, 2, 3, 4], "", fun(acc, x) {
             acc + to_string(x);
         });
     "#);
@@ -1024,7 +1026,7 @@ fn test_fold_evaluation_order_deterministic() {
 #[test]
 fn test_map_error_includes_index() {
     // Verify error messages include element index
-    let err = run_error(r#"map([1, 2, "oops", 4], fun(x) { x + 10; });"#);
+    let err = run_error(r#"map(#[1, 2, "oops", 4], fun(x) { x + 10; });"#);
     assert!(
         err.contains("index 2"),
         "Expected error to include index, got: {}",
@@ -1035,7 +1037,7 @@ fn test_map_error_includes_index() {
 #[test]
 fn test_filter_error_includes_index() {
     // Verify error messages include element index
-    let err = run_error(r#"filter([1, 2, 3, 4], fun(x) { x + "bad"; });"#);
+    let err = run_error(r#"filter(#[1, 2, 3, 4], fun(x) { x + "bad"; });"#);
     assert!(
         err.contains("index"),
         "Expected error to include index, got: {}",
@@ -1047,7 +1049,7 @@ fn test_filter_error_includes_index() {
 fn test_fold_error_includes_index() {
     // Verify error messages include element index
     let err = run_error(
-        r#"fold([1, 2, 3], 0, fun(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#,
+        r#"fold(#[1, 2, 3], 0, fun(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#,
     );
     assert!(
         err.contains("index 1"),
@@ -1060,7 +1062,7 @@ fn test_fold_error_includes_index() {
 fn test_map_with_option_values() {
     // Map over array producing Some/None values
     assert_eq!(
-        run(r#"map([1, 2, 3], fun(x) { if x == 2 { None; } else { Some(x); }; });"#),
+        run(r#"map(#[1, 2, 3], fun(x) { if x == 2 { None; } else { Some(x); }; });"#),
         Value::Array(
             vec![
                 Value::Some(std::rc::Rc::new(Value::Integer(1))),
@@ -1076,11 +1078,11 @@ fn test_map_with_option_values() {
 fn test_filter_truthiness_zero_is_truthy() {
     // Verify 0 and 0.0 are truthy (not like JavaScript)
     assert_eq!(
-        run("filter([0, 1, 2], fun(x) { x; });"),
+        run("filter(#[0, 1, 2], fun(x) { x; });"),
         Value::Array(vec![Value::Integer(0), Value::Integer(1), Value::Integer(2)].into())
     );
     assert_eq!(
-        run("filter([0.0, 1.5], fun(x) { x; });"),
+        run("filter(#[0.0, 1.5], fun(x) { x; });"),
         Value::Array(vec![Value::Float(0.0), Value::Float(1.5)].into())
     );
 }
@@ -1089,7 +1091,7 @@ fn test_filter_truthiness_zero_is_truthy() {
 fn test_filter_truthiness_empty_string_is_truthy() {
     // Verify empty string is truthy
     assert_eq!(
-        run(r#"filter(["", "a", "b"], fun(x) { x; });"#),
+        run(r#"filter(#["", "a", "b"], fun(x) { x; });"#),
         Value::Array(
             vec![
                 Value::String("".into()),
@@ -1105,7 +1107,7 @@ fn test_filter_truthiness_empty_string_is_truthy() {
 fn test_filter_truthiness_empty_array_is_truthy() {
     // Verify empty array is truthy
     assert_eq!(
-        run("filter([[], [1], [2, 3]], fun(x) { x; });"),
+        run("filter(#[#[], #[1], #[2, 3]], fun(x) { x; });"),
         Value::Array(
             vec![
                 Value::Array(vec![].into()),
@@ -1121,7 +1123,7 @@ fn test_filter_truthiness_empty_array_is_truthy() {
 fn test_map_large_array_5k() {
     // Test that the growable stack handles 5k elements
     let program = format!(
-        "let big = [{}]; let doubled = map(big, fun(x) {{ x * 2; }}); len(doubled);",
+        "let big = #[{}]; let doubled = map(big, fun(x) {{ x * 2; }}); len(doubled);",
         (0..5000)
             .map(|i| i.to_string())
             .collect::<Vec<_>>()
@@ -1134,7 +1136,7 @@ fn test_map_large_array_5k() {
 fn test_filter_large_array_5k() {
     // Test filter with 5k elements
     let program = format!(
-        "let big = [{}]; let filtered = filter(big, fun(x) {{ x % 2 == 0; }}); len(filtered);",
+        "let big = #[{}]; let filtered = filter(big, fun(x) {{ x % 2 == 0; }}); len(filtered);",
         (0..5000)
             .map(|i| i.to_string())
             .collect::<Vec<_>>()
@@ -1147,7 +1149,7 @@ fn test_filter_large_array_5k() {
 fn test_fold_large_array_5k() {
     // Test fold with 5k elements
     let program = format!(
-        "let big = [{}]; fold(big, 0, fun(acc, x) {{ acc + 1; }});",
+        "let big = #[{}]; fold(big, 0, fun(acc, x) {{ acc + 1; }});",
         (0..5000)
             .map(|i| i.to_string())
             .collect::<Vec<_>>()
@@ -1160,7 +1162,7 @@ fn test_fold_large_array_5k() {
 fn test_chained_operations_large_array() {
     // Test chained map/filter/fold with large array
     let program = format!(
-        "let data = [{}]; \
+        "let data = #[{}]; \
          let mapped = map(data, fun(x) {{ x * 2; }}); \
          let filtered = filter(mapped, fun(x) {{ x % 3 == 0; }}); \
          len(filtered);",
@@ -1177,15 +1179,15 @@ fn test_chained_operations_large_array() {
 
 #[test]
 fn test_cons_syntax() {
-    let result = run("[1 | [2 | [3 | None]]];");
+    let result = run("[1 | [2 | [3 | []]]];");
     // Returns a Gc handle (cons cell)
     assert!(matches!(result, Value::Gc(_)));
 }
 
 #[test]
 fn test_cons_hd_tl() {
-    assert_eq!(run("hd([1 | [2 | None]]);"), Value::Integer(1));
-    assert_eq!(run("hd(tl([1 | [2 | None]]));"), Value::Integer(2));
+    assert_eq!(run("hd([1 | [2 | []]]);"), Value::Integer(1));
+    assert_eq!(run("hd(tl([1 | [2 | []]]));"), Value::Integer(2));
 }
 
 #[test]
@@ -1209,7 +1211,7 @@ fn test_list_first_rest() {
 
 #[test]
 fn test_list_to_array_round_trip() {
-    let result = run("to_array(to_list([1, 2, 3]));");
+    let result = run("to_array(to_list(#[1, 2, 3]));");
     assert_eq!(
         result,
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
@@ -1247,5 +1249,5 @@ fn test_list_pattern_match() {
 fn test_list_is_list() {
     assert_eq!(run("is_list(list(1, 2));"), Value::Boolean(true));
     assert_eq!(run("is_list(list());"), Value::Boolean(true));
-    assert_eq!(run("is_list([1, 2]);"), Value::Boolean(false));
+    assert_eq!(run("is_list(#[1, 2]);"), Value::Boolean(false));
 }

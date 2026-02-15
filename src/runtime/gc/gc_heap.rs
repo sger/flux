@@ -274,6 +274,7 @@ impl GcHeap {
                     | Value::Boolean(_)
                     | Value::String(_)
                     | Value::None
+                    | Value::EmptyList
                     | Value::Function(_)
                     | Value::Builtin(_) => {}
                 },

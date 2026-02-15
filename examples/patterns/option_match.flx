@@ -31,7 +31,7 @@
 
         // Test 4: Array indexing returns Option
         print("\n4. Array indexing:");
-        let arr = [1, 2, 3];
+        let arr = [|1, 2, 3|];
         let valid = arr[1];
         let invalid = arr[10];
         print(valid);
