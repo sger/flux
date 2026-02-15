@@ -28,6 +28,17 @@ pub mod vm;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+    fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
+        self.invoke_value(callee.clone(), vec![arg])
+    }
+    fn invoke_binary_value(
+        &mut self,
+        callee: &Value,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, String> {
+        self.invoke_value(callee.clone(), vec![left, right])
+    }
     fn gc_heap(&self) -> &gc::GcHeap;
     fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
 }

@@ -1,0 +1,27 @@
+// AoC Day 2 Part 2 profiling workload.
+// Runs the solver multiple times to amplify hot paths.
+
+import Day2Part2 as Day2
+
+fn repeat_solve(n, parsed_ranges, checksum) {
+    if n <= 0 {
+        checksum
+    } else {
+        let total = Day2.solve_parsed_ranges(parsed_ranges)
+        repeat_solve(n - 1, parsed_ranges, checksum + total)
+    }
+}
+
+let parsed_ranges = Day2.parse_ranges("examples/io/aoc_day2.txt")
+let iterations = 5
+
+let t0 = now_ms()
+let checksum = repeat_solve(iterations, parsed_ranges, 0)
+let t1 = now_ms()
+
+print("iterations:")
+print(iterations)
+print("checksum:")
+print(checksum)
+print("elapsed_ms:")
+print(t1 - t0)

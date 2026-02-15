@@ -1,0 +1,6 @@
+// Advent of Code - Day 2 Part 2 (Gift Shop)
+// Uses input file: examples/io/aoc_day2.txt
+
+import Day2Part2 as Day2
+
+print(Day2.solve_file("examples/io/aoc_day2.txt"))
