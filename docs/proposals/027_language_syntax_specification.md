@@ -19,7 +19,7 @@ The syntax philosophy: **Rust's structure, JS's familiarity, FP's power.**
 
 **Current (13):**
 ```
-let  fun  if  else  return  true  false
+let  fn  if  else  return  true  false
 match  module  import  as  Some  None  Left  Right
 ```
 
@@ -179,32 +179,32 @@ let_else_stmt := 'let' pattern '=' expression 'else' block
 
 ```flux
 // Basic function
-fun add(x, y) {
+fn add(x, y) {
   x + y
 }
 
 // With type annotations
-fun add(x: Int, y: Int): Int {
+fn add(x: Int, y: Int): Int {
   x + y
 }
 
 // With effect annotation
-fun greet(name: String) with IO {
+fn greet(name: String) with IO {
   print("Hello #{name}!")
 }
 
 // Single-expression body (no braces needed)
-fun double(x) = x * 2
+fn double(x) = x * 2
 
 // With default parameters
-fun greet(name, greeting = "Hello") {
+fn greet(name, greeting = "Hello") {
   "#{greeting}, #{name}!"
 }
 
 // With type parameters
-fun identity<T>(x: T): T = x
+fn identity<T>(x: T): T = x
 
-fun map<A, B>(list: List<A>, f: (A) -> B): List<B> {
+fn map<A, B>(list: List<A>, f: (A) -> B): List<B> {
   match list {
     Nil => Nil,
     Cons(head, tail) => Cons(f(head), map(tail, f)),
@@ -214,7 +214,7 @@ fun map<A, B>(list: List<A>, f: (A) -> B): List<B> {
 
 **Grammar:**
 ```
-fun_stmt := 'fun' IDENT type_params? '(' params ')' (':' type)? effect_clause? ('=' expression | block)
+fun_stmt := 'fn' IDENT type_params? '(' params ')' (':' type)? effect_clause? ('=' expression | block)
 params := (param (',' param)* ','?)?
 param := pattern (':' type)? ('=' expression)?
 type_params := '<' IDENT (',' IDENT)* '>'
@@ -238,8 +238,8 @@ effect_clause := 'with' effect (',' effect)*
 // With type annotations
 \(x: Int, y: Int) -> x + y
 
-// Anonymous fun (alternative, for longer bodies)
-fun(x, y) { x + y }
+// Anonymous fn (alternative, for longer bodies)
+fn(x, y) { x + y }
 ```
 
 **Grammar:**
@@ -579,29 +579,29 @@ type Handler<T> = (T) -> Result<(), String> with IO
 ```flux
 // Trait declaration
 trait Show {
-  fun show(self): String
+  fn show(self): String
 }
 
 trait Eq {
-  fun eq(self, other: Self): Bool
-  fun neq(self, other: Self): Bool = !self.eq(other)   // default impl
+  fn eq(self, other: Self): Bool
+  fn neq(self, other: Self): Bool = !self.eq(other)   // default impl
 }
 
 trait Ord: Eq {         // trait inheritance
-  fun compare(self, other: Self): Ordering
+  fn compare(self, other: Self): Ordering
 }
 
 trait Functor<F> {
-  fun map<A, B>(self: F<A>, f: (A) -> B): F<B>
+  fn map<A, B>(self: F<A>, f: (A) -> B): F<B>
 }
 
 // Implementation
 impl Show for User {
-  fun show(self) = "User(#{self.name}, #{self.age})"
+  fn show(self) = "User(#{self.name}, #{self.age})"
 }
 
 impl Show for Shape {
-  fun show(self) = match self {
+  fn show(self) = match self {
     Circle(r) => "Circle(#{r})",
     Rectangle(w, h) => "Rectangle(#{w}, #{h})",
     Triangle(a, b, c) => "Triangle(#{a}, #{b}, #{c})",
@@ -612,11 +612,11 @@ impl Show for Shape {
 type Point = { x: Float, y: Float } deriving (Show, Eq)
 
 // Trait bounds
-fun print_all<T: Show>(items: List<T>) with IO {
+fn print_all<T: Show>(items: List<T>) with IO {
   items |> each(\item -> print(show(item)))
 }
 
-fun sort<T: Ord>(list: List<T>): List<T> {
+fn sort<T: Ord>(list: List<T>): List<T> {
   // ...
 }
 ```
@@ -624,7 +624,7 @@ fun sort<T: Ord>(list: List<T>): List<T> {
 **Grammar:**
 ```
 trait_decl := 'trait' UPPER_IDENT type_params? (':' trait_bound (',' trait_bound)*)? '{' trait_method* '}'
-trait_method := 'fun' IDENT '(' params ')' (':' type)? ('=' expression)?
+trait_method := 'fn' IDENT '(' params ')' (':' type)? ('=' expression)?
 impl_decl := 'impl' UPPER_IDENT 'for' type '{' fun_stmt* '}'
 ```
 
@@ -637,7 +637,7 @@ Annotations are always optional — the compiler infers types.
 let x: Int = 42
 
 // Function
-fun add(x: Int, y: Int): Int = x + y
+fn add(x: Int, y: Int): Int = x + y
 
 // Lambda
 let double: (Int) -> Int = \x -> x * 2
@@ -665,13 +665,13 @@ effect Fail<E>         // Recoverable errors
 
 // User-defined effects (future)
 effect State<S> {
-  fun get(): S
-  fun set(s: S): ()
+  fn get(): S
+  fn set(s: S): ()
 }
 
 effect Random {
-  fun random_int(min: Int, max: Int): Int
-  fun random_float(): Float
+  fn random_int(min: Int, max: Int): Int
+  fn random_float(): Float
 }
 ```
 
@@ -679,15 +679,15 @@ effect Random {
 
 ```flux
 // Pure function (default, no annotation needed)
-fun add(x, y) = x + y
+fn add(x, y) = x + y
 
 // Effectful function
-fun greet(name) with IO {
+fn greet(name) with IO {
   print("Hello #{name}!")
 }
 
 // Multiple effects
-fun fetch(url) with IO, Async, Fail<HttpError> {
+fn fetch(url) with IO, Async, Fail<HttpError> {
   let response = await http_get(url)
   if response.status != 200 {
     fail(HttpError(response.status, response.body))
@@ -696,7 +696,7 @@ fun fetch(url) with IO, Async, Fail<HttpError> {
 }
 
 // Effects are inferred — annotation is optional documentation
-fun process(data) {        // compiler infers: with IO
+fn process(data) {        // compiler infers: with IO
   print("Processing...")
   transform(data)
 }
@@ -713,7 +713,7 @@ let result = handle {
 }
 
 // Useful for testing
-fun test_parser() {
+fn test_parser() {
   let result = handle {
     parse_config()
   } with {
@@ -727,7 +727,7 @@ fun test_parser() {
 
 ```flux
 // The ? operator: unwrap Ok or early-return Err
-fun load_config(path) with IO, Fail<ConfigError> {
+fn load_config(path) with IO, Fail<ConfigError> {
   let content = read_file(path)?
   let parsed = parse_toml(content)?
   validate(parsed)?
@@ -856,13 +856,13 @@ let middle = arr[2..5]
 
 module Modules.Math {
   /// Doubles a number
-  fun double(x) = x * 2
+  fn double(x) = x * 2
 
   /// Squares a number
-  fun square(x) = x * x
+  fn square(x) = x * x
 
   // Private (underscore prefix convention)
-  fun _helper(x) = x + 1
+  fn _helper(x) = x + 1
 }
 ```
 
@@ -896,7 +896,7 @@ M.double(5)
 
 ```flux
 // Async function
-fun fetch_user(id) with IO, Async {
+fn fetch_user(id) with IO, Async {
   let response = await http_get("/users/#{id}")
   parse_json(response.body)
 }
@@ -908,7 +908,7 @@ let future = async fetch_user(42)
 let user = await future
 
 // Parallel execution
-fun load_all(ids) with IO, Async {
+fn load_all(ids) with IO, Async {
   let futures = ids |> map(\id -> async fetch_user(id))
   futures |> map(\f -> await f)
 }
@@ -1005,7 +1005,7 @@ hash_comp := '{' expression ':' expression 'for' pattern 'in' expression ('if' e
 ## 12. Where Clauses
 
 ```flux
-fun bmi_category(weight, height) {
+fn bmi_category(weight, height) {
   classify(index)
   where index = weight / (height * height)
   where classify = \i -> match i {
@@ -1015,7 +1015,7 @@ fun bmi_category(weight, height) {
   }
 }
 
-fun distance(p1, p2) =
+fn distance(p1, p2) =
   sqrt(dx * dx + dy * dy)
   where dx = p2.x - p1.x
   where dy = p2.y - p1.y
@@ -1039,7 +1039,7 @@ statement       := let_stmt | fun_stmt | type_decl | trait_decl | impl_decl
 (* === Statements === *)
 let_stmt        := 'let' pattern (':' type)? '=' expression
                  | 'let' pattern '=' expression 'else' block
-fun_stmt        := 'fun' IDENT type_params? '(' params ')' (':' type)? effect_clause? ('=' expression | block)
+fun_stmt        := 'fn' IDENT type_params? '(' params ')' (':' type)? effect_clause? ('=' expression | block)
 module_stmt     := 'module' module_path '{' statement* '}'
 import_stmt     := 'import' module_path ('as' IDENT)?
 expr_stmt       := expression
@@ -1054,7 +1054,7 @@ if_expr         := 'if' expression block ('else' (if_expr | block))?
 match_expr      := 'match' expression '{' match_arm (',' match_arm)* ','? '}'
 match_arm       := pattern ('|' pattern)* ('if' expression)? '=>' expression
 lambda          := '\' lambda_params '->' expression
-                 | 'fun' '(' params ')' block
+                 | 'fn' '(' params ')' block
 let_in          := expression where_clause*
 try_expr        := 'try' block
 handle_expr     := 'handle' block 'with' '{' handler_arm* '}'
@@ -1098,13 +1098,13 @@ variant         := UPPER_IDENT ('(' type (',' type)* ')')?
 field_decl      := IDENT ':' type ('=' expression)?
 
 trait_decl      := 'trait' UPPER_IDENT type_params? (':' UPPER_IDENT (',' UPPER_IDENT)*)? '{' trait_method* '}'
-trait_method     := 'fun' IDENT '(' params ')' (':' type)? ('=' expression)?
+trait_method     := 'fn' IDENT '(' params ')' (':' type)? ('=' expression)?
 impl_decl       := 'impl' UPPER_IDENT type_args? 'for' type '{' fun_stmt* '}'
 
 (* === Effects === *)
 effect_clause   := 'with' UPPER_IDENT (',' UPPER_IDENT)*
 effect_decl     := 'effect' UPPER_IDENT type_params? ('{' effect_method* '}')?
-effect_method   := 'fun' IDENT '(' params ')' ':' type
+effect_method   := 'fn' IDENT '(' params ')' ':' type
 handler_arm     := UPPER_IDENT '.' IDENT '(' params ')' '=>' expression
 
 (* === Concurrency === *)
@@ -1146,11 +1146,11 @@ type Filter = All | Active | Completed | ByPriority(Priority)
 
 // Traits
 trait Show {
-  fun show(self): String
+  fn show(self): String
 }
 
 impl Show for Priority {
-  fun show(self) = match self {
+  fn show(self) = match self {
     Low => "low",
     Medium => "medium",
     High => "high",
@@ -1159,27 +1159,27 @@ impl Show for Priority {
 }
 
 impl Show for Task {
-  fun show(self) {
+  fn show(self) {
     let status = if self.done { "x" } else { " " }
     "[#{status}] #{self.title} (#{show(self.priority)})"
   }
 }
 
 // Pure functions
-fun create(id, title, priority = Medium) =
+fn create(id, title, priority = Medium) =
   Task { id, title, priority, done: false }
 
-fun toggle(task) =
+fn toggle(task) =
   { ...task, done: !task.done }
 
-fun visible(tasks, filter) = match filter {
+fn visible(tasks, filter) = match filter {
   All => tasks,
   Active => tasks |> filter(\t -> !t.done),
   Completed => tasks |> filter(\t -> t.done),
   ByPriority(p) => tasks |> filter(\t -> t.priority == p),
 }
 
-fun summary(tasks) {
+fn summary(tasks) {
   let total = len(tasks)
   let done = tasks |> filter(\t -> t.done) |> len
   let urgent = tasks
@@ -1189,7 +1189,7 @@ fun summary(tasks) {
 }
   where remaining = total - done
 
-fun sorted_by_priority(tasks) =
+fn sorted_by_priority(tasks) =
   tasks |> sort(\a, b -> priority_rank(a.priority) - priority_rank(b.priority))
   where priority_rank = \p -> match p {
     Critical => 0,
@@ -1199,7 +1199,7 @@ fun sorted_by_priority(tasks) =
   }
 
 // Effectful function
-fun display(tasks, filter) with IO {
+fn display(tasks, filter) with IO {
   let shown = tasks |> visible(filter) |> sorted_by_priority
   let stats = summary(tasks)
 
@@ -1209,7 +1209,7 @@ fun display(tasks, filter) with IO {
 }
 
 // Async operations
-fun sync_tasks(tasks) with IO, Async, Fail<DbError> {
+fn sync_tasks(tasks) with IO, Async, Fail<DbError> {
   let futures = tasks |> map(\t -> async Db.save(t))
   let results = futures |> map(\f -> await f)
 
@@ -1233,7 +1233,7 @@ actor TaskNotifier {
 }
 
 // Entry point
-fun main() with IO, Async {
+fn main() with IO, Async {
   let tasks = [
     create(1, "Learn Flux", High),
     create(2, "Build something", Medium),

@@ -1,11 +1,11 @@
 import Modules.Math as Math
 
-fun main(unused_param) {
+fn main(unused_param) {
     let x = 1;
     let y = 2;
     print(Math.square(x));
     let _ = y;
-    let f = fun() {
+    let f = fn() {
         let x = 2; // shadowed
         return x;
     };

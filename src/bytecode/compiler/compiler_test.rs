@@ -46,7 +46,7 @@ fn compile_string_literal_emits_constant() {
 
 #[test]
 fn compile_function_decl_emits_function_constant() {
-    let (program, interner) = parse_program("fun add(x, y) { return x + y; }");
+    let (program, interner) = parse_program("fn add(x, y) { return x + y; }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).unwrap();
 
@@ -65,7 +65,7 @@ fn compile_with_opts_collects_program_free_vars_when_optimized() {
     let (program, interner) = parse_program(
         r#"
 let x = 1;
-let f = fun() { x + y; };
+let f = fn() { x + y; };
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
@@ -80,7 +80,7 @@ let f = fun() { x + y; };
 
 #[test]
 fn compile_with_opts_skips_free_var_collection_without_optimization() {
-    let (program, interner) = parse_program("let f = fun() { missing; };");
+    let (program, interner) = parse_program("let f = fn() { missing; };");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let _ = compiler.compile_with_opts(&program, false, false);
     assert!(compiler.free_vars.is_empty());
@@ -88,7 +88,7 @@ fn compile_with_opts_skips_free_var_collection_without_optimization() {
 
 #[test]
 fn compile_with_opts_collects_tail_calls_when_optimized() {
-    let (program, interner) = parse_program("fun f(n) { f(n - 1); }");
+    let (program, interner) = parse_program("fn f(n) { f(n - 1); }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, true, true).unwrap();
     assert_eq!(compiler.tail_calls.len(), 1);
@@ -96,7 +96,7 @@ fn compile_with_opts_collects_tail_calls_when_optimized() {
 
 #[test]
 fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
-    let (program, interner) = parse_program("fun f(n) { f(n - 1); }");
+    let (program, interner) = parse_program("fn f(n) { f(n - 1); }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, false, false).unwrap();
     assert!(compiler.tail_calls.is_empty());

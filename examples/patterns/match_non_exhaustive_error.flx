@@ -1,4 +1,4 @@
-    fun main() {
+    fn main() {
         let value = 2;
         let label = match value {
             1 -> "one",

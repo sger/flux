@@ -56,7 +56,7 @@ fn snapshot_variable_assignment() {
 #[test]
 fn snapshot_function_definition() {
     let input = r#"
-fun add(a, b) {
+fn add(a, b) {
     return a + b;
 }
 add(5, 10);
@@ -102,8 +102,8 @@ fn snapshot_index_expression() {
 #[test]
 fn snapshot_closure() {
     let input = r#"
-let newAdder = fun(x) {
-    return fun(y) { x + y; };
+let newAdder = fn(x) {
+    return fn(y) { x + y; };
 };
 let addTwo = newAdder(2);
 addTwo(3);

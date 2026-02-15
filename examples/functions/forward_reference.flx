@@ -5,7 +5,7 @@
 // - Functions within modules (see examples/Modules/Math.flx)
 
 // Function that uses another function defined later
-fun main() {
+fn main() {
     print("Testing forward references...");
     let result = greet("World");
     print(result);
@@ -18,12 +18,12 @@ fun main() {
 }
 
 // This function is used by main() but defined after it
-fun greet(name) {
+fn greet(name) {
     "Hello, " + name + "!";
 }
 
 // Mutual recursion: isEven calls isOdd and vice versa
-fun isEven(n) {
+fn isEven(n) {
     if n == 0 {
         true;
     } else {
@@ -31,7 +31,7 @@ fun isEven(n) {
     }
 }
 
-fun isOdd(n) {
+fn isOdd(n) {
     if n == 0 {
         false;
     } else {

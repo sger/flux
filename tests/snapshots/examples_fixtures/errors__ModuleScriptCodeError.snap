@@ -11,7 +11,7 @@ Module name `Errors.ModuleScriptCodeError` doesn't match file path `examples/err
 
   --> examples/errors/ModuleScriptCodeError.flx:1:1
   |
-1 | module Errors.ModuleScriptCodeError { fun value() { 1; } }
+1 | module Errors.ModuleScriptCodeError { fn value() { 1; } }
   | ^
 
 Hint:

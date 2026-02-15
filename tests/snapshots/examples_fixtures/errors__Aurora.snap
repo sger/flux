@@ -11,7 +11,7 @@ Duplicate parameter name: `x`.
 
   --> examples/errors/Aurora.flx:1:3
   |
-1 |   fun echo(x, x) {
+1 |   fn echo(x, x) {
   |   ^
 
 Hint:

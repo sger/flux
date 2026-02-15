@@ -2,7 +2,7 @@
 // Demonstrates various ways to match on Left and Right values
 
 // Basic Left/Right matching
-fun handleResult(result) {
+fn handleResult(result) {
     match result {
         Left(err) -> "Error: " + err,
         Right(val) -> "Value: " + to_string(val),
@@ -14,14 +14,14 @@ print(handleResult(Left("not found")));
 print(handleResult(Right(42)));
 
 // Matching with simple actions
-fun isSuccess(result) {
+fn isSuccess(result) {
     match result {
         Right(_) -> true,
         _ -> false,
     }
 }
 
-fun isFailure(result) {
+fn isFailure(result) {
     match result {
         Left(_) -> true,
         _ -> false,
@@ -34,7 +34,7 @@ print(isFailure(Left("err")));
 print(isFailure(Right(1)));
 
 // Chain of operations with Either
-fun divide(a, b) {
+fn divide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
@@ -42,7 +42,7 @@ fun divide(a, b) {
     }
 }
 
-fun addTen(result) {
+fn addTen(result) {
     match result {
         Right(v) -> Right(v + 10),
         Left(e) -> Left(e),
@@ -50,7 +50,7 @@ fun addTen(result) {
     }
 }
 
-fun multiplyByTwo(result) {
+fn multiplyByTwo(result) {
     match result {
         Right(v) -> Right(v * 2),
         Left(e) -> Left(e),
@@ -71,7 +71,7 @@ let e3 = multiplyByTwo(e2);
 print(e3);
 
 // Get value or default
-fun getOr(result, default) {
+fn getOr(result, default) {
     match result {
         Right(v) -> v,
         _ -> default,
@@ -82,7 +82,7 @@ print(getOr(Right(42), 0));
 print(getOr(Left("error"), 0));
 
 // Map over Right values
-fun mapRight(result, f) {
+fn mapRight(result, f) {
     match result {
         Right(v) -> Right(f(v)),
         Left(e) -> Left(e),
@@ -90,14 +90,14 @@ fun mapRight(result, f) {
     }
 }
 
-let doubled = mapRight(Right(21), fun(x) { x * 2 });
+let doubled = mapRight(Right(21), fn(x) { x * 2 });
 print(doubled);
 
-let failed = mapRight(Left("oops"), fun(x) { x * 2 });
+let failed = mapRight(Left("oops"), fn(x) { x * 2 });
 print(failed);
 
 // Swap Left and Right
-fun swap(result) {
+fn swap(result) {
     match result {
         Left(v) -> Right(v),
         Right(v) -> Left(v),
@@ -109,7 +109,7 @@ print(swap(Left(1)));
 print(swap(Right(2)));
 
 // Trailing comma behavior (now consistent across list syntaxes)
-fun withTrailingParams(a, b,) {
+fn withTrailingParams(a, b,) {
     [|Left(a), Right(b),|]
 }
 

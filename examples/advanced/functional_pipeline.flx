@@ -70,7 +70,7 @@ let addTen = \x -> x + 10;
 let square = \x -> x * x;
 
 // Compose two functions: compose(f, g)(x) = f(g(x))
-fun compose(f, g) {
+fn compose(f, g) {
     \x -> f(g(x))
 }
 

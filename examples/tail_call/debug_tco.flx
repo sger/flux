@@ -1,4 +1,4 @@
-fun countdown(n) {
+fn countdown(n) {
     if n == 0 {
         0;
     } else {

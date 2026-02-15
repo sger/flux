@@ -56,7 +56,7 @@ This proposal outlines comprehensive module system improvements for Phase 2. Bui
 **Priority 1 (HIGH) - Core Language Features:**
 1. ✅ Selective imports (`import Foo { bar, baz }`)
 2. ✅ Re-exports (`export { bar } from Foo`)
-3. ✅ Explicit visibility (`pub fun`, `pub let`)
+3. ✅ Explicit visibility (`pub fn`, `pub let`)
 4. ✅ Wildcard imports (`import Foo.*`)
 5. ✅ Module documentation (docstrings)
 
@@ -262,7 +262,7 @@ module Utils {
 
   export { square, cube }  // Re-export imported symbols
 
-  pub fun double(x) { x * 2 }
+  pub fn double(x) { x * 2 }
 }
 
 // Usage
@@ -354,8 +354,8 @@ impl ModuleNode {
 ### Current Behavior
 ```flux
 module Math {
-  fun square(x) { x * x }      // Public (implicit)
-  fun _helper(x) { x + 1 }     // Private (by convention)
+  fn square(x) { x * x }      // Public (implicit)
+  fn _helper(x) { x + 1 }     // Private (by convention)
 }
 ```
 
@@ -369,8 +369,8 @@ module Math {
 **Option A: Rust-style `pub` Keyword (Recommended)**
 ```flux
 module Math {
-  pub fun square(x) { x * x }     // Explicit public
-  fun helper(x) { x + 1 }         // Private by default
+  pub fn square(x) { x * x }     // Explicit public
+  fn helper(x) { x + 1 }         // Private by default
 
   pub let PI = 3.14159            // Public constant
   let EPSILON = 0.0001            // Private constant
@@ -380,8 +380,8 @@ module Math {
 **Option B: Keep `_` prefix, add `pub` for constants**
 ```flux
 module Math {
-  fun square(x) { x * x }         // Public (backward compatible)
-  fun _helper(x) { x + 1 }        // Private
+  fn square(x) { x * x }         // Public (backward compatible)
+  fn _helper(x) { x + 1 }        // Private
 
   pub let PI = 3.14159            // Public constant (new)
   let _EPSILON = 0.0001           // Private constant
@@ -507,7 +507,7 @@ module Modules.Math {
   /// ```flux
   /// Math.square(5)  // => 25
   /// ```
-  pub fun square(x) {
+  pub fn square(x) {
     x * x
   }
 
@@ -593,7 +593,7 @@ stdlib/
 /// List manipulation and transformation utilities
 module Flow.List {
   /// Map a function over a list
-  pub fun map(arr, f) {
+  pub fn map(arr, f) {
     let result = [];
     let i = 0;
     while i < len(arr) {
@@ -604,34 +604,34 @@ module Flow.List {
   }
 
   /// Filter list by predicate
-  pub fun filter(arr, pred) { /* ... */ }
+  pub fn filter(arr, pred) { /* ... */ }
 
   /// Reduce list to single value
-  pub fun reduce(arr, init, f) { /* ... */ }
+  pub fn reduce(arr, init, f) { /* ... */ }
 
   /// Find first element matching predicate
-  pub fun find(arr, pred) { /* ... */ }
+  pub fn find(arr, pred) { /* ... */ }
 
   /// Check if all elements satisfy predicate
-  pub fun all(arr, pred) { /* ... */ }
+  pub fn all(arr, pred) { /* ... */ }
 
   /// Check if any element satisfies predicate
-  pub fun any(arr, pred) { /* ... */ }
+  pub fn any(arr, pred) { /* ... */ }
 
   /// Take first n elements
-  pub fun take(arr, n) { /* ... */ }
+  pub fn take(arr, n) { /* ... */ }
 
   /// Drop first n elements
-  pub fun drop(arr, n) { /* ... */ }
+  pub fn drop(arr, n) { /* ... */ }
 
   /// Reverse a list
-  pub fun reverse(arr) { /* ... */ }
+  pub fn reverse(arr) { /* ... */ }
 
   /// Flatten nested lists
-  pub fun flatten(arr) { /* ... */ }
+  pub fn flatten(arr) { /* ... */ }
 
   /// Zip two lists together
-  pub fun zip(a, b) { /* ... */ }
+  pub fn zip(a, b) { /* ... */ }
 }
 ```
 
@@ -640,7 +640,7 @@ module Flow.List {
 /// Option type utilities for handling None/Some
 module Flow.Option {
   /// Unwrap with default value
-  pub fun unwrap_or(opt, default) {
+  pub fn unwrap_or(opt, default) {
     match opt {
       Some(value) -> value;
       None -> default;
@@ -648,7 +648,7 @@ module Flow.Option {
   }
 
   /// Map over Option
-  pub fun map(opt, f) {
+  pub fn map(opt, f) {
     match opt {
       Some(value) -> Some(f(value));
       None -> None;
@@ -656,7 +656,7 @@ module Flow.Option {
   }
 
   /// Chain Option operations
-  pub fun and_then(opt, f) {
+  pub fn and_then(opt, f) {
     match opt {
       Some(value) -> f(value);
       None -> None;
@@ -664,10 +664,10 @@ module Flow.Option {
   }
 
   /// Check if Option is Some
-  pub fun is_some(opt) { /* ... */ }
+  pub fn is_some(opt) { /* ... */ }
 
   /// Check if Option is None
-  pub fun is_none(opt) { /* ... */ }
+  pub fn is_none(opt) { /* ... */ }
 }
 ```
 
@@ -676,7 +676,7 @@ module Flow.Option {
 /// Result type utilities for error handling
 module Flow.Result {
   /// Unwrap Result or return default
-  pub fun unwrap_or(result, default) {
+  pub fn unwrap_or(result, default) {
     match result {
       Right(value) -> value;
       Left(_) -> default;
@@ -684,7 +684,7 @@ module Flow.Result {
   }
 
   /// Map over success value
-  pub fun map(result, f) {
+  pub fn map(result, f) {
     match result {
       Right(value) -> Right(f(value));
       Left(err) -> Left(err);
@@ -692,16 +692,16 @@ module Flow.Result {
   }
 
   /// Map over error value
-  pub fun map_err(result, f) { /* ... */ }
+  pub fn map_err(result, f) { /* ... */ }
 
   /// Chain Result operations
-  pub fun and_then(result, f) { /* ... */ }
+  pub fn and_then(result, f) { /* ... */ }
 
   /// Check if Result is Ok
-  pub fun is_ok(result) { /* ... */ }
+  pub fn is_ok(result) { /* ... */ }
 
   /// Check if Result is Err
-  pub fun is_err(result) { /* ... */ }
+  pub fn is_err(result) { /* ... */ }
 }
 ```
 
@@ -710,28 +710,28 @@ module Flow.Result {
 /// String manipulation utilities
 module Flow.String {
   /// Split string by delimiter
-  pub fun split(s, delim) { /* ... */ }
+  pub fn split(s, delim) { /* ... */ }
 
   /// Join array of strings
-  pub fun join(arr, sep) { /* ... */ }
+  pub fn join(arr, sep) { /* ... */ }
 
   /// Trim whitespace
-  pub fun trim(s) { /* ... */ }
+  pub fn trim(s) { /* ... */ }
 
   /// Convert to uppercase
-  pub fun upper(s) { /* ... */ }
+  pub fn upper(s) { /* ... */ }
 
   /// Convert to lowercase
-  pub fun lower(s) { /* ... */ }
+  pub fn lower(s) { /* ... */ }
 
   /// Check if string starts with prefix
-  pub fun starts_with(s, prefix) { /* ... */ }
+  pub fn starts_with(s, prefix) { /* ... */ }
 
   /// Check if string ends with suffix
-  pub fun ends_with(s, suffix) { /* ... */ }
+  pub fn ends_with(s, suffix) { /* ... */ }
 
   /// Replace substring
-  pub fun replace(s, old, new) { /* ... */ }
+  pub fn replace(s, old, new) { /* ... */ }
 }
 ```
 
@@ -1098,13 +1098,13 @@ fn resolve_import(&mut self, module_path: &[String]) -> Result<ModuleInterface> 
 ```flux
 // Math.flx
 module Math {
-  pub fun square(x) { x * x }  // Small, should inline
+  pub fn square(x) { x * x }  // Small, should inline
 }
 
 // App.flx
 import Math { square }
 
-fun compute() {
+fn compute() {
   square(5);  // Inline to: 5 * 5
 }
 ```
@@ -1113,8 +1113,8 @@ fun compute() {
 ```flux
 // Utils.flx
 module Utils {
-  pub fun used() { 1 }
-  pub fun unused() { 2 }  // Never imported
+  pub fn used() { 1 }
+  pub fn unused() { 2 }  // Never imported
 }
 
 // App.flx
@@ -1507,7 +1507,7 @@ We recommend implementing in **three tracks** that can run in parallel:
 ### Developer Experience (Language Features)
 - ✅ Can write `import Math { square }` for selective imports
 - ✅ Can write `export { foo } from Bar` for re-exports
-- ✅ Can use `pub fun` for explicit visibility
+- ✅ Can use `pub fn` for explicit visibility
 - ✅ Standard library available: Flow.List, Flow.Option, Flow.Result, Flow.String
 - ✅ Documentation generated from `///` docstrings
 - ✅ Clear error messages for import/export issues
@@ -1540,7 +1540,7 @@ Math.square(5);
 Math.cube(10);
 
 // No standard library
-fun map(arr, f) {
+fn map(arr, f) {
   // Implement yourself
 }
 
@@ -1557,12 +1557,12 @@ import Flow.List { map, filter, reduce }
 
 // Direct usage
 square(5);
-map([1, 2, 3], fun(x) { x * 2 });
+map([1, 2, 3], fn(x) { x * 2 });
 
 /// Math utilities module
 module MyMath {
   /// Square a number
-  pub fun square(x) { x * x }
+  pub fn square(x) { x * x }
 }
 
 // Parallel compilation: 3x faster
@@ -1627,7 +1627,7 @@ module MyMath {
 ### Part A: Language Features (User-Facing)
 1. ✅ **Selective imports** - `import Foo { bar, baz }`
 2. ✅ **Re-exports** - `export { bar } from Foo`
-3. ✅ **Explicit visibility** - `pub fun`, `pub let`
+3. ✅ **Explicit visibility** - `pub fn`, `pub let`
 4. ✅ **Wildcard imports** - `import Foo.*`
 5. ✅ **Module documentation** - `///` docstrings
 6. ✅ **Standard library** - Flow.List, Flow.Option, Flow.Result, Flow.String

@@ -116,7 +116,7 @@ pub(super) fn builtin_to_array(
 ) -> Result<Value, String> {
     check_arity(&args, 1, "to_array", "to_array(list)")?;
     let mut elements = Vec::new();
-        let mut current = args[0].clone();
+    let mut current = args[0].clone();
     loop {
         match &current {
             Value::None | Value::EmptyList => break,
@@ -169,7 +169,7 @@ pub(super) fn builtin_list(
 /// Helper: collects a cons list into a Vec for internal use by builtins.
 pub(super) fn collect_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Vec<Value>> {
     let mut elements = Vec::new();
-        let mut current = value.clone();
+    let mut current = value.clone();
     loop {
         match &current {
             Value::None | Value::EmptyList => return Some(elements),

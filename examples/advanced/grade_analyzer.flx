@@ -41,7 +41,7 @@ print("=== Student Grade Analysis ===")
 let results = SG.analyze(students)
 
 // Print each student's results
-fun show(results, name) {
+fn show(results, name) {
     let r = M.val(results, name)
     let avg = to_string(M.val(r, "average"))
     let grade = M.val(r, "grade")

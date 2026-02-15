@@ -1,7 +1,7 @@
 import ModuleGraph.ModuleGraphA
 import ModuleGraph.ModuleGraphB
 
-  fun main() {
+  fn main() {
     ModuleGraph.ModuleGraphA.value();
     ModuleGraph.ModuleGraphB.value();
   }

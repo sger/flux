@@ -153,6 +153,7 @@ impl Parser {
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If
+                | TokenType::Fn
                 | TokenType::Fun
                 | TokenType::Match
                 | TokenType::String

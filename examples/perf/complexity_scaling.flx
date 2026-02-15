@@ -4,7 +4,7 @@
 // - list_hd_ms and array_first_ms stay roughly flat as n grows (O(1))
 // - list_len_ms and array_concat_ms grow with n (O(n))
 
-fun bench_list_head(lst, reps, acc) {
+fn bench_list_head(lst, reps, acc) {
     if reps <= 0 {
         acc
     } else {
@@ -12,7 +12,7 @@ fun bench_list_head(lst, reps, acc) {
     }
 }
 
-fun bench_array_first(arr, reps, acc) {
+fn bench_array_first(arr, reps, acc) {
     if reps <= 0 {
         acc
     } else {
@@ -20,7 +20,7 @@ fun bench_array_first(arr, reps, acc) {
     }
 }
 
-fun bench_list_len(lst, reps, acc) {
+fn bench_list_len(lst, reps, acc) {
     if reps <= 0 {
         acc
     } else {
@@ -28,7 +28,7 @@ fun bench_list_len(lst, reps, acc) {
     }
 }
 
-fun bench_array_concat(arr, reps, acc) {
+fn bench_array_concat(arr, reps, acc) {
     if reps <= 0 {
         acc
     } else {
@@ -37,14 +37,14 @@ fun bench_array_concat(arr, reps, acc) {
     }
 }
 
-fun value_at(arr, idx) {
+fn value_at(arr, idx) {
     match arr[idx] {
         Some(x) -> x,
         _ -> 0,
     }
 }
 
-fun run_cases(sizes, idx, reps_o1, reps_on) {
+fn run_cases(sizes, idx, reps_o1, reps_on) {
     if idx >= len(sizes) {
         None
     } else {

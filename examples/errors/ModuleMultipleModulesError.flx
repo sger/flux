@@ -1,2 +1,2 @@
-module Errors.ModuleMultipleModulesError { fun a() { 1; } }
-module Errors.AnotherModule { fun b() { 2; } }
+module Errors.ModuleMultipleModulesError { fn a() { 1; } }
+module Errors.AnotherModule { fn b() { 2; } }

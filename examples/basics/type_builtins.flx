@@ -90,7 +90,7 @@ print(is_some(None));         // false
 print("Practical examples:");
 
 // Example 1: Safe type conversion
-fun safeAdd(a, b) {
+fn safeAdd(a, b) {
     if is_int(a) && is_int(b) {
         Some(a + b)
     } else {
@@ -101,7 +101,7 @@ print(safeAdd(1, 2));         // Some(3)
 print(safeAdd(1, "hello"));   // None
 
 // Example 2: Type-based dispatch
-fun describe(value) {
+fn describe(value) {
     if is_int(value) {
         "an integer: " + to_string(value)
     } else {
@@ -121,7 +121,7 @@ print(describe("hello"));     // "a string: hello"
 print(describe([|1, 2, 3|]));   // "an array with 3 elements"
 
 // Example 3: Validate function arguments
-fun requireInt(name, value) {
+fn requireInt(name, value) {
     if !is_int(value) {
         Left(name + " must be an integer, got " + type_of(value))
     } else {

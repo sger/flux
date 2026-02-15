@@ -3,47 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_builtins.flx
 == compile ==
-failed (parse)
+ok
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/basics/array_builtins.flx:7:12
-  |
-7 | print(len([||]));
-  |            ^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/basics/array_builtins.flx:22:14
-   |
-22 | print(first([||]));
-   |              ^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/basics/array_builtins.flx:23:13
-   |
-23 | print(last([||]));
-   |             ^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/basics/array_builtins.flx:24:13
-   |
-24 | print(rest([||]));
-   |             ^^
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

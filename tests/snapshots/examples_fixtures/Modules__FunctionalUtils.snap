@@ -3,57 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/Modules/FunctionalUtils.flx
 == compile ==
-failed (parse)
+failed (module)
 == diagnostics ==
---> compiler error[E076]: UNCLOSED DELIMITER
+--> compiler error[E024]: MODULE PATH MISMATCH
 
-Expected a closing `}` to match this opening `{`.
+Module name `Modules.FunctionalUtils` doesn't match file path `examples/Modules/FunctionalUtils.flx`.
 
-  --> examples/Modules/FunctionalUtils.flx:4:32
+  --> examples/Modules/FunctionalUtils.flx:4:1
   |
 4 | module Modules.FunctionalUtils {
-  |                                ^
+  | ^
 
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/Modules/FunctionalUtils.flx:8:14
-  |
-8 |             [||]
-  |              ^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found else.
-
-  --> examples/Modules/FunctionalUtils.flx:9:11
-  |
-9 |         } else {
-  |           ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ||.
-
-  --> examples/Modules/FunctionalUtils.flx:17:14
-   |
-17 |             [||]
-   |              ^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found else.
-
-  --> examples/Modules/FunctionalUtils.flx:18:11
-   |
-18 |         } else {
-   |           ^^^^
-
-Found 5 errors.
+Hint:
+  Rename the module or move the file to match.
 == stdout ==
 <not executed>

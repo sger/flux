@@ -1,5 +1,5 @@
 // factorial.flx
-fun factorial(n, acc) {
+fn factorial(n, acc) {
     if n == 0 {
         acc;
     } else {
