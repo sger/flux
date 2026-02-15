@@ -1,7 +1,7 @@
 import Modules.UserUtils as UserUtils
 import Modules.Main as Main
 
-fun main() {
+fn main() {
     let users = [|UserUtils.make_user("Ana", 20), UserUtils.make_user("Bob", 15)|];
 
     let first_age = match users[0] {
@@ -15,7 +15,7 @@ fun main() {
         _ -> None,
     };
 
-    let show = fun(opt) {
+    let show = fn(opt) {
         return match opt {
             Some(v) -> v,
             None -> 0,

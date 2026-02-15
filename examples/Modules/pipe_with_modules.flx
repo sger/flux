@@ -34,7 +34,7 @@ let wrapped = "content" |> StringUtils.wrap("<", ">");
 print(wrapped);  // <content>
 
 // Mix module functions and local functions
-fun addTen(x) { x + 10 }
+fn addTen(x) { x + 10 }
 
 let result4 = 3 |> Math.square |> addTen |> Math.double;
 print(result4);  // ((3^2) + 10) * 2 = 19 * 2 = 38

@@ -49,7 +49,7 @@ pub(super) fn parse_program(path: &Path) -> Result<Program, Vec<Diagnostic>> {
 pub(super) fn parse_program_with_interner(
     path: &Path,
     interner: Interner,
-) -> (Result<Program, Vec<Diagnostic>>, Interner) {
+) -> (Option<Program>, Vec<Diagnostic>, Interner) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(err) => {
@@ -60,25 +60,29 @@ pub(super) fn parse_program_with_interner(
                 path.display().to_string(),
                 Span::new(Position::default(), Position::default()),
             );
-            return (Err(vec![diag]), interner);
+            return (None, vec![diag], interner);
         }
     };
 
     let lexer = Lexer::new_with_interner(source, interner);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-
     let interner = parser.take_interner();
-
+    let mut diagnostics = parser.take_warnings();
     if !parser.errors.is_empty() {
-        let mut diags = parser.errors;
-        for diag in &mut diags {
+        diagnostics.append(&mut parser.errors);
+        for diag in &mut diagnostics {
             diag.set_file(path.display().to_string());
         }
-        return (Err(diags), interner);
+        return (None, diagnostics, interner);
     }
 
-    (Ok(program), interner)
+    for diag in &mut diagnostics {
+        if diag.file().is_none() {
+            diag.set_file(path.display().to_string());
+        }
+    }
+    (Some(program), diagnostics, interner)
 }
 
 pub(super) fn resolve_imports(

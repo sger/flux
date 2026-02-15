@@ -3,7 +3,7 @@
 
 let x = 10;
 
-fun compute(value) {
+fn compute(value) {
     // This 'x' is in a different scope, so it's OK
     let x = value * 2;
     x + 5

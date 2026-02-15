@@ -4,7 +4,7 @@ a = 10;
 
 // Other invalid assignment shapes (uncomment to test individually):
 // c = 5; // undefined variable
-// fun increment(x) {
+// fn increment(x) {
 //     x = x + 1; // parameter reassignment is also rejected
 //     return x;
 // }

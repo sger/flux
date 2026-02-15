@@ -39,7 +39,7 @@
 
 /// Calculate the factorial of a number
 /// Returns n! for non-negative integers
-fun factorial(n) {
+fn factorial(n) {
     // Base case: 0! = 1
     if (n == 0) {
         return 1;
@@ -61,7 +61,7 @@ fun factorial(n) {
  * Returns:
  *   The nth Fibonacci number
  */
-fun fib(n) {
+fn fib(n) {
     if (n <= 1) {
         return n;
     }

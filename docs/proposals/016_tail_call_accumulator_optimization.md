@@ -36,7 +36,7 @@ No GC is required. Immutable semantics are fully preserved.
 Every `OpCall` pushes a new `Frame` onto the frame stack. A self-recursive function that recurses 2000+ times overflows the 2048-slot stack:
 
 ```flux
-fun countdown(n) {
+fn countdown(n) {
     if n == 0 { 0; }
     else { countdown(n - 1); }
 }
@@ -59,7 +59,7 @@ Ok(Object::Array(new_arr))
 The common accumulator pattern:
 
 ```flux
-fun build(n, acc) {
+fn build(n, acc) {
     if n == 0 { acc; }
     else { build(n - 1, push(acc, n)); }
 }
@@ -112,20 +112,20 @@ No new frame is allocated. The current frame's arguments are overwritten and `ip
 
 ```flux
 // OPTIMIZED: self-recursive tail call
-fun factorial(n, acc) {
+fn factorial(n, acc) {
     if n == 0 { acc; }
     else { factorial(n - 1, acc * n); }
 }
 
 // NOT OPTIMIZED: not in tail position (multiplication after call)
-fun factorial_bad(n) {
+fn factorial_bad(n) {
     if n == 0 { 1; }
     else { n * factorial_bad(n - 1); }
 }
 
 // NOT OPTIMIZED: mutual recursion (future work)
-fun is_even(n) { if n == 0 { true; } else { is_odd(n - 1); } }
-fun is_odd(n) { if n == 0 { false; } else { is_even(n - 1); } }
+fn is_even(n) { if n == 0 { true; } else { is_odd(n - 1); } }
+fn is_odd(n) { if n == 0 { false; } else { is_even(n - 1); } }
 ```
 
 Phase 1 fixes stack overflow but does NOT fix the O(n^2) array copy.
@@ -207,20 +207,20 @@ OpTailCall 2           # reuse frame
 
 ```flux
 // OPTIMIZED (O(n)): acc is dead after push
-fun build(n, acc) {
+fn build(n, acc) {
     if n == 0 { acc; }
     else { build(n - 1, push(acc, n)); }
 }
 
 // OPTIMIZED (O(n)): same pattern with concat
-fun flatten(lists, acc) {
+fn flatten(lists, acc) {
     if len(lists) == 0 { acc; }
     else { flatten(rest(lists), concat(acc, first(lists))); }
 }
 
 // NOT OPTIMIZED: acc captured by closure
-fun build_closure(n, acc) {
-    let f = fun() { acc; };
+fn build_closure(n, acc) {
+    let f = fn() { acc; };
     if n == 0 { f(); }
     else { build_closure(n - 1, push(acc, n)); }
 }

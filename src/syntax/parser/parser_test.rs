@@ -62,11 +62,38 @@ fn parses_import_without_alias() {
 }
 
 #[test]
-fn invalid_keyword_reports_error() {
-    let lexer = Lexer::new("fn add() { }");
+fn fn_keyword_parses_function_statement() {
+    let (program, interner) = parse_ok("fn add() { }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function { name, .. } => assert_eq!(interner.resolve(*name), "add"),
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn fun_keyword_parses_with_deprecation_warning() {
+    let lexer = Lexer::new("fun add() { }");
     let mut parser = Parser::new(lexer);
     let _ = parser.parse_program();
-    assert!(!parser.errors.is_empty());
+    assert!(parser.errors.is_empty(), "unexpected parser errors");
+    assert_eq!(parser.warnings.len(), 1, "expected one deprecation warning");
+    let warning = &parser.warnings[0];
+    assert_eq!(warning.code(), Some("W013"));
+    assert!(warning.message().is_some_and(|m| m.contains("deprecated")));
+}
+
+#[test]
+fn invalid_function_keyword_mentions_fn() {
+    let lexer = Lexer::new("function add() { }");
+    let mut parser = Parser::new(lexer);
+    let _ = parser.parse_program();
+    assert!(!parser.errors.is_empty(), "expected parser error");
+    let err = &parser.errors[0];
+    assert!(
+        err.message()
+            .is_some_and(|m| m.contains("Flux uses `fn` for function declarations"))
+    );
 }
 
 #[test]

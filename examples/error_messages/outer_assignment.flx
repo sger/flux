@@ -2,10 +2,10 @@
 // This demonstrates the enhanced error message for trying to assign
 // to a variable from an outer scope within a closure.
 
-fun main() {
+fn main() {
     let x = 0;
 
-    let increment = fun() {
+    let increment = fn() {
         // This will error: cannot assign to variable captured by closure
         x = x + 1;
     };
@@ -14,9 +14,9 @@ fun main() {
 }
 
 // FIX 1: Create a new local binding (shadowing)
-// fun main() {
+// fn main() {
 //     let x = 0;
-//     let increment = fun() {
+//     let increment = fn() {
 //         let x = x + 1;  // New local binding
 //         print(x);
 //     };
@@ -24,9 +24,9 @@ fun main() {
 // }
 
 // FIX 2: Return the new value instead
-// fun main() {
+// fn main() {
 //     let x = 0;
-//     let increment = fun(n) {
+//     let increment = fn(n) {
 //         n + 1
 //     };
 //     let x = increment(x);

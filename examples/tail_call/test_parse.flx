@@ -1,4 +1,4 @@
-fun test(n) {
+fn test(n) {
     if n == 0 {
         "zero";
     } else {

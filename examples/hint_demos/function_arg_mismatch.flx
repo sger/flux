@@ -1,11 +1,11 @@
 // This example demonstrates hint positioning for function argument mismatches
 // The error will show where the function was defined with its parameter count
 
-fun add(a, b) {
+fn add(a, b) {
     a + b
 }
 
-fun multiply(x, y, z) {
+fn multiply(x, y, z) {
     x * y * z
 }
 

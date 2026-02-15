@@ -97,15 +97,15 @@ impl ModuleGraph {
             let program = if id == entry_id {
                 entry_program.clone()
             } else {
-                let (result, returned_interner) =
+                let (program, mut parse_diagnostics, returned_interner) =
                     parse_program_with_interner(&canonical_path, interner);
 
                 interner = returned_interner;
+                diagnostics.append(&mut parse_diagnostics);
 
-                match result {
-                    Ok(program) => program,
-                    Err(mut diags) => {
-                        diagnostics.append(&mut diags);
+                match program {
+                    Some(program) => program,
+                    None => {
                         failed_modules.insert(canonical_path);
                         continue;
                     }

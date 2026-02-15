@@ -126,9 +126,9 @@ pub fn render_location(
 /// Format:
 /// ```text
 ///    |
-/// help: Replace with 'fun'
+/// help: Replace with 'fn'
 ///    |
-///  5 | fun add(a, b) {
+///  5 | fn add(a, b) {
 ///    | ~~~
 /// ```
 ///

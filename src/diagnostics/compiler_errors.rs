@@ -252,7 +252,7 @@ pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Unknown keyword: `{}`.",
     hint: Some(
-        "Flux keywords are: let, fun, if, else, match, import, module, return, true, false, None. Common mistakes: use `fun` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
+        "Flux keywords are: let, fn, if, else, match, import, module, return, true, false, None. Common mistakes: use `fn` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
     ),
 };
 

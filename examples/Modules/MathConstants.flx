@@ -21,20 +21,20 @@ module Modules.MathConstants {
     let _internal_factor = PI / 180;
 
     // Functions using constants
-    fun circle_area(radius) {
+    fn circle_area(radius) {
         PI * radius * radius
     }
 
-    fun circumference(radius) {
+    fn circumference(radius) {
         TAU * radius
     }
 
-    fun sphere_volume(radius) {
+    fn sphere_volume(radius) {
         (4 / 3) * PI * radius * radius * radius
     }
 
     // Function using private constant internally
-    fun degrees_to_radians(degrees) {
+    fn degrees_to_radians(degrees) {
         degrees * _internal_factor
     }
 }

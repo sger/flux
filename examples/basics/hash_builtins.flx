@@ -35,7 +35,7 @@ print(merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notificat
 // =============================================================================
 
 // Example 1: Config with defaults
-fun getConfig(userConfig) {
+fn getConfig(userConfig) {
     let defaults = {"timeout": 30, "retries": 3, "debug": false};
     merge(defaults, userConfig);
 }

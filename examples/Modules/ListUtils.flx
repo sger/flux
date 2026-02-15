@@ -3,7 +3,7 @@
 
 module Modules.ListUtils {
     // Create a range list: range(1, 5) → [|1, 2, 3, 4, 5|]
-    fun range(start, stop) {
+    fn range(start, stop) {
         if start > stop {
             None
         } else {
@@ -12,12 +12,12 @@ module Modules.ListUtils {
     }
 
     // Sum all elements in a list
-    fun sum(lst) {
+    fn sum(lst) {
         fold(lst, 0, \(acc, x) -> acc + x)
     }
 
     // Take the first n elements
-    fun take(lst, n) {
+    fn take(lst, n) {
         if n <= 0 {
             None
         } else {
@@ -29,7 +29,7 @@ module Modules.ListUtils {
     }
 
     // Drop the first n elements
-    fun drop(lst, n) {
+    fn drop(lst, n) {
         if n <= 0 {
             lst
         } else {
@@ -41,7 +41,7 @@ module Modules.ListUtils {
     }
 
     // Append two lists
-    fun append(a, b) {
+    fn append(a, b) {
         match a {
             [h | t] -> [h | append(t, b)],
             _ -> b,
@@ -49,7 +49,7 @@ module Modules.ListUtils {
     }
 
     // Flatten a list of lists into a single list
-    fun flatten(lst) {
+    fn flatten(lst) {
         match lst {
             [h | t] -> append(h, flatten(t)),
             _ -> None,
@@ -57,7 +57,7 @@ module Modules.ListUtils {
     }
 
     // Zip two lists into a list of pairs (arrays)
-    fun zip(a, b) {
+    fn zip(a, b) {
         match a {
             [ha | ta] -> match b {
                 [hb | tb] -> [[ha, hb] | zip(ta, tb)],
@@ -68,7 +68,7 @@ module Modules.ListUtils {
     }
 
     // Check if any element satisfies the predicate
-    fun any(lst, pred) {
+    fn any(lst, pred) {
         match lst {
             [h | t] -> if pred(h) { true } else { any(t, pred) },
             _ -> false,
@@ -76,7 +76,7 @@ module Modules.ListUtils {
     }
 
     // Check if all elements satisfy the predicate
-    fun all(lst, pred) {
+    fn all(lst, pred) {
         match lst {
             [h | t] -> if pred(h) { all(t, pred) } else { false },
             _ -> true,

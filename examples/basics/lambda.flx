@@ -39,7 +39,7 @@ let complex = \x -> {
 print(complex(5));  // 11
 
 // Lambda as argument to higher-order function
-fun applyTwice(f, x) {
+fn applyTwice(f, x) {
     f(f(x))
 }
 print(applyTwice(\x -> x * 2, 3));  // 12
@@ -51,7 +51,7 @@ print(applyTwice(\x -> x * 2, 3));  // 12
 print("Higher-order functions:");
 
 // Custom map-like function
-fun myMap(arr, f) {
+fn myMap(arr, f) {
     if len(arr) == 0 {
         [||]
     } else {

@@ -118,6 +118,7 @@ define_tokens! {
 
     keywords {
         Let    => "let",
+        Fn     => "fn",
         Fun    => "fun",
         If     => "if",
         Else   => "else",

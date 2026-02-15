@@ -307,6 +307,13 @@ fn run_file(
 
             // --- Collect all diagnostics into a single pool ---
             let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
+            let mut parse_warnings = parser.take_warnings();
+            for diag in &mut parse_warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
+            all_diagnostics.append(&mut parse_warnings);
 
             // Entry file parse errors: collect but do NOT exit early.
             let entry_has_errors = !parser.errors.is_empty();
@@ -392,8 +399,11 @@ fn run_file(
                     .with_file_headers(is_multimodule)
                     .with_max_errors(Some(max_errors))
                     .report();
+                if report.counts.errors > 0 {
+                    eprintln!("{}", report.rendered);
+                    std::process::exit(1);
+                }
                 eprintln!("{}", report.rendered);
-                std::process::exit(1);
             }
 
             let bytecode = compiler.bytecode();
@@ -596,6 +606,12 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
+            let mut warnings = parser.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
 
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
@@ -605,6 +621,15 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
                     .report();
                 eprintln!("{}", report.rendered);
                 std::process::exit(1);
+            }
+
+            if !warnings.is_empty() {
+                let report = DiagnosticsAggregator::new(&warnings)
+                    .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
             }
 
             let interner = parser.take_interner();
@@ -654,6 +679,12 @@ fn lint_file(path: &str, max_errors: usize) {
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
+            let mut warnings = parser.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
 
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
@@ -663,6 +694,15 @@ fn lint_file(path: &str, max_errors: usize) {
                     .report();
                 eprintln!("{}", report.rendered);
                 std::process::exit(1);
+            }
+
+            if !warnings.is_empty() {
+                let report = DiagnosticsAggregator::new(&warnings)
+                    .with_default_source(path, source.as_str())
+                    .with_file_headers(false)
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
             }
 
             let interner = parser.take_interner();
@@ -706,6 +746,12 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
+            let mut warnings = parser.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
 
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
@@ -714,6 +760,14 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
                     .report();
                 eprintln!("{}", report.rendered);
                 std::process::exit(1);
+            }
+
+            if !warnings.is_empty() {
+                let report = DiagnosticsAggregator::new(&warnings)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
             }
 
             let interner = parser.take_interner();
@@ -746,6 +800,12 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
+            let mut warnings = parser.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
 
             if !parser.errors.is_empty() {
                 let report = DiagnosticsAggregator::new(&parser.errors)
@@ -754,6 +814,14 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
                     .report();
                 eprintln!("{}", report.rendered);
                 std::process::exit(1);
+            }
+
+            if !warnings.is_empty() {
+                let report = DiagnosticsAggregator::new(&warnings)
+                    .with_default_source(path, source.as_str())
+                    .with_max_errors(Some(max_errors))
+                    .report();
+                eprintln!("{}", report.rendered);
             }
 
             let tail_calls = find_tail_calls(&program);
@@ -926,6 +994,12 @@ fn repl(trace: bool) {
         let lexer = Lexer::new_with_interner(&input, interner);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
+        let mut warnings = parser.take_warnings();
+        for diag in &mut warnings {
+            if diag.file().is_none() {
+                diag.set_file("<repl>");
+            }
+        }
 
         if !parser.errors.is_empty() {
             let report = DiagnosticsAggregator::new(&parser.errors)
@@ -935,6 +1009,14 @@ fn repl(trace: bool) {
             eprintln!("{}", report.rendered);
             interner = parser.take_interner();
             continue;
+        }
+
+        if !warnings.is_empty() {
+            let report = DiagnosticsAggregator::new(&warnings)
+                .with_default_source("<repl>", &input)
+                .with_file_headers(false)
+                .report();
+            eprintln!("{}", report.rendered);
         }
 
         interner = parser.take_interner();

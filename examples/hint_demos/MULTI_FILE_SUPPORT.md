@@ -48,7 +48,7 @@ Expected 2 arguments, found 3
    = note: defined with 2 parameters
   --> examples/hint_demos/multi_file_lib.flx:8:15
    |
- 8 | fun calculate(a, b) {
+ 8 | fn calculate(a, b) {
    |               ^^^^^^
 ```
 

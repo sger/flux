@@ -1,6 +1,6 @@
 import Modules.Data.MyFile
 
-fun value() {
+fn value() {
   1;
 }
 

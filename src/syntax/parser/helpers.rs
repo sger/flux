@@ -139,6 +139,7 @@ impl Parser {
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If
+                | TokenType::Fn
                 | TokenType::Fun
                 | TokenType::Match
                 | TokenType::Backslash
@@ -213,7 +214,7 @@ impl Parser {
             // Move to parameter candidate token
             self.next_token();
 
-            // Allow trailing comma: fun f(a, ) { ... }
+            // Allow trailing comma: fn f(a, ) { ... }
             if self.is_current_token(TokenType::RParen) {
                 return Some(identifiers);
             }
@@ -444,6 +445,7 @@ impl Parser {
                 self.peek_token.token_type,
                 TokenType::Semicolon
                     | TokenType::Let
+                    | TokenType::Fn
                     | TokenType::Fun
                     | TokenType::Import
                     | TokenType::Module
@@ -509,6 +511,7 @@ impl Parser {
                     token_type,
                     TokenType::Semicolon
                         | TokenType::Let
+                        | TokenType::Fn
                         | TokenType::Fun
                         | TokenType::Import
                         | TokenType::Module

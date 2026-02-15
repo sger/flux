@@ -95,13 +95,13 @@ fn compile_err_message(input: &str) -> String {
 fn import_top_level_ok() {
     compile_ok_in(
         "examples/test.flx",
-        "import Math module Main { fun main() { 1; } }",
+        "import Math module Main { fn main() { 1; } }",
     );
 }
 
 #[test]
 fn import_in_function_error() {
-    let code = compile_err("module Main { fun main() { import Math } }");
+    let code = compile_err("module Main { fn main() { import Math } }");
     assert_eq!(code, "E017");
 }
 
@@ -114,46 +114,46 @@ fn import_name_collision_error() {
 #[test]
 fn private_member_access_error() {
     let code = compile_err(
-        "module Math { fun _private() { 1; } } module Main { fun main() { Math._private(); } }",
+        "module Math { fn _private() { 1; } } module Main { fn main() { Math._private(); } }",
     );
     assert_eq!(code, "E011");
 }
 
 #[test]
 fn module_name_lowercase_error() {
-    let code = compile_err("module math { fun main() { 1; } }");
+    let code = compile_err("module math { fn main() { 1; } }");
     assert_eq!(code, "E008");
 }
 
 #[test]
 fn module_name_clash_error() {
-    let code = compile_err("module Math { fun Math() { 1; } }");
+    let code = compile_err("module Math { fn Math() { 1; } }");
     assert_eq!(code, "E009");
 }
 
 #[test]
 fn qualified_use_requires_import() {
-    let title = compile_err_title("module Main { fun main() { Data.MyFile.value(); } }");
+    let title = compile_err_title("module Main { fn main() { Data.MyFile.value(); } }");
     assert_eq!(title, "MODULE NOT IMPORTED");
 }
 
 #[test]
 fn alias_hides_original_qualifier() {
     let title = compile_err_title(
-        "import Data.MyFile as MyFile module Main { fun main() { Data.MyFile.value(); } }",
+        "import Data.MyFile as MyFile module Main { fn main() { Data.MyFile.value(); } }",
     );
     assert_eq!(title, "MODULE NOT IMPORTED");
 }
 
 #[test]
 fn duplicate_params_error() {
-    let code = compile_err("fun f(x, x) { x; }");
+    let code = compile_err("fn f(x, x) { x; }");
     assert_eq!(code, "E007");
 }
 
 #[test]
 fn duplicate_params_literal_error() {
-    let code = compile_err("let f = fun(x, x) { x; };");
+    let code = compile_err("let f = fn(x, x) { x; };");
     assert_eq!(code, "E007");
 }
 
@@ -169,7 +169,7 @@ fn binding_shadowing_sample_program_reports_duplicate_name_for_inner_let() {
         r#"
 let x = 3
 
-fun t(x) {
+fn t(x) {
     let x = x;
 }
 "#,
@@ -183,7 +183,7 @@ fn binding_shadowing_sample_program_duplicate_message_is_clear() {
         r#"
 let x = 3
 
-fun t(x) {
+fn t(x) {
     let x = x;
 }
 "#,
@@ -200,7 +200,7 @@ fn parameter_shadowing_outer_binding_without_inner_duplicate_is_allowed() {
         "test.flx",
         r#"
 let x = 3
-fun t(x) { x; }
+fn t(x) { x; }
 t(9);
 "#,
     );
@@ -208,25 +208,25 @@ t(9);
 
 #[test]
 fn assignment_in_block_reassign_error() {
-    let code = compile_err("fun f() { let x = 1; x = 2; }");
+    let code = compile_err("fn f() { let x = 1; x = 2; }");
     assert_eq!(code, "E002");
 }
 
 #[test]
 fn duplicate_let_in_same_scope_errors() {
-    let code = compile_err("fun bad() { let x = 1; let x = 2; }");
+    let code = compile_err("fn bad() { let x = 1; let x = 2; }");
     assert_eq!(code, "E001");
 }
 
 #[test]
 fn assignment_to_parameter_reassign_error() {
-    let code = compile_err("fun f(x) { x = 2; }");
+    let code = compile_err("fn f(x) { x = 2; }");
     assert_eq!(code, "E002");
 }
 
 #[test]
 fn outer_assignment_error() {
-    let code = compile_err("fun outer() { let x = 1; let f = fun() { x = 2; }; }");
+    let code = compile_err("fn outer() { let x = 1; let f = fn() { x = 2; }; }");
     assert_eq!(code, "E003");
 }
 
@@ -257,16 +257,13 @@ fn legacy_none_list_tail_is_compile_error() {
 #[test]
 fn forward_reference_simple() {
     // Function g calls function f, which is defined after g
-    compile_ok_in("test.flx", "fun g() { f(); } fun f() { 1; }");
+    compile_ok_in("test.flx", "fn g() { f(); } fn f() { 1; }");
 }
 
 #[test]
 fn forward_reference_nested_call() {
     // Function a calls b, b calls c, c is defined last
-    compile_ok_in(
-        "test.flx",
-        "fun a() { b(); } fun b() { c(); } fun c() { 42; }",
-    );
+    compile_ok_in("test.flx", "fn a() { b(); } fn b() { c(); } fn c() { 42; }");
 }
 
 #[test]
@@ -274,7 +271,7 @@ fn mutual_recursion_two_functions() {
     // Functions f and g call each other
     compile_ok_in(
         "test.flx",
-        "fun f(x) { if x > 0 { g(x - 1); } else { 0; } } fun g(x) { if x > 0 { f(x - 1); } else { 1; } }",
+        "fn f(x) { if x > 0 { g(x - 1); } else { 0; } } fn g(x) { if x > 0 { f(x - 1); } else { 1; } }",
     );
 }
 
@@ -283,7 +280,7 @@ fn mutual_recursion_three_functions() {
     // Functions a, b, c form a circular dependency
     compile_ok_in(
         "test.flx",
-        "fun a(x) { if x > 0 { b(x - 1); } else { 0; } } fun b(x) { if x > 0 { c(x - 1); } else { 1; } } fun c(x) { if x > 0 { a(x - 1); } else { 2; } }",
+        "fn a(x) { if x > 0 { b(x - 1); } else { 0; } } fn b(x) { if x > 0 { c(x - 1); } else { 1; } } fn c(x) { if x > 0 { a(x - 1); } else { 2; } }",
     );
 }
 
@@ -292,20 +289,20 @@ fn self_recursion_still_works() {
     // Ensure basic recursion still works
     compile_ok_in(
         "test.flx",
-        "fun factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }",
+        "fn factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }",
     );
 }
 
 #[test]
 fn forward_reference_with_variables() {
     // Forward reference with let bindings in between
-    compile_ok_in("test.flx", "fun f() { g(); } let x = 10; fun g() { x; }");
+    compile_ok_in("test.flx", "fn f() { g(); } let x = 10; fn g() { x; }");
 }
 
 #[test]
 fn duplicate_function_still_errors() {
     // Ensure duplicate function names still produce an error
-    let code = compile_err("fun f() { 1; } fun f() { 2; }");
+    let code = compile_err("fn f() { 1; } fn f() { 2; }");
     assert_eq!(code, "E001");
 }
 
@@ -314,7 +311,7 @@ fn module_forward_reference() {
     // Function in module uses another function defined later in the same module
     compile_ok_in(
         "test.flx",
-        "module Math { fun quadruple(x) { double(double(x)); } fun double(x) { x * 2; } }",
+        "module Math { fn quadruple(x) { double(double(x)); } fn double(x) { x * 2; } }",
     );
 }
 
@@ -323,6 +320,6 @@ fn module_mutual_recursion() {
     // Functions within a module call each other
     compile_ok_in(
         "test.flx",
-        "module Parity { fun isEven(n) { if n == 0 { true; } else { isOdd(n - 1); } } fun isOdd(n) { if n == 0 { false; } else { isEven(n - 1); } } }",
+        "module Parity { fn isEven(n) { if n == 0 { true; } else { isOdd(n - 1); } } fn isOdd(n) { if n == 0 { false; } else { isEven(n - 1); } } }",
     );
 }

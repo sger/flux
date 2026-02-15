@@ -99,7 +99,7 @@ fn unmapped_identifiers_preserved() {
 
 #[test]
 fn rename_in_function_params_and_body() {
-    let (program, mut interner) = parse("fun f(a) { return a; }");
+    let (program, mut interner) = parse("fn f(a) { return a; }");
     let sym_a = interner.intern("a");
     let sym_b = interner.intern("b");
 

@@ -24,8 +24,8 @@ Duplicate binding: `sum` is already defined.
 
   --> examples/patterns/list_patterns.flx:33:1
    |
-33 | fun sum(lst) {
-   | ^^^^^^^^^^^^^^
+33 | fn sum(lst) {
+   | ^^^^^^^^^^^^^
 34 |     match lst {
    | ^^^^^^^^^^^^^^^
 35 |         [h | t] -> h + sum(t),

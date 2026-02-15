@@ -75,8 +75,8 @@ fn counts_infix_expression() {
 
 #[test]
 fn counts_function_call() {
-    // `fun add(a, b) { return a + b; }` and `add(1, 2);`
-    let program = parse("fun add(a, b) { return a + b; }\nadd(1, 2);");
+    // `fn add(a, b) { return a + b; }` and `add(1, 2);`
+    let program = parse("fn add(a, b) { return a + b; }\nadd(1, 2);");
     let mut counter = NodeCounter::new();
     counter.visit_program(&program);
 

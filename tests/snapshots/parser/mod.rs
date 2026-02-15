@@ -27,7 +27,7 @@ fn snapshot_simple_arithmetic() {
 #[test]
 fn snapshot_function_definition() {
     let input = r#"
-fun add(a, b) {
+fn add(a, b) {
     return a + b;
 }
 "#;

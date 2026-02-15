@@ -2,7 +2,7 @@
 // Shows the difference between tail-recursive and non-tail-recursive functions
 
 // ✓ TAIL RECURSIVE - Last operation is the recursive call
-fun factorial_tail(n, acc) {
+fn factorial_tail(n, acc) {
     if n == 0 {
         acc;
     } else {
@@ -11,7 +11,7 @@ fun factorial_tail(n, acc) {
 }
 
 // ✓ TAIL RECURSIVE - Both branches end with tail calls or returns
-fun fibonacci_tail(n, a, b) {
+fn fibonacci_tail(n, a, b) {
     if n == 0 {
         a;  // Return value
     } else {
@@ -24,7 +24,7 @@ fun fibonacci_tail(n, a, b) {
 }
 
 // ✗ NOT TAIL RECURSIVE - Multiplication happens AFTER the call
-fun factorial_non_tail(n) {
+fn factorial_non_tail(n) {
     if n == 0 {
         1;
     } else {
@@ -33,7 +33,7 @@ fun factorial_non_tail(n) {
 }
 
 // ✗ NOT TAIL RECURSIVE - Addition happens AFTER the call
-fun fibonacci_non_tail(n) {
+fn fibonacci_non_tail(n) {
     if n <= 1 {
         n;
     } else {

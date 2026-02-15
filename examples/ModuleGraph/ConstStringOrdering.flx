@@ -2,5 +2,5 @@
 // Expected: compile-time evaluation succeeds with true.
 module ModuleGraph.ConstStringOrdering {
     let ordered = "b" > "a";
-    fun value() { ordered; }
+    fn value() { ordered; }
 }

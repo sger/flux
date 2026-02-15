@@ -7,7 +7,7 @@ failed (parse)
 == diagnostics ==
 --> compiler error[E030]: UNKNOWN KEYWORD
 
-Unknown keyword `function`. Flux uses `fun` for function declarations.
+Unknown keyword `function`. Flux uses `fn` for function declarations.
 
   --> examples/error_messages/unknown_keyword.flx:6:1
   |
@@ -15,6 +15,6 @@ Unknown keyword `function`. Flux uses `fun` for function declarations.
   | ^^^^^^^^
 
 Hint:
-  Did you mean `fun`?
+  Did you mean `fn`?
 == stdout ==
 <not executed>

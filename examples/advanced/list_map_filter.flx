@@ -62,14 +62,14 @@ print(result);  // [|8, 32, 72|]
 print("=== Recursive alternatives ===");
 
 // You can also implement these recursively using cons patterns
-fun list_map(lst, f) {
+fn list_map(lst, f) {
     match lst {
         [h | t] -> [f(h) | list_map(t, f)],
         _ -> None,
     }
 }
 
-fun list_filter(lst, pred) {
+fn list_filter(lst, pred) {
     match lst {
         [h | t] -> if pred(h) { [h | list_filter(t, pred)] } else { list_filter(t, pred) },
         _ -> None,
@@ -96,14 +96,14 @@ print(lengths);  // {"bob": 3, "charlie": 7, "alice": 5}
 
 print("=== Flatten ===");
 
-fun list_append(a, b) {
+fn list_append(a, b) {
     match a {
         [h | t] -> [h | list_append(t, b)],
         _ -> b,
     }
 }
 
-fun flatten(lst) {
+fn flatten(lst) {
     match lst {
         [h | t] -> list_append(h, flatten(t)),
         _ -> None,
@@ -123,7 +123,7 @@ print(flatten(nested));  // [|1, 2, 3, 4, 5, 6|]
 
 print("=== Zip ===");
 
-fun zip(a, b) {
+fn zip(a, b) {
     match a {
         [ha | ta] -> match b {
             [hb | tb] -> [[ha, hb] | zip(ta, tb)],
@@ -144,7 +144,7 @@ print(to_array(pairs));  // [|["a", 1], [|"b", 2|], [|"c", 3|]|]
 
 print("=== Take / Drop ===");
 
-fun take(lst, n) {
+fn take(lst, n) {
     if n <= 0 {
         None
     } else {
@@ -155,7 +155,7 @@ fun take(lst, n) {
     }
 }
 
-fun drop(lst, n) {
+fn drop(lst, n) {
     if n <= 0 {
         lst
     } else {

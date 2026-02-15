@@ -13,7 +13,7 @@ The inline suggestions feature shows code fixes directly in error messages, simi
 
 ## Example File
 
-**[inline_suggestion_demo.flx](inline_suggestion_demo.flx)** - Demonstrates fn vs fun keyword error with inline suggestions
+**[inline_suggestion_demo.flx](inline_suggestion_demo.flx)** - Demonstrates fn vs fn keyword error with inline suggestions
 
 ## How It Works
 
@@ -22,16 +22,16 @@ When the compiler detects an error with a simple fix, it can provide an inline s
 ```
 -- Compiler error: UNKNOWN KEYWORD [E101]
 
-Flux uses `fun` for function declarations.
+Flux uses `fn` for function declarations.
 
   --> inline_suggestion_demo.flx:24:1
    |
 24 | fn add(a, b) {
    |  ^^
    |
-help: Replace 'fn' with 'fun' 'fun'
+help: Replace 'function' with 'fn'
    |
-24 | fun add(a, b) {
+24 | fn add(a, b) {
    |  ~~~
 ```
 
@@ -46,8 +46,8 @@ The tildes (`~~~`) highlight the replacement text.
 let suggestion = InlineSuggestion::new(span, "replacement");
 
 // With custom message
-let suggestion = InlineSuggestion::new(span, "fun")
-    .with_message("Use 'fun' for function declarations");
+let suggestion = InlineSuggestion::new(span, "fn")
+    .with_message("Use 'fn' for function declarations");
 
 // Using diagnostic builder methods
 Diagnostic::error("Unknown keyword")
@@ -59,7 +59,7 @@ Diagnostic::error("Error")
     .with_suggestion_replace(span, "replacement")
 
 Diagnostic::error("Error")
-    .with_suggestion_message(span, "fun", "Use 'fun' instead")
+    .with_suggestion_message(span, "fn", "Use 'fn' instead")
 ```
 
 ### InlineSuggestion Fields
@@ -71,7 +71,7 @@ Diagnostic::error("Error")
 ## Use Cases
 
 Perfect for:
-- **Keyword typos** - `fn` → `fun`
+- **Keyword typos** - `fn` → `fn`
 - **Syntax corrections** - Missing semicolons, brackets
 - **Simple fixes** - Any error with a clear single replacement
 - **Deprecation warnings** - Old syntax → new syntax
@@ -128,12 +128,12 @@ return Err(Diagnostic::error("Invalid syntax")
 
 ## Current Integrations
 
-- **Parser (E101)**: `fn` vs `fun` keyword error
+- **Parser (E101)**: `fn` vs `fn` keyword error
 - Ready for more integrations!
 
 ## Known Issues
 
-There's a lexer span positioning issue for some tokens that can cause the rendered replacement to look incorrect in some cases (showing "ffun" instead of "fun" for example). This is a separate lexer issue that affects multiple diagnostic features. The inline suggestion infrastructure itself works correctly, as demonstrated by the passing tests.
+There's a lexer span positioning issue for some tokens that can cause the rendered replacement to look incorrect in some cases (showing "ffun" instead of "fn" for example). This is a separate lexer issue that affects multiple diagnostic features. The inline suggestion infrastructure itself works correctly, as demonstrated by the passing tests.
 
 ## Future Enhancements
 

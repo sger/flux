@@ -16,7 +16,7 @@ fn parse(input: &str) -> (Program, flux::syntax::interner::Interner) {
 
 #[test]
 fn simple_function_complexity_one() {
-    let (program, _interner) = parse("fun f(x) { x; }");
+    let (program, _interner) = parse("fn f(x) { x; }");
     let metrics = analyze_complexity(&program);
     assert_eq!(metrics.len(), 1);
     assert_eq!(metrics[0].cyclomatic_complexity, 1);
@@ -28,7 +28,7 @@ fn simple_function_complexity_one() {
 fn single_if_adds_one_branch() {
     let (program, _) = parse(
         r#"
-        fun f(x) {
+        fn f(x) {
             if x > 0 {
                 1;
             } else {
@@ -47,7 +47,7 @@ fn single_if_adds_one_branch() {
 fn nested_if_increases_depth() {
     let (program, _) = parse(
         r#"
-        fun f(x) {
+        fn f(x) {
             if x > 0 {
                 if x > 10 {
                     2;
@@ -70,7 +70,7 @@ fn nested_if_increases_depth() {
 fn match_with_three_arms() {
     let (program, _) = parse(
         r#"
-        fun f(x) {
+        fn f(x) {
             match x {
                 1 -> "one",
                 2 -> "two",
@@ -90,7 +90,7 @@ fn match_with_three_arms() {
 fn nested_functions_measured_independently() {
     let (program, interner) = parse(
         r#"
-        fun outer(x) {
+        fn outer(x) {
             let inner = \y -> if y > 0 { y; } else { 0; };
             if x > 0 {
                 inner(x);
@@ -129,7 +129,7 @@ fn no_functions_returns_empty() {
 
 #[test]
 fn function_with_many_params() {
-    let (program, _) = parse("fun f(a, b, c, d, e, g) { a; }");
+    let (program, _) = parse("fn f(a, b, c, d, e, g) { a; }");
     let metrics = analyze_complexity(&program);
     assert_eq!(metrics.len(), 1);
     assert_eq!(metrics[0].parameter_count, 6);
@@ -139,7 +139,7 @@ fn function_with_many_params() {
 fn mixed_if_and_match() {
     let (program, _) = parse(
         r#"
-        fun f(x) {
+        fn f(x) {
             if x > 0 {
                 match x {
                     1 -> "one",

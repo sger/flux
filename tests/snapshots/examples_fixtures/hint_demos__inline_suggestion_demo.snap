@@ -3,55 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/hint_demos/inline_suggestion_demo.flx
 == compile ==
-failed (parse)
+ok
 == diagnostics ==
---> compiler error[E030]: UNKNOWN KEYWORD
-
-Flux uses `fun` for function declarations.
-
-  --> examples/hint_demos/inline_suggestion_demo.flx:24:1
-   |
-24 | fn add(a, b) {
-   | ^^   |
-help: Replace 'fn' with 'fun'
-   |
-24 | fun add(a, b) {
-   | ~~~
-
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Unexpected `}` outside of a block.
-
-  --> examples/hint_demos/inline_suggestion_demo.flx:26:1
-   |
-26 | }
-   | ^
-
-
---> compiler error[E030]: UNKNOWN KEYWORD
-
-Flux uses `fun` for function declarations.
-
-  --> examples/hint_demos/inline_suggestion_demo.flx:28:1
-   |
-28 | fn multiply(x, y) {
-   | ^^   |
-help: Replace 'fn' with 'fun'
-   |
-28 | fun multiply(x, y) {
-   | ~~~
-
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Unexpected `}` outside of a block.
-
-  --> examples/hint_demos/inline_suggestion_demo.flx:30:1
-   |
-30 | }
-   | ^
-
-Found 4 errors.
+<none>
 == stdout ==
 <not executed>

@@ -2,14 +2,14 @@
 source: tests/snapshots/lexer/mod.rs
 expression: output
 ---
-  2:0   fun             "fun"
-  2:4   IDENT           "add"
-  2:7   (               "("
-  2:8   IDENT           "a"
-  2:9   ,               ","
-  2:11  IDENT           "b"
-  2:12  )               ")"
-  2:14  {               "{"
+  2:0   fn              "fn"
+  2:3   IDENT           "add"
+  2:6   (               "("
+  2:7   IDENT           "a"
+  2:8   ,               ","
+  2:10  IDENT           "b"
+  2:11  )               ")"
+  2:13  {               "{"
   3:4   return          "return"
   3:11  IDENT           "a"
   3:13  +               "+"
