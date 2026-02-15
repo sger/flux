@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use crate::runtime::{
     RuntimeContext,
-    builtins::get_builtin_by_index,
     gc::{HeapObject, hamt::hamt_len},
     value::Value,
 };
@@ -482,14 +481,7 @@ fn invoke_unary_callback(
     func: &Value,
     arg: Value,
 ) -> Result<Value, String> {
-    match func {
-        Value::Builtin(builtin_idx) => {
-            let builtin = get_builtin_by_index(*builtin_idx as usize)
-                .ok_or_else(|| format!("map/filter: invalid builtin index {}", builtin_idx))?;
-            (builtin.func)(ctx, vec![arg])
-        }
-        _ => ctx.invoke_value(func.clone(), vec![arg]),
-    }
+    ctx.invoke_unary_value(func, arg)
 }
 
 fn invoke_binary_callback(
@@ -498,14 +490,7 @@ fn invoke_binary_callback(
     left: Value,
     right: Value,
 ) -> Result<Value, String> {
-    match func {
-        Value::Builtin(builtin_idx) => {
-            let builtin = get_builtin_by_index(*builtin_idx as usize)
-                .ok_or_else(|| format!("fold: invalid builtin index {}", builtin_idx))?;
-            (builtin.func)(ctx, vec![left, right])
-        }
-        _ => ctx.invoke_value(func.clone(), vec![left, right]),
-    }
+    ctx.invoke_binary_value(func, left, right)
 }
 
 /// sort(arr) or sort(arr, order) - Return a new sorted array
@@ -585,9 +570,9 @@ pub(super) fn builtin_sort(
 /// Works on Arrays (returns Array) and Lists (returns List)
 pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "map", "map(collection, fn)")?;
-    let func = args[1].clone();
+    let func = &args[1];
 
-    match &func {
+    match func {
         Value::Closure(_) | Value::Builtin(_) => {}
         other => {
             return Err(type_error(
@@ -604,7 +589,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         Value::Array(arr) => {
             let mut results = Vec::with_capacity(arr.len());
             for (idx, item) in arr.iter().enumerate() {
-                let result = invoke_unary_callback(ctx, &func, item.clone())
+                let result = invoke_unary_callback(ctx, func, item.clone())
                     .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
                 results.push(result);
             }
@@ -617,7 +602,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
                     list_ops::collect_list(ctx, &args[0]).ok_or("map: malformed list")?;
                 let mut results = Vec::with_capacity(elements.len());
                 for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, &func, item)
+                    let result = invoke_unary_callback(ctx, func, item)
                         .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
                     results.push(result);
                 }
@@ -661,9 +646,9 @@ pub(super) fn builtin_filter(
     args: Vec<Value>,
 ) -> Result<Value, String> {
     check_arity(&args, 2, "filter", "filter(collection, pred)")?;
-    let func = args[1].clone();
+    let func = &args[1];
 
-    match &func {
+    match func {
         Value::Closure(_) | Value::Builtin(_) => {}
         other => {
             return Err(type_error(
@@ -680,7 +665,7 @@ pub(super) fn builtin_filter(
         Value::Array(arr) => {
             let mut results = Vec::new();
             for (idx, item) in arr.iter().enumerate() {
-                let result = invoke_unary_callback(ctx, &func, item.clone())
+                let result = invoke_unary_callback(ctx, func, item.clone())
                     .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
                 if result.is_truthy() {
                     results.push(item.clone());
@@ -695,7 +680,7 @@ pub(super) fn builtin_filter(
                     list_ops::collect_list(ctx, &args[0]).ok_or("filter: malformed list")?;
                 let mut results = Vec::new();
                 for (idx, item) in elements.into_iter().enumerate() {
-                    let result = invoke_unary_callback(ctx, &func, item.clone())
+                    let result = invoke_unary_callback(ctx, func, item.clone())
                         .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
                     if result.is_truthy() {
                         results.push(item);
@@ -742,9 +727,9 @@ pub(super) fn builtin_fold(
 ) -> Result<Value, String> {
     check_arity(&args, 3, "fold", "fold(collection, initial, fn)")?;
     let mut acc = args[1].clone();
-    let func = args[2].clone();
+    let func = &args[2];
 
-    match &func {
+    match func {
         Value::Closure(_) | Value::Builtin(_) => {}
         other => {
             return Err(type_error(
@@ -760,7 +745,7 @@ pub(super) fn builtin_fold(
     match &args[0] {
         Value::Array(arr) => {
             for (idx, item) in arr.iter().enumerate() {
-                acc = invoke_binary_callback(ctx, &func, acc, item.clone())
+                acc = invoke_binary_callback(ctx, func, acc, item.clone())
                     .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
             }
             Ok(acc)
@@ -771,7 +756,7 @@ pub(super) fn builtin_fold(
                 let elements =
                     list_ops::collect_list(ctx, &args[0]).ok_or("fold: malformed list")?;
                 for (idx, item) in elements.into_iter().enumerate() {
-                    acc = invoke_binary_callback(ctx, &func, acc, item)
+                    acc = invoke_binary_callback(ctx, func, acc, item)
                         .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
                 }
                 Ok(acc)

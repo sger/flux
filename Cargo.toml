@@ -14,6 +14,21 @@ sha2 = "0.10"
 insta = { version = "1.41", features = ["yaml"] }
 criterion = "0.5"
 
+[profile.dev]
+opt-level = 1
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.flux]
+opt-level = 3
+
+[profile.dev-fast]
+inherits = "dev"
+opt-level = 3
+debug = 1
+debug-assertions = false
+overflow-checks = false
+
 [[bench]]
 name = "lexer_bench"
 harness = false
@@ -57,3 +72,7 @@ path = "benchmarks/aoc/day1_part2_rust.rs"
 [[bin]]
 name = "aoc_day2_part1_rust"
 path = "benchmarks/aoc/day2_part1_rust.rs"
+
+[[bin]]
+name = "aoc_day2_part2_rust"
+path = "benchmarks/aoc/day2_part2_rust.rs"
