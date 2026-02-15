@@ -656,6 +656,14 @@ pub const UNCLOSED_DELIMITER: ErrorCode = ErrorCode {
     hint: Some("Add the missing closing `}`."),
 };
 
+pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
+    code: "E077",
+    title: "LEGACY LIST TAIL",
+    error_type: ErrorType::Compiler,
+    message: "Use `[]` as the empty list tail instead of `None`.",
+    hint: Some("Replace `None` with `[]` in cons expressions, for example: `[1 | []]`."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================

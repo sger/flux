@@ -150,7 +150,7 @@ let config = {
 // Test execution
 print("Nested comments example running successfully!");
 print(deeply_nested);
-print(calculate_total([1, 2, 3]));
+print(calculate_total([|1, 2, 3|]));
 print(process_user("Alice", "alice@example.com"));
 
 /*

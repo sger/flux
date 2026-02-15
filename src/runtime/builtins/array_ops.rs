@@ -17,7 +17,7 @@ pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
-        Value::None => Ok(Value::Integer(0)),
+        Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::list_len(ctx, &args[0]) {
                 Some(len) => Ok(Value::Integer(len as i64)),
@@ -50,7 +50,7 @@ pub(super) fn builtin_first(
                 Ok(arr[0].clone())
             }
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { head, .. } => Ok(head.clone()),
             _ => Err(type_error(
@@ -84,7 +84,7 @@ pub(super) fn builtin_last(
                 Ok(arr[arr.len() - 1].clone())
             }
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::collect_list(ctx, &args[0]) {
                 Some(elems) if elems.is_empty() => Ok(Value::None),
@@ -122,7 +122,7 @@ pub(super) fn builtin_rest(
                 Ok(Value::Array(arr[1..].to_vec().into()))
             }
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { tail, .. } => Ok(tail.clone()),
             _ => Err(type_error(
@@ -217,7 +217,7 @@ pub(super) fn builtin_reverse(
                 _ => unreachable!(),
             }
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -261,7 +261,7 @@ pub(super) fn builtin_contains(
             let found = arr.iter().any(|item| item == elem);
             Ok(Value::Boolean(found))
         }
-        Value::None => Ok(Value::Boolean(false)),
+        Value::None | Value::EmptyList => Ok(Value::Boolean(false)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -419,7 +419,7 @@ pub(super) fn builtin_sum(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     check_arity(&args, 1, "sum", "sum(collection)")?;
     match &args[0] {
         Value::Array(arr) => aggregate_numeric(arr, "sum", "sum(collection)", false),
-        Value::None => Ok(Value::Integer(0)),
+        Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -452,7 +452,7 @@ pub(super) fn builtin_product(
     check_arity(&args, 1, "product", "product(collection)")?;
     match &args[0] {
         Value::Array(arr) => aggregate_numeric(arr, "product", "product(collection)", true),
-        Value::None => Ok(Value::Integer(1)),
+        Value::None | Value::EmptyList => Ok(Value::Integer(1)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -610,7 +610,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
             }
             Ok(Value::Array(results.into()))
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -688,7 +688,7 @@ pub(super) fn builtin_filter(
             }
             Ok(Value::Array(results.into()))
         }
-        Value::None => Ok(Value::None),
+        Value::None | Value::EmptyList => Ok(Value::None),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =
@@ -765,7 +765,7 @@ pub(super) fn builtin_fold(
             }
             Ok(acc)
         }
-        Value::None => Ok(acc),
+        Value::None | Value::EmptyList => Ok(acc),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => {
                 let elements =

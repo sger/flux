@@ -1083,7 +1083,7 @@ fn test_builtin_list_constructor() {
 fn test_builtin_list_empty() {
     let mut vm = test_vm();
     let result = call_vm(&mut vm, "list", vec![]).unwrap();
-    assert_eq!(result, Value::None);
+    assert_eq!(result, Value::EmptyList);
 }
 
 #[test]

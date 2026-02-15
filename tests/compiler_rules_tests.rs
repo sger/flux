@@ -249,6 +249,12 @@ fn match_wildcard_non_last_error() {
 }
 
 #[test]
+fn legacy_none_list_tail_is_compile_error() {
+    let code = compile_err("let xs = [1 | None]; xs;");
+    assert_eq!(code, "E077");
+}
+
+#[test]
 fn forward_reference_simple() {
     // Function g calls function f, which is defined after g
     compile_ok_in("test.flx", "fun g() { f(); } fun f() { 1; }");

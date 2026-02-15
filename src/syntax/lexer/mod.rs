@@ -374,6 +374,7 @@ impl Lexer {
             b']' => (TokenType::RBracket, "]"),
             b':' => (TokenType::Colon, ":"),
             b'.' => (TokenType::Dot, "."),
+            b'#' => (TokenType::Hash, "#"),
             b'\\' => (TokenType::Backslash, "\\"),
             b'|' => (TokenType::Bar, "|"),
             _ => return None,

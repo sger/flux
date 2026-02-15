@@ -18,6 +18,17 @@ A small, functional programming language with a custom bytecode VM, written in R
 - **GC** — Mark-and-sweep garbage collector for persistent data structures, with optional telemetry (`--features gc-telemetry`)
 - **Editor support** — VS Code and Zed syntax highlighting extensions
 
+## Important Migration Note
+
+Collection literal syntax changed:
+
+- `[a, b, c]` is now a persistent list literal (`List`)
+- `[]` is now the empty list
+- `[|a, b, c|]` is now an array literal (`Array`)
+
+If older code relied on `[ ... ]` as arrays, migrate those literals to `[| ... |]`.
+Legacy `#[ ... ]` still parses for compatibility.
+
 ## Quick Start
 
 ### Build
@@ -89,7 +100,7 @@ fun sum(lst) {
     }
 }
 
-let nums = to_list([1, 2, 3, 4])
+let nums = [1, 2, 3, 4]
 print(sum(nums))  // 10
 ```
 

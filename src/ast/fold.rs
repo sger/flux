@@ -188,10 +188,15 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             arguments: arguments.into_iter().map(|a| folder.fold_expr(a)).collect(),
             span,
         },
-        Expression::Array { elements, span } => Expression::Array {
+        Expression::ListLiteral { elements, span } => Expression::ListLiteral {
             elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
             span,
         },
+        Expression::ArrayLiteral { elements, span } => Expression::ArrayLiteral {
+            elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
+            span,
+        },
+        Expression::EmptyList { span } => Expression::EmptyList { span },
         Expression::Index { left, index, span } => Expression::Index {
             left: Box::new(folder.fold_expr(*left)),
             index: Box::new(folder.fold_expr(*index)),

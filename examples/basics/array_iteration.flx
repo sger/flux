@@ -19,7 +19,7 @@ fun printAll(arr) {
     };
 }
 
-printAll([1, 2, 3, 4, 5]);
+printAll([|1, 2, 3, 4, 5|]);
 
 // Sum all elements
 fun sum(arr) {
@@ -30,7 +30,7 @@ fun sum(arr) {
     };
 }
 
-print(sum([1, 2, 3, 4, 5]));
+print(sum([|1, 2, 3, 4, 5|]));
 
 // Count elements (alternative to len)
 fun count(arr) {
@@ -41,4 +41,4 @@ fun count(arr) {
     };
 }
 
-print(count([10, 20, 30]));
+print(count([|10, 20, 30|]));

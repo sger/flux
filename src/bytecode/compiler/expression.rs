@@ -9,7 +9,7 @@ use crate::{
         DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
         UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
@@ -171,11 +171,34 @@ impl Compiler {
             } => {
                 self.compile_function_literal(parameters, body)?;
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
+                // Lower list literals through builtin `list(...)` to avoid deep
+                // recursive lowering for large literals.
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("builtin list must be defined");
+                self.load_symbol(&symbol);
+                for element in elements {
+                    self.compile_non_tail_expression(element)?;
+                }
+                self.emit(OpCode::OpCall, &[elements.len()]);
+            }
+            Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
                 }
                 self.emit_array_count(elements.len());
+            }
+            Expression::EmptyList { .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("builtin list must be defined");
+                self.load_symbol(&symbol);
+                self.emit(OpCode::OpCall, &[0]);
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
@@ -333,6 +356,14 @@ impl Compiler {
                 self.compile_match_expression(scrutinee, arms, *span)?;
             }
             Expression::Cons { head, tail, .. } => {
+                if let Expression::None { span } = tail.as_ref() {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &LEGACY_LIST_TAIL_NONE,
+                        &[],
+                        self.file_path.clone(),
+                        *span,
+                    )));
+                }
                 self.compile_non_tail_expression(head)?;
                 self.compile_non_tail_expression(tail)?;
                 self.emit(OpCode::OpCons, &[]);
@@ -1066,7 +1097,8 @@ impl Compiler {
                     self.collect_consumable_param_uses(argument, counts);
                 }
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
                     self.collect_consumable_param_uses(element, counts);
                 }
@@ -1115,7 +1147,8 @@ impl Compiler {
             | Expression::Float { .. }
             | Expression::String { .. }
             | Expression::Boolean { .. }
-            | Expression::None { .. } => {}
+            | Expression::None { .. }
+            | Expression::EmptyList { .. } => {}
         }
     }
 

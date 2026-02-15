@@ -3,8 +3,15 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/list_basic.flx
 == compile ==
-ok
+failed (parse)
 == diagnostics ==
-<none>
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found ||.
+
+  --> examples/basics/list_basic.flx:71:21
+   |
+71 | let my_new_list2 = [||]
+   |                     ^^
 == stdout ==
 <not executed>

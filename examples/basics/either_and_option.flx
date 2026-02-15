@@ -19,7 +19,7 @@ fun findInArray(arr, target) {
     findHelper(arr, target, 0)
 }
 
-let numbers = [10, 20, 30, 40, 50];
+let numbers = [|10, 20, 30, 40, 50|];
 print(findInArray(numbers, 30));
 print(findInArray(numbers, 99));
 

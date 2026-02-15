@@ -23,7 +23,12 @@ fn solve(path: &str) -> io::Result<i64> {
         match direction {
             "L" => pos = (pos - dist).rem_euclid(100),
             "R" => pos = (pos + dist).rem_euclid(100),
-            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid rotation")),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid rotation",
+                ));
+            }
         }
 
         if pos == 0 {

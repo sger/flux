@@ -258,7 +258,7 @@ fn const_large_array() {
         })
         .collect();
 
-    let expr = Expression::Array {
+    let expr = Expression::ArrayLiteral {
         elements,
         span: Default::default(),
     };

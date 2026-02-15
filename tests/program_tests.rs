@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn display_array() {
         let interner = Interner::new();
-        let expr = Expression::Array {
+        let expr = Expression::ListLiteral {
             elements: vec![
                 Expression::Integer {
                     value: 1,

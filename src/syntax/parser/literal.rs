@@ -149,6 +149,7 @@ impl Parser {
                 | TokenType::Bang
                 | TokenType::Minus
                 | TokenType::LParen
+                | TokenType::Hash
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If

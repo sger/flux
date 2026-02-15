@@ -1,0 +1,89 @@
+// Complexity probe: verify O(1) vs O(n) trends by scaling input size.
+//
+// Expected trend:
+// - list_hd_ms and array_first_ms stay roughly flat as n grows (O(1))
+// - list_len_ms and array_concat_ms grow with n (O(n))
+
+fun bench_list_head(lst, reps, acc) {
+    if reps <= 0 {
+        acc
+    } else {
+        bench_list_head(lst, reps - 1, acc + hd(lst))
+    }
+}
+
+fun bench_array_first(arr, reps, acc) {
+    if reps <= 0 {
+        acc
+    } else {
+        bench_array_first(arr, reps - 1, acc + first(arr))
+    }
+}
+
+fun bench_list_len(lst, reps, acc) {
+    if reps <= 0 {
+        acc
+    } else {
+        bench_list_len(lst, reps - 1, acc + len(lst))
+    }
+}
+
+fun bench_array_concat(arr, reps, acc) {
+    if reps <= 0 {
+        acc
+    } else {
+        let out = concat(arr, [|1|])
+        bench_array_concat(arr, reps - 1, acc + len(out))
+    }
+}
+
+fun value_at(arr, idx) {
+    match arr[idx] {
+        Some(x) -> x,
+        _ -> 0,
+    }
+}
+
+fun run_cases(sizes, idx, reps_o1, reps_on) {
+    if idx >= len(sizes) {
+        None
+    } else {
+        let n = value_at(sizes, idx)
+        let arr = range(0, n)
+        let lst = to_list(arr)
+
+        let t0 = now_ms()
+        let sink1 = bench_list_head(lst, reps_o1, 0)
+        let t1 = now_ms()
+
+        let t2 = now_ms()
+        let sink2 = bench_array_first(arr, reps_o1, 0)
+        let t3 = now_ms()
+
+        let t4 = now_ms()
+        let sink3 = bench_list_len(lst, reps_on, 0)
+        let t5 = now_ms()
+
+        let t6 = now_ms()
+        let sink4 = bench_array_concat(arr, reps_on, 0)
+        let t7 = now_ms()
+
+        print(
+            "n=" + to_string(n)
+            + " list_hd_ms=" + to_string(t1 - t0)
+            + " array_first_ms=" + to_string(t3 - t2)
+            + " list_len_ms=" + to_string(t5 - t4)
+            + " array_concat_ms=" + to_string(t7 - t6)
+            + " sink=" + to_string(sink1 + sink2 + sink3 + sink4)
+        )
+
+        run_cases(sizes, idx + 1, reps_o1, reps_on)
+    }
+}
+
+print("Complexity scaling probe (ms)")
+print("Columns: n list_hd_ms array_first_ms list_len_ms array_concat_ms")
+let sizes = [|1000, 2000, 4000, 8000, 16000|]
+let reps_o1 = 20000
+let reps_on = 250
+run_cases(sizes, 0, reps_o1, reps_on)

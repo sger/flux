@@ -4,8 +4,7 @@ use crate::{
     bytecode::bytecode::Bytecode,
     runtime::{
         builtins::get_builtin_index, closure::Closure, compiled_function::CompiledFunction,
-        value::Value,
-        vm::VM,
+        value::Value, vm::VM,
     },
 };
 

@@ -10,11 +10,11 @@
 // Not found
 
 // Database is an array of records (hashes)
-let db = [
+let db = [|
     {"id": 1, "name": "Alice", "age": 30},
     {"id": 2, "name": "Bob", "age": 25},
     {"id": 3, "name": "Charlie", "age": 35}
-];
+|];
 
 fun opt_eq(opt, value) {
     match opt {
