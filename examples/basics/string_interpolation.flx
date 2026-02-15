@@ -14,7 +14,7 @@ let b = 20;
 print("#{a} + #{b} = #{a + b}");
 
 // Interpolation with function calls
-fun double(x) {
+fn double(x) {
     x * 2
 }
 print("Double of 5 is #{double(5)}");

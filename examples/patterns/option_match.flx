@@ -1,4 +1,4 @@
-    fun main() {
+    fn main() {
         print("=== Option and Match Tests ===");
 
         // Test 1: Basic None and Some

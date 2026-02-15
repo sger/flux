@@ -1,2 +1,2 @@
-module Errors.ModuleScriptCodeError { fun value() { 1; } }
+module Errors.ModuleScriptCodeError { fn value() { 1; } }
 1;

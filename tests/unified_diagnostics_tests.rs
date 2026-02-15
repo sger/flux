@@ -158,7 +158,7 @@ fn single_module_semantic_errors() {
     let module_path = root.join("Dups.flx");
     write_file(
         &module_path,
-        "module Dups { fun value() { 1; } fun value() { 2; } }",
+        "module Dups { fn value() { 1; } fn value() { 2; } }",
     );
 
     let entry = root.join("Main.flx");
@@ -182,9 +182,9 @@ fn single_module_semantic_errors() {
 fn three_modules_independent_parse_errors() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let root = temp_root("three_errors");
-    write_file(&root.join("Alpha.flx"), "module Alpha { fun a() { 1; }");
-    write_file(&root.join("Beta.flx"), "module Beta { fun b() { 2; }");
-    write_file(&root.join("Gamma.flx"), "module Gamma { fun c() { 3; }");
+    write_file(&root.join("Alpha.flx"), "module Alpha { fn a() { 1; }");
+    write_file(&root.join("Beta.flx"), "module Beta { fn b() { 2; }");
+    write_file(&root.join("Gamma.flx"), "module Gamma { fn c() { 3; }");
 
     let entry = root.join("Main.flx");
     let source = "import Alpha\nimport Beta\nimport Gamma\n1;";
@@ -216,10 +216,10 @@ fn three_modules_independent_parse_errors() {
 #[test]
 fn mixed_graph_parse_and_semantic() {
     let root = temp_root("mixed_errors");
-    write_file(&root.join("Broken.flx"), "module Broken { fun a() { 1; }");
+    write_file(&root.join("Broken.flx"), "module Broken { fn a() { 1; }");
     write_file(
         &root.join("Valid.flx"),
-        "module Valid { fun x() { 1; } fun x() { 2; } }",
+        "module Valid { fn x() { 1; } fn x() { 2; } }",
     );
 
     let entry = root.join("Main.flx");
@@ -264,7 +264,7 @@ fn diagnostic_cap_enforcement() {
         let mod_name = format!("Mod{}", i);
         write_file(
             &root.join(format!("{}.flx", mod_name)),
-            &format!("module {} {{ fun f() {{ 1; }}", mod_name),
+            &format!("module {} {{ fn f() {{ 1; }}", mod_name),
         );
         imports.push_str(&format!("import {}\n", mod_name));
     }
@@ -300,11 +300,11 @@ fn stable_ordering() {
     let root = temp_root("stable_order");
     write_file(
         &root.join("A.flx"),
-        "module A { fun x() { 1; } fun x() { 2; } }",
+        "module A { fn x() { 1; } fn x() { 2; } }",
     );
     write_file(
         &root.join("B.flx"),
-        "module B { fun y() { 1; } fun y() { 2; } }",
+        "module B { fn y() { 1; } fn y() { 2; } }",
     );
 
     let entry = root.join("Main.flx");

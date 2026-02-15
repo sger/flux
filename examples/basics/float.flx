@@ -10,7 +10,7 @@ print(a + b);
 print(a * 2.0);
 print(1 + 2.5);
 
-fun add_floats(a, b) {
+fn add_floats(a, b) {
     return a + b;
 }
 

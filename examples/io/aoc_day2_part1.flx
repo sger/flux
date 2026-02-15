@@ -1,19 +1,19 @@
 // Advent of Code - Day 2 Part 1 (Gift Shop)
 // Uses input file: examples/io/aoc_day2.txt
 
-fun parse_range_token(token) {
+fn parse_range_token(token) {
     split_ints(trim(token), "-")
 }
 
-fun range_start(parsed_range) {
+fn range_start(parsed_range) {
     first(parsed_range)
 }
 
-fun range_end(parsed_range) {
+fn range_end(parsed_range) {
     last(parsed_range)
 }
 
-fun digits_count(n) {
+fn digits_count(n) {
     if n < 10 {
         1
     } else {
@@ -21,7 +21,7 @@ fun digits_count(n) {
     }
 }
 
-fun pow10(exp) {
+fn pow10(exp) {
     if exp <= 0 {
         1
     } else {
@@ -29,19 +29,19 @@ fun pow10(exp) {
     }
 }
 
-fun invalid_from_seed(seed) {
+fn invalid_from_seed(seed) {
     let seed_digits = digits_count(seed)
     let base = pow10(seed_digits)
     seed * (base + 1)
 }
 
-fun seed_limit_for_max_id(max_id) {
+fn seed_limit_for_max_id(max_id) {
     let max_digits = digits_count(max_id)
     let seed_digits = (max_digits + 1) / 2
     pow10(seed_digits)
 }
 
-fun id_in_range(id, parsed_range) {
+fn id_in_range(id, parsed_range) {
     let start = range_start(parsed_range)
     let end = range_end(parsed_range)
     id >= start && id <= end

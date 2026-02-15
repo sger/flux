@@ -210,7 +210,7 @@ impl fmt::Display for Expression {
                 parameters, body, ..
             } => {
                 let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fun({}) {}", params.join(", "), body)
+                write!(f, "fn({}) {}", params.join(", "), body)
             }
             Expression::Call {
                 function,
@@ -344,7 +344,7 @@ impl Expression {
                 parameters, body, ..
             } => {
                 let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
-                format!("fun({}) {}", params.join(", "), body)
+                format!("fn({}) {}", params.join(", "), body)
             }
             Expression::Call {
                 function,

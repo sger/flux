@@ -52,7 +52,7 @@ Proposals 017 (GC/collections) and 026 (concurrency) will add 10+ new builtins e
 ```flux
 // What the user writes:
 module MyApp {
-    fun greet(name) {
+    fn greet(name) {
         print("Hello, #{name}")
     }
 }
@@ -60,7 +60,7 @@ module MyApp {
 // What the compiler sees:
 import Base  // <-- injected automatically
 module MyApp {
-    fun greet(name) {
+    fn greet(name) {
         print("Hello, #{name}")  // resolves to Base.print
     }
 }
@@ -178,7 +178,7 @@ import Base except [print]
 // print("hello")  // E006 UNDEFINED IDENTIFIER
 
 // Define your own
-fun print(x) {
+fn print(x) {
     // custom logging
 }
 ```
@@ -194,7 +194,7 @@ Base functions can always be accessed with qualification:
 ```flux
 import Base except [print]
 
-fun my_print(x) {
+fn my_print(x) {
     Base.print("[LOG] " + to_string(x))
 }
 ```
@@ -205,12 +205,12 @@ Local definitions shadow Base functions without error:
 
 ```flux
 // No warning — intentional override
-fun len(x) {
+fn len(x) {
     Base.len(x) + 1  // can still access original
 }
 ```
 
-**Resolution rule:** If a user defines `fun len(...)` and calls bare `len(...)`, the local definition wins. To call the Base version, use `Base.len(...)`. This is standard lexical scoping — the innermost binding wins.
+**Resolution rule:** If a user defines `fn len(...)` and calls bare `len(...)`, the local definition wins. To call the Base version, use `Base.len(...)`. This is standard lexical scoping — the innermost binding wins.
 
 This is different from shadowing a local variable (which triggers W001). Base functions are expected to be overridable.
 
@@ -218,7 +218,7 @@ This is different from shadowing a local variable (which triggers W001). Base fu
 
 ```
 W011 SHADOWS BASE FUNCTION
-  fun len(x) shadows Base.len
+  fn len(x) shadows Base.len
   ╰─ Hint: use Base.len to call the original
 ```
 
@@ -496,21 +496,21 @@ Ship `.flx` files with the compiler:
 // Operates on persistent lists (cons cells) from Proposal 017.
 // Lists are built with [h | t] syntax and destructured with hd/tl.
 module Flow.List {
-    fun take(xs, n) {
+    fn take(xs, n) {
         match xs {
             [h | t] -> if n > 0 { [h | take(t, n - 1)] } else { None },
             _ -> None,
         }
     }
 
-    fun drop(xs, n) {
+    fn drop(xs, n) {
         match xs {
             [_ | t] -> if n > 0 { drop(t, n - 1) } else { xs },
             _ -> None,
         }
     }
 
-    fun zip(xs, ys) {
+    fn zip(xs, ys) {
         match xs {
             [x | xt] -> match ys {
                 [y | yt] -> [[x, y] | zip(xt, yt)],
@@ -520,76 +520,76 @@ module Flow.List {
         }
     }
 
-    fun any(xs, pred) {
+    fn any(xs, pred) {
         match xs {
             [h | t] -> if pred(h) { true } else { any(t, pred) },
             _ -> false,
         }
     }
 
-    fun all(xs, pred) {
+    fn all(xs, pred) {
         match xs {
             [h | t] -> if pred(h) { all(t, pred) } else { false },
             _ -> true,
         }
     }
 
-    fun find(xs, pred) {
+    fn find(xs, pred) {
         match xs {
             [h | t] -> if pred(h) { Some(h) } else { find(t, pred) },
             _ -> None,
         }
     }
 
-    fun foldl(xs, acc, f) {
+    fn foldl(xs, acc, f) {
         match xs {
             [h | t] -> foldl(t, f(acc, h), f),
             _ -> acc,
         }
     }
 
-    fun foldr(xs, acc, f) {
+    fn foldr(xs, acc, f) {
         match xs {
             [h | t] -> f(h, foldr(t, acc, f)),
             _ -> acc,
         }
     }
 
-    fun reverse(xs) {
+    fn reverse(xs) {
         foldl(xs, None, \acc, h -> [h | acc])
     }
 
-    fun append(xs, ys) {
+    fn append(xs, ys) {
         match xs {
             [h | t] -> [h | append(t, ys)],
             _ -> ys,
         }
     }
 
-    fun flatten(xs) {
+    fn flatten(xs) {
         match xs {
             [h | t] -> append(h, flatten(t)),
             _ -> None,
         }
     }
 
-    fun flat_map(xs, f) {
+    fn flat_map(xs, f) {
         flatten(map(xs, f))
     }
 
-    fun sum(xs) {
+    fn sum(xs) {
         foldl(xs, 0, \acc, x -> acc + x)
     }
 
-    fun product(xs) {
+    fn product(xs) {
         foldl(xs, 1, \acc, x -> acc * x)
     }
 
-    fun count(xs, pred) {
+    fn count(xs, pred) {
         foldl(xs, 0, \acc, x -> if pred(x) { acc + 1 } else { acc })
     }
 
-    fun each(xs, f) {
+    fn each(xs, f) {
         match xs {
             [h | t] -> {
                 f(h)
@@ -599,7 +599,7 @@ module Flow.List {
         }
     }
 
-    fun zip_with(xs, ys, f) {
+    fn zip_with(xs, ys, f) {
         match xs {
             [x | xt] -> match ys {
                 [y | yt] -> [f(x, y) | zip_with(xt, yt, f)],
@@ -609,7 +609,7 @@ module Flow.List {
         }
     }
 
-    fun intersperse(xs, sep) {
+    fn intersperse(xs, sep) {
         match xs {
             [h | t] -> match t {
                 [_ | _] -> [h | [sep | intersperse(t, sep)]],
@@ -619,14 +619,14 @@ module Flow.List {
         }
     }
 
-    fun nth(xs, n) {
+    fn nth(xs, n) {
         match xs {
             [h | t] -> if n == 0 { Some(h) } else { nth(t, n - 1) },
             _ -> None,
         }
     }
 
-    fun from_array(arr) {
+    fn from_array(arr) {
         to_list(arr)
     }
 }
@@ -635,49 +635,49 @@ module Flow.List {
 ```flux
 // lib/Flow/Option.flx
 module Flow.Option {
-    fun map(opt, f) {
+    fn map(opt, f) {
         match opt {
             Some(x) -> Some(f(x)),
             _ -> None,
         }
     }
 
-    fun flat_map(opt, f) {
+    fn flat_map(opt, f) {
         match opt {
             Some(x) -> f(x),
             _ -> None,
         }
     }
 
-    fun unwrap_or(opt, default) {
+    fn unwrap_or(opt, default) {
         match opt {
             Some(x) -> x,
             _ -> default,
         }
     }
 
-    fun unwrap_or_else(opt, f) {
+    fn unwrap_or_else(opt, f) {
         match opt {
             Some(x) -> x,
             _ -> f(),
         }
     }
 
-    fun filter(opt, pred) {
+    fn filter(opt, pred) {
         match opt {
             Some(x) -> if pred(x) { Some(x) } else { None },
             _ -> None,
         }
     }
 
-    fun or_else(opt, f) {
+    fn or_else(opt, f) {
         match opt {
             Some(_) -> opt,
             _ -> f(),
         }
     }
 
-    fun zip(a, b) {
+    fn zip(a, b) {
         match a {
             Some(x) -> match b {
                 Some(y) -> Some([x, y]),
@@ -692,70 +692,70 @@ module Flow.Option {
 ```flux
 // lib/Flow/Either.flx
 module Flow.Either {
-    fun map(either, f) {
+    fn map(either, f) {
         match either {
             Right(x) -> Right(f(x)),
             Left(e) -> Left(e),
         }
     }
 
-    fun map_left(either, f) {
+    fn map_left(either, f) {
         match either {
             Left(e) -> Left(f(e)),
             Right(x) -> Right(x),
         }
     }
 
-    fun flat_map(either, f) {
+    fn flat_map(either, f) {
         match either {
             Right(x) -> f(x),
             Left(e) -> Left(e),
         }
     }
 
-    fun unwrap_or(either, default) {
+    fn unwrap_or(either, default) {
         match either {
             Right(x) -> x,
             Left(_) -> default,
         }
     }
 
-    fun fold(either, on_left, on_right) {
+    fn fold(either, on_left, on_right) {
         match either {
             Right(x) -> on_right(x),
             Left(e) -> on_left(e),
         }
     }
 
-    fun to_option(either) {
+    fn to_option(either) {
         match either {
             Right(x) -> Some(x),
             Left(_) -> None,
         }
     }
 
-    fun swap(either) {
+    fn swap(either) {
         match either {
             Right(x) -> Left(x),
             Left(e) -> Right(e),
         }
     }
 
-    fun is_right(either) {
+    fn is_right(either) {
         match either {
             Right(_) -> true,
             Left(_) -> false,
         }
     }
 
-    fun is_left(either) {
+    fn is_left(either) {
         match either {
             Left(_) -> true,
             Right(_) -> false,
         }
     }
 
-    fun bimap(either, f_left, f_right) {
+    fn bimap(either, f_left, f_right) {
         match either {
             Right(x) -> Right(f_right(x)),
             Left(e) -> Left(f_left(e)),
@@ -767,21 +767,21 @@ module Flow.Either {
 ```flux
 // lib/Flow/Func.flx
 module Flow.Func {
-    fun identity(x) { x }
+    fn identity(x) { x }
 
-    fun constant(x) {
+    fn constant(x) {
         \_ -> x
     }
 
-    fun compose(f, g) {
+    fn compose(f, g) {
         \x -> f(g(x))
     }
 
-    fun flip(f) {
+    fn flip(f) {
         \a, b -> f(b, a)
     }
 
-    fun times(n, f) {
+    fn times(n, f) {
         if n == 0 { None }
         else {
             f()

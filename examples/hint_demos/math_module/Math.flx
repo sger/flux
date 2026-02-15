@@ -3,17 +3,17 @@
 
 module Math {
     // Add two numbers
-    fun add(a, b) {
+    fn add(a, b) {
         return a + b;
     }
 
     // Multiply two numbers
-    fun multiply(x, y) {
+    fn multiply(x, y) {
         return x * y;
     }
 
     // Calculate average of two numbers
-    fun average(num1, num2) {
+    fn average(num1, num2) {
         return (num1 + num2) / 2;
     }
 }

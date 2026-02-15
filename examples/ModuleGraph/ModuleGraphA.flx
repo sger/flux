@@ -1,7 +1,7 @@
 import ModuleGraph.ModuleGraphC
 
 module ModuleGraph.ModuleGraphA {
-    fun value() {
+    fn value() {
         ModuleGraph.ModuleGraphC.value();
     }
 }

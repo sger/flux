@@ -99,7 +99,7 @@ fn importing_script_is_error() {
 fn module_path_mismatch_is_error() {
     let root = temp_root("path_mismatch");
     let module_path = root.join("Data").join("List.flx");
-    write_file(&module_path, "module Data.Other { fun value() { 1; } }");
+    write_file(&module_path, "module Data.Other { fn value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.List\n1;";
@@ -115,7 +115,7 @@ fn module_path_mismatch_is_error() {
 fn module_file_with_script_code_is_error() {
     let root = temp_root("module_script");
     let module_path = root.join("Mixed.flx");
-    write_file(&module_path, "module Mixed { fun value() { 1; } }\n1;");
+    write_file(&module_path, "module Mixed { fn value() { 1; } }\n1;");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Mixed\n1;";
@@ -131,7 +131,7 @@ fn module_file_with_script_code_is_error() {
 fn alias_import_compiles() {
     let root = temp_root("alias_import");
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(&module_path, "module Data.MyFile { fun value() { 1; } }");
+    write_file(&module_path, "module Data.MyFile { fn value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
@@ -149,11 +149,11 @@ fn duplicate_module_across_roots_is_error() {
     let module_rel = Path::new("Dup").join("Mod.flx");
     write_file(
         &root_a.join(&module_rel),
-        "module Dup.Mod { fun value() { 1; } }",
+        "module Dup.Mod { fn value() { 1; } }",
     );
     write_file(
         &root_b.join(&module_rel),
-        "module Dup.Mod { fun value() { 2; } }",
+        "module Dup.Mod { fn value() { 2; } }",
     );
 
     let entry_path = root_a.join("Main.flx");
@@ -172,8 +172,8 @@ fn import_cycle_is_error() {
     let root = temp_root("import_cycle");
     let module_a = root.join("A.flx");
     let module_b = root.join("B.flx");
-    write_file(&module_a, "import B\nmodule A { fun value() { 1; } }");
-    write_file(&module_b, "import A\nmodule B { fun value() { 2; } }");
+    write_file(&module_a, "import B\nmodule A { fn value() { 1; } }");
+    write_file(&module_b, "import A\nmodule B { fn value() { 2; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import A\nA.value();";

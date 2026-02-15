@@ -21,7 +21,7 @@
 //     = note: defined with 2 parameters
 //     --> examples/hint_demos/multi_file_lib.flx:8:15
 //      |
-//    8 | fun calculate(a, b) {
+//    8 | fn calculate(a, b) {
 //      |               ^^^^^^
 //
 // This would use: Hint::at(...).with_file("multi_file_lib.flx")

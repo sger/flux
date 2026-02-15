@@ -166,7 +166,7 @@ impl<'ast> Visitor<'ast> for PatternValidator<'_> {
 Given this Flux code:
 
 ```flux
-fun main() {
+fn main() {
     match x {
         Some(y) => print(y),
         _ => print("none")

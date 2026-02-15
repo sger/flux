@@ -17,7 +17,7 @@ Flux is a **pure functional programming language** with syntax that feels famili
 2. **Expressions everywhere** — Everything returns a value. No statements, no `void`, no `null` surprises.
 3. **Immutability is the only option** — No mutable bindings, no mutable data structures. Updates produce new values.
 4. **Types work for you** — Hindley-Milner inference means you rarely write type annotations, but the compiler catches errors at compile time.
-5. **Familiar syntax** — Braces, arrows, `let`/`fun`, `match` with `=>` — if you know JS or Rust, you can read Flux.
+5. **Familiar syntax** — Braces, arrows, `let`/`fn`, `match` with `=>` — if you know JS or Rust, you can read Flux.
 6. **Composition over configuration** — Pipe operator, currying, and small functions compose into complex behavior.
 
 ### What "Pure" Means for Flux
@@ -41,7 +41,7 @@ Flux syntax should feel like a blend of **Rust** (types, match, traits) and **Ja
 
 ```flux
 // This should feel natural to a JS/Rust developer
-fun fibonacci(n) {
+fn fibonacci(n) {
   match n {
     0 => 0,
     1 => 1,
@@ -66,7 +66,7 @@ let result = [1, 2, 3, 4, 5]
 | Type annotations | `x: Int` | Rust/TS style, not `x :: Int` (Haskell) |
 | Generics | `<T>` | Rust/TS style, not `[T]` or `'a` |
 | Pipe | `\|>` | F#/Elm/Elixir standard |
-| Function keyword | `fun` | Short, clear (not `fn`, `func`, `def`, or `function`) |
+| Function keyword | `fn` | Short, clear (not `fn`, `func`, `def`, or `function`) |
 | Comments | `//` and `/* */` | C-family standard |
 | String interpolation | `"Hello, #{name}"` | Ruby-style, already implemented |
 | No semicolons | Expression-based | Modern language trend, reduces noise |
@@ -99,7 +99,7 @@ let shape = Circle(5.0)
 let list = Cons(1, Cons(2, Cons(3, Nil)))
 
 // Pattern matching — already works, just needs ADT awareness
-fun area(shape) {
+fn area(shape) {
   match shape {
     Circle(r) => 3.14159 * r * r,
     Rectangle(w, h) => w * h,
@@ -147,7 +147,7 @@ let older = { ...user, age: user.age + 1 }
 let { name, age } = user
 
 // Destructuring in function params
-fun greet({ name, age }) {
+fn greet({ name, age }) {
   "Hello #{name}, you are #{age}"
 }
 
@@ -174,7 +174,7 @@ let greet = \name -> "Hi #{name}" // inferred: (String) -> String
 let id = \x -> x                  // inferred: <T>(T) -> T (polymorphic)
 
 // Optional annotations for documentation or disambiguation
-fun factorial(n: Int): Int {
+fn factorial(n: Int): Int {
   match n {
     0 => 1,
     n => n * factorial(n - 1),
@@ -201,32 +201,32 @@ Polymorphism without OOP — define shared behavior across types.
 ```flux
 // Trait declaration
 trait Show {
-  fun show(self): String
+  fn show(self): String
 }
 
 trait Eq {
-  fun eq(self, other: Self): Bool
+  fn eq(self, other: Self): Bool
 }
 
 trait Ord: Eq {
-  fun compare(self, other: Self): Ordering
+  fn compare(self, other: Self): Ordering
 }
 
 // Implementations
 impl Show for User {
-  fun show(self) {
+  fn show(self) {
     "User(#{self.name}, #{self.age})"
   }
 }
 
 impl Eq for User {
-  fun eq(self, other) {
+  fn eq(self, other) {
     self.name == other.name && self.age == other.age
   }
 }
 
 // Trait bounds in functions
-fun print_all<T: Show>(items: List<T>) {
+fn print_all<T: Show>(items: List<T>) {
   items |> each(\item -> print(show(item)))
 }
 
@@ -244,7 +244,7 @@ Every function is automatically curried. Partial application is natural.
 
 ```flux
 // All functions are curried
-fun add(x, y) { x + y }
+fn add(x, y) { x + y }
 
 let inc = add(1)       // partial application — returns (Int) -> Int
 let result = inc(5)    // 6
@@ -296,7 +296,7 @@ if let Some(user) = find_user(id) {
 }
 
 // Let-else for early returns
-fun process(data) {
+fn process(data) {
   let Ok(valid) = validate(data) else {
     return Err("invalid")
   }
@@ -330,7 +330,7 @@ let lookup = { user.id: user for user in users }
 Let complex expressions read top-down.
 
 ```flux
-fun bmi_category(weight, height) {
+fn bmi_category(weight, height) {
   classify(index)
   where index = weight / (height * height)
   where classify = \i -> match i {
@@ -341,7 +341,7 @@ fun bmi_category(weight, height) {
 }
 
 // Multiple where bindings
-fun distance(p1, p2) {
+fn distance(p1, p2) {
   sqrt(dx * dx + dy * dy)
   where dx = p2.x - p1.x
   where dy = p2.y - p1.y
@@ -358,15 +358,15 @@ Pure functions are the default. Side effects are tracked in the type signature.
 
 ```flux
 // Pure function — no annotation needed
-fun add(x, y) { x + y }
+fn add(x, y) { x + y }
 
 // Effectful function — must declare effects
-fun greet(name) with IO {
+fn greet(name) with IO {
   print("Hello, #{name}!")
 }
 
 // Multiple effects
-fun fetch_data(url) with IO, Fail<HttpError> {
+fn fetch_data(url) with IO, Fail<HttpError> {
   let response = http_get(url)
   match response.status {
     200 => Ok(response.body),
@@ -376,13 +376,13 @@ fun fetch_data(url) with IO, Fail<HttpError> {
 
 // Effects are inferred — you can omit the annotation
 // and the compiler will tell you what effects a function has
-fun process(data) {       // compiler infers: with IO
+fn process(data) {       // compiler infers: with IO
   print("Processing...")
   transform(data)
 }
 
 // Pure functions cannot call effectful functions
-fun pure_calc(x) {
+fn pure_calc(x) {
   print(x)  // Compile error: `print` requires IO effect,
              // but `pure_calc` is pure
 }
@@ -406,7 +406,7 @@ let result = handle fetch_data("http://example.com") {
 }
 
 // Great for testing — mock effects without dependency injection
-fun test_fetch() {
+fn test_fetch() {
   let result = handle fetch_data("http://api.com") {
     IO.http_get(_) => resume({ status: 200, body: "{\"name\": \"test\"}" }),
   }
@@ -420,7 +420,7 @@ No exceptions. Errors are values.
 
 ```flux
 // The ? operator propagates errors (Rust-style)
-fun load_config(path) with Fail<ConfigError> {
+fn load_config(path) with Fail<ConfigError> {
   let content = read_file(path)?
   let parsed = parse_toml(content)?
   validate_config(parsed)?
@@ -591,15 +591,15 @@ type Todo = {
 
 type Filter = All | Active | Completed
 
-fun create(id, title) {
+fn create(id, title) {
   Todo { id, title, done: false }
 }
 
-fun toggle(todo) {
+fn toggle(todo) {
   { ...todo, done: !todo.done }
 }
 
-fun visible(todos, filter) {
+fn visible(todos, filter) {
   match filter {
     All => todos,
     Active => todos |> filter(\t -> !t.done),
@@ -607,13 +607,13 @@ fun visible(todos, filter) {
   }
 }
 
-fun summary(todos) {
+fn summary(todos) {
   let total = len(todos)
   let done = todos |> filter(\t -> t.done) |> len
   "#{done}/#{total} completed"
 }
 
-fun main() with IO {
+fn main() with IO {
   let todos = [
     create(1, "Learn Flux"),
     create(2, "Build something"),

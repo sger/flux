@@ -10,7 +10,7 @@ print(success);
 print(failure);
 
 // Pattern matching on Either
-fun describe(result) {
+fn describe(result) {
     match result {
         Left(err) -> "Error: " + err,
         Right(val) -> "Success: " + to_string(val),
@@ -22,7 +22,7 @@ print(describe(success));
 print(describe(failure));
 
 // Safe division that returns Either
-fun safeDivide(a, b) {
+fn safeDivide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
@@ -50,14 +50,14 @@ match result2 {
 }
 
 // Using wildcard pattern
-fun isRight(either) {
+fn isRight(either) {
     match either {
         Right(_) -> true,
         _ -> false,
     }
 }
 
-fun isLeft(either) {
+fn isLeft(either) {
     match either {
         Left(_) -> true,
         _ -> false,
@@ -70,7 +70,7 @@ print(isLeft(Left("x")));
 print(isLeft(Right(1)));
 
 // Get value or default
-fun getOrElse(either, defaultVal) {
+fn getOrElse(either, defaultVal) {
     match either {
         Right(x) -> x,
         _ -> defaultVal,

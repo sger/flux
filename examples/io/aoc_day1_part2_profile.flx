@@ -1,7 +1,7 @@
 // AoC Day 1 Part 2 profiling workload.
 // Runs the solver many times in one process to produce richer profiles.
 
-fun wrap_100(value) {
+fn wrap_100(value) {
     let reduced = value % 100
     if reduced < 0 {
         reduced + 100
@@ -10,7 +10,7 @@ fun wrap_100(value) {
     }
 }
 
-fun count_every_100(remaining) {
+fn count_every_100(remaining) {
     if remaining < 100 {
         0
     } else {
@@ -18,7 +18,7 @@ fun count_every_100(remaining) {
     }
 }
 
-fun count_hits_for_rotation(first_zero_click, distance) {
+fn count_hits_for_rotation(first_zero_click, distance) {
     if distance < first_zero_click {
         0
     } else {
@@ -26,17 +26,17 @@ fun count_hits_for_rotation(first_zero_click, distance) {
     }
 }
 
-fun count_zeros_right(pos, distance) {
+fn count_zeros_right(pos, distance) {
     let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
     count_hits_for_rotation(first_zero_click, distance)
 }
 
-fun count_zeros_left(pos, distance) {
+fn count_zeros_left(pos, distance) {
     let first_zero_click = if pos == 0 { 100 } else { pos }
     count_hits_for_rotation(first_zero_click, distance)
 }
 
-fun apply_rotation(line, rest, pos, hits) {
+fn apply_rotation(line, rest, pos, hits) {
     let cleaned = trim(line)
     if cleaned == "" {
         solve(rest, pos, hits)
@@ -56,14 +56,14 @@ fun apply_rotation(line, rest, pos, hits) {
     }
 }
 
-fun solve(lines, pos, hits) {
+fn solve(lines, pos, hits) {
     match lines {
         [line | rest] -> apply_rotation(line, rest, pos, hits),
         _ -> hits,
     }
 }
 
-fun repeat_solve(n, lines, checksum) {
+fn repeat_solve(n, lines, checksum) {
     if n <= 0 {
         checksum
     } else {

@@ -4,7 +4,7 @@ A small, functional programming language with a custom bytecode VM, written in R
 
 ## Features
 
-- **Functions** — `fun` declarations, closures, higher-order functions, forward references, mutual recursion, lambdas (`\x -> x + 1`)
+- **Functions** — `fn` declarations, closures, higher-order functions, forward references, mutual recursion, lambdas (`\x -> x + 1`)
 - **Immutability** — `let` bindings are immutable; reassignment is a compile error
 - **Pattern matching** — `match` on literals, `Some`/`None`, `Left`/`Right`, cons lists `[h | t]`, with guards
 - **Modules** — Static qualified namespaces with Haskell-style imports, aliases, and cycle detection
@@ -59,7 +59,7 @@ scripts/run_examples.sh --all                      # run all non-error examples
 let name = "World"
 print("Hello #{name}!")
 
-fun double(x) { x * 2 }
+fn double(x) { x * 2 }
 let triple = \x -> x * 3
 
 print(double(5))   // 10
@@ -69,8 +69,8 @@ print(triple(5))   // 15
 ### Pipe operator
 
 ```flux
-fun double(x) { x * 2 }
-fun add(x, y) { x + y }
+fn double(x) { x * 2 }
+fn add(x, y) { x + y }
 
 let result = 2 |> double |> add(10) |> double
 print(result)  // 28
@@ -79,7 +79,7 @@ print(result)  // 28
 ### Pattern matching
 
 ```flux
-fun describe(value) {
+fn describe(value) {
     match value {
         0 -> "zero",
         Some(x) -> "got: " + to_string(x),
@@ -93,7 +93,7 @@ fun describe(value) {
 ### List cons patterns
 
 ```flux
-fun sum(lst) {
+fn sum(lst) {
     match lst {
         [h | t] -> h + sum(t),
         _ -> 0,
@@ -123,8 +123,8 @@ print(total)    // 21
 ```flux
 // Modules/Math.flx
 module Modules.Math {
-    fun square(x) { x * x }
-    fun _helper(x) { x }  // private (underscore prefix)
+    fn square(x) { x * x }
+    fn _helper(x) { x }  // private (underscore prefix)
 }
 
 // main.flx
@@ -135,7 +135,7 @@ print(M.square(5))  // 25
 ### Closures
 
 ```flux
-fun counter(start) {
+fn counter(start) {
     let count = start
     \() -> count
 }
@@ -195,15 +195,15 @@ Flux produces structured, phase-aware diagnostics with stable error codes:
 ```
 --> compiler error[E101]: UNKNOWN KEYWORD
 
-Flux uses `fun` for function declarations.
+Flux uses `fn` for function declarations.
 
   --> examples/hint_demos/inline_suggestion_demo.flx:24:1
   |
 24 | fn add(a, b) {
   | ^^   |
-help: Replace 'fn' with 'fun'
+help: Replace 'function' with 'fn'
    |
-24 | fun add(a, b) {
+24 | fn add(a, b) {
   | ~~~
 ```
 

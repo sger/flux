@@ -14,6 +14,7 @@ mod tests {
             matches!(
                 self.token_type,
                 TokenType::Let
+                    | TokenType::Fn
                     | TokenType::Fun
                     | TokenType::If
                     | TokenType::Else

@@ -1,5 +1,5 @@
 module Dup.Mod {
-  fun value() {
+  fn value() {
     1;
   }
 }

@@ -584,7 +584,7 @@ pub(super) fn builtin_sort(
 /// Elements are processed in left-to-right order
 /// Works on Arrays (returns Array) and Lists (returns List)
 pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 2, "map", "map(collection, fun)")?;
+    check_arity(&args, 2, "map", "map(collection, fn)")?;
     let func = args[1].clone();
 
     match &func {
@@ -740,7 +740,7 @@ pub(super) fn builtin_fold(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 3, "fold", "fold(collection, initial, fun)")?;
+    check_arity(&args, 3, "fold", "fold(collection, initial, fn)")?;
     let mut acc = args[1].clone();
     let func = args[2].clone();
 
@@ -752,7 +752,7 @@ pub(super) fn builtin_fold(
                 "third argument",
                 "Function",
                 other.type_name(),
-                "fold(collection, initial, fun)",
+                "fold(collection, initial, fn)",
             ));
         }
     }
@@ -781,7 +781,7 @@ pub(super) fn builtin_fold(
                 "first argument",
                 "Array or List",
                 "Map",
-                "fold(collection, initial, fun)",
+                "fold(collection, initial, fn)",
             )),
         },
         other => Err(type_error(
@@ -789,7 +789,7 @@ pub(super) fn builtin_fold(
             "first argument",
             "Array or List",
             other.type_name(),
-            "fold(collection, initial, fun)",
+            "fold(collection, initial, fn)",
         )),
     }
 }

@@ -41,7 +41,7 @@ Error: Argument count mismatch
    = note: function defined here with 2 parameters
   --> function_arg_mismatch.flx:4:9
    |
- 4 | fun add(a, b) {
+ 4 | fn add(a, b) {
    |         ^^^^^
 
 Hint:

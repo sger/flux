@@ -1,5 +1,5 @@
-let newClosure = fun(a) { 
-    fun() { 
+let newClosure = fn(a) { 
+    fn() { 
         a; 
     }; 
 };
@@ -8,7 +8,7 @@ let closure = newClosure(99);
 
 print(closure());
 
-let test_closure = fun(b) {
+let test_closure = fn(b) {
     b;
 };
 

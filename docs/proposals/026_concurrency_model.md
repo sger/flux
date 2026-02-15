@@ -72,13 +72,13 @@ Cooperative multitasking on a single thread. The VM suspends a task at `await` p
 
 ```flux
 // Mark a function as async
-fun fetch_user(id) with IO, Async {
+fn fetch_user(id) with IO, Async {
   let response = await http_get("/users/#{id}")
   parse_json(response.body)
 }
 
 // Concurrent execution
-fun load_dashboard(user_id) with IO, Async {
+fn load_dashboard(user_id) with IO, Async {
   // spawn concurrent tasks
   let profile = async fetch_profile(user_id)
   let posts = async fetch_posts(user_id)
@@ -93,7 +93,7 @@ fun load_dashboard(user_id) with IO, Async {
 }
 
 // Sequential async (just use await inline)
-fun process_in_order(urls) with IO, Async {
+fn process_in_order(urls) with IO, Async {
   urls |> map(\url -> await http_get(url))
 }
 ```
@@ -160,7 +160,7 @@ No threads involved. The event loop polls for IO readiness (using `mio` or `poll
 
 ```flux
 // Async tasks can fail — await propagates errors
-fun safe_fetch(url) with IO, Async, Fail<HttpError> {
+fn safe_fetch(url) with IO, Async, Fail<HttpError> {
   let result = try {
     await http_get(url)
   }
@@ -171,7 +171,7 @@ fun safe_fetch(url) with IO, Async, Fail<HttpError> {
 }
 
 // Multiple concurrent tasks — collect results
-fun fetch_all(urls) with IO, Async {
+fn fetch_all(urls) with IO, Async {
   let futures = urls |> map(\url -> async http_get(url))
   let results = futures |> map(\f -> await f)
   results
@@ -220,7 +220,7 @@ actor Counter(initial: Int) {
 }
 
 // Usage
-fun main() with IO, Async {
+fn main() with IO, Async {
   // Spawn actor — returns an ActorRef
   let counter = spawn Counter(0)
 
@@ -435,7 +435,7 @@ module App {
     }
   }
 
-  fun main() with IO, Async {
+  fn main() with IO, Async {
     let coord = spawn Coordinator(4)
     send(coord, Init)
 

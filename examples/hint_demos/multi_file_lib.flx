@@ -4,12 +4,12 @@
 // It defines a function that the main file tries to call with wrong arguments.
 
 // Function that takes 2 parameters
-fun calculate(a, b) {
+fn calculate(a, b) {
     return a + b;
 }
 
 // Another example function
-fun multiply(x, y) {
+fn multiply(x, y) {
     return x * y;
 }
 

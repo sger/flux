@@ -6,23 +6,23 @@ module Modules.Analytics.Transforms {
     let SHOUT_PREFIX = "["
     let SHOUT_SUFFIX = "]"
 
-    fun double(x) {
+    fn double(x) {
         return x * SCORE_SCALE
     }
 
-    fun curve_by_five(x) {
+    fn curve_by_five(x) {
         x + Rules.curve_delta()
     }
 
-    fun is_passing(x) {
+    fn is_passing(x) {
         x >= Rules.passing_score()
     }
 
-    fun sum_step(acc, x) {
+    fn sum_step(acc, x) {
         acc + x
     }
 
-    fun shout_tag(name) {
+    fn shout_tag(name) {
         return Str.wrap(name |> upper, SHOUT_PREFIX, SHOUT_SUFFIX)
     }
 }

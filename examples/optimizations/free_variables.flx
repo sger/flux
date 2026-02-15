@@ -9,7 +9,7 @@ let y = 20;
 let result1 = x + undefined_var;
 
 // ✓ DEFINED - 'a' is a parameter
-fun example_function(a) {
+fn example_function(a) {
     let b = 5;
 
     // ✗ FREE VARIABLE - 'missing' is not defined
@@ -19,12 +19,12 @@ fun example_function(a) {
 }
 
 // ✓ CLOSURE - 'x' is from outer scope (not free, it's captured)
-let closure = fun() {
+let closure = fn() {
     x + y;  // x and y are defined in outer scope
 };
 
 // ✗ FREE VARIABLE - 'unknown' is not defined
-fun another_example() {
+fn another_example() {
     unknown + 1;
 }
 

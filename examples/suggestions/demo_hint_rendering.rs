@@ -79,21 +79,21 @@ fn example_parser_error() {
     println!("{}", "-".repeat(70));
 
     let source = "\
-// Using 'fn' instead of 'fun'
-fn calculate(x) {
+// Using 'function' instead of 'fn'
+function calculate(x) {
     x * 2
 }
 ";
 
-    let error_span = Span::new(Position::new(2, 0), Position::new(2, 2));
+    let error_span = Span::new(Position::new(2, 0), Position::new(2, 8));
 
     let diagnostic = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_error_type(ErrorType::Compiler)
-        .with_message("Flux uses `fun` for function declarations")
+        .with_message("Flux uses `fn` for function declarations")
         .with_file("example.flx")
         .with_span(error_span)
-        .with_hint_text("Replace 'fn' with 'fun'");
+        .with_hint_text("Replace 'function' with 'fn'");
 
     println!("{}\n", diagnostic.render(Some(source), None));
 
@@ -256,7 +256,7 @@ calculate(x, y, z)
 
     let _lib_source = "\
 // Library file
-fun calculate(a, b) {
+fn calculate(a, b) {
     return a + b;
 }
 ";
@@ -299,19 +299,19 @@ fn example_inline_suggestions() {
     println!("{}", "-".repeat(70));
 
     let source = "\
-fn calculate(x, y) {
+function calculate(x, y) {
     return x + y;
 }
 ";
 
-    let error_span = Span::new(Position::new(1, 0), Position::new(1, 2));
-    let suggestion = InlineSuggestion::new(error_span, "fun")
-        .with_message("Use 'fun' for function declarations");
+    let error_span = Span::new(Position::new(1, 0), Position::new(1, 8));
+    let suggestion = InlineSuggestion::new(error_span, "fn")
+        .with_message("Use 'fn' for function declarations");
 
     let diagnostic = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_error_type(ErrorType::Compiler)
-        .with_message("Flux uses 'fun' for function declarations")
+        .with_message("Flux uses 'fn' for function declarations")
         .with_file("example.flx")
         .with_span(error_span)
         .with_suggestion(suggestion);
@@ -325,7 +325,7 @@ fn calculate(x, y) {
     println!("   • Improves reading flow - fix is right there");
     println!();
     println!("💡 Perfect for:");
-    println!("   • Keyword typos (fn → fun)");
+    println!("   • Keyword typos (function → fn)");
     println!("   • Syntax corrections");
     println!("   • Simple find-and-replace fixes");
     println!("   • Any fix that can be shown as a text replacement");

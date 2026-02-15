@@ -158,7 +158,7 @@ impl SymbolInterner {
 
         // Pre-intern common keywords
         interner.intern("let");
-        interner.intern("fun");
+        interner.intern("fn");
         interner.intern("if");
         interner.intern("match");
         interner.intern("return");

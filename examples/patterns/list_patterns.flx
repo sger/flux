@@ -30,7 +30,7 @@ match None {
 // =============================================================================
 
 // Sum all elements in a list
-fun sum(lst) {
+fn sum(lst) {
     match lst {
         [h | t] -> h + sum(t),
         _ -> 0,
@@ -41,7 +41,7 @@ let nums = [1, 2, 3, 4];
 print("Sum: " + to_string(sum(nums)));  // 10
 
 // Count elements
-fun length(lst) {
+fn length(lst) {
     match lst {
         [_ | t] -> 1 + length(t),
         _ -> 0,
@@ -66,7 +66,7 @@ match data {
 // =============================================================================
 
 // Reverse a list using pattern matching
-fun rev(lst, acc) {
+fn rev(lst, acc) {
     match lst {
         [h | t] -> rev(t, [h | acc]),
         _ -> acc,

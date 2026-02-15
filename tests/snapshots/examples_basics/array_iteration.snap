@@ -11,8 +11,8 @@ Duplicate binding: `sum` is already defined.
 
   --> examples/basics/array_iteration.flx:25:1
    |
-25 | fun sum(arr) {
-   | ^^^^^^^^^^^^^^
+25 | fn sum(arr) {
+   | ^^^^^^^^^^^^^
 26 |     if len(arr) == 0 {
    | ^^^^^^^^^^^^^^^^^^^^^^
 27 |         0;

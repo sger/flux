@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Function declaration keyword migrated to `fn`.
+- `fun` is now deprecated; parser still accepts it in compatibility mode and emits warning `W013`.
+
 ## v0.0.2 (2026-01-31)
 
 ### Added
