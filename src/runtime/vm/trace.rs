@@ -177,15 +177,15 @@ impl VM {
         for width in widths {
             match width {
                 1 => {
-                    operands.push(read_u8(instructions, offset) as usize);
+                    operands.push(read_u8(instructions, offset).to_string());
                     offset += 1;
                 }
                 2 => {
-                    operands.push(read_u16(instructions, offset) as usize);
+                    operands.push((read_u16(instructions, offset) as usize).to_string());
                     offset += 2;
                 }
                 4 => {
-                    operands.push(read_u32(instructions, offset) as usize);
+                    operands.push((read_u32(instructions, offset) as usize).to_string());
                     offset += 4;
                 }
                 _ => {}
@@ -194,14 +194,7 @@ impl VM {
         let operand_str = if operands.is_empty() {
             "".to_string()
         } else {
-            format!(
-                " {}",
-                operands
-                    .iter()
-                    .map(|o| o.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
+            format!(" {}", operands.join(" "))
         };
         println!("IP={:04} {}{}", ip, op, operand_str);
         self.trace_stack();

@@ -10,7 +10,7 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     diagnostics::{
-        position::Span, DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, Severity,
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, Severity, position::Span,
     },
     syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
@@ -63,19 +63,15 @@ fn run_unified_pipeline(
     all_diagnostics.extend(graph_result.diagnostics);
 
     let mut failed: HashSet<PathBuf> = graph_result.failed_modules;
-    if entry_has_errors
-        && let Ok(canon) = std::fs::canonicalize(entry_path)
-    {
+    if entry_has_errors && let Ok(canon) = std::fs::canonicalize(entry_path) {
         failed.insert(canon);
     }
 
     let is_multimodule = graph_result.graph.module_count() > 1;
     let graph = graph_result.graph;
 
-    let mut compiler = Compiler::new_with_interner(
-        entry_path.display().to_string(),
-        graph_result.interner,
-    );
+    let mut compiler =
+        Compiler::new_with_interner(entry_path.display().to_string(), graph_result.interner);
     let entry_canonical = std::fs::canonicalize(entry_path).ok();
     for node in graph.topo_order() {
         if entry_has_errors
@@ -175,10 +171,7 @@ fn single_module_semantic_errors() {
     assert!(
         has_dup,
         "expected E001 DUPLICATE NAME, got codes: {:?}",
-        diags
-            .iter()
-            .filter_map(|d| d.code())
-            .collect::<Vec<_>>()
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
     );
 }
 
@@ -189,18 +182,9 @@ fn single_module_semantic_errors() {
 fn three_modules_independent_parse_errors() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let root = temp_root("three_errors");
-    write_file(
-        &root.join("Alpha.flx"),
-        "module Alpha { fun a() { 1; }",
-    );
-    write_file(
-        &root.join("Beta.flx"),
-        "module Beta { fun b() { 2; }",
-    );
-    write_file(
-        &root.join("Gamma.flx"),
-        "module Gamma { fun c() { 3; }",
-    );
+    write_file(&root.join("Alpha.flx"), "module Alpha { fun a() { 1; }");
+    write_file(&root.join("Beta.flx"), "module Beta { fun b() { 2; }");
+    write_file(&root.join("Gamma.flx"), "module Gamma { fun c() { 3; }");
 
     let entry = root.join("Main.flx");
     let source = "import Alpha\nimport Beta\nimport Gamma\n1;";
@@ -232,10 +216,7 @@ fn three_modules_independent_parse_errors() {
 #[test]
 fn mixed_graph_parse_and_semantic() {
     let root = temp_root("mixed_errors");
-    write_file(
-        &root.join("Broken.flx"),
-        "module Broken { fun a() { 1; }",
-    );
+    write_file(&root.join("Broken.flx"), "module Broken { fun a() { 1; }");
     write_file(
         &root.join("Valid.flx"),
         "module Valid { fun x() { 1; } fun x() { 2; } }",
@@ -247,14 +228,14 @@ fn mixed_graph_parse_and_semantic() {
 
     let (diags, _rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
 
-    let has_parse_error = diags.iter().any(|d| {
-        d.severity() == Severity::Error && d.file().is_some_and(|f| f.contains("Broken"))
-    });
+    let has_parse_error = diags
+        .iter()
+        .any(|d| d.severity() == Severity::Error && d.file().is_some_and(|f| f.contains("Broken")));
     assert!(has_parse_error, "expected parse error from Broken module");
 
-    let has_semantic_error = diags.iter().any(|d| {
-        d.code() == Some("E001") && d.file().is_some_and(|f| f.contains("Valid"))
-    });
+    let has_semantic_error = diags
+        .iter()
+        .any(|d| d.code() == Some("E001") && d.file().is_some_and(|f| f.contains("Valid")));
     assert!(
         has_semantic_error,
         "expected E001 from Valid module (no cascade from Broken). Diags: {:?}",
@@ -330,8 +311,12 @@ fn stable_ordering() {
     let source = "import A\nimport B\n1;";
     write_file(&entry, source);
 
-    let (_, rendered1) =
-        run_unified_pipeline(&entry, source, std::slice::from_ref(&root), DEFAULT_MAX_ERRORS);
+    let (_, rendered1) = run_unified_pipeline(
+        &entry,
+        source,
+        std::slice::from_ref(&root),
+        DEFAULT_MAX_ERRORS,
+    );
     let (_, rendered2) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
 
     assert_eq!(

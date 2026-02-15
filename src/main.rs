@@ -324,16 +324,13 @@ fn run_file(
             let roots = collect_roots(entry_path, extra_roots, roots_only);
 
             // --- Build module graph (always returns, may have diagnostics) ---
-            let graph_result = ModuleGraph::build_with_entry_and_roots(
-                entry_path, &program, interner, &roots,
-            );
+            let graph_result =
+                ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
             all_diagnostics.extend(graph_result.diagnostics);
 
             // Track all failed modules (parse + validation failures from graph).
             let mut failed: HashSet<PathBuf> = graph_result.failed_modules;
-            if entry_has_errors
-                && let Ok(canon) = std::fs::canonicalize(entry_path)
-            {
+            if entry_has_errors && let Ok(canon) = std::fs::canonicalize(entry_path) {
                 failed.insert(canon);
             }
 
@@ -354,7 +351,10 @@ fn run_file(
                 }
 
                 // Cascade suppression: skip if any dependency failed.
-                let failed_dep = node.imports.iter().find(|e| failed.contains(&e.target_path));
+                let failed_dep = node
+                    .imports
+                    .iter()
+                    .find(|e| failed.contains(&e.target_path));
                 if let Some(dep) = failed_dep {
                     failed.insert(node.path.clone());
                     // GHC-style skip note
@@ -885,7 +885,10 @@ fn hex_string(bytes: &[u8; 32]) -> String {
 fn repl(trace: bool) {
     use io::Write;
 
-    println!("Flux REPL v{} (type :help for help, :quit to exit)", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Flux REPL v{} (type :help for help, :quit to exit)",
+        env!("CARGO_PKG_VERSION")
+    );
 
     let stdin = io::stdin();
     let mut reader = stdin.lock();

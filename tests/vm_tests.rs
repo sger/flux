@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use flux::bytecode::{
     bytecode::Bytecode,
     compiler::Compiler,
@@ -702,12 +700,12 @@ fn test_either_in_hash() {
     // Hash with Either values
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["ok"];"#),
-        Value::Some(Rc::new(Value::Right(Rc::new(Value::Integer(1)))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(1)))))
     );
 
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
-        Value::Some(Rc::new(Value::Left(Rc::new(Value::String(
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::String(
             "fail".to_string().into()
         )))))
     );

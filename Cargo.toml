@@ -2,6 +2,7 @@
 name = "flux"
 version = "0.2.0"
 edition = "2024"
+default-run = "flux"
 
 [features]
 gc-telemetry = []
@@ -40,3 +41,19 @@ harness = false
 [[bench]]
 name = "hamt_bench"
 harness = false
+
+[[bench]]
+name = "aoc_day1_bench"
+harness = false
+
+[[bin]]
+name = "aoc_day1_rust"
+path = "benchmarks/aoc/day1_rust.rs"
+
+[[bin]]
+name = "aoc_day1_part2_rust"
+path = "benchmarks/aoc/day1_part2_rust.rs"
+
+[[bin]]
+name = "aoc_day2_part1_rust"
+path = "benchmarks/aoc/day2_part1_rust.rs"

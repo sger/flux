@@ -268,7 +268,8 @@ impl GcHeap {
                         }
                     }
                     // Leaf types: no GC references
-                    Value::Integer(_)
+                    Value::Uninit
+                    | Value::Integer(_)
                     | Value::Float(_)
                     | Value::Boolean(_)
                     | Value::String(_)
@@ -725,7 +726,7 @@ mod tests {
             tail: Value::None,
         });
         // The GcHandle is wrapped in Some
-        let root = Value::Some(Rc::new(Value::Gc(inner)));
+        let root = Value::Some(std::rc::Rc::new(Value::Gc(inner)));
 
         heap.alloc(HeapObject::Cons {
             head: Value::Integer(99),

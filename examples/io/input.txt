@@ -1,0 +1,3 @@
+Flux IO demo input
+Line 2: Advent of Code
+Line 3: 42

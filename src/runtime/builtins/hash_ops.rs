@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::runtime::{
     RuntimeContext,
     builtins::helpers::type_error,
@@ -149,7 +147,7 @@ pub(super) fn builtin_get(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     })?;
 
     match hamt_lookup(ctx.gc_heap(), handle, &key) {
-        Some(value) => Ok(Value::Some(Rc::new(value))),
+        Some(value) => Ok(Value::Some(std::rc::Rc::new(value))),
         None => Ok(Value::None),
     }
 }

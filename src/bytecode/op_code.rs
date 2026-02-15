@@ -58,6 +58,8 @@ pub enum OpCode {
     OpIsEmptyList = 52,
     OpConsHead = 53,
     OpConsTail = 54,
+    OpGetLocal0 = 55,
+    OpGetLocal1 = 56,
 }
 
 impl From<u8> for OpCode {
@@ -118,6 +120,8 @@ impl From<u8> for OpCode {
             52 => OpCode::OpIsEmptyList,
             53 => OpCode::OpConsHead,
             54 => OpCode::OpConsTail,
+            55 => OpCode::OpGetLocal0,
+            56 => OpCode::OpGetLocal1,
             _ => panic!("Unknown opcode {}", byte),
         }
     }

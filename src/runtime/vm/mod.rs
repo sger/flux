@@ -25,6 +25,8 @@ mod trace;
 const INITIAL_STACK_SIZE: usize = 2048;
 const MAX_STACK_SIZE: usize = 1 << 20; // 1,048,576 slots
 const GLOBALS_SIZE: usize = 65536;
+const STACK_PREGROW_HEADROOM: usize = 256;
+const STACK_GROW_MIN_CHUNK: usize = 4096;
 
 pub struct VM {
     constants: Vec<Value>,
@@ -36,6 +38,7 @@ pub struct VM {
     frame_index: usize,
     trace: bool,
     pub gc_heap: GcHeap,
+    tail_arg_scratch: Vec<Value>,
 }
 
 impl VM {
@@ -46,7 +49,7 @@ impl VM {
 
         Self {
             constants: bytecode.constants,
-            stack: vec![Value::None; INITIAL_STACK_SIZE],
+            stack: vec![Value::Uninit; INITIAL_STACK_SIZE],
             sp: 0,
             last_popped: Value::None,
             globals: vec![Value::None; GLOBALS_SIZE],
@@ -54,6 +57,7 @@ impl VM {
             frame_index: 0,
             trace: false,
             gc_heap: GcHeap::new(),
+            tail_arg_scratch: Vec::new(),
         }
     }
 
@@ -118,8 +122,28 @@ impl VM {
     }
 
     fn run_inner(&mut self) -> Result<(), String> {
-        while self.current_frame().ip < self.current_frame().instructions().len() {
-            self.execute_current_instruction(None)?;
+        let mut closure = self.frames[self.frame_index].closure.clone();
+        let mut instructions: &[u8] = &closure.function.instructions;
+
+        loop {
+            let ip = self.frames[self.frame_index].ip;
+            if ip >= instructions.len() {
+                break;
+            }
+
+            let op = OpCode::from(instructions[ip]);
+            if self.trace {
+                self.trace_instruction(ip, op);
+            }
+
+            let frame_before = self.frame_index;
+            let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+            self.apply_ip_delta(frame_before, ip_delta, None);
+
+            if self.frame_index != frame_before || matches!(op, OpCode::OpTailCall) {
+                closure = self.frames[self.frame_index].closure.clone();
+                instructions = &closure.function.instructions;
+            }
         }
         Ok(())
     }
@@ -128,41 +152,61 @@ impl VM {
         &mut self,
         invoke_target_frame: Option<usize>,
     ) -> Result<(), String> {
-        let ip = self.current_frame().ip;
-        let op = OpCode::from(self.current_frame().instructions()[ip]);
+        let frame_index = self.frame_index;
+        let ip = self.frames[frame_index].ip;
+        let closure = self.frames[frame_index].closure.clone();
+        let instructions: &[u8] = &closure.function.instructions;
+        let op = OpCode::from(instructions[ip]);
         if self.trace {
             self.trace_instruction(ip, op);
         }
 
         let frame_before = self.frame_index;
-        let advance_ip = self.dispatch_instruction(ip, op)?;
-        if advance_ip {
-            match invoke_target_frame {
-                None => {
-                    self.current_frame_mut().ip += 1;
-                }
-                Some(target) => {
-                    if self.frame_index > frame_before {
-                        // New frame was pushed; advance caller frame IP.
-                        self.frames[frame_before].ip += 1;
-                    } else if self.frame_index == frame_before {
-                        self.current_frame_mut().ip += 1;
-                    } else if self.frame_index >= target {
-                        // Deeper frame returned; advance resumed frame IP.
-                        self.current_frame_mut().ip += 1;
-                    }
-                    // If frame_index < target, target frame returned; do not advance caller IP.
+        let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
+        self.apply_ip_delta(frame_before, ip_delta, invoke_target_frame);
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn apply_ip_delta(
+        &mut self,
+        frame_before: usize,
+        ip_delta: usize,
+        invoke_target_frame: Option<usize>,
+    ) {
+        if ip_delta == 0 {
+            return;
+        }
+
+        match invoke_target_frame {
+            None => {
+                if self.frame_index > frame_before {
+                    // New frame was pushed; advance caller frame IP.
+                    self.frames[frame_before].ip += ip_delta;
+                } else {
+                    self.frames[self.frame_index].ip += ip_delta;
                 }
             }
+            Some(target) => {
+                if self.frame_index > frame_before {
+                    // New frame was pushed; advance caller frame IP.
+                    self.frames[frame_before].ip += ip_delta;
+                } else if self.frame_index == frame_before {
+                    self.frames[self.frame_index].ip += ip_delta;
+                } else if self.frame_index >= target {
+                    // Deeper frame returned; advance resumed frame IP.
+                    self.frames[self.frame_index].ip += ip_delta;
+                }
+                // If frame_index < target, target frame returned; do not advance caller IP.
+            }
         }
-        Ok(())
     }
 
     fn build_array(&mut self, start: usize, end: usize) -> Value {
         // Move values out of stack to avoid Rc refcount overhead
         let mut elements = Vec::with_capacity(end - start);
         for i in start..end {
-            elements.push(std::mem::replace(&mut self.stack[i], Value::None));
+            elements.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
         }
         leak_detector::record_array();
         Value::Array(Rc::new(elements))
@@ -172,14 +216,14 @@ impl VM {
         let mut root = hamt_empty(&mut self.gc_heap);
         let mut i = start;
         while i < end {
-            let key = &self.stack[i];
-            let value = &self.stack[i + 1];
+            let key = std::mem::replace(&mut self.stack[i], Value::Uninit);
+            let value = std::mem::replace(&mut self.stack[i + 1], Value::Uninit);
 
             let hash_key = key
                 .to_hash_key()
                 .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
 
-            root = hamt_insert(&mut self.gc_heap, root, hash_key, value.clone());
+            root = hamt_insert(&mut self.gc_heap, root, hash_key, value);
             i += 2;
         }
         leak_detector::record_hash();
@@ -195,6 +239,14 @@ impl VM {
     }
 
     fn ensure_stack_capacity(&mut self, needed_top: usize) -> Result<(), String> {
+        self.ensure_stack_capacity_with_headroom(needed_top, 0)
+    }
+
+    fn ensure_stack_capacity_with_headroom(
+        &mut self,
+        needed_top: usize,
+        extra_headroom: usize,
+    ) -> Result<(), String> {
         if needed_top <= self.stack.len() {
             return Ok(());
         }
@@ -202,25 +254,85 @@ impl VM {
             return Err("stack overflow".to_string());
         }
 
+        let target_top = needed_top.saturating_add(extra_headroom).min(MAX_STACK_SIZE);
         let mut new_len = self.stack.len().max(1);
-        while new_len < needed_top {
-            new_len = (new_len.saturating_mul(2)).min(MAX_STACK_SIZE);
-            if new_len == MAX_STACK_SIZE {
-                break;
-            }
+        while new_len < target_top {
+            let grow_15 = new_len + (new_len / 2);
+            let grow_chunk = new_len.saturating_add(STACK_GROW_MIN_CHUNK);
+            new_len = grow_15.max(grow_chunk).min(MAX_STACK_SIZE);
         }
         if new_len < needed_top {
             return Err("stack overflow".to_string());
         }
 
-        self.stack.resize(new_len, Value::None);
+        self.stack.resize(new_len, Value::Uninit);
         Ok(())
     }
 
+    #[inline(always)]
+    fn clear_stack_range(&mut self, new_sp: usize, old_sp: usize) {
+        debug_assert!(new_sp <= old_sp);
+        debug_assert!(old_sp <= self.stack.len());
+        for i in new_sp..old_sp {
+            let _ = std::mem::replace(&mut self.stack[i], Value::Uninit);
+        }
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
+    }
+
+    #[inline(always)]
+    fn reset_sp(&mut self, new_sp: usize) -> Result<(), String> {
+        if new_sp > MAX_STACK_SIZE {
+            return Err("stack overflow".to_string());
+        }
+        if new_sp > self.stack.len() {
+            self.ensure_stack_capacity(new_sp)?;
+        }
+        let old_sp = self.sp;
+        if new_sp < old_sp {
+            self.clear_stack_range(new_sp, old_sp);
+        }
+        self.sp = new_sp;
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
+        Ok(())
+    }
+
+    #[cfg(debug_assertions)]
+    #[inline(always)]
+    fn debug_assert_stack_invariant(&self) {
+        for slot in &self.stack[self.sp..] {
+            debug_assert!(matches!(slot, Value::Uninit));
+        }
+    }
+
+    #[inline(always)]
     fn push(&mut self, obj: Value) -> Result<(), String> {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(self.sp <= self.stack.len());
+            if self.sp < self.stack.len() {
+                debug_assert!(matches!(self.stack[self.sp], Value::Uninit));
+            }
+        }
+        if self.sp < self.stack.len() {
+            self.stack[self.sp] = obj;
+            self.sp += 1;
+            #[cfg(debug_assertions)]
+            self.debug_assert_stack_invariant();
+            return Ok(());
+        }
+        self.push_slow(obj)
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn push_slow(&mut self, obj: Value) -> Result<(), String> {
         self.ensure_stack_capacity(self.sp + 1)?;
         self.stack[self.sp] = obj;
         self.sp += 1;
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
         Ok(())
     }
 
@@ -233,20 +345,71 @@ impl VM {
         }
     }
 
-    fn pop_frame(&mut self) -> Frame {
-        let frame = self.frames[self.frame_index].clone();
+    fn pop_frame_bp(&mut self) -> usize {
+        let bp = self.frames[self.frame_index].base_pointer;
         self.frame_index -= 1;
-        frame
+        bp
     }
 
+    #[inline(always)]
     fn pop(&mut self) -> Result<Value, String> {
         if self.sp == 0 {
             return Err("stack underflow".to_string());
         }
-        self.sp -= 1;
-        // Store in last_popped before moving out. For Rc types this is just a refcount bump.
-        self.last_popped = std::mem::replace(&mut self.stack[self.sp], Value::None);
-        Ok(self.last_popped.clone())
+        let new_sp = self.sp - 1;
+        self.sp = new_sp;
+        let value = std::mem::replace(&mut self.stack[new_sp], Value::Uninit);
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn pop_and_track(&mut self) -> Result<Value, String> {
+        let value = self.pop()?;
+        self.last_popped = value.clone();
+        Ok(value)
+    }
+
+    #[inline(always)]
+    fn peek(&self, back: usize) -> Result<&Value, String> {
+        if back >= self.sp {
+            return Err("stack underflow".to_string());
+        }
+        let idx = self.sp - 1 - back;
+        let value = &self.stack[idx];
+        if matches!(value, Value::Uninit) {
+            return Err("read from uninitialized stack slot".to_string());
+        }
+        Ok(value)
+    }
+
+    fn pop_untracked(&mut self) -> Result<Value, String> {
+        let value = self.pop()?;
+        self.last_popped = Value::None;
+        Ok(value)
+    }
+
+    fn discard_top(&mut self) -> Result<(), String> {
+        if self.sp == 0 {
+            return Err("stack underflow".to_string());
+        }
+        let old_sp = self.sp;
+        let new_sp = old_sp - 1;
+        self.clear_stack_range(new_sp, old_sp);
+        self.sp = new_sp;
+        self.last_popped = Value::None;
+        Ok(())
+    }
+
+    fn pop_pair_untracked(&mut self) -> Result<(Value, Value), String> {
+        if self.sp < 2 {
+            return Err("stack underflow".to_string());
+        }
+        let right = self.pop()?;
+        let left = self.pop()?;
+        self.last_popped = Value::None;
+        Ok((left, right))
     }
 
     /// Returns the last popped value from the stack.

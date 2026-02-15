@@ -1,0 +1,87 @@
+// AoC Day 1 Part 2 profiling workload.
+// Runs the solver many times in one process to produce richer profiles.
+
+fun wrap_100(value) {
+    let reduced = value % 100
+    if reduced < 0 {
+        reduced + 100
+    } else {
+        reduced
+    }
+}
+
+fun count_every_100(remaining) {
+    if remaining < 100 {
+        0
+    } else {
+        1 + count_every_100(remaining - 100)
+    }
+}
+
+fun count_hits_for_rotation(first_zero_click, distance) {
+    if distance < first_zero_click {
+        0
+    } else {
+        1 + count_every_100(distance - first_zero_click)
+    }
+}
+
+fun count_zeros_right(pos, distance) {
+    let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
+    count_hits_for_rotation(first_zero_click, distance)
+}
+
+fun count_zeros_left(pos, distance) {
+    let first_zero_click = if pos == 0 { 100 } else { pos }
+    count_hits_for_rotation(first_zero_click, distance)
+}
+
+fun apply_rotation(line, rest, pos, hits) {
+    let cleaned = trim(line)
+    if cleaned == "" {
+        solve(rest, pos, hits)
+    } else {
+        let dir = substring(cleaned, 0, 1)
+        let distance = parse_int(substring(cleaned, 1, len(cleaned)))
+
+        if dir == "R" {
+            let zeros = count_zeros_right(pos, distance)
+            let next_pos_right = wrap_100(pos + distance)
+            solve(rest, next_pos_right, hits + zeros)
+        } else {
+            let zeros_left = count_zeros_left(pos, distance)
+            let next_pos_left = wrap_100(pos - distance)
+            solve(rest, next_pos_left, hits + zeros_left)
+        }
+    }
+}
+
+fun solve(lines, pos, hits) {
+    match lines {
+        [line | rest] -> apply_rotation(line, rest, pos, hits),
+        _ -> hits,
+    }
+}
+
+fun repeat_solve(n, lines, checksum) {
+    if n <= 0 {
+        checksum
+    } else {
+        let password = solve(lines, 50, 0)
+        repeat_solve(n - 1, lines, checksum + password)
+    }
+}
+
+let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+let iterations = 200
+
+let t0 = now_ms()
+let checksum = repeat_solve(iterations, lines, 0)
+let t1 = now_ms()
+
+print("iterations:")
+print(iterations)
+print("checksum:")
+print(checksum)
+print("elapsed_ms:")
+print(t1 - t0)
