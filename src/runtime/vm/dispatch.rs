@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
-    runtime::{builtins::BUILTINS, gc::HeapObject, leak_detector, value::Value},
+    runtime::{builtins::get_builtin_by_index, gc::HeapObject, leak_detector, value::Value},
 };
 
 use super::VM;
@@ -296,8 +296,10 @@ impl VM {
             }
             OpCode::OpGetBuiltin => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
-                let builtin = BUILTINS[idx].clone();
-                self.push(Value::Builtin(builtin))?;
+                let _ = get_builtin_by_index(idx).ok_or_else(|| {
+                    format!("invalid builtin index {}", idx)
+                })?;
+                self.push(Value::Builtin(idx as u8))?;
                 Ok(2)
             }
             OpCode::OpCall => {
