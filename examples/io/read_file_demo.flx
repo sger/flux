@@ -1,0 +1,5 @@
+// IO Demo: read a text file and print its contents
+
+let content = read_file("examples/io/input.txt")
+print("=== File Content ===")
+print(content)

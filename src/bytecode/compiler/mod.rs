@@ -126,6 +126,18 @@ impl Compiler {
         symbol_table.define_builtin(48, interner.intern("get"));
         symbol_table.define_builtin(49, interner.intern("is_map"));
         symbol_table.define_builtin(50, interner.intern("list"));
+        // I/O and parsing builtins
+        symbol_table.define_builtin(51, interner.intern("read_file"));
+        symbol_table.define_builtin(52, interner.intern("read_lines"));
+        symbol_table.define_builtin(53, interner.intern("read_stdin"));
+        symbol_table.define_builtin(54, interner.intern("parse_int"));
+        symbol_table.define_builtin(55, interner.intern("now_ms"));
+        symbol_table.define_builtin(56, interner.intern("time"));
+        symbol_table.define_builtin(57, interner.intern("range"));
+        symbol_table.define_builtin(58, interner.intern("sum"));
+        symbol_table.define_builtin(59, interner.intern("product"));
+        symbol_table.define_builtin(60, interner.intern("parse_ints"));
+        symbol_table.define_builtin(61, interner.intern("split_ints"));
 
         Self {
             constants: Vec::new(),

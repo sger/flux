@@ -1,5 +1,11 @@
 const PI: f64 = std::f64::consts::PI;
 
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use flux::bytecode::bytecode::Bytecode;
 use flux::runtime::RuntimeContext;
 use flux::runtime::builtins::get_builtin;
@@ -43,6 +49,16 @@ fn make_test_hash(heap: &mut GcHeap) -> Value {
         Value::String("yes".to_string().into()),
     );
     Value::Gc(root)
+}
+
+fn temp_file_path(label: &str) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    path.push(format!("flux_builtin_{}_{}.txt", label, nanos));
+    path
 }
 
 #[test]
@@ -1287,5 +1303,151 @@ fn test_hamt_10k_sequential_inserts() {
     assert_eq!(
         hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(9999)),
         Some(Value::Integer(19_998))
+    );
+}
+
+#[test]
+fn test_builtin_read_file() {
+    let path = temp_file_path("read_file");
+    fs::write(&path, "line1\nline2\n").expect("write temp file");
+
+    let result = call(
+        "read_file",
+        vec![Value::String(path.to_string_lossy().to_string().into())],
+    )
+    .unwrap();
+    assert_eq!(result, Value::String("line1\nline2\n".into()));
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_builtin_read_lines() {
+    let path = temp_file_path("read_lines");
+    fs::write(&path, "10\n20\n30\n").expect("write temp file");
+
+    let result = call(
+        "read_lines",
+        vec![Value::String(path.to_string_lossy().to_string().into())],
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        Value::Array(
+            vec![
+                Value::String("10".into()),
+                Value::String("20".into()),
+                Value::String("30".into())
+            ]
+            .into()
+        )
+    );
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_builtin_parse_int() {
+    let result = call("parse_int", vec![Value::String("  12345  ".into())]).unwrap();
+    assert_eq!(result, Value::Integer(12345));
+}
+
+#[test]
+fn test_builtin_parse_int_invalid() {
+    let err = call("parse_int", vec![Value::String("12x".into())]).unwrap_err();
+    assert!(err.contains("parse_int"));
+    assert!(err.contains("could not parse"));
+}
+
+#[test]
+fn test_builtin_now_ms() {
+    let result = call("now_ms", vec![]).unwrap();
+    match result {
+        Value::Integer(ms) => assert!(ms > 0),
+        _ => panic!("expected Integer"),
+    }
+}
+
+#[test]
+fn test_builtin_time() {
+    let print_builtin = get_builtin("print").expect("print builtin exists").clone();
+    let result = call("time", vec![Value::Builtin(print_builtin)]).unwrap();
+    match result {
+        Value::Integer(ms) => assert!(ms >= 0),
+        _ => panic!("expected Integer"),
+    }
+}
+
+#[test]
+fn test_builtin_range() {
+    let asc = call("range", vec![Value::Integer(2), Value::Integer(6)]).unwrap();
+    assert_eq!(
+        asc,
+        Value::Array(
+            vec![
+                Value::Integer(2),
+                Value::Integer(3),
+                Value::Integer(4),
+                Value::Integer(5)
+            ]
+            .into()
+        )
+    );
+
+    let desc = call("range", vec![Value::Integer(3), Value::Integer(0)]).unwrap();
+    assert_eq!(
+        desc,
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
+    );
+}
+
+#[test]
+fn test_builtin_sum_and_product() {
+    let sum_i = call(
+        "sum",
+        vec![Value::Array(
+            vec![Value::Integer(2), Value::Integer(3), Value::Integer(5)].into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(sum_i, Value::Integer(10));
+
+    let product_i = call(
+        "product",
+        vec![Value::Array(
+            vec![Value::Integer(2), Value::Integer(3), Value::Integer(5)].into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(product_i, Value::Integer(30));
+}
+
+#[test]
+fn test_builtin_parse_ints_and_split_ints() {
+    let parsed = call(
+        "parse_ints",
+        vec![Value::Array(
+            vec![
+                Value::String("10".into()),
+                Value::String(" 20 ".into()),
+                Value::String("-3".into()),
+            ]
+            .into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Value::Array(vec![Value::Integer(10), Value::Integer(20), Value::Integer(-3)].into())
+    );
+
+    let split = call(
+        "split_ints",
+        vec![Value::String("1,2,-5".into()), Value::String(",".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        split,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(-5)].into())
     );
 }
