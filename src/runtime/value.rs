@@ -1,8 +1,8 @@
 use std::{fmt, rc::Rc};
 
 use crate::runtime::{
-    builtin_function::BuiltinFunction, closure::Closure, compiled_function::CompiledFunction,
-    gc::gc_handle::GcHandle, hash_key::HashKey,
+    closure::Closure, compiled_function::CompiledFunction, gc::gc_handle::GcHandle,
+    hash_key::HashKey,
 };
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
@@ -65,8 +65,8 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// Builtin function handle.
-    Builtin(BuiltinFunction),
+    /// Builtin function handle (index into builtins table).
+    Builtin(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
@@ -305,5 +305,10 @@ mod tests {
             }
             _ => panic!("expected return values"),
         }
+    }
+
+    #[test]
+    fn value_size_is_compact() {
+        assert!(std::mem::size_of::<Value>() <= 24);
     }
 }
