@@ -131,7 +131,7 @@ t(9) + x;
 fn test_functions() {
     assert_eq!(run("let f = fun() { 5 + 10; }; f();"), Value::Integer(15));
     assert_eq!(
-        run("let sum = fun(a, b) { a + b; }; sum(1, 2);"),
+        run("let add_pair = fun(a, b) { a + b; }; add_pair(1, 2);"),
         Value::Integer(3)
     );
 }

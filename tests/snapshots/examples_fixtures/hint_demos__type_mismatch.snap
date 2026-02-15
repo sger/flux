@@ -3,8 +3,22 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/hint_demos/type_mismatch.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `sum` is already defined.
+
+  --> examples/hint_demos/type_mismatch.flx:9:1
+  |
+9 | let sum = age + height;
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/hint_demos/type_mismatch.flx:0:1
+  |
 == stdout ==
 <not executed>
