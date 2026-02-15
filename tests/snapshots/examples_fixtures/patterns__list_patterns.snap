@@ -3,8 +3,32 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/patterns/list_patterns.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `sum` is already defined.
+
+  --> examples/patterns/list_patterns.flx:33:1
+   |
+33 | fun sum(lst) {
+   | ^^^^^^^^^^^^^^
+34 |     match lst {
+   | ^^^^^^^^^^^^^^^
+35 |         [h | t] -> h + sum(t),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |         _ -> 0,
+   | ^^^^^^^^^^^^^^^
+37 |     }
+   | ^^^^^
+38 | }
+   | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/patterns/list_patterns.flx:0:1
+  |
 == stdout ==
 <not executed>

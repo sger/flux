@@ -301,9 +301,9 @@ impl VM {
     #[cfg(debug_assertions)]
     #[inline(always)]
     fn debug_assert_stack_invariant(&self) {
-        for slot in &self.stack[self.sp..] {
-            debug_assert!(matches!(slot, Value::Uninit));
-        }
+        // Dead stack slots may contain stale values until they are reused.
+        // In debug mode, only enforce structural bounds to keep checks O(1).
+        debug_assert!(self.sp <= self.stack.len());
     }
 
     #[inline(always)]
@@ -311,9 +311,6 @@ impl VM {
         #[cfg(debug_assertions)]
         {
             debug_assert!(self.sp <= self.stack.len());
-            if self.sp < self.stack.len() {
-                debug_assert!(matches!(self.stack[self.sp], Value::Uninit));
-            }
         }
         if self.sp < self.stack.len() {
             self.stack[self.sp] = obj;
@@ -396,15 +393,22 @@ impl VM {
         Ok(value)
     }
 
+    #[inline(always)]
     fn discard_top(&mut self) -> Result<(), String> {
         if self.sp == 0 {
             return Err("stack underflow".to_string());
         }
-        let old_sp = self.sp;
-        let new_sp = old_sp - 1;
-        self.clear_stack_range(new_sp, old_sp);
-        self.sp = new_sp;
+        self.sp -= 1;
+        // Drop the value in-place without the clear_stack_range loop overhead.
+        // SAFETY: sp was > 0, so self.sp is now a valid index holding a live Value.
+        unsafe {
+            let slot = self.stack.as_mut_ptr().add(self.sp);
+            let _old = std::ptr::read(slot);
+            std::ptr::write(slot, Value::Uninit);
+        }
         self.last_popped = Value::None;
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
         Ok(())
     }
 

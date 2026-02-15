@@ -60,6 +60,9 @@ pub enum OpCode {
     OpConsTail = 54,
     OpGetLocal0 = 55,
     OpGetLocal1 = 56,
+    /// Superinstruction: fuses OpGetLocal(n) + OpReturnValue.
+    /// Operand: 1-byte local index.
+    OpReturnLocal = 57,
 }
 
 impl From<u8> for OpCode {
@@ -122,6 +125,7 @@ impl From<u8> for OpCode {
             54 => OpCode::OpConsTail,
             55 => OpCode::OpGetLocal0,
             56 => OpCode::OpGetLocal1,
+            57 => OpCode::OpReturnLocal,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -150,7 +154,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpCall
         | OpCode::OpTailCall
         | OpCode::OpGetFree
-        | OpCode::OpGetBuiltin => vec![1],
+        | OpCode::OpGetBuiltin
+        | OpCode::OpReturnLocal => vec![1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         _ => vec![],
