@@ -230,11 +230,118 @@ impl VM {
             _ => Err(format!("not callable: {}", callee.type_name())),
         }
     }
+
+    #[inline]
+    fn invoke_closure_arity1(&mut self, closure: Rc<Closure>, arg: Value) -> Result<Value, String> {
+        if closure.function.num_parameters != 1 {
+            return Err(format!(
+                "wrong number of arguments: want={}, got=1",
+                closure.function.num_parameters
+            ));
+        }
+
+        self.push(Value::Closure(closure.clone()))?;
+        self.push(arg)?;
+
+        let frame = Frame::new(closure, self.sp - 1);
+        let num_locals = frame.closure.function.num_locals;
+        let max_stack = frame.closure.function.max_stack;
+        self.push_frame(frame);
+        self.ensure_stack_capacity_with_headroom(
+            self.sp + max_stack,
+            super::STACK_PREGROW_HEADROOM,
+        )?;
+        self.sp += num_locals;
+
+        let target_frame_index = self.frame_index;
+        while self.frame_index >= target_frame_index {
+            if self.frame_index == target_frame_index
+                && self.current_frame().ip >= self.current_frame().instructions().len()
+            {
+                return Err("callable exited without return".to_string());
+            }
+            self.execute_current_instruction(Some(target_frame_index))?;
+        }
+
+        self.pop()
+    }
+
+    #[inline]
+    fn invoke_closure_arity2(
+        &mut self,
+        closure: Rc<Closure>,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, String> {
+        if closure.function.num_parameters != 2 {
+            return Err(format!(
+                "wrong number of arguments: want={}, got=2",
+                closure.function.num_parameters
+            ));
+        }
+
+        self.push(Value::Closure(closure.clone()))?;
+        self.push(left)?;
+        self.push(right)?;
+
+        let frame = Frame::new(closure, self.sp - 2);
+        let num_locals = frame.closure.function.num_locals;
+        let max_stack = frame.closure.function.max_stack;
+        self.push_frame(frame);
+        self.ensure_stack_capacity_with_headroom(
+            self.sp + max_stack,
+            super::STACK_PREGROW_HEADROOM,
+        )?;
+        self.sp += num_locals;
+
+        let target_frame_index = self.frame_index;
+        while self.frame_index >= target_frame_index {
+            if self.frame_index == target_frame_index
+                && self.current_frame().ip >= self.current_frame().instructions().len()
+            {
+                return Err("callable exited without return".to_string());
+            }
+            self.execute_current_instruction(Some(target_frame_index))?;
+        }
+
+        self.pop()
+    }
 }
 
 impl RuntimeContext for VM {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         VM::invoke_value(self, callee, args)
+    }
+
+    #[inline]
+    fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
+        match callee {
+            Value::Builtin(builtin_idx) => {
+                let builtin = get_builtin_by_index(*builtin_idx as usize)
+                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
+                (builtin.func)(self, vec![arg])
+            }
+            Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
+            other => Err(format!("not callable: {}", other.type_name())),
+        }
+    }
+
+    #[inline]
+    fn invoke_binary_value(
+        &mut self,
+        callee: &Value,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, String> {
+        match callee {
+            Value::Builtin(builtin_idx) => {
+                let builtin = get_builtin_by_index(*builtin_idx as usize)
+                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
+                (builtin.func)(self, vec![left, right])
+            }
+            Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
+            other => Err(format!("not callable: {}", other.type_name())),
+        }
     }
 
     fn gc_heap(&self) -> &GcHeap {

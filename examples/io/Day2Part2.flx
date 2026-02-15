@@ -1,0 +1,141 @@
+module Day2Part2 {
+    fn parse_range_token(token) {
+        split_ints(trim(token), "-")
+    }
+
+    fn range_start(parsed_range) {
+        first(parsed_range)
+    }
+
+    fn range_end(parsed_range) {
+        last(parsed_range)
+    }
+
+    fn digits_count(n) {
+        if n < 10 {
+            1
+        } else {
+            1 + digits_count(n / 10)
+        }
+    }
+
+    fn pow10(exp) {
+        if exp <= 0 {
+            1
+        } else {
+            10 * pow10(exp - 1)
+        }
+    }
+
+    fn repeat_value(seed, base, times, acc) {
+        if times <= 0 {
+            acc
+        } else {
+            repeat_value(seed, base, times - 1, acc * base + seed)
+        }
+    }
+
+    fn has_repeated_subpattern(seed, seed_digits, sub_len) {
+        if sub_len * 2 > seed_digits {
+            false
+        } else {
+            if seed_digits % sub_len != 0 {
+                has_repeated_subpattern(seed, seed_digits, sub_len + 1)
+            } else {
+                let repeats = seed_digits / sub_len
+                let base = pow10(sub_len)
+                let prefix = seed / pow10(seed_digits - sub_len)
+                if repeat_value(prefix, base, repeats, 0) == seed {
+                    true
+                } else {
+                    has_repeated_subpattern(seed, seed_digits, sub_len + 1)
+                }
+            }
+        }
+    }
+
+    fn is_primitive_seed(seed, seed_digits) {
+        has_repeated_subpattern(seed, seed_digits, 1) == false
+    }
+
+    fn id_in_range(id, parsed_range) {
+        let start = range_start(parsed_range)
+        let end = range_end(parsed_range)
+        id >= start && id <= end
+    }
+
+    fn id_in_any_range(id, parsed_ranges) {
+        parsed_ranges
+            |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+    }
+
+    fn sum_repeats_for_seed(seed, base, repeats, max_repeats, max_end, parsed_ranges) {
+        if repeats > max_repeats {
+            0
+        } else {
+            let candidate = repeat_value(seed, base, repeats, 0)
+            let add = if candidate <= max_end && id_in_any_range(candidate, parsed_ranges) {
+                candidate
+            } else {
+                0
+            }
+            add + sum_repeats_for_seed(seed, base, repeats + 1, max_repeats, max_end, parsed_ranges)
+        }
+    }
+
+    fn sum_for_chunk_len(chunk_len, max_end, parsed_ranges) {
+        let seed_digits = chunk_len
+        let min_seed = if seed_digits == 1 {
+            1
+        } else {
+            pow10(seed_digits - 1)
+        }
+        let max_seed = pow10(seed_digits) - 1
+        let max_total_digits = digits_count(max_end)
+        let max_repeats = max_total_digits / chunk_len
+        let base = pow10(chunk_len)
+
+        range(min_seed, max_seed + 1)
+            |> fold(0, \(acc, seed) ->
+                if is_primitive_seed(seed, seed_digits) {
+                    acc + sum_repeats_for_seed(seed, base, 2, max_repeats, max_end, parsed_ranges)
+                } else {
+                    acc
+                }
+            )
+    }
+
+    fn sum_for_all_chunk_lens(chunk_len, max_chunk_len, max_end, parsed_ranges) {
+        if chunk_len > max_chunk_len {
+            0
+        } else {
+            sum_for_chunk_len(chunk_len, max_end, parsed_ranges)
+                + sum_for_all_chunk_lens(chunk_len + 1, max_chunk_len, max_end, parsed_ranges)
+        }
+    }
+
+    fn parse_ranges(path) {
+        read_file(path)
+            |> trim
+            |> split(",")
+            |> filter(\t -> trim(t) != "")
+            |> map(\t -> parse_range_token(t))
+    }
+
+    fn max_end(parsed_ranges) {
+        parsed_ranges
+            |> map(\r -> range_end(r))
+            |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
+    }
+
+    fn solve_parsed_ranges(parsed_ranges) {
+        let upper = max_end(parsed_ranges)
+        let max_chunk_len = digits_count(upper) / 2
+        sum_for_all_chunk_lens(1, max_chunk_len, upper, parsed_ranges)
+    }
+
+    fn solve_file(path) {
+        let parsed_ranges = parse_ranges(path)
+        solve_parsed_ranges(parsed_ranges)
+    }
+}
