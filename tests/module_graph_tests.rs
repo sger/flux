@@ -90,8 +90,7 @@ fn importing_script_is_error() {
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 
-    let result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E022");
 }
@@ -107,8 +106,7 @@ fn module_path_mismatch_is_error() {
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 
-    let result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E024");
 }
@@ -124,8 +122,7 @@ fn module_file_with_script_code_is_error() {
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 
-    let result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E028");
 }
@@ -164,12 +161,8 @@ fn duplicate_module_across_roots_is_error() {
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 
-    let result = ModuleGraph::build_with_entry_and_roots(
-        &entry_path,
-        &program,
-        interner,
-        &[root_a, root_b],
-    );
+    let result =
+        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root_a, root_b]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E027");
 }
@@ -187,8 +180,7 @@ fn import_cycle_is_error() {
     write_file(&entry_path, entry_source);
     let (program, interner) = parse_program(entry_source);
 
-    let result =
-        ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E021");
 }

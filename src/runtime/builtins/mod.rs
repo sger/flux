@@ -3,6 +3,7 @@ use crate::runtime::{RuntimeContext, builtin_function::BuiltinFunction, value::V
 mod array_ops;
 mod hash_ops;
 mod helpers;
+mod io_ops;
 pub(crate) mod list_ops;
 mod numeric_ops;
 mod string_ops;
@@ -10,12 +11,16 @@ mod type_check;
 
 use array_ops::{
     builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_fold, builtin_last,
-    builtin_len, builtin_map, builtin_push, builtin_rest, builtin_reverse, builtin_slice,
-    builtin_sort,
+    builtin_len, builtin_map, builtin_product, builtin_push, builtin_range, builtin_rest,
+    builtin_reverse, builtin_slice, builtin_sort, builtin_sum,
 };
 use hash_ops::{
     builtin_delete, builtin_get, builtin_has_key, builtin_is_map, builtin_keys, builtin_merge,
     builtin_put, builtin_values,
+};
+use io_ops::{
+    builtin_now_ms, builtin_parse_int, builtin_parse_ints, builtin_read_file, builtin_read_lines,
+    builtin_read_stdin, builtin_split_ints, builtin_time,
 };
 use list_ops::{
     builtin_hd, builtin_is_list, builtin_list, builtin_tl, builtin_to_array, builtin_to_list,
@@ -252,6 +257,50 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "list",
         func: builtin_list,
+    },
+    BuiltinFunction {
+        name: "read_file",
+        func: builtin_read_file,
+    },
+    BuiltinFunction {
+        name: "read_lines",
+        func: builtin_read_lines,
+    },
+    BuiltinFunction {
+        name: "read_stdin",
+        func: builtin_read_stdin,
+    },
+    BuiltinFunction {
+        name: "parse_int",
+        func: builtin_parse_int,
+    },
+    BuiltinFunction {
+        name: "now_ms",
+        func: builtin_now_ms,
+    },
+    BuiltinFunction {
+        name: "time",
+        func: builtin_time,
+    },
+    BuiltinFunction {
+        name: "range",
+        func: builtin_range,
+    },
+    BuiltinFunction {
+        name: "sum",
+        func: builtin_sum,
+    },
+    BuiltinFunction {
+        name: "product",
+        func: builtin_product,
+    },
+    BuiltinFunction {
+        name: "parse_ints",
+        func: builtin_parse_ints,
+    },
+    BuiltinFunction {
+        name: "split_ints",
+        func: builtin_split_ints,
     },
 ];
 

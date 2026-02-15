@@ -1,0 +1,77 @@
+// AoC Day 1 profiling workload.
+// Runs the solver many times in one process to produce richer profiles.
+
+fun wrap_100(value) {
+    let reduced = value % 100
+    if reduced < 0 {
+        reduced + 100
+    } else {
+        reduced
+    }
+}
+
+fun parse_rotation(line) {
+    let dir = substring(line, 0, 1)
+    let distance = parse_int(substring(line, 1, len(line)))
+    if dir == "L" {
+        0 - distance
+    } else {
+        distance
+    }
+}
+
+fun parse_line(line, rest, acc) {
+    let cleaned = trim(line)
+    if cleaned == "" {
+        parse_rotations(rest, acc)
+    } else {
+        parse_rotations(rest, [parse_rotation(cleaned) | acc])
+    }
+}
+
+fun parse_rotations(lines, acc) {
+    match lines {
+        [line | rest] -> parse_line(line, rest, acc),
+        _ -> reverse(acc),
+    }
+}
+
+fun process_step(step, rest, pos, hits) {
+    let next_pos = wrap_100(pos + step)
+    if next_pos == 0 {
+        solve_steps(rest, next_pos, hits + 1)
+    } else {
+        solve_steps(rest, next_pos, hits)
+    }
+}
+
+fun solve_steps(steps, pos, hits) {
+    match steps {
+        [step | rest] -> process_step(step, rest, pos, hits),
+        _ -> hits,
+    }
+}
+
+fun repeat_solve(n, steps, checksum) {
+    if n <= 0 {
+        checksum
+    } else {
+        let password = solve_steps(steps, 50, 0)
+        repeat_solve(n - 1, steps, checksum + password)
+    }
+}
+
+let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+let steps = parse_rotations(lines, None)
+let iterations = 200
+
+let t0 = now_ms()
+let checksum = repeat_solve(iterations, steps, 0)
+let t1 = now_ms()
+
+print("iterations:")
+print(iterations)
+print("checksum:")
+print(checksum)
+print("elapsed_ms:")
+print(t1 - t0)

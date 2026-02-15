@@ -1,0 +1,52 @@
+use std::env;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+
+fn solve(path: &str) -> io::Result<i64> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    let mut pos: i64 = 50;
+    let mut hits: i64 = 0;
+
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (direction, dist_str) = trimmed.split_at(1);
+        let dist: i64 = dist_str
+            .parse()
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid distance"))?;
+
+        match direction {
+            "L" => pos = (pos - dist).rem_euclid(100),
+            "R" => pos = (pos + dist).rem_euclid(100),
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid rotation")),
+        }
+
+        if pos == 0 {
+            hits += 1;
+        }
+    }
+
+    Ok(hits)
+}
+
+fn main() {
+    let mut args = env::args();
+    let _ = args.next();
+    let Some(path) = args.next() else {
+        eprintln!("usage: day1_rust <input-file>");
+        std::process::exit(2);
+    };
+
+    match solve(&path) {
+        Ok(ans) => println!("{ans}"),
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    }
+}

@@ -39,6 +39,10 @@ use crate::runtime::{
 /// See [Proposal 019](../../docs/proposals/019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// Internal VM stack sentinel for uninitialized/inactive slots.
+    ///
+    /// This must never be observable at language level.
+    Uninit,
     /// 64-bit signed integer.
     Integer(i64),
     /// 64-bit floating point number.
@@ -72,6 +76,7 @@ pub enum Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Value::Uninit => write!(f, "<uninit>"),
             Value::Integer(v) => write!(f, "{}", v),
             Value::Float(v) => write!(f, "{}", v),
             Value::Boolean(v) => write!(f, "{}", v),
@@ -99,6 +104,7 @@ impl Value {
     /// These labels are user-visible and are expected to remain stable.
     pub fn type_name(&self) -> &'static str {
         match self {
+            Value::Uninit => "Uninit",
             Value::Integer(_) => "Int",
             Value::Float(_) => "Float",
             Value::Boolean(_) => "Bool",
@@ -120,7 +126,7 @@ impl Value {
     ///
     /// Only `Boolean(false)` and `None` are falsy; all other values are truthy.
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Value::Boolean(false) | Value::None)
+        !matches!(self, Value::Uninit | Value::Boolean(false) | Value::None)
     }
 
     /// Converts this value into a hash-map key if the value is hashable.
@@ -146,6 +152,7 @@ impl Value {
     /// This helper is used by interpolation and string conversion builtins.
     pub fn to_string_value(&self) -> String {
         match self {
+            Value::Uninit => "<uninit>".to_string(),
             Value::Integer(v) => v.to_string(),
             Value::Float(v) => v.to_string(),
             Value::Boolean(v) => v.to_string(),
@@ -212,14 +219,14 @@ mod tests {
         assert_eq!(Value::Boolean(true).type_name(), "Bool");
         assert_eq!(Value::String("x".into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
-        assert_eq!(Value::Some(Rc::new(Value::Integer(1))).type_name(), "Some");
-        assert_eq!(Value::Left(Rc::new(Value::Integer(1))).type_name(), "Left");
+        assert_eq!(Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(), "Some");
+        assert_eq!(Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(), "Left");
         assert_eq!(
-            Value::Right(Rc::new(Value::Integer(1))).type_name(),
+            Value::Right(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "Right"
         );
         assert_eq!(
-            Value::ReturnValue(Rc::new(Value::Integer(1))).type_name(),
+            Value::ReturnValue(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "ReturnValue"
         );
         assert_eq!(Value::Array(Rc::new(vec![])).type_name(), "Array");
@@ -229,11 +236,11 @@ mod tests {
     fn test_to_string_value() {
         assert_eq!(Value::String("hello".into()).to_string_value(), "hello");
         assert_eq!(
-            Value::Some(Rc::new(Value::String("x".into()))).to_string_value(),
+            Value::Some(std::rc::Rc::new(Value::String("x".into()))).to_string_value(),
             "Some(x)"
         );
         assert_eq!(
-            Value::ReturnValue(Rc::new(Value::Integer(7))).to_string_value(),
+            Value::ReturnValue(std::rc::Rc::new(Value::Integer(7))).to_string_value(),
             "7"
         );
         assert_eq!(
@@ -279,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_clone_shares_rc_for_wrappers() {
-        let some = Value::Some(Rc::new(Value::Integer(7)));
+        let some = Value::Some(std::rc::Rc::new(Value::Integer(7)));
         let some_clone = some.clone();
         match (some, some_clone) {
             (Value::Some(left), Value::Some(right)) => {
@@ -289,7 +296,7 @@ mod tests {
             _ => panic!("expected some values"),
         }
 
-        let ret = Value::ReturnValue(Rc::new(Value::String("ok".into())));
+        let ret = Value::ReturnValue(std::rc::Rc::new(Value::String("ok".into())));
         let ret_clone = ret.clone();
         match (ret, ret_clone) {
             (Value::ReturnValue(left), Value::ReturnValue(right)) => {

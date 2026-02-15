@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::runtime::{
     gc::{GcHandle, HeapObject, hamt::hamt_lookup},
     value::Value,
@@ -40,7 +38,7 @@ impl VM {
         if index < 0 || index as usize >= elements.len() {
             self.push(Value::None)
         } else {
-            self.push(Value::Some(Rc::new(elements[index as usize].clone())))
+            self.push(Value::Some(std::rc::Rc::new(elements[index as usize].clone())))
         }
     }
 
@@ -59,7 +57,7 @@ impl VM {
                 Value::Gc(h) => match self.gc_heap.get(*h) {
                     HeapObject::Cons { head, tail } => {
                         if remaining == 0 {
-                            return self.push(Value::Some(Rc::new(head.clone())));
+                            return self.push(Value::Some(std::rc::Rc::new(head.clone())));
                         }
                         remaining -= 1;
                         current = tail.clone();
@@ -76,7 +74,7 @@ impl VM {
             .to_hash_key()
             .ok_or_else(|| format!("unusable as hash key: {}", key.type_name()))?;
         match hamt_lookup(&self.gc_heap, handle, &hash_key) {
-            Some(value) => self.push(Value::Some(Rc::new(value))),
+            Some(value) => self.push(Value::Some(std::rc::Rc::new(value))),
             None => self.push(Value::None),
         }
     }

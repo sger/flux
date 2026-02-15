@@ -151,8 +151,7 @@ pub fn build_transcript(
             diagnostics.extend(graph_result.diagnostics);
             compile_status = String::from("failed (module)");
         } else {
-            let mut compiler =
-                Compiler::new_with_interner(fixture_rel, graph_result.interner);
+            let mut compiler = Compiler::new_with_interner(fixture_rel, graph_result.interner);
             for node in graph_result.graph.topo_order() {
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 if let Err(mut diags) = compiler.compile(&node.program) {

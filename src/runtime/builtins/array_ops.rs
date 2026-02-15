@@ -326,6 +326,179 @@ pub(super) fn builtin_slice(
     }
 }
 
+/// range(start, end) - Build an integer range as an array.
+///
+/// End is exclusive. Supports ascending and descending ranges.
+pub(super) fn builtin_range(
+    _ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    check_arity(&args, 2, "range", "range(start, end)")?;
+    let start = arg_int(&args, 0, "range", "first argument", "range(start, end)")?;
+    let end = arg_int(&args, 1, "range", "second argument", "range(start, end)")?;
+
+    let mut out = Vec::new();
+    if start < end {
+        let mut i = start;
+        while i < end {
+            out.push(Value::Integer(i));
+            i += 1;
+        }
+    } else if start > end {
+        let mut i = start;
+        while i > end {
+            out.push(Value::Integer(i));
+            i -= 1;
+        }
+    }
+    Ok(Value::Array(out.into()))
+}
+
+fn aggregate_numeric(
+    values: &[Value],
+    name: &str,
+    signature: &str,
+    product: bool,
+) -> Result<Value, String> {
+    let mut int_acc: i64 = if product { 1 } else { 0 };
+    let mut float_acc: f64 = if product { 1.0 } else { 0.0 };
+    let mut has_float = false;
+
+    for value in values {
+        match value {
+            Value::Integer(v) => {
+                if has_float {
+                    if product {
+                        float_acc *= *v as f64;
+                    } else {
+                        float_acc += *v as f64;
+                    }
+                } else if product {
+                    int_acc = int_acc.checked_mul(*v).ok_or_else(|| {
+                        format!("{}: integer overflow{}", name, format_hint(signature))
+                    })?;
+                } else {
+                    int_acc = int_acc.checked_add(*v).ok_or_else(|| {
+                        format!("{}: integer overflow{}", name, format_hint(signature))
+                    })?;
+                }
+            }
+            Value::Float(v) => {
+                if !has_float {
+                    float_acc = int_acc as f64;
+                    has_float = true;
+                }
+                if product {
+                    float_acc *= *v;
+                } else {
+                    float_acc += *v;
+                }
+            }
+            other => {
+                return Err(type_error(
+                    name,
+                    "array elements",
+                    "Integer or Float",
+                    other.type_name(),
+                    signature,
+                ));
+            }
+        }
+    }
+
+    if has_float {
+        Ok(Value::Float(float_acc))
+    } else {
+        Ok(Value::Integer(int_acc))
+    }
+}
+
+/// sum(collection) - Sum numeric elements in an array or list.
+pub(super) fn builtin_sum(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+    check_arity(&args, 1, "sum", "sum(collection)")?;
+    match &args[0] {
+        Value::Array(arr) => aggregate_numeric(arr, "sum", "sum(collection)", false),
+        Value::None => Ok(Value::Integer(0)),
+        Value::Gc(h) => match ctx.gc_heap().get(*h) {
+            HeapObject::Cons { .. } => {
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("sum: malformed list")?;
+                aggregate_numeric(&elements, "sum", "sum(collection)", false)
+            }
+            _ => Err(type_error(
+                "sum",
+                "argument",
+                "Array or List",
+                "Map",
+                "sum(collection)",
+            )),
+        },
+        other => Err(type_error(
+            "sum",
+            "argument",
+            "Array or List",
+            other.type_name(),
+            "sum(collection)",
+        )),
+    }
+}
+
+/// product(collection) - Multiply numeric elements in an array or list.
+pub(super) fn builtin_product(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    check_arity(&args, 1, "product", "product(collection)")?;
+    match &args[0] {
+        Value::Array(arr) => aggregate_numeric(arr, "product", "product(collection)", true),
+        Value::None => Ok(Value::Integer(1)),
+        Value::Gc(h) => match ctx.gc_heap().get(*h) {
+            HeapObject::Cons { .. } => {
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("product: malformed list")?;
+                aggregate_numeric(&elements, "product", "product(collection)", true)
+            }
+            _ => Err(type_error(
+                "product",
+                "argument",
+                "Array or List",
+                "Map",
+                "product(collection)",
+            )),
+        },
+        other => Err(type_error(
+            "product",
+            "argument",
+            "Array or List",
+            other.type_name(),
+            "product(collection)",
+        )),
+    }
+}
+
+fn invoke_unary_callback(
+    ctx: &mut dyn RuntimeContext,
+    func: &Value,
+    arg: Value,
+) -> Result<Value, String> {
+    match func {
+        Value::Builtin(builtin) => (builtin.func)(ctx, vec![arg]),
+        _ => ctx.invoke_value(func.clone(), vec![arg]),
+    }
+}
+
+fn invoke_binary_callback(
+    ctx: &mut dyn RuntimeContext,
+    func: &Value,
+    left: Value,
+    right: Value,
+) -> Result<Value, String> {
+    match func {
+        Value::Builtin(builtin) => (builtin.func)(ctx, vec![left, right]),
+        _ => ctx.invoke_value(func.clone(), vec![left, right]),
+    }
+}
+
 /// sort(arr) or sort(arr, order) - Return a new sorted array
 /// order: "asc" (default) or "desc"
 /// Only works with integers/floats
@@ -422,8 +595,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         Value::Array(arr) => {
             let mut results = Vec::with_capacity(arr.len());
             for (idx, item) in arr.iter().enumerate() {
-                let result = ctx
-                    .invoke_value(func.clone(), vec![item.clone()])
+                let result = invoke_unary_callback(ctx, &func, item.clone())
                     .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
                 results.push(result);
             }
@@ -436,8 +608,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
                     list_ops::collect_list(ctx, &args[0]).ok_or("map: malformed list")?;
                 let mut results = Vec::with_capacity(elements.len());
                 for (idx, item) in elements.into_iter().enumerate() {
-                    let result = ctx
-                        .invoke_value(func.clone(), vec![item])
+                    let result = invoke_unary_callback(ctx, &func, item)
                         .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
                     results.push(result);
                 }
@@ -500,8 +671,7 @@ pub(super) fn builtin_filter(
         Value::Array(arr) => {
             let mut results = Vec::new();
             for (idx, item) in arr.iter().enumerate() {
-                let result = ctx
-                    .invoke_value(func.clone(), vec![item.clone()])
+                let result = invoke_unary_callback(ctx, &func, item.clone())
                     .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
                 if result.is_truthy() {
                     results.push(item.clone());
@@ -516,8 +686,7 @@ pub(super) fn builtin_filter(
                     list_ops::collect_list(ctx, &args[0]).ok_or("filter: malformed list")?;
                 let mut results = Vec::new();
                 for (idx, item) in elements.into_iter().enumerate() {
-                    let result = ctx
-                        .invoke_value(func.clone(), vec![item.clone()])
+                    let result = invoke_unary_callback(ctx, &func, item.clone())
                         .map_err(|e| format!("filter: callback error at index {}: {}", idx, e))?;
                     if result.is_truthy() {
                         results.push(item);
@@ -582,8 +751,7 @@ pub(super) fn builtin_fold(
     match &args[0] {
         Value::Array(arr) => {
             for (idx, item) in arr.iter().enumerate() {
-                acc = ctx
-                    .invoke_value(func.clone(), vec![acc, item.clone()])
+                acc = invoke_binary_callback(ctx, &func, acc, item.clone())
                     .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
             }
             Ok(acc)
@@ -594,8 +762,7 @@ pub(super) fn builtin_fold(
                 let elements =
                     list_ops::collect_list(ctx, &args[0]).ok_or("fold: malformed list")?;
                 for (idx, item) in elements.into_iter().enumerate() {
-                    acc = ctx
-                        .invoke_value(func.clone(), vec![acc, item])
+                    acc = invoke_binary_callback(ctx, &func, acc, item)
                         .map_err(|e| format!("fold: callback error at index {}: {}", idx, e))?;
                 }
                 Ok(acc)

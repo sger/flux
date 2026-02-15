@@ -1,6 +1,6 @@
 //! Compile-time evaluation of constant expressions.
 
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
     runtime::value::Value,
@@ -27,7 +27,7 @@ pub fn eval_const_expr(
 
         Expression::Some { value, .. } => {
             let inner = eval_const_expr(value, defined, interner)?;
-            Ok(Value::Some(Rc::new(inner)))
+            Ok(Value::Some(std::rc::Rc::new(inner)))
         }
 
         Expression::Array { elements, .. } => {
