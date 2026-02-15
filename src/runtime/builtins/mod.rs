@@ -308,6 +308,10 @@ pub fn get_builtin(name: &str) -> Option<&'static BuiltinFunction> {
     BUILTINS.iter().find(|b| b.name == name)
 }
 
+pub fn get_builtin_index(name: &str) -> Option<usize> {
+    BUILTINS.iter().position(|b| b.name == name)
+}
+
 pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
     BUILTINS.get(index)
 }

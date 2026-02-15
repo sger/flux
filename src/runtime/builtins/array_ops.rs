@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::runtime::{
     RuntimeContext,
+    builtins::get_builtin_by_index,
     gc::{HeapObject, hamt::hamt_len},
     value::Value,
 };
@@ -482,7 +483,11 @@ fn invoke_unary_callback(
     arg: Value,
 ) -> Result<Value, String> {
     match func {
-        Value::Builtin(builtin) => (builtin.func)(ctx, vec![arg]),
+        Value::Builtin(builtin_idx) => {
+            let builtin = get_builtin_by_index(*builtin_idx as usize)
+                .ok_or_else(|| format!("map/filter: invalid builtin index {}", builtin_idx))?;
+            (builtin.func)(ctx, vec![arg])
+        }
         _ => ctx.invoke_value(func.clone(), vec![arg]),
     }
 }
@@ -494,7 +499,11 @@ fn invoke_binary_callback(
     right: Value,
 ) -> Result<Value, String> {
     match func {
-        Value::Builtin(builtin) => (builtin.func)(ctx, vec![left, right]),
+        Value::Builtin(builtin_idx) => {
+            let builtin = get_builtin_by_index(*builtin_idx as usize)
+                .ok_or_else(|| format!("fold: invalid builtin index {}", builtin_idx))?;
+            (builtin.func)(ctx, vec![left, right])
+        }
         _ => ctx.invoke_value(func.clone(), vec![left, right]),
     }
 }

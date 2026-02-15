@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
+use crate::runtime::builtins::get_builtin_by_index;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
@@ -32,8 +33,9 @@ impl VM {
         let callee_idx = self.sp - 1 - num_args;
         match &self.stack[callee_idx] {
             Value::Closure(closure) => self.call_closure(closure.clone(), num_args),
-            Value::Builtin(builtin) => {
-                let builtin = builtin.clone();
+            Value::Builtin(builtin_idx) => {
+                let builtin = get_builtin_by_index(*builtin_idx as usize)
+                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
                 let callee_idx = self.sp - 1 - num_args;
                 self.stack[callee_idx] = Value::Uninit;
                 let fixed_arity = Self::builtin_fixed_arity(builtin.name);
@@ -177,7 +179,11 @@ impl VM {
     /// functions from within the builtin implementation.
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
-            Value::Builtin(builtin) => (builtin.func)(self, args),
+            Value::Builtin(builtin_idx) => {
+                let builtin = get_builtin_by_index(builtin_idx as usize)
+                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
+                (builtin.func)(self, args)
+            }
             Value::Closure(closure) => {
                 let num_args = args.len();
                 if num_args != closure.function.num_parameters {

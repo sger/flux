@@ -358,7 +358,13 @@ impl VM {
         }
         let new_sp = self.sp - 1;
         self.sp = new_sp;
-        let value = std::mem::replace(&mut self.stack[new_sp], Value::Uninit);
+        // Move out + overwrite without mem::replace drop glue on the hot pop path.
+        let value = unsafe {
+            let slot = self.stack.as_mut_ptr().add(new_sp);
+            let out = std::ptr::read(slot);
+            std::ptr::write(slot, Value::Uninit);
+            out
+        };
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
         Ok(value)
@@ -406,9 +412,21 @@ impl VM {
         if self.sp < 2 {
             return Err("stack underflow".to_string());
         }
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let new_sp = self.sp - 2;
+        self.sp = new_sp;
+        // Move both values out in one pass and overwrite dead slots with Uninit.
+        // SAFETY: old sp >= 2 guarantees both slots are initialized and in-bounds.
+        let (left, right) = unsafe {
+            let base = self.stack.as_mut_ptr().add(new_sp);
+            let left = std::ptr::read(base);
+            let right = std::ptr::read(base.add(1));
+            std::ptr::write(base, Value::Uninit);
+            std::ptr::write(base.add(1), Value::Uninit);
+            (left, right)
+        };
         self.last_popped = Value::None;
+        #[cfg(debug_assertions)]
+        self.debug_assert_stack_invariant();
         Ok((left, right))
     }
 

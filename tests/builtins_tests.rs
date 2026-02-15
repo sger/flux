@@ -8,7 +8,7 @@ use std::{
 
 use flux::bytecode::bytecode::Bytecode;
 use flux::runtime::RuntimeContext;
-use flux::runtime::builtins::get_builtin;
+use flux::runtime::builtins::{get_builtin, get_builtin_index};
 use flux::runtime::gc::GcHeap;
 use flux::runtime::gc::hamt::{hamt_empty, hamt_insert, hamt_len, hamt_lookup};
 use flux::runtime::hash_key::HashKey;
@@ -1370,8 +1370,8 @@ fn test_builtin_now_ms() {
 
 #[test]
 fn test_builtin_time() {
-    let print_builtin = get_builtin("print").expect("print builtin exists").clone();
-    let result = call("time", vec![Value::Builtin(print_builtin)]).unwrap();
+    let print_builtin_idx = get_builtin_index("print").expect("print builtin exists");
+    let result = call("time", vec![Value::Builtin(print_builtin_idx as u8)]).unwrap();
     match result {
         Value::Integer(ms) => assert!(ms >= 0),
         _ => panic!("expected Integer"),
