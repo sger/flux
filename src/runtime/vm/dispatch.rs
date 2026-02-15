@@ -107,7 +107,11 @@ impl VM {
                 Ok(1)
             }
             OpCode::OpReturnValue => {
-                let return_value = self.pop()?;
+                let mut return_value = self.pop()?;
+                // Internal sentinel values must not escape to user-observable results.
+                if matches!(return_value, Value::Uninit) {
+                    return_value = Value::None;
+                }
                 let bp = self.pop_frame_bp();
                 self.reset_sp(bp - 1)?;
                 self.push(return_value)?;
@@ -223,6 +227,43 @@ impl VM {
                 Ok(5)
             }
             OpCode::OpAdd | OpCode::OpSub | OpCode::OpMul | OpCode::OpDiv | OpCode::OpMod => {
+                // Inline integer fast-path: avoid pop_pair + push overhead for the common case.
+                if self.sp >= 2 {
+                    let l_idx = self.sp - 2;
+                    let r_idx = self.sp - 1;
+                    let fast = match (&self.stack[l_idx], &self.stack[r_idx]) {
+                        (Value::Integer(l), Value::Integer(r)) => match op {
+                            OpCode::OpAdd => Some(Value::Integer(l.wrapping_add(*r))),
+                            OpCode::OpSub => Some(Value::Integer(l.wrapping_sub(*r))),
+                            OpCode::OpMul => Some(Value::Integer(l.wrapping_mul(*r))),
+                            OpCode::OpDiv => {
+                                if *r == 0 {
+                                    None // fall through to full handler for error
+                                } else {
+                                    Some(Value::Integer(l / r))
+                                }
+                            }
+                            OpCode::OpMod => {
+                                if *r == 0 {
+                                    None
+                                } else {
+                                    Some(Value::Integer(l % r))
+                                }
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(result) = fast {
+                        // Overwrite left slot with result, clear right slot.
+                        // Old values are Integer (trivially droppable).
+                        self.stack[l_idx] = result;
+                        self.stack[r_idx] = Value::Uninit;
+                        self.sp -= 1;
+                        self.last_popped = Value::None;
+                        return Ok(1);
+                    }
+                }
                 self.execute_binary_operation(op)?;
                 Ok(1)
             }
@@ -231,6 +272,32 @@ impl VM {
             | OpCode::OpGreaterThan
             | OpCode::OpLessThanOrEqual
             | OpCode::OpGreaterThanOrEqual => {
+                // Inline integer fast-path for comparisons.
+                if self.sp >= 2 {
+                    let l_idx = self.sp - 2;
+                    let r_idx = self.sp - 1;
+                    let fast = match (&self.stack[l_idx], &self.stack[r_idx]) {
+                        (Value::Integer(l), Value::Integer(r)) => {
+                            let result = match op {
+                                OpCode::OpEqual => l == r,
+                                OpCode::OpNotEqual => l != r,
+                                OpCode::OpGreaterThan => l > r,
+                                OpCode::OpLessThanOrEqual => l <= r,
+                                OpCode::OpGreaterThanOrEqual => l >= r,
+                                _ => unreachable!(),
+                            };
+                            Some(result)
+                        }
+                        _ => None,
+                    };
+                    if let Some(result) = fast {
+                        self.stack[l_idx] = Value::Boolean(result);
+                        self.stack[r_idx] = Value::Uninit;
+                        self.sp -= 1;
+                        self.last_popped = Value::None;
+                        return Ok(1);
+                    }
+                }
                 self.execute_comparison(op)?;
                 Ok(1)
             }
@@ -497,6 +564,20 @@ impl VM {
                     _ => return Err(Self::cons_tail_type_err(&value)),
                 }
                 Ok(1)
+            }
+            OpCode::OpReturnLocal => {
+                // Superinstruction: GetLocal(n) + ReturnValue fused into one dispatch.
+                // Avoids clone + push + pop cycle.
+                let idx = Self::read_u8_fast(instructions, ip + 1);
+                let bp = self.frames[self.frame_index].base_pointer;
+                let mut return_value = self.stack[bp + idx].clone();
+                if matches!(return_value, Value::Uninit) {
+                    return_value = Value::None;
+                }
+                let frame_bp = self.pop_frame_bp();
+                self.reset_sp(frame_bp - 1)?;
+                self.push(return_value)?;
+                Ok(0)
             }
         }
     }
