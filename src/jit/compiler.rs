@@ -1501,10 +1501,176 @@ fn compile_expression(
             interner,
         ),
 
-        _ => Err(format!(
-            "unsupported expression in JIT: {:?}",
-            std::mem::discriminant(expr)
-        )),
+        Expression::Some { value, .. } => {
+            let inner = compile_expression(
+                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+            )?;
+            let make_some = get_helper_func_ref(module, helpers, builder, "rt_make_some");
+            let call = builder.ins().call(make_some, &[ctx_val, inner]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::Left { value, .. } => {
+            let inner = compile_expression(
+                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+            )?;
+            let make_left = get_helper_func_ref(module, helpers, builder, "rt_make_left");
+            let call = builder.ins().call(make_left, &[ctx_val, inner]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::Right { value, .. } => {
+            let inner = compile_expression(
+                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+            )?;
+            let make_right = get_helper_func_ref(module, helpers, builder, "rt_make_right");
+            let call = builder.ins().call(make_right, &[ctx_val, inner]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::ArrayLiteral { elements, .. } => {
+            let mut elem_vals = Vec::with_capacity(elements.len());
+            for elem in elements {
+                let val = compile_expression(
+                    module, helpers, builder, scope, ctx_val, return_block, tail_call, elem,
+                    interner,
+                )?;
+                elem_vals.push(val);
+            }
+            let len = elem_vals.len();
+            let slot =
+                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    (len as u32).max(1) * 8,
+                    3,
+                ));
+            for (i, val) in elem_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 8) as i32);
+            }
+            let elems_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let len_val = builder.ins().iconst(PTR_TYPE, len as i64);
+            let make_array = get_helper_func_ref(module, helpers, builder, "rt_make_array");
+            let call = builder
+                .ins()
+                .call(make_array, &[ctx_val, elems_ptr, len_val]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::ListLiteral { elements, .. } => {
+            // Build cons chain in reverse: start with None, prepend each element
+            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+            let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
+            let none_call = builder.ins().call(make_none, &[ctx_val]);
+            let mut acc = builder.inst_results(none_call)[0];
+            for elem in elements.iter().rev() {
+                let val = compile_expression(
+                    module, helpers, builder, scope, ctx_val, return_block, tail_call, elem,
+                    interner,
+                )?;
+                let cons_call = builder.ins().call(make_cons, &[ctx_val, val, acc]);
+                acc = builder.inst_results(cons_call)[0];
+            }
+            Ok(acc)
+        }
+        Expression::Hash { pairs, .. } => {
+            let npairs = pairs.len();
+            let mut pair_vals = Vec::with_capacity(npairs * 2);
+            for (key, value) in pairs {
+                let k = compile_expression(
+                    module, helpers, builder, scope, ctx_val, return_block, tail_call, key,
+                    interner,
+                )?;
+                let v = compile_expression(
+                    module, helpers, builder, scope, ctx_val, return_block, tail_call, value,
+                    interner,
+                )?;
+                pair_vals.push(k);
+                pair_vals.push(v);
+            }
+            let slot_size = (npairs as u32 * 2).max(1) * 8;
+            let slot =
+                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    slot_size,
+                    3,
+                ));
+            for (i, val) in pair_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 8) as i32);
+            }
+            let pairs_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let npairs_val = builder.ins().iconst(PTR_TYPE, npairs as i64);
+            let make_hash = get_helper_func_ref(module, helpers, builder, "rt_make_hash");
+            let call = builder
+                .ins()
+                .call(make_hash, &[ctx_val, pairs_ptr, npairs_val]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::Index { left, index, .. } => {
+            let left_val = compile_expression(
+                module, helpers, builder, scope, ctx_val, return_block, tail_call, left, interner,
+            )?;
+            let index_val = compile_expression(
+                module, helpers, builder, scope, ctx_val, return_block, tail_call, index, interner,
+            )?;
+            let rt_index = get_helper_func_ref(module, helpers, builder, "rt_index");
+            let call = builder
+                .ins()
+                .call(rt_index, &[ctx_val, left_val, index_val]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::InterpolatedString { parts, .. } => {
+            use crate::syntax::expression::StringPart;
+            let rt_to_string = get_helper_func_ref(module, helpers, builder, "rt_to_string");
+            let rt_add = get_helper_func_ref(module, helpers, builder, "rt_add");
+
+            let mut acc: Option<CraneliftValue> = None;
+            for part in parts {
+                let part_val = match part {
+                    StringPart::Literal(s) => {
+                        let bytes = s.as_bytes();
+                        let data = module
+                            .declare_anonymous_data(false, false)
+                            .map_err(|e| e.to_string())?;
+                        let mut desc = cranelift_module::DataDescription::new();
+                        desc.define(bytes.to_vec().into_boxed_slice());
+                        module
+                            .define_data(data, &desc)
+                            .map_err(|e| e.to_string())?;
+                        let gv = module.declare_data_in_func(data, builder.func);
+                        let ptr = builder.ins().global_value(PTR_TYPE, gv);
+                        let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
+                        let make_string =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_string");
+                        let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
+                        builder.inst_results(call)[0]
+                    }
+                    StringPart::Interpolation(expr) => {
+                        let val = compile_expression(
+                            module, helpers, builder, scope, ctx_val, return_block, tail_call,
+                            expr, interner,
+                        )?;
+                        let call = builder.ins().call(rt_to_string, &[ctx_val, val]);
+                        builder.inst_results(call)[0]
+                    }
+                };
+                acc = Some(match acc {
+                    None => part_val,
+                    Some(prev) => {
+                        let call = builder.ins().call(rt_add, &[ctx_val, prev, part_val]);
+                        builder.inst_results(call)[0]
+                    }
+                });
+            }
+            // Empty interpolated string edge case
+            match acc {
+                Some(val) => Ok(val),
+                None => {
+                    let make_string =
+                        get_helper_func_ref(module, helpers, builder, "rt_make_string");
+                    let null = builder.ins().iconst(PTR_TYPE, 0);
+                    let zero = builder.ins().iconst(PTR_TYPE, 0);
+                    let call = builder.ins().call(make_string, &[ctx_val, null, zero]);
+                    Ok(builder.inst_results(call)[0])
+                }
+            }
+        }
+
     }
 }
 
@@ -1579,7 +1745,75 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            _ => return Err("unsupported match pattern in JIT (yet)".to_string()),
+            Pattern::None { .. } => {
+                let is_none = get_helper_func_ref(module, helpers, builder, "rt_is_none");
+                let call = builder.ins().call(is_none, &[ctx_val, scrutinee_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::EmptyList { .. } => {
+                let is_el =
+                    get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
+                let call = builder.ins().call(is_el, &[ctx_val, scrutinee_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Some { .. } => {
+                let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
+                let call = builder.ins().call(is_some, &[ctx_val, scrutinee_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Left { .. } => {
+                let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
+                let call = builder.ins().call(is_left, &[ctx_val, scrutinee_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Right { .. } => {
+                let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
+                let call = builder.ins().call(is_right, &[ctx_val, scrutinee_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Literal { expression, .. } => {
+                // Compile the literal value, then compare with scrutinee
+                let lit_val = compile_expression(
+                    module, helpers, builder, scope, ctx_val, return_block, tail_call,
+                    expression, interner,
+                )?;
+                let vals_eq =
+                    get_helper_func_ref(module, helpers, builder, "rt_values_equal");
+                let call = builder
+                    .ins()
+                    .call(vals_eq, &[ctx_val, scrutinee_val, lit_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
         }
 
         builder.seal_block(test_block);
@@ -1687,7 +1921,28 @@ fn bind_pattern_value(
             bind_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
             Ok(())
         }
-        _ => Err("unsupported pattern binding in JIT (yet)".to_string()),
+        Pattern::None { .. } | Pattern::EmptyList { .. } | Pattern::Literal { .. } => {
+            // No bindings for these patterns
+            Ok(())
+        }
+        Pattern::Some { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Left { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Right { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
     }
 }
 
@@ -2666,6 +2921,124 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 3,
                 has_return: false,
+            },
+        ),
+        // Phase 4: value wrappers (ctx, value) -> *mut Value
+        (
+            "rt_make_some",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_make_left",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_make_right",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        // Phase 4: pattern matching checks (ctx, value) -> i64
+        (
+            "rt_is_some",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_is_left",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_is_right",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_is_none",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_is_empty_list",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        // Phase 4: unwrap helpers (ctx, value) -> *mut Value
+        (
+            "rt_unwrap_some",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_unwrap_left",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_unwrap_right",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        // Phase 4: structural equality (ctx, a, b) -> i64
+        (
+            "rt_values_equal",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        // Phase 4: collections
+        (
+            "rt_make_array",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_make_hash",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_index",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        // Phase 4: string ops (ctx, value) -> *mut Value
+        (
+            "rt_to_string",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
             },
         ),
     ]
