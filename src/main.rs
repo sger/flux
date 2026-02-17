@@ -15,9 +15,11 @@ use flux::{
     runtime::{gc::GcHeap, value::Value, vm::VM},
     syntax::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
-        module_graph::ModuleGraph, parser::Parser, program::Program,
+        module_graph::ModuleGraph, parser::Parser,
     },
 };
+#[cfg(feature = "jit")]
+use flux::syntax::program::Program;
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
