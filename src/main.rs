@@ -15,7 +15,7 @@ use flux::{
     runtime::{gc::GcHeap, value::Value, vm::VM},
     syntax::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
-        module_graph::ModuleGraph, parser::Parser,
+        module_graph::ModuleGraph, parser::Parser, program::Program,
     },
 };
 
@@ -262,8 +262,7 @@ fn run_file(
     no_gc: bool,
     gc_threshold: Option<usize>,
     gc_telemetry: bool,
-    #[cfg_attr(not(feature = "jit"), allow(unused))]
-    use_jit: bool,
+    #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -420,7 +419,15 @@ fn run_file(
             // --- JIT execution path ---
             #[cfg(feature = "jit")]
             if use_jit {
-                match flux::jit::jit_compile_and_run(&program, &compiler.interner) {
+                // JIT must see the same module set as the VM path (entry + imports).
+                let mut jit_program = Program::new();
+                for node in graph.topo_order() {
+                    jit_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                match flux::jit::jit_compile_and_run(&jit_program, &compiler.interner) {
                     Ok(_result) => {}
                     Err(err) => {
                         eprintln!("{}", err);

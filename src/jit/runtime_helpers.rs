@@ -11,7 +11,7 @@ use std::ptr;
 use std::rc::Rc;
 
 use crate::runtime::{
-    builtins::get_builtin_by_index,
+    builtins::get_builtin_by_index, gc::heap_object::HeapObject, jit_closure::JitClosure,
     value::Value,
 };
 
@@ -24,12 +24,6 @@ use super::context::JitContext;
 /// Safely dereference a JitContext pointer. Returns None if null.
 unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
-}
-
-/// Set an error on the context and return null.
-unsafe fn err(ctx: *mut JitContext, msg: String) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.error = Some(msg);
-    ptr::null_mut()
 }
 
 // ---------------------------------------------------------------------------
@@ -58,10 +52,109 @@ pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> *mut Value {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rt_make_empty_list(ctx: *mut JitContext) -> *mut Value {
+    unsafe { ctx_ref(ctx) }.alloc(Value::EmptyList)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rt_make_string(ctx: *mut JitContext, ptr: *const u8, len: i64) -> *mut Value {
     let s = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len as usize)) };
     let rc: Rc<str> = Rc::from(s);
     unsafe { ctx_ref(ctx) }.alloc(Value::String(rc))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_builtin(ctx: *mut JitContext, builtin_index: i64) -> *mut Value {
+    unsafe { ctx_ref(ctx) }.alloc(Value::Builtin(builtin_index as u8))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_jit_closure(
+    ctx: *mut JitContext,
+    function_index: i64,
+    captures_ptr: *const *mut Value,
+    ncaptures: i64,
+) -> *mut Value {
+    let captures: Vec<Value> = (0..ncaptures as usize)
+        .map(|i| unsafe { (*captures_ptr.add(i)).as_ref().unwrap().clone() })
+        .collect();
+    let closure = JitClosure::new(function_index as usize, captures);
+    unsafe { ctx_ref(ctx) }.alloc(Value::JitClosure(Rc::new(closure)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_cons(
+    ctx: *mut JitContext,
+    head: *mut Value,
+    tail: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if head.is_null() || tail.is_null() {
+        ctx.error = Some("cons received null value".to_string());
+        return ptr::null_mut();
+    }
+    let handle = ctx.gc_heap.alloc(HeapObject::Cons {
+        head: unsafe { (*head).clone() },
+        tail: unsafe { (*tail).clone() },
+    });
+    ctx.alloc(Value::Gc(handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_cons(ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if value.is_null() {
+        return 0;
+    }
+    let ctx = unsafe { ctx_ref(ctx) };
+    let is_cons = matches!(
+        unsafe { &*value },
+        Value::Gc(h) if matches!(ctx.gc_heap.get(*h), HeapObject::Cons { .. })
+    );
+    if is_cons { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_cons_head(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if value.is_null() {
+        ctx.error = Some("cons head on null".to_string());
+        return ptr::null_mut();
+    }
+    match unsafe { &*value } {
+        Value::Gc(h) => match ctx.gc_heap.get(*h) {
+            HeapObject::Cons { head, .. } => ctx.alloc(head.clone()),
+            _ => {
+                ctx.error = Some("cons head expected non-empty list".to_string());
+                ptr::null_mut()
+            }
+        },
+        _ => {
+            ctx.error = Some("cons head expected non-empty list".to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_cons_tail(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if value.is_null() {
+        ctx.error = Some("cons tail on null".to_string());
+        return ptr::null_mut();
+    }
+    match unsafe { &*value } {
+        Value::Gc(h) => match ctx.gc_heap.get(*h) {
+            HeapObject::Cons { tail, .. } => ctx.alloc(tail.clone()),
+            _ => {
+                ctx.error = Some("cons tail expected non-empty list".to_string());
+                ptr::null_mut()
+            }
+        },
+        _ => {
+            ctx.error = Some("cons tail expected non-empty list".to_string());
+            ptr::null_mut()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +229,7 @@ pub extern "C" fn rt_div(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> 
     let (a, b) = unsafe { (&*a, &*b) };
     let ctx = unsafe { ctx_ref(ctx) };
     match (a, b) {
-        (Value::Integer(_, ), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
+        (Value::Integer(_), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
             ctx.error = Some("division by zero".to_string());
             ptr::null_mut()
         }
@@ -208,6 +301,12 @@ pub extern "C" fn rt_not(ctx: *mut JitContext, a: *mut Value) -> *mut Value {
             ptr::null_mut()
         }
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
+    let a = unsafe { &*a };
+    if a.is_truthy() { 1 } else { 0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -346,11 +445,45 @@ pub extern "C" fn rt_call_builtin(
     };
 
     // Collect arguments from pointer array
-    let args: Vec<Value> = (0..nargs as usize)
-        .map(|i| unsafe { (*args_ptr.add(i)).as_ref().unwrap().clone() })
-        .collect();
+    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("builtin arg {} evaluated to null", i));
+            return ptr::null_mut();
+        }
+        args.push(unsafe { (*arg_ptr).clone() });
+    }
 
     match (builtin.func)(ctx, args) {
+        Ok(result) => ctx.alloc(result),
+        Err(msg) => {
+            ctx.error = Some(msg);
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_call_value(
+    ctx: *mut JitContext,
+    callee: *mut Value,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let callee_value = unsafe { (*callee).clone() };
+    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            return ptr::null_mut();
+        }
+        args.push(unsafe { (*arg_ptr).clone() });
+    }
+
+    match crate::runtime::RuntimeContext::invoke_value(ctx, callee_value, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
             ctx.error = Some(msg);
@@ -377,6 +510,15 @@ pub extern "C" fn rt_set_global(ctx: *mut JitContext, index: i64, value: *mut Va
     ctx.globals[index as usize] = value;
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_set_arity_error(ctx: *mut JitContext, got: i64, want: i64) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    ctx.error = Some(format!(
+        "wrong number of arguments: want={}, got={}",
+        want, got
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
@@ -389,7 +531,14 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_float", rt_make_float as *const u8),
         ("rt_make_bool", rt_make_bool as *const u8),
         ("rt_make_none", rt_make_none as *const u8),
+        ("rt_make_empty_list", rt_make_empty_list as *const u8),
         ("rt_make_string", rt_make_string as *const u8),
+        ("rt_make_builtin", rt_make_builtin as *const u8),
+        ("rt_make_jit_closure", rt_make_jit_closure as *const u8),
+        ("rt_make_cons", rt_make_cons as *const u8),
+        ("rt_is_cons", rt_is_cons as *const u8),
+        ("rt_cons_head", rt_cons_head as *const u8),
+        ("rt_cons_tail", rt_cons_tail as *const u8),
         ("rt_add", rt_add as *const u8),
         ("rt_sub", rt_sub as *const u8),
         ("rt_mul", rt_mul as *const u8),
@@ -397,6 +546,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_mod", rt_mod as *const u8),
         ("rt_negate", rt_negate as *const u8),
         ("rt_not", rt_not as *const u8),
+        ("rt_is_truthy", rt_is_truthy as *const u8),
         ("rt_equal", rt_equal as *const u8),
         ("rt_not_equal", rt_not_equal as *const u8),
         ("rt_greater_than", rt_greater_than as *const u8),
@@ -406,7 +556,9 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             rt_greater_than_or_equal as *const u8,
         ),
         ("rt_call_builtin", rt_call_builtin as *const u8),
+        ("rt_call_value", rt_call_value as *const u8),
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
+        ("rt_set_arity_error", rt_set_arity_error as *const u8),
     ]
 }

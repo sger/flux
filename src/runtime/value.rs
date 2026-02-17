@@ -2,7 +2,7 @@ use std::{fmt, rc::Rc};
 
 use crate::runtime::{
     closure::Closure, compiled_function::CompiledFunction, gc::gc_handle::GcHandle,
-    hash_key::HashKey,
+    hash_key::HashKey, jit_closure::JitClosure,
 };
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
@@ -67,6 +67,8 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
+    /// JIT-compiled closure object.
+    JitClosure(Rc<JitClosure>),
     /// Builtin function handle (index into builtins table).
     Builtin(u8),
     /// Ordered collection of values.
@@ -91,6 +93,7 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
+            Value::JitClosure(_) => write!(f, "<jit-closure>"),
             Value::Builtin(_) => write!(f, "<builtin>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
@@ -120,6 +123,7 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
+            Value::JitClosure(_) => "JitClosure",
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
             Value::Gc(_) => "Gc",
@@ -172,6 +176,7 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
+            Value::JitClosure(_) => "<jit-closure>".to_string(),
             Value::Builtin(_) => "<builtin>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
