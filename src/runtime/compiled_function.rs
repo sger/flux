@@ -6,6 +6,7 @@ pub struct CompiledFunction {
     pub instructions: Instructions,
     pub num_locals: usize,
     pub num_parameters: usize,
+    pub max_stack: usize,
     pub debug_info: Option<FunctionDebugInfo>,
 }
 
@@ -21,6 +22,8 @@ impl CompiledFunction {
             instructions,
             num_locals,
             num_parameters,
+            // Default stack frame requirement: locals. Compiler can raise this later.
+            max_stack: num_locals,
             debug_info,
         }
     }

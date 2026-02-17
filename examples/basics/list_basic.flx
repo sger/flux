@@ -1,0 +1,84 @@
+// Test: Persistent lists (cons cells)
+// Expected output:
+// [1, 2, 3]
+// [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
+// [2, 3, 4, 5, 6, 7, 8, 9, 10]
+// 1
+// [2, 3]
+// [0, 1, 2, 3]
+// true
+// false
+// 3
+// [3, 2, 1]
+// true
+// false
+// [|1, 2, 3|]
+// --------------------------
+// []
+// [|1|]
+// [1]
+// [100, 200, 300]
+// false
+
+// =============================================================================
+// Building Lists
+// =============================================================================
+
+// Build a list using cons syntax: [head | tail]
+let xs = [1 | [2 | [3 | []]]]
+print(xs);  // [1, 2, 3]
+
+let my_array = [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
+print(my_array);  // [|1, 2, 3, 4, 5, 6, 7, 8, 9, 10|]
+print(tl(to_list(my_array))); // [2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+// =============================================================================
+// Head and Tail (O(1) operations)
+// =============================================================================
+
+print(hd(xs)) // 1
+print(tl(xs))  // [2, 3]
+
+// Prepend is O(1) — shares tail with original
+let ys = [0 | xs]
+print(ys);  // [0, 1, 2, 3]
+
+// =============================================================================
+// List Builtins
+// =============================================================================
+
+// Type checking
+print(is_list(xs))   // true
+print(is_list([|1|])) // false (arrays are not lists)
+
+// Length (O(n) traversal)
+print(len(xs))  // 3
+
+// Reverse
+print(reverse(xs))  // [3, 2, 1]
+
+// Contains
+print(contains(xs, 2))  // true
+print(contains(xs, 9)) // false
+
+// =============================================================================
+// Conversion: Array <-> List
+// =============================================================================
+
+// Convert array to list
+let arr = [|1, 2, 3|]
+let lst = to_list(arr)
+print(to_array(lst))  // [|1, 2, 3|]
+
+let my_new_list = []
+print(my_new_list)  
+
+let my_new_list2 = [|1|]
+print(my_new_list2)
+
+print(to_list(my_new_list2))
+
+let xs_list = [100 | [200 | [300 | []]]];
+print(xs_list)
+
+print(is_list(my_new_list2))  // false

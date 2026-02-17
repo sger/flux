@@ -1,36 +1,36 @@
 // Test: Basic arrays
 // Expected output:
-// [1, 2, 3]
+// [|1, 2, 3|]
 // []
-// [1, 2, 3, 4, 5]
+// [|1, 2, 3, 4, 5|]
 // hello
 // 42
 // true
 
 // Simple array
-let arr = [1, 2, 3];
+let arr = [|1, 2, 3|];
 print(arr);
 
 // Empty array
-let empty = [];
+let empty = [||];
 print(empty);
 
 // Longer array
-let nums = [1, 2, 3, 4, 5];
+let nums = [|1, 2, 3, 4, 5|];
 print(nums);
 
 // Mixed types (if supported)
-let mixed = ["hello", 42, true];
+let mixed = [|"hello", 42, true|];
 print(mixed[0]);
 print(mixed[1]);
 print(mixed[2]);
 
-let left = [1, 2, 3];
-let right = [4, 5, 6];
+let left = [|1, 2, 3|];
+let right = [|4, 5, 6|];
 
 print(concat(left, right));
 
-let reverse_arr = [10, 20, 30, 40, 50, 60];
+let reverse_arr = [|10, 20, 30, 40, 50, 60|];
 
 print(reverse(reverse_arr));
 
@@ -39,8 +39,8 @@ print(contains(reverse_arr, 0));
 
 print(slice(reverse_arr, 0, 3));
 
-let sort_arr = [100, 20, 30, 40, 50, 60];
+let sort_arr = [|100, 20, 30, 40, 50, 60|];
 
 print(sort(sort_arr));
 
-print(join(["1", "2", "3"], ","));
+print(join([|"1", "2", "3"|], ","));

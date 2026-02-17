@@ -252,7 +252,7 @@ pub const UNKNOWN_KEYWORD: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Unknown keyword: `{}`.",
     hint: Some(
-        "Flux keywords are: let, fun, if, else, match, import, module, return, true, false, None. Common mistakes: use `fun` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
+        "Flux keywords are: let, fn, if, else, match, import, module, return, true, false, None. Common mistakes: use `fn` (not `function` or `def`), use `let` (not `var` or `const`). Check for typos in your keyword.",
     ),
 };
 
@@ -648,6 +648,22 @@ pub const DUPLICATE_PATTERN_BINDING: ErrorCode = ErrorCode {
     hint: Some("Use unique binding names within a single pattern."),
 };
 
+pub const UNCLOSED_DELIMITER: ErrorCode = ErrorCode {
+    code: "E076",
+    title: "UNCLOSED DELIMITER",
+    error_type: ErrorType::Compiler,
+    message: "Expected a closing `}}` to match this opening `{{`.",
+    hint: Some("Add the missing closing `}`."),
+};
+
+pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
+    code: "E077",
+    title: "LEGACY LIST TAIL",
+    error_type: ErrorType::Compiler,
+    message: "Use `[]` as the empty list tail instead of `None`.",
+    hint: Some("Replace `None` with `[]` in cons expressions, for example: `[1 | []]`."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================
@@ -737,4 +753,11 @@ pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
         .with_span(span)
         .with_message(format!("Missing comma between {}.", context))
         .with_hint_text(format!("Add a comma between items, e.g. {}.", example))
+}
+
+/// Create an "unclosed delimiter" error for unmatched `{`
+pub fn unclosed_delimiter(open_span: Span) -> Diagnostic {
+    diag_enhanced(&UNCLOSED_DELIMITER)
+        .with_span(open_span)
+        .with_message("Expected a closing `}` to match this opening `{`.")
 }

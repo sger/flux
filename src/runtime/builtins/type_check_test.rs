@@ -1,6 +1,6 @@
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{value::Value, vm::VM},
+    runtime::{gc::hamt::hamt_empty, value::Value, vm::VM},
 };
 
 use super::type_check::{
@@ -44,10 +44,14 @@ fn is_type_checks_values() {
         builtin_is_array(&mut test_vm(), vec![Value::Array(vec![].into())]).unwrap(),
         Value::Boolean(true)
     );
-    assert_eq!(
-        builtin_is_hash(&mut test_vm(), vec![Value::Hash(Default::default())]).unwrap(),
-        Value::Boolean(true)
-    );
+    {
+        let mut vm = test_vm();
+        let root = hamt_empty(&mut vm.gc_heap);
+        assert_eq!(
+            builtin_is_hash(&mut vm, vec![Value::Gc(root)]).unwrap(),
+            Value::Boolean(true)
+        );
+    }
     assert_eq!(
         builtin_is_none(&mut test_vm(), vec![Value::None]).unwrap(),
         Value::Boolean(true)

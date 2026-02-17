@@ -44,7 +44,7 @@ print(max(-5, -10));    // -5
 // =============================================================================
 
 // Example 1: Clamp value to range
-fun clamp(value, minVal, maxVal) {
+fn clamp(value, minVal, maxVal) {
     min(max(value, minVal), maxVal);
 }
 

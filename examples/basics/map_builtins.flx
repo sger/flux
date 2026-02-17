@@ -1,0 +1,55 @@
+// Test: Persistent map builtins (HAMT)
+// Expected output:
+// Some("Alice")
+// None
+// {"name": "Alice", "age": 30, "email": "alice@example.com"}
+// Some("alice@example.com")
+// {"name": "Alice", "age": 30}
+// true
+// false
+// true
+// Immutability check:
+// Some("Alice")
+// None
+
+// =============================================================================
+// Creating and Accessing Maps
+// =============================================================================
+
+let person = {"name": "Alice", "age": 30};
+
+// get returns Some(value) or None
+print(get(person, "name"));     // Some("Alice")
+print(get(person, "email"));    // None
+
+// =============================================================================
+// put - Returns a New Map (Original Unchanged)
+// =============================================================================
+
+// put creates a new map with the key added
+let updated = put(person, "email", "alice@example.com");
+print(updated);                       // {name: Alice, age: 30, email: alice@example.com}
+print(get(updated, "email"));         // Some("alice@example.com")
+
+// =============================================================================
+// delete - Returns a New Map Without the Key
+// =============================================================================
+
+let smaller = delete(updated, "email");
+print(smaller);  // {name: Alice, age: 30}
+
+// =============================================================================
+// Type Checking
+// =============================================================================
+
+print(is_map(person));     // true
+print(is_map([|1, 2, 3|])); // false
+print(is_map({}));         // true
+
+// =============================================================================
+// Immutability: Original Map is Never Modified
+// =============================================================================
+
+print("Immutability check:");
+print(get(person, "name"));   // Some("Alice") — unchanged
+print(get(person, "email"));  // None — put didn't mutate original

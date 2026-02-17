@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt, rc::Rc};
+use std::{fmt, rc::Rc};
 
 use crate::runtime::{
-    builtin_function::BuiltinFunction, closure::Closure, compiled_function::CompiledFunction,
+    closure::Closure, compiled_function::CompiledFunction, gc::gc_handle::GcHandle,
     hash_key::HashKey,
 };
 
@@ -39,6 +39,10 @@ use crate::runtime::{
 /// See [Proposal 019](../../docs/proposals/019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// Internal VM stack sentinel for uninitialized/inactive slots.
+    ///
+    /// This must never be observable at language level.
+    Uninit,
     /// 64-bit signed integer.
     Integer(i64),
     /// 64-bit floating point number.
@@ -49,6 +53,8 @@ pub enum Value {
     String(Rc<str>),
     /// Absence of value.
     None,
+    /// Empty persistent list literal `[]`.
+    EmptyList,
     /// Optional value wrapper.
     Some(Rc<Value>),
     /// Either-left wrapper.
@@ -61,22 +67,24 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
-    /// Builtin function handle.
-    Builtin(BuiltinFunction),
+    /// Builtin function handle (index into builtins table).
+    Builtin(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
-    /// Hash map keyed by hashable values.
-    Hash(Rc<HashMap<HashKey, Value>>),
+    /// GC-managed heap object (cons cell, HAMT map node).
+    Gc(GcHandle),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Value::Uninit => write!(f, "<uninit>"),
             Value::Integer(v) => write!(f, "{}", v),
             Value::Float(v) => write!(f, "{}", v),
             Value::Boolean(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "\"{}\"", v),
             Value::None => write!(f, "None"),
+            Value::EmptyList => write!(f, "[]"),
             Value::Some(v) => write!(f, "Some({})", v),
             Value::Left(v) => write!(f, "Left({})", v),
             Value::Right(v) => write!(f, "Right({})", v),
@@ -86,13 +94,9 @@ impl fmt::Display for Value {
             Value::Builtin(_) => write!(f, "<builtin>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
-                write!(f, "[{}]", items.join(", "))
+                write!(f, "[|{}|]", items.join(", "))
             }
-            Value::Hash(pairs) => {
-                let items: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
-                write!(f, "{{{}}}", items.join(", "))
-            }
+            Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
     }
 }
@@ -103,11 +107,13 @@ impl Value {
     /// These labels are user-visible and are expected to remain stable.
     pub fn type_name(&self) -> &'static str {
         match self {
+            Value::Uninit => "Uninit",
             Value::Integer(_) => "Int",
             Value::Float(_) => "Float",
             Value::Boolean(_) => "Bool",
             Value::String(_) => "String",
             Value::None => "None",
+            Value::EmptyList => "List",
             Value::Some(_) => "Some",
             Value::Left(_) => "Left",
             Value::Right(_) => "Right",
@@ -116,7 +122,7 @@ impl Value {
             Value::Closure(_) => "Closure",
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
-            Value::Hash(_) => "Hash",
+            Value::Gc(_) => "Gc",
         }
     }
 
@@ -124,7 +130,10 @@ impl Value {
     ///
     /// Only `Boolean(false)` and `None` are falsy; all other values are truthy.
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Value::Boolean(false) | Value::None)
+        !matches!(
+            self,
+            Value::Uninit | Value::Boolean(false) | Value::None | Value::EmptyList
+        )
     }
 
     /// Converts this value into a hash-map key if the value is hashable.
@@ -150,11 +159,13 @@ impl Value {
     /// This helper is used by interpolation and string conversion builtins.
     pub fn to_string_value(&self) -> String {
         match self {
+            Value::Uninit => "<uninit>".to_string(),
             Value::Integer(v) => v.to_string(),
             Value::Float(v) => v.to_string(),
             Value::Boolean(v) => v.to_string(),
             Value::String(v) => v.to_string(),
             Value::None => "None".to_string(),
+            Value::EmptyList => "[]".to_string(),
             Value::Some(v) => format!("Some({})", v.to_string_value()),
             Value::Left(_) => "Left({})".to_string(),
             Value::Right(_) => "Right({})".to_string(),
@@ -164,13 +175,9 @@ impl Value {
             Value::Builtin(_) => "<builtin>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
-                format!("[{}]", items.join(", "))
+                format!("[|{}|]", items.join(", "))
             }
-            Value::Hash(pairs) => {
-                let items: Vec<String> =
-                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
-                format!("{{{}}}", items.join(", "))
-            }
+            Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }
     }
 }
@@ -186,7 +193,7 @@ mod tests {
         assert_eq!(Value::Boolean(true).to_string(), "true");
         assert_eq!(
             Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)])).to_string(),
-            "[1, 2]"
+            "[|1, 2|]"
         );
     }
 
@@ -197,6 +204,7 @@ mod tests {
         assert!(Value::Boolean(true).is_truthy());
         assert!(!Value::Boolean(false).is_truthy());
         assert!(!Value::None.is_truthy());
+        assert!(!Value::EmptyList.is_truthy());
     }
 
     #[test]
@@ -220,35 +228,41 @@ mod tests {
         assert_eq!(Value::Boolean(true).type_name(), "Bool");
         assert_eq!(Value::String("x".into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
-        assert_eq!(Value::Some(Rc::new(Value::Integer(1))).type_name(), "Some");
-        assert_eq!(Value::Left(Rc::new(Value::Integer(1))).type_name(), "Left");
+        assert_eq!(Value::EmptyList.type_name(), "List");
         assert_eq!(
-            Value::Right(Rc::new(Value::Integer(1))).type_name(),
+            Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(),
+            "Some"
+        );
+        assert_eq!(
+            Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(),
+            "Left"
+        );
+        assert_eq!(
+            Value::Right(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "Right"
         );
         assert_eq!(
-            Value::ReturnValue(Rc::new(Value::Integer(1))).type_name(),
+            Value::ReturnValue(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "ReturnValue"
         );
         assert_eq!(Value::Array(Rc::new(vec![])).type_name(), "Array");
-        assert_eq!(Value::Hash(Rc::new(HashMap::new())).type_name(), "Hash");
     }
 
     #[test]
     fn test_to_string_value() {
         assert_eq!(Value::String("hello".into()).to_string_value(), "hello");
         assert_eq!(
-            Value::Some(Rc::new(Value::String("x".into()))).to_string_value(),
+            Value::Some(std::rc::Rc::new(Value::String("x".into()))).to_string_value(),
             "Some(x)"
         );
         assert_eq!(
-            Value::ReturnValue(Rc::new(Value::Integer(7))).to_string_value(),
+            Value::ReturnValue(std::rc::Rc::new(Value::Integer(7))).to_string_value(),
             "7"
         );
         assert_eq!(
             Value::Array(Rc::new(vec![Value::String("a".into()), Value::Integer(2)]))
                 .to_string_value(),
-            "[\"a\", 2]"
+            "[|\"a\", 2|]"
         );
     }
 
@@ -267,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clone_shares_rc_for_array_and_hash() {
+    fn test_clone_shares_rc_for_array() {
         let array = Value::Array(Rc::new(vec![Value::Integer(1), Value::Integer(2)]));
         let array_clone = array.clone();
         match (array, array_clone) {
@@ -277,23 +291,18 @@ mod tests {
             }
             _ => panic!("expected array values"),
         }
+    }
 
-        let mut map = HashMap::new();
-        map.insert(HashKey::String("k".to_string()), Value::Integer(42));
-        let hash = Value::Hash(Rc::new(map));
-        let hash_clone = hash.clone();
-        match (hash, hash_clone) {
-            (Value::Hash(left), Value::Hash(right)) => {
-                assert!(Rc::ptr_eq(&left, &right));
-                assert_eq!(Rc::strong_count(&left), 2);
-            }
-            _ => panic!("expected hash values"),
-        }
+    #[test]
+    fn test_clone_shares_gc_handle() {
+        let gc = Value::Gc(GcHandle::new_for_test(42));
+        let gc_clone = gc.clone();
+        assert_eq!(gc, gc_clone);
     }
 
     #[test]
     fn test_clone_shares_rc_for_wrappers() {
-        let some = Value::Some(Rc::new(Value::Integer(7)));
+        let some = Value::Some(std::rc::Rc::new(Value::Integer(7)));
         let some_clone = some.clone();
         match (some, some_clone) {
             (Value::Some(left), Value::Some(right)) => {
@@ -303,7 +312,7 @@ mod tests {
             _ => panic!("expected some values"),
         }
 
-        let ret = Value::ReturnValue(Rc::new(Value::String("ok".into())));
+        let ret = Value::ReturnValue(std::rc::Rc::new(Value::String("ok".into())));
         let ret_clone = ret.clone();
         match (ret, ret_clone) {
             (Value::ReturnValue(left), Value::ReturnValue(right)) => {
@@ -312,5 +321,10 @@ mod tests {
             }
             _ => panic!("expected return values"),
         }
+    }
+
+    #[test]
+    fn value_size_is_compact() {
+        assert!(std::mem::size_of::<Value>() <= 24);
     }
 }

@@ -13,7 +13,7 @@
 // You should see an ICE with file/line/module info pointing to the compiler.
 
 module Debug.IceDemo {
-    fun main() {
+    fn main() {
         let x = 1;
         print(x);
     }

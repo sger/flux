@@ -1,0 +1,64 @@
+// Module: MapUtils
+// Utilities for working with persistent maps (HAMT)
+
+module Modules.MapUtils {
+    // Unwrap a map value (get returns Some/None, this returns the value or None)
+    fn val(m, k) {
+        match get(m, k) {
+            Some(v) -> v,
+            _ -> None,
+        }
+    }
+
+    // Convert an array of [|key, value|] pairs into a map
+    fn from_pairs(pairs) {
+        fold(pairs, {}, \(acc, pair) -> put(acc, first(pair), last(pair)))
+    }
+
+    // Apply function f to every value in the map, returning a new map
+    fn map_values(m, f) {
+        fold(keys(m), {}, \(acc, k) -> put(acc, k, f(val(m, k))))
+    }
+
+    // Helper for filter_entries
+    fn _check(m, acc, k, pred) {
+        let v = val(m, k)
+        if pred(k, v) { put(acc, k, v) } else { acc }
+    }
+
+    // Keep only entries where pred(key, value) returns true
+    fn filter_entries(m, pred) {
+        fold(keys(m), {}, \(acc, k) -> _check(m, acc, k, pred))
+    }
+
+    // Helper for frequencies
+    fn _inc(acc, item) {
+        match get(acc, item) {
+            Some(n) -> put(acc, item, n + 1),
+            _ -> put(acc, item, 1),
+        }
+    }
+
+    // Count occurrences of each value in an array
+    fn frequencies(arr) {
+        fold(arr, {}, \(acc, item) -> _inc(acc, item))
+    }
+
+    // Helper for group_by
+    fn _add_group(acc, k, item) {
+        match get(acc, k) {
+            Some(existing) -> put(acc, k, push(existing, item)),
+            _ -> put(acc, k, [|item|]),
+        }
+    }
+
+    // Group elements by a key function, returns map of key -> [elements]
+    fn group_by(arr, key_fn) {
+        fold(arr, {}, \(acc, item) -> _add_group(acc, key_fn(item), item))
+    }
+
+    // Swap keys and values in a map
+    fn invert(m) {
+        fold(keys(m), {}, \(acc, k) -> put(acc, val(m, k), k))
+    }
+}

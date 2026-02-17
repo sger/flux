@@ -1,5 +1,5 @@
 // Error Example: Reassigning immutable variable
-// Expected Error: [E002] Compiler error: immutable binding
+// Expected Error: [|E002|] Compiler error: immutable binding
 //
 // This demonstrates trying to reassign an immutable variable.
 

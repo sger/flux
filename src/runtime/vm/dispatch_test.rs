@@ -16,9 +16,9 @@ fn new_vm() -> VM {
 fn dispatch_op_true_pushes_boolean() {
     let mut vm = new_vm();
 
-    let advance = vm.dispatch_instruction(0, OpCode::OpTrue).unwrap();
+    let advance = vm.dispatch_instruction(&[], 0, OpCode::OpTrue).unwrap();
 
-    assert!(advance);
+    assert_eq!(advance, 1);
     let result = vm.pop().unwrap();
     assert_eq!(result, Value::Boolean(true));
 }

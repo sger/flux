@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/advanced/using_list_module.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.ListUtils` to import.
+
+  --> examples/advanced/using_list_module.flx:27:1
+   |
+27 | import Modules.ListUtils as L
+   | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.ListUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.ListUtils` under roots: examples/advanced, src (imported from examples/advanced/using_list_module.flx).
+== stdout ==
+<not executed>

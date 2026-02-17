@@ -21,7 +21,7 @@ This document analyzes the current Flux grammar and proposes targeted improvemen
 Literals:    Int, Float, String, Ident
 Operators:   + - * / ! < > == != =
 Delimiters:  ( ) { } [ ] , ; : . ->
-Keywords:    let fun if else return true false module import as Some None match
+Keywords:    let fn if else return true false module import as Some None match
 Special:     #{ (interpolation start)
 ```
 
@@ -38,7 +38,7 @@ Special:     #{ (interpolation start)
 | Prefix | `!x`, `-x` | Only `!` and `-` |
 | Infix | `a + b` | Operator as String |
 | If | `if c { a } else { b }` | Expression, optional else |
-| Function | `fun(x) { x + 1 }` | Anonymous function |
+| Function | `fn(x) { x + 1 }` | Anonymous function |
 | Call | `f(a, b)` | |
 | Array | `[1, 2, 3]` | |
 | Index | `arr[0]` | |
@@ -55,7 +55,7 @@ Special:     #{ (interpolation start)
 | Let | `let x = 1;` |
 | Assign | `x = 2;` |
 | Return | `return x;` |
-| Function | `fun foo(x) { ... }` |
+| Function | `fn foo(x) { ... }` |
 | Module | `module M { ... }` |
 | Import | `import M as N` |
 | Expression | `print(x);` |
@@ -524,7 +524,7 @@ define_tokens! {
     keywords {
         // Existing
         Let    => "let",
-        Fun    => "fun",
+        Fun    => "fn",
         If     => "if",
         Else   => "else",
         Return => "return",
@@ -709,7 +709,7 @@ statement   = let_stmt
 
 let_stmt    = "let" IDENT "=" expression ";"? ;
 return_stmt = "return" expression? ";"? ;
-function_stmt = "fun" IDENT "(" params? ")" block ;
+function_stmt = "fn" IDENT "(" params? ")" block ;
 assign_stmt = IDENT "=" expression ";"? ;
 module_stmt = "module" IDENT block ;
 import_stmt = "import" qualified_name ("as" IDENT)? ";"? ;
@@ -755,7 +755,7 @@ pattern     = "_"
             | "None"
             | "Some" "(" pattern ")" ;
 
-function_lit = "fun" "(" params? ")" block ;
+function_lit = "fn" "(" params? ")" block ;
 block       = "{" statement* "}" ;
 params      = IDENT ("," IDENT)* ;
 arguments   = expression ("," expression)* ;
@@ -918,7 +918,7 @@ hash        = "{" (hash_pair ("," hash_pair)*)? "}" ;
 hash_pair   = expression ":" expression ;
 if_expr     = "if" expression block ("else" (if_expr | block))? ;
 match_expr  = "match" expression "{" match_arm* "}" ;
-function_lit = "fun" "(" params? ")" block ;
+function_lit = "fn" "(" params? ")" block ;
 block       = "{" statement* "}" ;
 params      = IDENT ("," IDENT)* ;
 arguments   = expression ("," expression)* ;

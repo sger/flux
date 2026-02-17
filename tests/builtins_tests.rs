@@ -1,9 +1,16 @@
-use std::collections::HashMap;
-
 const PI: f64 = std::f64::consts::PI;
 
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use flux::bytecode::bytecode::Bytecode;
-use flux::runtime::builtins::get_builtin;
+use flux::runtime::RuntimeContext;
+use flux::runtime::builtins::{get_builtin, get_builtin_index};
+use flux::runtime::gc::GcHeap;
+use flux::runtime::gc::hamt::{hamt_empty, hamt_insert, hamt_len, hamt_lookup};
 use flux::runtime::hash_key::HashKey;
 use flux::runtime::value::Value;
 use flux::runtime::vm::VM;
@@ -21,18 +28,37 @@ fn call(name: &str, args: Vec<Value>) -> Result<Value, String> {
     (builtin.func)(&mut test_vm(), args)
 }
 
-fn make_test_hash() -> Value {
-    let mut hash = HashMap::new();
-    hash.insert(
+fn call_vm(vm: &mut VM, name: &str, args: Vec<Value>) -> Result<Value, String> {
+    let builtin = get_builtin(name).unwrap_or_else(|| panic!("missing builtin: {}", name));
+    (builtin.func)(vm, args)
+}
+
+fn make_test_hash(heap: &mut GcHeap) -> Value {
+    let mut root = hamt_empty(heap);
+    root = hamt_insert(
+        heap,
+        root,
         HashKey::String("name".to_string()),
         Value::String("Alice".to_string().into()),
     );
-    hash.insert(HashKey::Integer(42), Value::Integer(100));
-    hash.insert(
+    root = hamt_insert(heap, root, HashKey::Integer(42), Value::Integer(100));
+    root = hamt_insert(
+        heap,
+        root,
         HashKey::Boolean(true),
         Value::String("yes".to_string().into()),
     );
-    Value::Hash(hash.into())
+    Value::Gc(root)
+}
+
+fn temp_file_path(label: &str) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    path.push(format!("flux_builtin_{}_{}.txt", label, nanos));
+    path
 }
 
 #[test]
@@ -496,8 +522,9 @@ fn test_builtin_replace() {
 
 #[test]
 fn test_builtin_keys() {
-    let hash = make_test_hash();
-    let result = call("keys", vec![hash]).unwrap();
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "keys", vec![hash]).unwrap();
     match result {
         Value::Array(keys) => {
             assert_eq!(keys.len(), 3);
@@ -515,15 +542,18 @@ fn test_builtin_keys() {
 
 #[test]
 fn test_builtin_keys_empty() {
-    let hash = Value::Hash(HashMap::new().into());
-    let result = call("keys", vec![hash]).unwrap();
+    let mut vm = test_vm();
+    let root = hamt_empty(vm.gc_heap_mut());
+    let hash = Value::Gc(root);
+    let result = call_vm(&mut vm, "keys", vec![hash]).unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
 
 #[test]
 fn test_builtin_values() {
-    let hash = make_test_hash();
-    let result = call("values", vec![hash]).unwrap();
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "values", vec![hash]).unwrap();
     match result {
         Value::Array(values) => {
             assert_eq!(values.len(), 3);
@@ -541,15 +571,19 @@ fn test_builtin_values() {
 
 #[test]
 fn test_builtin_values_empty() {
-    let hash = Value::Hash(HashMap::new().into());
-    let result = call("values", vec![hash]).unwrap();
+    let mut vm = test_vm();
+    let root = hamt_empty(vm.gc_heap_mut());
+    let hash = Value::Gc(root);
+    let result = call_vm(&mut vm, "values", vec![hash]).unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
 
 #[test]
 fn test_builtin_has_key_found() {
-    let hash = make_test_hash();
-    let result = call(
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(
+        &mut vm,
         "has_key",
         vec![hash, Value::String("name".to_string().into())],
     )
@@ -559,8 +593,10 @@ fn test_builtin_has_key_found() {
 
 #[test]
 fn test_builtin_has_key_not_found() {
-    let hash = make_test_hash();
-    let result = call(
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(
+        &mut vm,
         "has_key",
         vec![hash, Value::String("email".to_string().into())],
     )
@@ -570,130 +606,171 @@ fn test_builtin_has_key_not_found() {
 
 #[test]
 fn test_builtin_has_key_integer_key() {
-    let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Value::Integer(42)]).unwrap();
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "has_key", vec![hash, Value::Integer(42)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
 
 #[test]
 fn test_builtin_has_key_boolean_key() {
-    let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Value::Boolean(true)]).unwrap();
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "has_key", vec![hash, Value::Boolean(true)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
 
 #[test]
 fn test_builtin_has_key_unhashable() {
-    let hash = make_test_hash();
-    let result = call("has_key", vec![hash, Value::Array(vec![].into())]);
+    let mut vm = test_vm();
+    let hash = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "has_key", vec![hash, Value::Array(vec![].into())]);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("must be hashable"));
 }
 
 #[test]
 fn test_builtin_merge() {
-    let mut h1 = HashMap::new();
-    h1.insert(HashKey::String("a".to_string()), Value::Integer(1));
-    h1.insert(HashKey::String("b".to_string()), Value::Integer(2));
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
 
-    let mut h2 = HashMap::new();
-    h2.insert(HashKey::String("b".to_string()), Value::Integer(20)); // overwrites
-    h2.insert(HashKey::String("c".to_string()), Value::Integer(3));
+    let mut h1 = hamt_empty(heap);
+    h1 = hamt_insert(
+        heap,
+        h1,
+        HashKey::String("a".to_string()),
+        Value::Integer(1),
+    );
+    h1 = hamt_insert(
+        heap,
+        h1,
+        HashKey::String("b".to_string()),
+        Value::Integer(2),
+    );
 
-    let result = call(
-        "merge",
-        vec![Value::Hash(h1.into()), Value::Hash(h2.into())],
-    )
-    .unwrap();
+    let mut h2 = hamt_empty(heap);
+    h2 = hamt_insert(
+        heap,
+        h2,
+        HashKey::String("b".to_string()),
+        Value::Integer(20),
+    ); // overwrites
+    h2 = hamt_insert(
+        heap,
+        h2,
+        HashKey::String("c".to_string()),
+        Value::Integer(3),
+    );
+
+    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
     match result {
-        Value::Hash(merged) => {
-            assert_eq!(merged.len(), 3);
+        Value::Gc(handle) => {
+            let heap = vm.gc_heap_mut();
+            assert_eq!(hamt_len(heap, handle), 3);
             assert_eq!(
-                merged.get(&HashKey::String("a".to_string())),
-                Some(&Value::Integer(1))
+                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                Some(Value::Integer(1))
             );
             assert_eq!(
-                merged.get(&HashKey::String("b".to_string())),
-                Some(&Value::Integer(20))
+                hamt_lookup(heap, handle, &HashKey::String("b".to_string())),
+                Some(Value::Integer(20))
             ); // overwritten
             assert_eq!(
-                merged.get(&HashKey::String("c".to_string())),
-                Some(&Value::Integer(3))
+                hamt_lookup(heap, handle, &HashKey::String("c".to_string())),
+                Some(Value::Integer(3))
             );
         }
-        _ => panic!("expected Hash"),
+        _ => panic!("expected Gc hash"),
     }
 }
 
 #[test]
 fn test_builtin_delete() {
-    let mut h = HashMap::new();
-    h.insert(HashKey::String("a".to_string()), Value::Integer(1));
-    h.insert(HashKey::String("b".to_string()), Value::Integer(2));
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
 
-    let result = call(
+    let mut h = hamt_empty(heap);
+    h = hamt_insert(heap, h, HashKey::String("a".to_string()), Value::Integer(1));
+    h = hamt_insert(heap, h, HashKey::String("b".to_string()), Value::Integer(2));
+
+    let result = call_vm(
+        &mut vm,
         "delete",
-        vec![Value::Hash(h.into()), Value::String("a".to_string().into())],
+        vec![Value::Gc(h), Value::String("a".to_string().into())],
     )
     .unwrap();
 
     match result {
-        Value::Hash(map) => {
-            assert_eq!(map.get(&HashKey::String("a".to_string())), None);
+        Value::Gc(handle) => {
+            let heap = vm.gc_heap_mut();
             assert_eq!(
-                map.get(&HashKey::String("b".to_string())),
-                Some(&Value::Integer(2))
+                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                None
+            );
+            assert_eq!(
+                hamt_lookup(heap, handle, &HashKey::String("b".to_string())),
+                Some(Value::Integer(2))
             );
         }
-        _ => panic!("expected Hash"),
+        _ => panic!("expected Gc hash"),
     }
 }
 
 #[test]
 fn test_builtin_merge_empty() {
-    let mut h1 = HashMap::new();
-    h1.insert(HashKey::String("a".to_string()), Value::Integer(1));
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
 
-    let h2 = HashMap::new();
+    let mut h1 = hamt_empty(heap);
+    h1 = hamt_insert(
+        heap,
+        h1,
+        HashKey::String("a".to_string()),
+        Value::Integer(1),
+    );
 
-    let result = call(
-        "merge",
-        vec![Value::Hash(h1.clone().into()), Value::Hash(h2.into())],
-    )
-    .unwrap();
+    let h2 = hamt_empty(heap);
+
+    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
     match result {
-        Value::Hash(merged) => {
-            assert_eq!(merged.len(), 1);
+        Value::Gc(handle) => {
+            let heap = vm.gc_heap_mut();
+            assert_eq!(hamt_len(heap, handle), 1);
             assert_eq!(
-                merged.get(&HashKey::String("a".to_string())),
-                Some(&Value::Integer(1))
+                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                Some(Value::Integer(1))
             );
         }
-        _ => panic!("expected Hash"),
+        _ => panic!("expected Gc hash"),
     }
 }
 
 #[test]
 fn test_builtin_merge_into_empty() {
-    let h1 = HashMap::new();
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
 
-    let mut h2 = HashMap::new();
-    h2.insert(HashKey::String("a".to_string()), Value::Integer(1));
+    let h1 = hamt_empty(heap);
 
-    let result = call(
-        "merge",
-        vec![Value::Hash(h1.into()), Value::Hash(h2.into())],
-    )
-    .unwrap();
+    let mut h2 = hamt_empty(heap);
+    h2 = hamt_insert(
+        heap,
+        h2,
+        HashKey::String("a".to_string()),
+        Value::Integer(1),
+    );
+
+    let result = call_vm(&mut vm, "merge", vec![Value::Gc(h1), Value::Gc(h2)]).unwrap();
     match result {
-        Value::Hash(merged) => {
-            assert_eq!(merged.len(), 1);
+        Value::Gc(handle) => {
+            let heap = vm.gc_heap_mut();
+            assert_eq!(hamt_len(heap, handle), 1);
             assert_eq!(
-                merged.get(&HashKey::String("a".to_string())),
-                Some(&Value::Integer(1))
+                hamt_lookup(heap, handle, &HashKey::String("a".to_string())),
+                Some(Value::Integer(1))
             );
         }
-        _ => panic!("expected Hash"),
+        _ => panic!("expected Gc hash"),
     }
 }
 
@@ -847,8 +924,10 @@ fn test_builtin_type_of_array() {
 
 #[test]
 fn test_builtin_type_of_hash() {
-    let result = call("type_of", vec![Value::Hash(HashMap::new().into())]).unwrap();
-    assert_eq!(result, Value::String("Hash".to_string().into()));
+    let mut vm = test_vm();
+    let root = hamt_empty(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "type_of", vec![Value::Gc(root)]).unwrap();
+    assert_eq!(result, Value::String("Map".to_string().into()));
 }
 
 #[test]
@@ -929,7 +1008,9 @@ fn test_builtin_is_array_false() {
 
 #[test]
 fn test_builtin_is_hash_true() {
-    let result = call("is_hash", vec![Value::Hash(HashMap::new().into())]).unwrap();
+    let mut vm = test_vm();
+    let root = hamt_empty(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "is_hash", vec![Value::Gc(root)]).unwrap();
     assert_eq!(result, Value::Boolean(true));
 }
 
@@ -965,4 +1046,408 @@ fn test_builtin_is_some_true() {
 fn test_builtin_is_some_false() {
     let result = call("is_some", vec![Value::None]).unwrap();
     assert_eq!(result, Value::Boolean(false));
+}
+
+// ── List builtin tests ──────────────────────────────────────────────────
+
+fn make_test_list(vm: &mut VM, elems: &[Value]) -> Value {
+    let mut list = Value::None;
+    for elem in elems.iter().rev() {
+        let handle = vm.gc_heap_mut().alloc(flux::runtime::gc::HeapObject::Cons {
+            head: elem.clone(),
+            tail: list,
+        });
+        list = Value::Gc(handle);
+    }
+    list
+}
+
+#[test]
+fn test_builtin_list_constructor() {
+    let mut vm = test_vm();
+    let result = call_vm(
+        &mut vm,
+        "list",
+        vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+    )
+    .unwrap();
+    // Verify via to_array round-trip
+    let arr = call_vm(&mut vm, "to_array", vec![result]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_builtin_list_empty() {
+    let mut vm = test_vm();
+    let result = call_vm(&mut vm, "list", vec![]).unwrap();
+    assert_eq!(result, Value::EmptyList);
+}
+
+#[test]
+fn test_builtin_len_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(
+        &mut vm,
+        &[Value::Integer(10), Value::Integer(20), Value::Integer(30)],
+    );
+    let result = call_vm(&mut vm, "len", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn test_builtin_len_empty_list() {
+    let result = call("len", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::Integer(0));
+}
+
+#[test]
+fn test_builtin_len_map() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "len", vec![map]).unwrap();
+    assert_eq!(result, Value::Integer(3));
+}
+
+#[test]
+fn test_builtin_first_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(&mut vm, &[Value::Integer(10), Value::Integer(20)]);
+    let result = call_vm(&mut vm, "first", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(10));
+}
+
+#[test]
+fn test_builtin_first_empty_list() {
+    let result = call("first", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_last_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(
+        &mut vm,
+        &[Value::Integer(10), Value::Integer(20), Value::Integer(30)],
+    );
+    let result = call_vm(&mut vm, "last", vec![list]).unwrap();
+    assert_eq!(result, Value::Integer(30));
+}
+
+#[test]
+fn test_builtin_last_empty_list() {
+    let result = call("last", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_rest_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(
+        &mut vm,
+        &[Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+    );
+    let rest = call_vm(&mut vm, "rest", vec![list]).unwrap();
+    let arr = call_vm(&mut vm, "to_array", vec![rest]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_builtin_rest_empty_list() {
+    let result = call("rest", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_reverse_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(
+        &mut vm,
+        &[Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+    );
+    let reversed = call_vm(&mut vm, "reverse", vec![list]).unwrap();
+    let arr = call_vm(&mut vm, "to_array", vec![reversed]).unwrap();
+    assert_eq!(
+        arr,
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
+    );
+}
+
+#[test]
+fn test_builtin_reverse_empty_list() {
+    let result = call("reverse", vec![Value::None]).unwrap();
+    assert_eq!(result, Value::None);
+}
+
+#[test]
+fn test_builtin_contains_list() {
+    let mut vm = test_vm();
+    let list = make_test_list(
+        &mut vm,
+        &[Value::Integer(1), Value::Integer(2), Value::Integer(3)],
+    );
+    let found = call_vm(&mut vm, "contains", vec![list.clone(), Value::Integer(2)]).unwrap();
+    assert_eq!(found, Value::Boolean(true));
+    let not_found = call_vm(&mut vm, "contains", vec![list, Value::Integer(99)]).unwrap();
+    assert_eq!(not_found, Value::Boolean(false));
+}
+
+#[test]
+fn test_builtin_contains_empty_list() {
+    let result = call("contains", vec![Value::None, Value::Integer(1)]).unwrap();
+    assert_eq!(result, Value::Boolean(false));
+}
+
+// ── HAMT builtin tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_builtin_put() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let updated = call_vm(
+        &mut vm,
+        "put",
+        vec![
+            map.clone(),
+            Value::String("email".into()),
+            Value::String("a@b.com".into()),
+        ],
+    )
+    .unwrap();
+    // Original unchanged
+    let orig_len = call_vm(&mut vm, "len", vec![map.clone()]).unwrap();
+    assert_eq!(orig_len, Value::Integer(3));
+    // New map has 4 entries
+    let new_len = call_vm(&mut vm, "len", vec![updated]).unwrap();
+    assert_eq!(new_len, Value::Integer(4));
+}
+
+#[test]
+fn test_builtin_get() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let found = call_vm(
+        &mut vm,
+        "get",
+        vec![map.clone(), Value::String("name".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        found,
+        Value::Some(std::rc::Rc::new(Value::String("Alice".into())))
+    );
+    let not_found = call_vm(&mut vm, "get", vec![map, Value::String("missing".into())]).unwrap();
+    assert_eq!(not_found, Value::None);
+}
+
+#[test]
+fn test_builtin_is_map() {
+    let mut vm = test_vm();
+    let map = make_test_hash(vm.gc_heap_mut());
+    let result = call_vm(&mut vm, "is_map", vec![map]).unwrap();
+    assert_eq!(result, Value::Boolean(true));
+    let result2 = call_vm(&mut vm, "is_map", vec![Value::Integer(1)]).unwrap();
+    assert_eq!(result2, Value::Boolean(false));
+}
+
+#[test]
+fn test_hamt_structural_sharing() {
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
+    let root1 = hamt_empty(heap);
+    let root2 = hamt_insert(heap, root1, HashKey::String("a".into()), Value::Integer(1));
+    let root3 = hamt_insert(heap, root2, HashKey::String("b".into()), Value::Integer(2));
+    // root2 still has only "a"
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("a".into())),
+        Some(Value::Integer(1))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root2, &HashKey::String("b".into())),
+        None
+    );
+    // root3 has both
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("a".into())),
+        Some(Value::Integer(1))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root3, &HashKey::String("b".into())),
+        Some(Value::Integer(2))
+    );
+}
+
+#[test]
+fn test_hamt_10k_sequential_inserts() {
+    let mut vm = test_vm();
+    let heap = vm.gc_heap_mut();
+    let mut root = hamt_empty(heap);
+    for i in 0..10_000i64 {
+        root = hamt_insert(heap, root, HashKey::Integer(i), Value::Integer(i * 2));
+    }
+    assert_eq!(hamt_len(vm.gc_heap(), root), 10_000);
+    // Spot check a few entries
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(0)),
+        Some(Value::Integer(0))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(5000)),
+        Some(Value::Integer(10_000))
+    );
+    assert_eq!(
+        hamt_lookup(vm.gc_heap(), root, &HashKey::Integer(9999)),
+        Some(Value::Integer(19_998))
+    );
+}
+
+#[test]
+fn test_builtin_read_file() {
+    let path = temp_file_path("read_file");
+    fs::write(&path, "line1\nline2\n").expect("write temp file");
+
+    let result = call(
+        "read_file",
+        vec![Value::String(path.to_string_lossy().to_string().into())],
+    )
+    .unwrap();
+    assert_eq!(result, Value::String("line1\nline2\n".into()));
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_builtin_read_lines() {
+    let path = temp_file_path("read_lines");
+    fs::write(&path, "10\n20\n30\n").expect("write temp file");
+
+    let result = call(
+        "read_lines",
+        vec![Value::String(path.to_string_lossy().to_string().into())],
+    )
+    .unwrap();
+    assert_eq!(
+        result,
+        Value::Array(
+            vec![
+                Value::String("10".into()),
+                Value::String("20".into()),
+                Value::String("30".into())
+            ]
+            .into()
+        )
+    );
+
+    fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_builtin_parse_int() {
+    let result = call("parse_int", vec![Value::String("  12345  ".into())]).unwrap();
+    assert_eq!(result, Value::Integer(12345));
+}
+
+#[test]
+fn test_builtin_parse_int_invalid() {
+    let err = call("parse_int", vec![Value::String("12x".into())]).unwrap_err();
+    assert!(err.contains("parse_int"));
+    assert!(err.contains("could not parse"));
+}
+
+#[test]
+fn test_builtin_now_ms() {
+    let result = call("now_ms", vec![]).unwrap();
+    match result {
+        Value::Integer(ms) => assert!(ms > 0),
+        _ => panic!("expected Integer"),
+    }
+}
+
+#[test]
+fn test_builtin_time() {
+    let print_builtin_idx = get_builtin_index("print").expect("print builtin exists");
+    let result = call("time", vec![Value::Builtin(print_builtin_idx as u8)]).unwrap();
+    match result {
+        Value::Integer(ms) => assert!(ms >= 0),
+        _ => panic!("expected Integer"),
+    }
+}
+
+#[test]
+fn test_builtin_range() {
+    let asc = call("range", vec![Value::Integer(2), Value::Integer(6)]).unwrap();
+    assert_eq!(
+        asc,
+        Value::Array(
+            vec![
+                Value::Integer(2),
+                Value::Integer(3),
+                Value::Integer(4),
+                Value::Integer(5)
+            ]
+            .into()
+        )
+    );
+
+    let desc = call("range", vec![Value::Integer(3), Value::Integer(0)]).unwrap();
+    assert_eq!(
+        desc,
+        Value::Array(vec![Value::Integer(3), Value::Integer(2), Value::Integer(1)].into())
+    );
+}
+
+#[test]
+fn test_builtin_sum_and_product() {
+    let sum_i = call(
+        "sum",
+        vec![Value::Array(
+            vec![Value::Integer(2), Value::Integer(3), Value::Integer(5)].into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(sum_i, Value::Integer(10));
+
+    let product_i = call(
+        "product",
+        vec![Value::Array(
+            vec![Value::Integer(2), Value::Integer(3), Value::Integer(5)].into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(product_i, Value::Integer(30));
+}
+
+#[test]
+fn test_builtin_parse_ints_and_split_ints() {
+    let parsed = call(
+        "parse_ints",
+        vec![Value::Array(
+            vec![
+                Value::String("10".into()),
+                Value::String(" 20 ".into()),
+                Value::String("-3".into()),
+            ]
+            .into(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Value::Array(vec![Value::Integer(10), Value::Integer(20), Value::Integer(-3)].into())
+    );
+
+    let split = call(
+        "split_ints",
+        vec![Value::String("1,2,-5".into()), Value::String(",".into())],
+    )
+    .unwrap();
+    assert_eq!(
+        split,
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(-5)].into())
+    );
 }

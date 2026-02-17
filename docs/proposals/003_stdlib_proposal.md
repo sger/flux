@@ -85,7 +85,7 @@ Object::Right(Box<Object>)  // Success/value case
 
 **Usage in Flux:**
 ```flux
-fun divide(a, b) {
+fn divide(a, b) {
     if b == 0 {
         Left("division by zero");
     } else {
@@ -119,7 +119,7 @@ Object::Tuple(Vec<Object>)
 let point = (10, 20);
 let (x, y) = point;
 
-fun min_max(arr) {
+fn min_max(arr) {
     (List.min(arr), List.max(arr));
 }
 ```
@@ -245,7 +245,7 @@ is_even(n) = n % 2 == 0
 
 ```flux
 // This will overflow on large arrays
-fun reduce(arr, acc, f) {
+fn reduce(arr, acc, f) {
     if len(arr) == 0 {
         acc;
     } else {
@@ -416,7 +416,7 @@ module Flow.List {
     //===================
 
     // Apply function to each element
-    fun map(arr, f) {
+    fn map(arr, f) {
         if len(arr) == 0 {
             [];
         } else {
@@ -425,7 +425,7 @@ module Flow.List {
     }
 
     // Keep elements matching predicate
-    fun filter(arr, pred) {
+    fn filter(arr, pred) {
         if len(arr) == 0 {
             [];
         } else {
@@ -440,7 +440,7 @@ module Flow.List {
     }
 
     // Accumulate values left-to-right
-    fun reduce(arr, init, f) {
+    fn reduce(arr, init, f) {
         if len(arr) == 0 {
             init;
         } else {
@@ -449,7 +449,7 @@ module Flow.List {
     }
 
     // Accumulate values right-to-left
-    fun reduce_right(arr, init, f) {
+    fn reduce_right(arr, init, f) {
         if len(arr) == 0 {
             init;
         } else {
@@ -458,7 +458,7 @@ module Flow.List {
     }
 
     // Map then flatten one level
-    fun flat_map(arr, f) {
+    fn flat_map(arr, f) {
         flatten(map(arr, f));
     }
 
@@ -467,7 +467,7 @@ module Flow.List {
     //===================
 
     // Find first element matching predicate
-    fun find(arr, pred) {
+    fn find(arr, pred) {
         if len(arr) == 0 {
             None;
         } else {
@@ -481,7 +481,7 @@ module Flow.List {
     }
 
     // Check if any element matches
-    fun any(arr, pred) {
+    fn any(arr, pred) {
         if len(arr) == 0 {
             false;
         } else {
@@ -494,7 +494,7 @@ module Flow.List {
     }
 
     // Check if all elements match
-    fun all(arr, pred) {
+    fn all(arr, pred) {
         if len(arr) == 0 {
             true;
         } else {
@@ -507,8 +507,8 @@ module Flow.List {
     }
 
     // Count elements matching predicate
-    fun count(arr, pred) {
-        reduce(arr, 0, fun(acc, x) {
+    fn count(arr, pred) {
+        reduce(arr, 0, fn(acc, x) {
             if pred(x) { acc + 1; } else { acc; }
         });
     }
@@ -518,7 +518,7 @@ module Flow.List {
     //===================
 
     // Take first n elements
-    fun take(arr, n) {
+    fn take(arr, n) {
         if n == 0 {
             [];
         } else {
@@ -531,7 +531,7 @@ module Flow.List {
     }
 
     // Drop first n elements
-    fun drop(arr, n) {
+    fn drop(arr, n) {
         if n == 0 {
             arr;
         } else {
@@ -544,7 +544,7 @@ module Flow.List {
     }
 
     // Take while predicate is true
-    fun take_while(arr, pred) {
+    fn take_while(arr, pred) {
         if len(arr) == 0 {
             [];
         } else {
@@ -558,7 +558,7 @@ module Flow.List {
     }
 
     // Drop while predicate is true
-    fun drop_while(arr, pred) {
+    fn drop_while(arr, pred) {
         if len(arr) == 0 {
             [];
         } else {
@@ -575,7 +575,7 @@ module Flow.List {
     //===================
 
     // Pair up elements from two arrays
-    fun zip(arr1, arr2) {
+    fn zip(arr1, arr2) {
         if len(arr1) == 0 {
             [];
         } else {
@@ -591,7 +591,7 @@ module Flow.List {
     }
 
     // Combine with function
-    fun zip_with(arr1, arr2, f) {
+    fn zip_with(arr1, arr2, f) {
         if len(arr1) == 0 {
             [];
         } else {
@@ -607,8 +607,8 @@ module Flow.List {
     }
 
     // Flatten one level of nesting
-    fun flatten(arr) {
-        reduce(arr, [], fun(acc, x) { concat(acc, x); });
+    fn flatten(arr) {
+        reduce(arr, [], fn(acc, x) { concat(acc, x); });
     }
 
     //===================
@@ -616,30 +616,30 @@ module Flow.List {
     //===================
 
     // Sum of numbers
-    fun sum(arr) {
-        reduce(arr, 0, fun(acc, x) { acc + x; });
+    fn sum(arr) {
+        reduce(arr, 0, fn(acc, x) { acc + x; });
     }
 
     // Product of numbers
-    fun product(arr) {
-        reduce(arr, 1, fun(acc, x) { acc * x; });
+    fn product(arr) {
+        reduce(arr, 1, fn(acc, x) { acc * x; });
     }
 
     // Note: min/max require >= operator
-    // fun min(arr) { ... }
-    // fun max(arr) { ... }
+    // fn min(arr) { ... }
+    // fn max(arr) { ... }
 
     //===================
     // Utilities
     //===================
 
     // Check if empty
-    fun is_empty(arr) {
+    fn is_empty(arr) {
         len(arr) == 0;
     }
 
     // Get nth element (0-indexed)
-    fun nth(arr, n) {
+    fn nth(arr, n) {
         if len(arr) == 0 {
             None;
         } else {
@@ -652,17 +652,17 @@ module Flow.List {
     }
 
     // Alias for first
-    fun head(arr) {
+    fn head(arr) {
         first(arr);
     }
 
     // Alias for rest
-    fun tail(arr) {
+    fn tail(arr) {
         rest(arr);
     }
 
     // All elements except last
-    fun init(arr) {
+    fn init(arr) {
         if len(arr) == 0 {
             [];
         } else {
@@ -675,7 +675,7 @@ module Flow.List {
     }
 
     // Create array of n copies
-    fun replicate(n, value) {
+    fn replicate(n, value) {
         if n == 0 {
             [];
         } else {
@@ -684,7 +684,7 @@ module Flow.List {
     }
 
     // Intersperse element between items
-    fun intersperse(arr, sep) {
+    fn intersperse(arr, sep) {
         if len(arr) == 0 {
             [];
         } else {
@@ -703,7 +703,7 @@ module Flow.List {
 ```flux
 module Flow.Option {
     // Transform the inner value
-    fun map(opt, f) {
+    fn map(opt, f) {
         match opt {
             Some(x) -> Some(f(x));
             _ -> None;
@@ -711,7 +711,7 @@ module Flow.Option {
     }
 
     // Chain optional operations
-    fun flat_map(opt, f) {
+    fn flat_map(opt, f) {
         match opt {
             Some(x) -> f(x);
             _ -> None;
@@ -719,12 +719,12 @@ module Flow.Option {
     }
 
     // Alias for flat_map
-    fun and_then(opt, f) {
+    fn and_then(opt, f) {
         flat_map(opt, f);
     }
 
     // Get value or default
-    fun unwrap_or(opt, default) {
+    fn unwrap_or(opt, default) {
         match opt {
             Some(x) -> x;
             _ -> default;
@@ -732,7 +732,7 @@ module Flow.Option {
     }
 
     // Get value or compute default
-    fun unwrap_or_else(opt, f) {
+    fn unwrap_or_else(opt, f) {
         match opt {
             Some(x) -> x;
             _ -> f();
@@ -740,7 +740,7 @@ module Flow.Option {
     }
 
     // Check if Some
-    fun is_some(opt) {
+    fn is_some(opt) {
         match opt {
             Some(_) -> true;
             _ -> false;
@@ -748,7 +748,7 @@ module Flow.Option {
     }
 
     // Check if None
-    fun is_none(opt) {
+    fn is_none(opt) {
         match opt {
             None -> true;
             _ -> false;
@@ -756,7 +756,7 @@ module Flow.Option {
     }
 
     // Filter by predicate
-    fun filter(opt, pred) {
+    fn filter(opt, pred) {
         match opt {
             Some(x) -> if pred(x) { Some(x); } else { None; };
             _ -> None;
@@ -764,7 +764,7 @@ module Flow.Option {
     }
 
     // Get value or panic (use with caution)
-    fun unwrap(opt) {
+    fn unwrap(opt) {
         match opt {
             Some(x) -> x;
             _ -> None;  // Should panic, but Flux lacks panic
@@ -772,7 +772,7 @@ module Flow.Option {
     }
 
     // Provide alternative if None
-    fun or_else(opt, f) {
+    fn or_else(opt, f) {
         match opt {
             Some(_) -> opt;
             _ -> f();
@@ -780,7 +780,7 @@ module Flow.Option {
     }
 
     // Zip two options
-    fun zip(opt1, opt2) {
+    fn zip(opt1, opt2) {
         match opt1 {
             Some(x) -> match opt2 {
                 Some(y) -> Some([x, y]);
@@ -799,7 +799,7 @@ The `Either` type follows Haskell convention where `Left` typically represents f
 ```flux
 module Flow.Either {
     // Transform the Right value
-    fun map(either, f) {
+    fn map(either, f) {
         match either {
             Right(x) -> Right(f(x));
             Left(e) -> Left(e);
@@ -807,7 +807,7 @@ module Flow.Either {
     }
 
     // Transform the Left value
-    fun map_left(either, f) {
+    fn map_left(either, f) {
         match either {
             Right(x) -> Right(x);
             Left(e) -> Left(f(e));
@@ -815,7 +815,7 @@ module Flow.Either {
     }
 
     // Chain operations (bind/flatMap)
-    fun flat_map(either, f) {
+    fn flat_map(either, f) {
         match either {
             Right(x) -> f(x);
             Left(e) -> Left(e);
@@ -823,17 +823,17 @@ module Flow.Either {
     }
 
     // Alias for flat_map (Haskell style)
-    fun bind(either, f) {
+    fn bind(either, f) {
         flat_map(either, f);
     }
 
     // Alias for flat_map (Rust style)
-    fun and_then(either, f) {
+    fn and_then(either, f) {
         flat_map(either, f);
     }
 
     // Get Right value or default
-    fun unwrap_or(either, default) {
+    fn unwrap_or(either, default) {
         match either {
             Right(x) -> x;
             Left(_) -> default;
@@ -841,7 +841,7 @@ module Flow.Either {
     }
 
     // Get Right value or compute default
-    fun unwrap_or_else(either, f) {
+    fn unwrap_or_else(either, f) {
         match either {
             Right(x) -> x;
             Left(e) -> f(e);
@@ -849,7 +849,7 @@ module Flow.Either {
     }
 
     // Check if Right
-    fun is_right(either) {
+    fn is_right(either) {
         match either {
             Right(_) -> true;
             Left(_) -> false;
@@ -857,7 +857,7 @@ module Flow.Either {
     }
 
     // Check if Left
-    fun is_left(either) {
+    fn is_left(either) {
         match either {
             Left(_) -> true;
             Right(_) -> false;
@@ -865,7 +865,7 @@ module Flow.Either {
     }
 
     // Convert to Option (discards Left value)
-    fun to_option(either) {
+    fn to_option(either) {
         match either {
             Right(x) -> Some(x);
             Left(_) -> None;
@@ -873,7 +873,7 @@ module Flow.Either {
     }
 
     // Provide alternative Either if Left
-    fun or_else(either, f) {
+    fn or_else(either, f) {
         match either {
             Right(_) -> either;
             Left(e) -> f(e);
@@ -881,7 +881,7 @@ module Flow.Either {
     }
 
     // Swap Left and Right
-    fun swap(either) {
+    fn swap(either) {
         match either {
             Right(x) -> Left(x);
             Left(e) -> Right(e);
@@ -889,7 +889,7 @@ module Flow.Either {
     }
 
     // Apply function from Either to value in Either
-    fun ap(either_f, either_x) {
+    fn ap(either_f, either_x) {
         match either_f {
             Right(f) -> map(either_x, f);
             Left(e) -> Left(e);
@@ -897,7 +897,7 @@ module Flow.Either {
     }
 
     // Combine two Either values
-    fun zip(either1, either2) {
+    fn zip(either1, either2) {
         match either1 {
             Right(x) -> match either2 {
                 Right(y) -> Right([x, y]);
@@ -908,7 +908,7 @@ module Flow.Either {
     }
 
     // Fold/catamorphism: handle both cases
-    fun fold(either, on_left, on_right) {
+    fn fold(either, on_left, on_right) {
         match either {
             Right(x) -> on_right(x);
             Left(e) -> on_left(e);
@@ -916,7 +916,7 @@ module Flow.Either {
     }
 
     // Bimap: transform both sides
-    fun bimap(either, f_left, f_right) {
+    fn bimap(either, f_left, f_right) {
         match either {
             Right(x) -> Right(f_right(x));
             Left(e) -> Left(f_left(e));
@@ -934,7 +934,7 @@ module Flow.Math {
     // let E = 2.718281828459045;
 
     // Sign of number: -1, 0, or 1
-    fun sign(n) {
+    fn sign(n) {
         if n > 0 {
             1;
         } else {
@@ -947,42 +947,42 @@ module Flow.Math {
     }
 
     // Check if positive
-    fun is_positive(n) {
+    fn is_positive(n) {
         n > 0;
     }
 
     // Check if negative
-    fun is_negative(n) {
+    fn is_negative(n) {
         n < 0;
     }
 
     // Check if zero
-    fun is_zero(n) {
+    fn is_zero(n) {
         n == 0;
     }
 
     // Note: These require % operator
-    // fun is_even(n) { n % 2 == 0; }
-    // fun is_odd(n) { n % 2 != 0; }
+    // fn is_even(n) { n % 2 == 0; }
+    // fn is_odd(n) { n % 2 != 0; }
 
     // Clamp value to range (requires >= operator)
-    // fun clamp(n, lo, hi) {
+    // fn clamp(n, lo, hi) {
     //     if n < lo { lo; }
     //     else { if n > hi { hi; } else { n; } }
     // }
 
     // Greatest common divisor (requires % operator)
-    // fun gcd(a, b) {
+    // fn gcd(a, b) {
     //     if b == 0 { a; } else { gcd(b, a % b); }
     // }
 
     // Least common multiple (requires % and abs)
-    // fun lcm(a, b) {
+    // fn lcm(a, b) {
     //     abs(a * b) / gcd(a, b);
     // }
 
     // Factorial
-    fun factorial(n) {
+    fn factorial(n) {
         if n < 2 {
             1;
         } else {
@@ -991,7 +991,7 @@ module Flow.Math {
     }
 
     // Fibonacci
-    fun fib(n) {
+    fn fib(n) {
         if n < 2 {
             n;
         } else {
@@ -1006,18 +1006,18 @@ module Flow.Math {
 ```flux
 module Flow.String {
     // Check if empty
-    fun is_empty(s) {
+    fn is_empty(s) {
         len(s) == 0;
     }
 
     // Check if blank (empty or whitespace only)
     // Requires trim builtin
-    // fun is_blank(s) {
+    // fn is_blank(s) {
     //     len(trim(s)) == 0;
     // }
 
     // Repeat string n times
-    fun repeat(s, n) {
+    fn repeat(s, n) {
         if n == 0 {
             "";
         } else {
@@ -1026,17 +1026,17 @@ module Flow.String {
     }
 
     // Reverse string (requires chars builtin)
-    // fun reverse(s) {
+    // fn reverse(s) {
     //     join(Flow.List.reverse(chars(s)), "");
     // }
 
     // Check if string contains only digits
     // Requires char operations
-    // fun is_numeric(s) { ... }
+    // fn is_numeric(s) { ... }
 
     // Check if string contains only letters
     // Requires char operations
-    // fun is_alpha(s) { ... }
+    // fn is_alpha(s) { ... }
 }
 ```
 
@@ -1045,12 +1045,12 @@ module Flow.String {
 ```flux
 module Flow.Dict {
     // Check if empty
-    fun is_empty(h) {
+    fn is_empty(h) {
         len(keys(h)) == 0;
     }
 
     // Get value with default
-    fun get_or(h, key, default) {
+    fn get_or(h, key, default) {
         let value = h[key];
         match value {
             Some(v) -> v;
@@ -1059,16 +1059,16 @@ module Flow.Dict {
     }
 
     // Map over values
-    fun map_values(h, f) {
+    fn map_values(h, f) {
         let ks = keys(h);
-        Flow.List.reduce(ks, {}, fun(acc, k) {
+        Flow.List.reduce(ks, {}, fn(acc, k) {
             // Need syntax for adding to hash
             acc;
         });
     }
 
     // Filter by predicate on values
-    fun filter_values(h, pred) {
+    fn filter_values(h, pred) {
         // Implementation depends on hash construction syntax
         h;
     }
@@ -1080,37 +1080,37 @@ module Flow.Dict {
 ```flux
 module Flow.Func {
     // Identity function
-    fun identity(x) {
+    fn identity(x) {
         x;
     }
 
     // Constant function
-    fun constant(x) {
-        fun(_) { x; };
+    fn constant(x) {
+        fn(_) { x; };
     }
 
     // Function composition: (f . g)(x) = f(g(x))
-    fun compose(f, g) {
-        fun(x) { f(g(x)); };
+    fn compose(f, g) {
+        fn(x) { f(g(x)); };
     }
 
     // Flip argument order
-    fun flip(f) {
-        fun(a, b) { f(b, a); };
+    fn flip(f) {
+        fn(a, b) { f(b, a); };
     }
 
     // Apply function to value
-    fun apply(f, x) {
+    fn apply(f, x) {
         f(x);
     }
 
     // Pipe value through functions
-    fun pipe(x, f) {
+    fn pipe(x, f) {
         f(x);
     }
 
     // Call function n times
-    fun times(n, f) {
+    fn times(n, f) {
         if n == 0 {
             None;
         } else {
@@ -1120,7 +1120,7 @@ module Flow.Func {
     }
 
     // Memoization (requires mutable state - not possible yet)
-    // fun memoize(f) { ... }
+    // fn memoize(f) { ... }
 }
 ```
 

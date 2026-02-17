@@ -1,5 +1,5 @@
 module Modules.Purple.Muse {
-  fun exclaim(text) {
+  fn exclaim(text) {
     text + "!";
   }
 }

@@ -10,7 +10,7 @@ fn snapshot_format_simple_let() {
 
 #[test]
 fn snapshot_format_function() {
-    let input = r#"fun add(  a,b  ){return a+b;}"#;
+    let input = r#"fn add(  a,b  ){return a+b;}"#;
     let output = format_source(input);
     assert_snapshot!(output);
 }
@@ -58,7 +58,7 @@ fn snapshot_format_function_calls() {
 #[test]
 fn snapshot_format_complex_program() {
     let input = r#"
-fun fibonacci(n){
+fn fibonacci(n){
 if(n<=1){return n;}
 return fibonacci(n-1)+fibonacci(n-2);
 }

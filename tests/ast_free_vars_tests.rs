@@ -71,14 +71,14 @@ fn let_binding_removes_from_free() {
 
 #[test]
 fn function_params_not_free() {
-    let names = free_var_names("fun f(x) { x; }");
+    let names = free_var_names("fn f(x) { x; }");
     assert!(names.is_empty(), "Expected no free vars, got: {:?}", names);
 }
 
 #[test]
 fn function_body_references_outer() {
     // y is free inside g since it's not defined anywhere
-    let names = free_var_names("fun g(x) { x + y; }");
+    let names = free_var_names("fn g(x) { x + y; }");
     assert_eq!(names, vec!["y"]);
 }
 
@@ -99,7 +99,7 @@ fn multiple_free_vars() {
 #[test]
 fn recursive_function_name_not_free() {
     // f is defined as a function, so calling f inside its body is not free
-    let names = free_var_names("fun f(n) { if n == 0 { 0; } else { f(n - 1); }; }");
+    let names = free_var_names("fn f(n) { if n == 0 { 0; } else { f(n - 1); }; }");
     assert!(names.is_empty(), "Expected no free vars, got: {:?}", names);
 }
 

@@ -37,13 +37,13 @@ print("3. Functions:")
 print("")
 
 // ---- Single expression (no semicolon) ----
-fun add(x, y) {
+fn add(x, y) {
     x + y  // OPTIONAL semicolon (last expression)
 }
 print("   add(5, 3) = " + to_string(add(5, 3)))
 
 // ---- Multiple statements (semicolons optional, accepted style) ----
-fun calculate(n) {
+fn calculate(n) {
     let doubled = n * 2;     // semicolon accepted
     let squared = n * n;     // semicolon accepted
     doubled + squared        // OPTIONAL semicolon (last)
@@ -51,7 +51,7 @@ fun calculate(n) {
 print("   calculate(5) = " + to_string(calculate(5)))
 
 // ---- With return statements ----
-fun get_max(a, b) {
+fn get_max(a, b) {
     if (a > b) {
         return a;            // semicolon accepted
     }
@@ -60,7 +60,7 @@ fun get_max(a, b) {
 print("   get_max(10, 20) = " + to_string(get_max(10, 20)))
 
 // ---- Early return ----
-fun check_positive(n) {
+fn check_positive(n) {
     if (n <= 0) {
         return "not positive";  // semicolon accepted
     }
@@ -70,8 +70,8 @@ print("   check_positive(5) = " + check_positive(5))
 print("   check_positive(-5) = " + check_positive(-5))
 
 // ---- Nested functions ----
-fun outer(x) {
-    fun inner(y) {
+fn outer(x) {
+    fn inner(y) {
         x + y               // OPTIONAL semicolon (last)
     }
     inner(10)               // OPTIONAL semicolon (last)

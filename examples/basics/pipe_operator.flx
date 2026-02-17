@@ -2,9 +2,9 @@
 // The pipe operator passes the left value as the first argument to the right function
 
 // Helper functions for testing
-fun double(x) { x * 2 }
-fun add(x, y) { x + y }
-fun triple(x) { x * 3 }
+fn double(x) { x * 2 }
+fn add(x, y) { x + y }
+fn triple(x) { x * 3 }
 
 // Basic pipe: value |> function
 let result1 = 5 |> double;
@@ -26,6 +26,6 @@ print(result4);  // (2*2 + 10) * 3 = 42
 5 |> double |> print;  // 10
 
 // Pipe preserves order
-fun subtract(a, b) { a - b }
+fn subtract(a, b) { a - b }
 let result5 = 10 |> subtract(3);
 print(result5);  // 7 (10 - 3, not 3 - 10)

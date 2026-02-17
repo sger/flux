@@ -29,7 +29,7 @@ let avg = Math.average(x, y, z);
 //    = note: function defined here
 //   --> examples/hint_demos/math_module/Math.flx:15:5
 //    |
-// 15 | fun average(num1, num2) {
+// 15 | fn average(num1, num2) {
 //    |     ^^^^^^^^^^^^^^^^^^^
 
 sum

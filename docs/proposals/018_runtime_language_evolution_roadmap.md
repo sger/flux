@@ -48,7 +48,7 @@
 | User-defined types (ADTs) | No `type Shape { Circle(r), Rect(w, h) }` |
 | Tuples | No `(a, b)` type; arrays used instead |
 | Type system | Fully dynamic; no static checking |
-| Default parameters | `fun f(x, y = 0)` not supported |
+| Default parameters | `fn f(x, y = 0)` not supported |
 | Array destructuring in patterns | `match arr { [a, b, ...rest] -> ... }` not supported |
 | String escape builtins | No `char_at`, `starts_with`, `ends_with`, `replace`, `index_of` |
 | Mid-level IR | AST compiled directly to bytecode; no optimization layer |
@@ -502,12 +502,12 @@ Improvements that don't change the language surface but improve developer experi
 
 #### 4.2 Default Parameters
 
-**What:** `fun f(x, y = 0) { ... }` — parameters with default values.
+**What:** `fn f(x, y = 0) { ... }` — parameters with default values.
 
 **Why now:** Reduces function overloading needs. Common in modern languages.
 
 ```flux
-fun greet(name, greeting = "Hello") {
+fn greet(name, greeting = "Hello") {
     "#{greeting}, #{name}!";
 }
 
@@ -560,7 +560,7 @@ These are substantial features that require significant design work and should b
 |---------|-------------|--------|--------------|
 | **List comprehensions** | `[x * 2 for x in arr if x > 0]` | 2 weeks | For loops, arrays |
 | **Type inference** | Hindley-Milner style type checking | 6-8 weeks | ADTs, records |
-| **Effect system** | `fun f() with IO { ... }` | 8-10 weeks | Type system |
+| **Effect system** | `fn f() with IO { ... }` | 8-10 weeks | Type system |
 | **Persistent collections** | Rc-based cons list + HAMT (Proposal 017 revised) | 4-6 weeks | TCE |
 | **Concurrency (actors)** | `spawn`, message passing, supervision | 8-12 weeks | Effect system |
 | **Package manager** | Dependency resolution, versioned modules | 6-8 weeks | Module system |
@@ -638,7 +638,7 @@ These design questions should be resolved before implementation begins:
 
 5. **Range semantics**: Lazy (generates values on demand) vs eager (creates array)? Lazy is better but needs iterator protocol.
 
-6. **Type annotation syntax**: `fun f(x: Int) -> String` or inferred-only? Adding annotations early constrains future type system design.
+6. **Type annotation syntax**: `fn f(x: Int) -> String` or inferred-only? Adding annotations early constrains future type system design.
 
 ---
 

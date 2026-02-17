@@ -85,13 +85,13 @@ match try_open_file(path) {
 
 **W111: Magic Number**
 ```flux
-fun calculate_tax(amount) {
+fn calculate_tax(amount) {
     amount * 0.19;  // ← W111: Magic number 0.19
 }
 
 // Better:
 let TAX_RATE = 0.19;
-fun calculate_tax(amount) {
+fn calculate_tax(amount) {
     amount * TAX_RATE;
 }
 ```
@@ -122,7 +122,7 @@ match value {
 
 **W121: Cyclomatic Complexity**
 ```flux
-fun process(x) {  // ← W121: Cyclomatic complexity: 15 (max: 10)
+fn process(x) {  // ← W121: Cyclomatic complexity: 15 (max: 10)
     if x > 0 {
         if x < 10 {
             // ... many branches
@@ -133,7 +133,7 @@ fun process(x) {  // ← W121: Cyclomatic complexity: 15 (max: 10)
 
 **W122: Cognitive Complexity**
 ```flux
-fun nested_loops() {  // ← W122: Cognitive complexity: 25 (max: 15)
+fn nested_loops() {  // ← W122: Cognitive complexity: 25 (max: 15)
     for item in items {
         if item.valid {
             for child in item.children {
@@ -167,13 +167,13 @@ let message = "This is a very long string that exceeds the maximum line length o
 **W133: Missing Documentation**
 ```flux
 // ← W133: Public function missing documentation
-fun important_api(x, y) {
+fn important_api(x, y) {
     // ...
 }
 
 // Better:
 // Calculates the sum of x and y
-fun important_api(x, y) {
+fn important_api(x, y) {
     x + y
 }
 ```
@@ -235,7 +235,7 @@ indent-size = 4
 
 ```flux
 // @flux-lint-disable unused-function, magic-numbers
-fun legacy_code() {
+fn legacy_code() {
     let x = 42;  // Magic number OK in this file
     // ...
 }
@@ -246,7 +246,7 @@ fun legacy_code() {
 ### Inline Directives
 
 ```flux
-fun calculate() {
+fn calculate() {
     // @flux-lint-disable-next-line magic-numbers
     let tax_rate = 0.19;
 

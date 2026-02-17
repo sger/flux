@@ -10,13 +10,13 @@
 // Not found
 
 // Database is an array of records (hashes)
-let db = [
+let db = [|
     {"id": 1, "name": "Alice", "age": 30},
     {"id": 2, "name": "Bob", "age": 25},
     {"id": 3, "name": "Charlie", "age": 35}
-];
+|];
 
-fun opt_eq(opt, value) {
+fn opt_eq(opt, value) {
     match opt {
         Some(v) -> v == value,
         None -> false,
@@ -37,7 +37,7 @@ print(second_record["age"]);
 print(len(db));
 
 // Find by ID
-fun findById(records, id) {
+fn findById(records, id) {
     if len(records) == 0 {
         None;
     } else {
@@ -54,7 +54,7 @@ let found = findById(db, 1);
 print(found["name"]);
 
 // Find by name
-fun findByName(records, name) {
+fn findByName(records, name) {
     if len(records) == 0 {
         None;
     } else {

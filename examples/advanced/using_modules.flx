@@ -2,8 +2,8 @@
 // Run with: cargo run -- --root examples examples/advanced/using_modules.flx
 // Expected output:
 // Using imported module functions:
-// Doubled: [2, 4, 6, 8, 10]
-// Evens: [2, 4]
+// Doubled: [|2, 4, 6, 8, 10|]
+// Evens: [|2, 4|]
 // Sum: 15
 // Composing with lambdas:
 // Triple then add 1: 16
@@ -17,7 +17,7 @@ import Modules.FunctionalUtils as FU
 
 print("Using imported module functions:");
 
-let nums = [1, 2, 3, 4, 5];
+let nums = [|1, 2, 3, 4, 5|];
 
 // Use map with lambda
 let doubled = FU.map(nums, \x -> x * 2);
@@ -55,7 +55,7 @@ print("Applied 4 times: " + to_string(result));
 
 print("Pipeline with module functions:");
 
-let words = ["hello", "world", "flux"];
+let words = [|"hello", "world", "flux"|];
 
 // Map uppercase using pipe inside lambda
 let uppercased = FU.map(words, \w -> w |> upper);

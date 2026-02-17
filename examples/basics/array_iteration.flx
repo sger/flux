@@ -10,7 +10,7 @@
 // 3
 
 // Print each element
-fun printAll(arr) {
+fn printAll(arr) {
     if len(arr) == 0 {
         print("done");
     } else {
@@ -19,10 +19,10 @@ fun printAll(arr) {
     };
 }
 
-printAll([1, 2, 3, 4, 5]);
+printAll([|1, 2, 3, 4, 5|]);
 
 // Sum all elements
-fun sum(arr) {
+fn sum(arr) {
     if len(arr) == 0 {
         0;
     } else {
@@ -30,10 +30,10 @@ fun sum(arr) {
     };
 }
 
-print(sum([1, 2, 3, 4, 5]));
+print(sum([|1, 2, 3, 4, 5|]));
 
 // Count elements (alternative to len)
-fun count(arr) {
+fn count(arr) {
     if len(arr) == 0 {
         0;
     } else {
@@ -41,4 +41,4 @@ fun count(arr) {
     };
 }
 
-print(count([10, 20, 30]));
+print(count([|10, 20, 30|]));

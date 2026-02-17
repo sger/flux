@@ -1,0 +1,72 @@
+// Advent of Code - Day 2 Part 1 (Gift Shop)
+// Uses input file: examples/io/aoc_day2.txt
+
+fn parse_range_token(token) {
+    split_ints(trim(token), "-")
+}
+
+fn range_start(parsed_range) {
+    first(parsed_range)
+}
+
+fn range_end(parsed_range) {
+    last(parsed_range)
+}
+
+fn digits_count(n) {
+    if n < 10 {
+        1
+    } else {
+        1 + digits_count(n / 10)
+    }
+}
+
+fn pow10(exp) {
+    if exp <= 0 {
+        1
+    } else {
+        10 * pow10(exp - 1)
+    }
+}
+
+fn invalid_from_seed(seed) {
+    let seed_digits = digits_count(seed)
+    let base = pow10(seed_digits)
+    seed * (base + 1)
+}
+
+fn seed_limit_for_max_id(max_id) {
+    let max_digits = digits_count(max_id)
+    let seed_digits = (max_digits + 1) / 2
+    pow10(seed_digits)
+}
+
+fn id_in_range(id, parsed_range) {
+    let start = range_start(parsed_range)
+    let end = range_end(parsed_range)
+    id >= start && id <= end
+}
+
+let range_tokens = read_file("examples/io/aoc_day2.txt")
+    |> trim
+    |> split(",")
+    |> filter(\t -> trim(t) != "")
+
+let parsed_ranges = range_tokens
+    |> map(\t -> parse_range_token(t))
+
+let max_end = parsed_ranges
+    |> map(\r -> range_end(r))
+    |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
+
+let invalid_candidates = range(1, seed_limit_for_max_id(max_end))
+    |> map(\seed -> invalid_from_seed(seed))
+
+let total = invalid_candidates
+    |> filter(\id ->
+        parsed_ranges
+            |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+    )
+    |> sum
+
+print(total)

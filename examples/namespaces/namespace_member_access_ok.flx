@@ -1,2 +1,2 @@
-let Math = { "square": fun(x) { x * x; } };
+let Math = { "square": fn(x) { x * x; } };
 print(Math.square(5));

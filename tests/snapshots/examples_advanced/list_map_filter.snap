@@ -1,0 +1,10 @@
+---
+source: tests/examples_advanced_snapshots.rs
+---
+Fixture: examples/advanced/list_map_filter.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

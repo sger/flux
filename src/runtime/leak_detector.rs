@@ -7,6 +7,7 @@ pub struct LeakStats {
     pub arrays: usize,
     pub hashes: usize,
     pub somes: usize,
+    pub gc_allocs: usize,
 }
 
 static COMPILED_FUNCTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -14,6 +15,7 @@ static CLOSURES: AtomicUsize = AtomicUsize::new(0);
 static ARRAYS: AtomicUsize = AtomicUsize::new(0);
 static HASHES: AtomicUsize = AtomicUsize::new(0);
 static SOMES: AtomicUsize = AtomicUsize::new(0);
+static GC_ALLOCS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn record_compiled_function() {
     COMPILED_FUNCTIONS.fetch_add(1, Ordering::Relaxed);
@@ -35,6 +37,10 @@ pub fn record_some() {
     SOMES.fetch_add(1, Ordering::Relaxed);
 }
 
+pub fn record_gc_alloc() {
+    GC_ALLOCS.fetch_add(1, Ordering::Relaxed);
+}
+
 pub fn snapshot() -> LeakStats {
     LeakStats {
         compiled_functions: COMPILED_FUNCTIONS.load(Ordering::Relaxed),
@@ -42,5 +48,6 @@ pub fn snapshot() -> LeakStats {
         arrays: ARRAYS.load(Ordering::Relaxed),
         hashes: HASHES.load(Ordering::Relaxed),
         somes: SOMES.load(Ordering::Relaxed),
+        gc_allocs: GC_ALLOCS.load(Ordering::Relaxed),
     }
 }

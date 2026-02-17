@@ -9,8 +9,8 @@ use crate::{
         DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, MODULE_NOT_IMPORTED, UNKNOWN_INFIX_OPERATOR,
-        UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
     runtime::{compiled_function::CompiledFunction, value::Value},
@@ -171,11 +171,34 @@ impl Compiler {
             } => {
                 self.compile_function_literal(parameters, body)?;
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
+                // Lower list literals through builtin `list(...)` to avoid deep
+                // recursive lowering for large literals.
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("builtin list must be defined");
+                self.load_symbol(&symbol);
+                for element in elements {
+                    self.compile_non_tail_expression(element)?;
+                }
+                self.emit(OpCode::OpCall, &[elements.len()]);
+            }
+            Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
                 }
                 self.emit_array_count(elements.len());
+            }
+            Expression::EmptyList { .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("builtin list must be defined");
+                self.load_symbol(&symbol);
+                self.emit(OpCode::OpCall, &[0]);
             }
             Expression::Hash { pairs, .. } => {
                 let mut sorted_pairs: Vec<_> = pairs.iter().collect();
@@ -332,6 +355,19 @@ impl Compiler {
             } => {
                 self.compile_match_expression(scrutinee, arms, *span)?;
             }
+            Expression::Cons { head, tail, .. } => {
+                if let Expression::None { span } = tail.as_ref() {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &LEGACY_LIST_TAIL_NONE,
+                        &[],
+                        self.file_path.clone(),
+                        *span,
+                    )));
+                }
+                self.compile_non_tail_expression(head)?;
+                self.compile_non_tail_expression(tail)?;
+                self.emit(OpCode::OpCons, &[]);
+            }
         }
         self.current_span = previous_span;
         Ok(())
@@ -366,7 +402,9 @@ impl Compiler {
             self.replace_last_pop_with_return();
         }
 
-        if !self.is_last_instruction(OpCode::OpReturnValue) {
+        if !self.is_last_instruction(OpCode::OpReturnValue)
+            && !self.is_last_instruction(OpCode::OpReturnLocal)
+        {
             self.emit(OpCode::OpReturn, &[]);
         }
 
@@ -711,6 +749,78 @@ impl Compiler {
                 self.emit(OpCode::OpTrue, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
+            Pattern::EmptyList { .. } => {
+                // Check if scrutinee is an empty list
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsEmptyList, &[]);
+                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+            }
+            Pattern::Cons { head, tail, .. } => {
+                // Check if scrutinee is a non-empty cons cell
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsCons, &[]);
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                // Check head pattern
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsHead, &[]);
+
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[head_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[head_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                match head.as_ref() {
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {}
+                    _ => {
+                        let head_jumps = self.compile_pattern_check(&head_symbol, head)?;
+                        jumps.extend(head_jumps);
+                    }
+                }
+
+                // Check tail pattern
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsTail, &[]);
+
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[tail_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                match tail.as_ref() {
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {}
+                    _ => {
+                        let tail_jumps = self.compile_pattern_check(&tail_symbol, tail)?;
+                        jumps.extend(tail_jumps);
+                    }
+                }
+
+                Ok(jumps)
+            }
         }
     }
 
@@ -807,6 +917,52 @@ impl Compiler {
                     }
                 }
                 self.compile_pattern_bind(&inner_symbol, inner)?;
+            }
+            Pattern::EmptyList { .. } => {}
+            Pattern::Cons { head, tail, .. } => {
+                // Bind head
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsHead, &[]);
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[head_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[head_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                self.compile_pattern_bind(&head_symbol, head)?;
+
+                // Bind tail
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpConsTail, &[]);
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => {
+                        self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]);
+                    }
+                    SymbolScope::Local => {
+                        self.emit(OpCode::OpSetLocal, &[tail_symbol.index]);
+                    }
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                }
+                self.compile_pattern_bind(&tail_symbol, tail)?;
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
@@ -941,7 +1097,8 @@ impl Compiler {
                     self.collect_consumable_param_uses(argument, counts);
                 }
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => {
                 for element in elements {
                     self.collect_consumable_param_uses(element, counts);
                 }
@@ -981,12 +1138,17 @@ impl Compiler {
             Expression::Some { value, .. }
             | Expression::Left { value, .. }
             | Expression::Right { value, .. } => self.collect_consumable_param_uses(value, counts),
+            Expression::Cons { head, tail, .. } => {
+                self.collect_consumable_param_uses(head, counts);
+                self.collect_consumable_param_uses(tail, counts);
+            }
             Expression::Function { .. }
             | Expression::Integer { .. }
             | Expression::Float { .. }
             | Expression::String { .. }
             | Expression::Boolean { .. }
-            | Expression::None { .. } => {}
+            | Expression::None { .. }
+            | Expression::EmptyList { .. } => {}
         }
     }
 

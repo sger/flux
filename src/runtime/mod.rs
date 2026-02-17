@@ -20,6 +20,7 @@ pub mod builtins;
 pub mod closure;
 pub mod compiled_function;
 pub mod frame;
+pub mod gc;
 pub mod hash_key;
 pub mod leak_detector;
 pub mod value;
@@ -27,6 +28,19 @@ pub mod vm;
 
 pub trait RuntimeContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String>;
+    fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
+        self.invoke_value(callee.clone(), vec![arg])
+    }
+    fn invoke_binary_value(
+        &mut self,
+        callee: &Value,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, String> {
+        self.invoke_value(callee.clone(), vec![left, right])
+    }
+    fn gc_heap(&self) -> &gc::GcHeap;
+    fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
 }
 
 pub type BuiltinFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;

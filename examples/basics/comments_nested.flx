@@ -49,7 +49,7 @@ let deeply_nested = "This code is active!";
  * that already contains block comments, without breaking anything!
  */
 
-fun calculate_total(items) {
+fn calculate_total(items) {
     /*
        Temporarily disabled - needs refactoring
 
@@ -86,7 +86,7 @@ fun calculate_total(items) {
  *
  * Returns processed user object
  */
-fun process_user(name, email) {
+fn process_user(name, email) {
     return name;
 }
 
@@ -137,7 +137,7 @@ let config = {
  * Without nested comment support, you can't do this:
  *
  * /* Comment out a whole function
- * fun debug_helper() {
+ * fn debug_helper() {
  *     /* This inner comment would break non-nested systems */
  *     let temp = calculate();
  *     return temp;
@@ -150,7 +150,7 @@ let config = {
 // Test execution
 print("Nested comments example running successfully!");
 print(deeply_nested);
-print(calculate_total([1, 2, 3]));
+print(calculate_total([|1, 2, 3|]));
 print(process_user("Alice", "alice@example.com"));
 
 /*

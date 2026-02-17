@@ -204,8 +204,8 @@ let result = 5 |> double;  // double(5) = 10
 
 // Chaining
 let result = [1, 2, 3, 4, 5]
-    |> filter(fun(x) { x > 2 })
-    |> map(fun(x) { x * 2 })
+    |> filter(fn(x) { x > 2 })
+    |> map(fn(x) { x * 2 })
     |> first;
 print(result);  // 6
 
@@ -295,7 +295,7 @@ let success = Right(42);
 let failure = Left("error message");
 
 // Pattern matching
-fun handle(result) {
+fn handle(result) {
     match result {
         Right(value) -> print("Success: " + to_string(value));
         Left(err) -> print("Error: " + err);
@@ -304,7 +304,7 @@ fun handle(result) {
 }
 
 // Practical usage
-fun divide(a, b) {
+fn divide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
@@ -419,7 +419,7 @@ let complex = \x -> {
 print(complex(5));  // 11
 
 // Lambda as argument
-fun applyTwice(f, x) {
+fn applyTwice(f, x) {
     f(f(x))
 }
 print(applyTwice(\x -> x * 2, 3));  // 12
@@ -525,7 +525,7 @@ print(max(10, 2));      // 10
 print(max(3.5, 2.1));   // 3.5
 
 // Practical example: Clamp value to range
-fun clamp(value, minVal, maxVal) {
+fn clamp(value, minVal, maxVal) {
     min(max(value, minVal), maxVal);
 }
 print(clamp(15, 0, 10));   // 10
@@ -570,7 +570,7 @@ print(is_none(None));         // true
 print(is_some(Some(42)));     // true
 
 // Practical example: Safe type conversion
-fun safeAdd(a, b) {
+fn safeAdd(a, b) {
     if is_int(a) && is_int(b) {
         a + b
     } else {
@@ -663,7 +663,7 @@ print(safeAdd(1, "hello"));   // None
 | Operators | `+ - * / == != < >` | `+ - * / == != < > <= >= % && \|\|` |
 | Pipe | No | Yes (`\|>`) |
 | Either Type | No | Yes (`Left`/`Right`) |
-| Lambda | `fun(x) { x * 2 }` | `\x -> x * 2` |
+| Lambda | `fn(x) { x * 2 }` | `\x -> x * 2` |
 | Array Builtins | 5 | 10+ |
 | String Builtins | 2 | 8+ |
 | Hash Builtins | 0 | 4+ |
@@ -682,7 +682,7 @@ Features deferred to future versions:
 - **Tuple Type:** `(a, b, c)`
 - **Type Declarations:** `type Shape { Circle(r), Rectangle(w, h) }`
 - **For Loops:** `for x in arr { ... }`
-- **Effect System:** `fun f() with IO { ... }`
+- **Effect System:** `fn f() with IO { ... }`
 - **Streams:** Built-in reactive primitives
 - **Actors:** Lightweight concurrent processes
 - **TCO:** Tail call optimization
