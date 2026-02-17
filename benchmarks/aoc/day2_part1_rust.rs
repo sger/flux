@@ -18,7 +18,7 @@ fn invalid_from_seed(seed: i64) -> i64 {
 
 fn seed_limit_for_max_id(max_id: i64) -> i64 {
     let max_digits = digits_count(max_id);
-    let seed_digits = (max_digits + 1) / 2;
+    let seed_digits = max_digits.div_ceil(2);
     10_i64.pow(seed_digits)
 }
 
