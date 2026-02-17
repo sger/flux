@@ -3,23 +3,23 @@
 
 module Modules.FunctionalUtils {
     // Map: apply function to each element
-    fun map(arr, f) {
+    fn map(arr, f) {
         if len(arr) == 0 {
-            []
+            [||]
         } else {
-            concat([f(first(arr))], map(rest(arr), f))
+            concat([|f(first(arr))|], map(rest(arr), f))
         }
     }
 
     // Filter: keep elements that satisfy predicate
-    fun filter(arr, pred) {
+    fn filter(arr, pred) {
         if len(arr) == 0 {
-            []
+            [||]
         } else {
             let head = first(arr);
             let tail = filter(rest(arr), pred);
             if pred(head) {
-                concat([head], tail)
+                concat([|head|], tail)
             } else {
                 tail
             }
@@ -27,7 +27,7 @@ module Modules.FunctionalUtils {
     }
 
     // Reduce/fold: combine elements with accumulator
-    fun reduce(arr, initial, f) {
+    fn reduce(arr, initial, f) {
         if len(arr) == 0 {
             initial
         } else {
@@ -36,12 +36,12 @@ module Modules.FunctionalUtils {
     }
 
     // Compose two functions: compose(f, g)(x) = f(g(x))
-    fun compose(f, g) {
+    fn compose(f, g) {
         \x -> f(g(x))
     }
 
     // Apply a function n times
-    fun applyN(f, n, x) {
+    fn applyN(f, n, x) {
         if n <= 0 {
             x
         } else {

@@ -28,7 +28,7 @@ cargo run -- examples/error_messages/outer_assignment.flx
 
 **File:** `unknown_keyword.flx`
 **Error:** E030 - UNKNOWN KEYWORD
-**What it shows:** Lists all Flux keywords and highlights common mistakes from other languages (e.g., `function` vs `fun`).
+**What it shows:** Lists all Flux keywords and highlights common mistakes from other languages (e.g., `function` vs `fn`).
 
 ```bash
 cargo run -- examples/error_messages/unknown_keyword.flx

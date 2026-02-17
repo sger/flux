@@ -187,7 +187,7 @@ x |> f |> g |> h      // h(g(f(x)))
 data |> map(&1 * 2)  // with placeholder
 
 // F# uses same syntax
-data |> List.map (fun x -> x * 2)
+data |> List.map (fn x -> x * 2)
 
 // Haskell uses & (flip application)
 data & map double & filter isValid
@@ -202,9 +202,9 @@ data & map double & filter isValid
 **Current limitation:**
 ```flux
 // Verbose for simple operations
-map(arr, fun(x) { x * 2; })
-filter(arr, fun(x) { x > 0; })
-reduce(arr, 0, fun(acc, x) { acc + x; })
+map(arr, fn(x) { x * 2; })
+filter(arr, fn(x) { x > 0; })
+reduce(arr, 0, fn(acc, x) { acc + x; })
 ```
 
 **Proposed options:**
@@ -294,7 +294,7 @@ parameters := identifier (',' identifier)*
 /// ```flux
 /// add(1, 2)  // returns 3
 /// ```
-fun add(a, b) {
+fn add(a, b) {
     a + b
 }
 
@@ -322,7 +322,7 @@ let first = pair[0];
 let second = pair[1];
 
 // Cannot destructure in function params
-fun process_point(point) {
+fn process_point(point) {
     let x = point.x;
     let y = point.y;
     // ...
@@ -361,13 +361,13 @@ let (head, ...tail) = tuple;
 
 #### In Function Parameters
 ```flux
-fun distance([x1, y1], [x2, y2]) {
+fn distance([x1, y1], [x2, y2]) {
     let dx = x2 - x1;
     let dy = y2 - y1;
     sqrt(dx * dx + dy * dy)
 }
 
-fun greet({ name, title }) {
+fn greet({ name, title }) {
     "Hello, #{title} #{name}!"
 }
 ```
@@ -471,7 +471,7 @@ match expr {
 **Current limitation:**
 ```flux
 // Cannot provide defaults
-fun greet(name, greeting) {
+fn greet(name, greeting) {
     "#{greeting}, #{name}!"
 }
 // Must always pass both: greet("World", "Hello")
@@ -479,7 +479,7 @@ fun greet(name, greeting) {
 
 **Proposed syntax:**
 ```flux
-fun greet(name, greeting = "Hello") {
+fn greet(name, greeting = "Hello") {
     "#{greeting}, #{name}!"
 }
 
@@ -487,7 +487,7 @@ greet("World")           // "Hello, World!"
 greet("World", "Hi")     // "Hi, World!"
 
 // Multiple defaults
-fun create_user(name, age = 0, active = true) {
+fn create_user(name, age = 0, active = true) {
     { name: name, age: age, active: active }
 }
 
@@ -502,8 +502,8 @@ create_user("Carol", 30, false)   // all specified
 - Defaults can reference earlier parameters
 
 ```flux
-fun range(start, end, step = 1) { ... }
-fun pad(str, width, char = " ") { ... }
+fn range(start, end, step = 1) { ... }
+fn pad(str, width, char = " ") { ... }
 ```
 
 ---
@@ -616,7 +616,7 @@ if let Some(user) = get_user(id) {
 #### Let-Else (Early Return)
 ```flux
 // Current: nested matches or manual checks
-fun process(data) {
+fn process(data) {
     match validate(data) {
         Some(valid) -> {
             // continue with valid...
@@ -628,7 +628,7 @@ fun process(data) {
 }
 
 // Proposed: let-else
-fun process(data) {
+fn process(data) {
     let Some(valid) = validate(data) else {
         return None;
     };
@@ -704,7 +704,7 @@ type Tree<T> {
     Node(Tree<T>, T, Tree<T>)
 }
 
-fun map_tree<T, U>(tree: Tree<T>, f: T -> U): Tree<U> {
+fn map_tree<T, U>(tree: Tree<T>, f: T -> U): Tree<U> {
     match tree {
         Leaf(x) -> Leaf(f(x));
         Node(left, x, right) ->
@@ -773,7 +773,7 @@ let moved = { point | x: point.x + dx, y: point.y + dy };
 let Point { x, y } = point;
 let User { name, age, ... } = user;  // ignore other fields
 
-fun distance(Point { x: x1, y: y1 }, Point { x: x2, y: y2 }) {
+fn distance(Point { x: x1, y: y1 }, Point { x: x2, y: y2 }) {
     sqrt((x2-x1)^2 + (y2-y1)^2)
 }
 ```
@@ -810,7 +810,7 @@ let (head, ...rest) = many;
 ```flux
 let point: (Int, Int) = (10, 20);
 
-fun swap<A, B>(pair: (A, B)): (B, A) {
+fn swap<A, B>(pair: (A, B)): (B, A) {
     let (a, b) = pair;
     (b, a)
 }
@@ -898,24 +898,24 @@ effect Time        // Current time, delays
 **Effect Annotations:**
 ```flux
 // Pure function (no effects) - default
-fun add(a, b) {
+fn add(a, b) {
     a + b
 }
 
 // Function with IO effect
-fun greet(name) with IO {
+fn greet(name) with IO {
     print("Hello, #{name}!");
 }
 
 // Multiple effects
-fun fetch_and_log(url) with IO, Async {
+fn fetch_and_log(url) with IO, Async {
     let data = await http.get(url);
     print("Received: #{data}");
     data
 }
 
 // Generic over effects
-fun map<A, B, E>(list: List<A>, f: A -> B with E): List<B> with E {
+fn map<A, B, E>(list: List<A>, f: A -> B with E): List<B> with E {
     match list {
         Nil -> Nil;
         Cons(x, xs) -> Cons(f(x), map(xs, f));
@@ -926,13 +926,13 @@ fun map<A, B, E>(list: List<A>, f: A -> B with E): List<B> with E {
 **Effect Inference:**
 ```flux
 // Effects inferred from body
-fun process(data) {
+fn process(data) {
     print("Processing...");   // IO effect inferred
     let result = transform(data);
     print("Done!");
     result
 }
-// Inferred: fun process(data) with IO
+// Inferred: fn process(data) with IO
 ```
 
 **Effect Handlers:**
@@ -946,7 +946,7 @@ handle {
 }
 
 // Useful for testing
-fun test_parser() {
+fn test_parser() {
     let result = handle {
         parse_config()
     } with {
@@ -957,7 +957,7 @@ fun test_parser() {
 }
 
 // State effect handler
-fun run_stateful<S, A>(initial: S, computation: () -> A with State<S>): (A, S) {
+fn run_stateful<S, A>(initial: S, computation: () -> A with State<S>): (A, S) {
     let state = initial;
 
     let result = handle {
@@ -977,13 +977,13 @@ fun run_stateful<S, A>(initial: S, computation: () -> A with State<S>): (A, S) {
 **Effect Rows (Advanced):**
 ```flux
 // Function that adds IO to existing effects
-fun log<E>(msg: String, action: () -> A with E): A with IO, E {
+fn log<E>(msg: String, action: () -> A with E): A with IO, E {
     print(msg);
     action()
 }
 
 // Effect subtraction (handler removes effect)
-fun pure_random<E>(seed: Int, action: () -> A with Random, E): A with E {
+fn pure_random<E>(seed: Int, action: () -> A with Random, E): A with E {
     handle {
         action()
     } with {
@@ -1097,7 +1097,7 @@ let combined = Cell.combine(cellA, cellB, \a, b -> a + b);
 #### Integration with Effects
 ```flux
 // Streams have the Async effect
-fun process_stream(s: Stream<Data>) with Async {
+fn process_stream(s: Stream<Data>) with Async {
     s |> Stream.for_each(\data -> {
         handle(data);
     });
@@ -1386,7 +1386,7 @@ actor UserService with IO, State<Hash<UserId, User>> {
         reply(stream);
     }
 
-    fun broadcast(event: UserEvent) {
+    fn broadcast(event: UserEvent) {
         for sink in subscribers {
             sink.emit(event);
         }
@@ -1403,7 +1403,7 @@ supervisor AppSupervisor {
 }
 
 // Client code
-fun main() with IO, Async {
+fn main() with IO, Async {
     // Start supervised system
     let app = spawn AppSupervisor;
     let users = app.child("users");

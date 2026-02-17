@@ -249,7 +249,9 @@ impl Compiler {
             self.replace_last_pop_with_return();
         }
 
-        if !self.is_last_instruction(OpCode::OpReturnValue) {
+        if !self.is_last_instruction(OpCode::OpReturnValue)
+            && !self.is_last_instruction(OpCode::OpReturnLocal)
+        {
             self.emit(OpCode::OpReturn, &[]);
         }
 

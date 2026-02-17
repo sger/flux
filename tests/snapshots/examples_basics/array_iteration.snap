@@ -3,8 +3,34 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_iteration.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `sum` is already defined.
+
+  --> examples/basics/array_iteration.flx:25:1
+   |
+25 | fn sum(arr) {
+   | ^^^^^^^^^^^^^
+26 |     if len(arr) == 0 {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+27 |         0;
+   | ^^^^^^^^^^
+28 |     } else {
+   | ^^^^^^^^^^^^
+29 |         first(arr) + sum(rest(arr));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+30 |     };
+   | ^^^^^^
+31 | }
+   | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/basics/array_iteration.flx:0:1
+  |
 == stdout ==
 <not executed>

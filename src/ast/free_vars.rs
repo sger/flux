@@ -50,7 +50,14 @@ impl FreeVarCollector {
             | Pattern::Right { pattern, .. } => {
                 self.extract_pattern_bindings(pattern);
             }
-            Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
+            Pattern::Cons { head, tail, .. } => {
+                self.extract_pattern_bindings(head);
+                self.extract_pattern_bindings(tail);
+            }
+            Pattern::Wildcard { .. }
+            | Pattern::Literal { .. }
+            | Pattern::None { .. }
+            | Pattern::EmptyList { .. } => {}
         }
     }
 }
@@ -177,7 +184,7 @@ mod tests {
         let free = free_var_names(
             r#"
 let x = 1;
-let f = fun() { x + y; };
+let f = fn() { x + y; };
 "#,
         );
         assert!(free.contains("y"));
@@ -188,7 +195,7 @@ let f = fun() { x + y; };
     fn recursive_function_name_is_not_free() {
         let free = free_var_names(
             r#"
-fun fact(n) {
+fn fact(n) {
     if n == 0 { 1; } else { fact(n - 1); }
 }
 "#,

@@ -1,0 +1,62 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/patterns/list_patterns.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E077]: LEGACY LIST TAIL
+
+Use `[]` as the empty list tail instead of `None`.
+
+  --> examples/patterns/list_patterns.flx:14:25
+   |
+14 | let xs = [1 | [2 | [3 | None]]];
+   |                         ^^^^
+
+Hint:
+  Replace `None` with `[]` in cons expressions, for example: `[1 | []]`.
+
+
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `sum` is already defined.
+
+  --> examples/patterns/list_patterns.flx:33:1
+   |
+33 | fn sum(lst) {
+   | ^^^^^^^^^^^^^
+34 |     match lst {
+   | ^^^^^^^^^^^^^^^
+35 |         [h | t] -> h + sum(t),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |         _ -> 0,
+   | ^^^^^^^^^^^^^^^
+37 |     }
+   | ^^^^^
+38 | }
+   | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/patterns/list_patterns.flx:0:1
+  |
+
+
+--> compiler error[E077]: LEGACY LIST TAIL
+
+Use `[]` as the empty list tail instead of `None`.
+
+  --> examples/patterns/list_patterns.flx:57:30
+   |
+57 | let data = [10 | [20 | [30 | None]]];
+   |                              ^^^^
+
+Hint:
+  Replace `None` with `[]` in cons expressions, for example: `[1 | []]`.
+
+Found 3 errors.
+== stdout ==
+<not executed>

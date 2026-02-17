@@ -3,5 +3,5 @@
 
 module ModuleGraph.ConstFloatDivideByZero {
     let crash = 1.0 / 0.0;
-    fun value() { crash; }
+    fn value() { crash; }
 }

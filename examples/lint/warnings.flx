@@ -1,15 +1,15 @@
 // Linter warning examples (W008-W010)
 
-fun dead_code_example() {
+fn dead_code_example() {
     return 42;
     print("unreachable"); // W008: dead code after return
 }
 
-fun too_many_params(a, b, c, d, e, f) { // W010: too many parameters (6)
+fn too_many_params(a, b, c, d, e, f) { // W010: too many parameters (6)
     a + b + c + d + e + f;
 }
 
-fun long_function() { // W009: function too long (>50 lines)
+fn long_function() { // W009: function too long (>50 lines)
     1;
     2;
     3;

@@ -69,9 +69,17 @@ impl Compiler {
             SymbolScope::Global => {
                 self.emit(OpCode::OpGetGlobal, &[symbol.index]);
             }
-            SymbolScope::Local => {
-                self.emit(OpCode::OpGetLocal, &[symbol.index]);
-            }
+            SymbolScope::Local => match symbol.index {
+                0 => {
+                    self.emit(OpCode::OpGetLocal0, &[]);
+                }
+                1 => {
+                    self.emit(OpCode::OpGetLocal1, &[]);
+                }
+                _ => {
+                    self.emit(OpCode::OpGetLocal, &[symbol.index]);
+                }
+            },
             SymbolScope::Builtin => {
                 self.emit(OpCode::OpGetBuiltin, &[symbol.index]);
             }

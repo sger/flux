@@ -12,32 +12,31 @@ impl Parser {
             TokenType::Import => self.parse_import_statement(),
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
+            TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
+                self.parse_function_statement()
+            }
             TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
+                self.warn_deprecated_fun(self.current_token.span());
                 self.parse_function_statement()
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
-                self.errors.push(
-                    unknown_keyword(
-                        self.current_token.span(),
-                        "fn",
-                        Some(("fun", "Replace 'fn' with 'fun'")),
-                    )
-                    .with_message("Flux uses `fun` for function declarations."),
-                );
+                // Defensive path: `fn` should lex as TokenType::Fn.
                 None
             }
             TokenType::Ident
-                if self.current_token.literal != "fun"
-                    && self.current_token.literal.starts_with("fun")
+                if self.current_token.literal != "fn"
+                    && self.current_token.literal != "fun"
+                    && (self.current_token.literal.starts_with("fn")
+                        || self.current_token.literal.starts_with("fun"))
                     && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(
                     unknown_keyword(self.current_token.span(), &self.current_token.literal, None)
                         .with_message(format!(
-                            "Unknown keyword `{}`. Flux uses `fun` for function declarations.",
+                            "Unknown keyword `{}`. Flux uses `fn` for function declarations.",
                             self.current_token.literal
                         ))
-                        .with_hint_text("Did you mean `fun`?"),
+                        .with_hint_text("Did you mean `fn`?"),
                 );
                 None
             }

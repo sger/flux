@@ -2,7 +2,7 @@
 
 // W011: HIGH CYCLOMATIC COMPLEXITY
 // This function has 12 branches (complexity = 12, threshold = 10)
-fun high_complexity(x) {
+fn high_complexity(x) {
     match x {
         1 -> "one",
         2 -> "two",
@@ -21,7 +21,7 @@ fun high_complexity(x) {
 
 // W012: DEEP NESTING
 // This function has 5 levels of nesting (max = 4)
-fun deep_nesting(x) {
+fn deep_nesting(x) {
     if x > 0 {
         if x > 1 {
             if x > 2 {
@@ -47,7 +47,7 @@ fun deep_nesting(x) {
 
 // Both W011 and W012
 // High complexity AND deep nesting
-fun both_issues(x) {
+fn both_issues(x) {
     if x > 0 {
         if x > 10 {
             if x > 20 {
@@ -74,7 +74,7 @@ fun both_issues(x) {
 }
 
 // Good code - no warnings
-fun simple_function(x) {
+fn simple_function(x) {
     if x > 0 {
         "positive";
     } else {

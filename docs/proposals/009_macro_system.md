@@ -75,13 +75,13 @@ let ast = quote {
 ```flux
 macro make_adder(n) {
     quote {
-        fun (x) { x + unquote(n) }
+        fn (x) { x + unquote(n) }
     }
 }
 
 // Expands to:
 make_adder(5)
-// => fun (x) { x + 5 }
+// => fn (x) { x + 5 }
 ```
 
 #### C. Macro Expansion (Compile-Time)
@@ -446,7 +446,7 @@ module Stdlib.Test {
 // Usage:
 import Stdlib.Test
 
-fun test_addition() {
+fn test_addition() {
     assert_eq(2 + 2, 4);
     assert(result > 0);
 }

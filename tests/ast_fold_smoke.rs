@@ -128,7 +128,7 @@ fn rename_preserves_other_idents() {
 
 #[test]
 fn rename_in_function_parameters() {
-    let (program, mut interner) = parse("fun f(a) { return a; }");
+    let (program, mut interner) = parse("fn f(a) { return a; }");
 
     let sym_a = interner.intern("a");
     let sym_b = interner.intern("b");

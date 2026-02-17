@@ -1,0 +1,171 @@
+// Test: Advanced list processing with map, filter, fold
+// Expected output:
+// === Builtin map/filter/fold on lists ===
+// [|2, 4, 6, 8, 10|]
+// [|4, 6, 8, 10|]
+// 15
+// === Chained pipeline ===
+// [|8, 32, 72|]
+// === Recursive alternatives ===
+// [|2, 4, 6, 8, 10|]
+// [|6, 8, 10|]
+// === Building maps from lists ===
+// {"bob": 3, "charlie": 7, "alice": 5}
+// === Flatten ===
+// [|1, 2, 3, 4, 5, 6|]
+// === Zip ===
+// [|["a", 1], [|"b", 2|], [|"c", 3|]|]
+// === Take / Drop ===
+// [|1, 2, 3|]
+// [|4, 5|]
+
+// =============================================================================
+// Part 1: Builtin map/filter/fold Work Directly on Lists
+// =============================================================================
+
+print("=== Builtin map/filter/fold on lists ===");
+
+let nums = [1, 2, 3, 4, 5];
+
+// map on a list returns a list
+let doubled = map(nums, \x -> x * 2);
+print(doubled);  // [|2, 4, 6, 8, 10|]
+
+// filter on a list returns a list
+let big = filter(doubled, \x -> x > 2);
+print(big);  // [|4, 6, 8, 10|]
+
+// fold on a list returns the accumulated value
+let total = fold(nums, 0, \(acc, x) -> acc + x);
+print(total);  // 15
+
+// =============================================================================
+// Part 2: Chaining Transforms via Pipe
+// =============================================================================
+
+print("=== Chained pipeline ===");
+
+// Pipeline: square, keep evens, double
+// 1→1, 2→4, 3→9, 4→16, 5→25, 6→36, 7→49
+// evens: 4, 16, 36 → doubled: 8, 32, 72
+let result = [1, 2, 3, 4, 5, 6, 7]
+    |> map(\x -> x * x)
+    |> filter(\x -> x % 2 == 0)
+    |> map(\x -> x * 2);
+
+print(result);  // [|8, 32, 72|]
+
+// =============================================================================
+// Part 3: Recursive Alternatives via Pattern Matching
+// =============================================================================
+
+print("=== Recursive alternatives ===");
+
+// You can also implement these recursively using cons patterns
+fn list_map(lst, f) {
+    match lst {
+        [h | t] -> [f(h) | list_map(t, f)],
+        _ -> None,
+    }
+}
+
+fn list_filter(lst, pred) {
+    match lst {
+        [h | t] -> if pred(h) { [h | list_filter(t, pred)] } else { list_filter(t, pred) },
+        _ -> None,
+    }
+}
+
+print(list_map(nums, \x -> x * 2));           // [|2, 4, 6, 8, 10|]
+print(list_filter(doubled, \x -> x > 5));      // [|6, 8, 10|]
+
+// =============================================================================
+// Part 4: Building Maps from Lists
+// =============================================================================
+
+print("=== Building maps from lists ===");
+
+// Fold a list of words into a {word: length} map
+let words = ["alice", "bob", "charlie"];
+let lengths = fold(words, {}, \(acc, w) -> put(acc, w, len(w)));
+print(lengths);  // {"bob": 3, "charlie": 7, "alice": 5}
+
+// =============================================================================
+// Part 5: Flatten (list of lists → single list)
+// =============================================================================
+
+print("=== Flatten ===");
+
+fn list_append(a, b) {
+    match a {
+        [h | t] -> [h | list_append(t, b)],
+        _ -> b,
+    }
+}
+
+fn flatten(lst) {
+    match lst {
+        [h | t] -> list_append(h, flatten(t)),
+        _ -> None,
+    }
+}
+
+let nested = [
+    [1, 2],
+    [3, 4],
+    [5, 6],
+];
+print(flatten(nested));  // [|1, 2, 3, 4, 5, 6|]
+
+// =============================================================================
+// Part 6: Zip (pair elements from two lists)
+// =============================================================================
+
+print("=== Zip ===");
+
+fn zip(a, b) {
+    match a {
+        [ha | ta] -> match b {
+            [hb | tb] -> [[ha, hb] | zip(ta, tb)],
+            _ -> None,
+        },
+        _ -> None,
+    }
+}
+
+let labels = ["a", "b", "c"];
+let vals = [1, 2, 3];
+let pairs = zip(labels, vals);
+print(to_array(pairs));  // [|["a", 1], [|"b", 2|], [|"c", 3|]|]
+
+// =============================================================================
+// Part 7: Take / Drop
+// =============================================================================
+
+print("=== Take / Drop ===");
+
+fn take(lst, n) {
+    if n <= 0 {
+        None
+    } else {
+        match lst {
+            [h | t] -> [h | take(t, n - 1)],
+            _ -> None,
+        }
+    }
+}
+
+fn drop(lst, n) {
+    if n <= 0 {
+        lst
+    } else {
+        match lst {
+            [h | t] -> drop(t, n - 1),
+            _ -> None,
+        }
+    }
+}
+
+let items = [1, 2, 3, 4, 5];
+print(take(items, 3));  // [|1, 2, 3|]
+print(drop(items, 3));  // [|4, 5|]

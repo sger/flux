@@ -49,11 +49,12 @@ mod tests {
 
     #[test]
     fn keywords() {
-        let input = "let fun if else return true false";
+        let input = "let fn fun if else return true false";
         let mut lexer = Lexer::new(input);
 
         let expected = vec![
             TokenType::Let,
+            TokenType::Fn,
             TokenType::Fun,
             TokenType::If,
             TokenType::Else,
@@ -397,7 +398,7 @@ let x = 5; // inline comment
     #[test]
     fn complete_program() {
         let input = r#"
-fun fib(n) {
+fn fib(n) {
     if n < 2 { return n; };
     fib(n - 1) + fib(n - 2);
 }

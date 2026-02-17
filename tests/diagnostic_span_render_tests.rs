@@ -474,38 +474,38 @@ fn hint_falls_back_to_diagnostic_file() {
 #[test]
 fn inline_suggestion_basic() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let source = "fn calculate(x) { x + 1 }\n";
-    let span = Span::new(Position::new(1, 0), Position::new(1, 2));
+    let source = "function calculate(x) { x + 1 }\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 8));
 
-    let suggestion = InlineSuggestion::new(span, "fun");
+    let suggestion = InlineSuggestion::new(span, "fn");
 
     let output = Diagnostic::warning("Unknown keyword")
         .with_code("E101")
         .with_file("test.flx")
         .with_span(span)
-        .with_message("'fn' is not a valid keyword")
+        .with_message("'function' is not a valid keyword")
         .with_suggestion(suggestion)
         .render(Some(source), None);
 
     // Check that suggestion is rendered
-    assert!(output.contains("help: Replace with 'fun'"));
-    assert!(output.contains("fun calculate(x) { x + 1 }"));
-    assert!(output.contains("~~~"));
+    assert!(output.contains("help: Replace with 'fn'"));
+    assert!(output.contains("fn calculate(x) { x + 1 }"));
+    assert!(output.contains("~"));
 }
 
 #[test]
 fn inline_suggestion_with_message() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let source = "fn main() {}\n";
-    let span = Span::new(Position::new(1, 0), Position::new(1, 2));
+    let source = "function main() {}\n";
+    let span = Span::new(Position::new(1, 0), Position::new(1, 8));
 
     let output = Diagnostic::warning("Invalid keyword")
         .with_span(span)
-        .with_suggestion_message(span, "fun", "Use 'fun' instead of 'fn'")
+        .with_suggestion_message(span, "fn", "Use 'fn' instead of 'function'")
         .render(Some(source), None);
 
-    assert!(output.contains("help: Use 'fun' instead of 'fn'"));
-    assert!(output.contains("fun main() {}"));
+    assert!(output.contains("help: Use 'fn' instead of 'function'"));
+    assert!(output.contains("fn main() {}"));
 }
 
 #[test]
@@ -523,16 +523,16 @@ fn inline_suggestion_builder() {
 #[test]
 fn multiple_inline_suggestions() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let source = "fn add(a, b) { a + b }\n";
-    let fn_span = Span::new(Position::new(1, 0), Position::new(1, 2));
+    let source = "function add(a, b) { a + b }\n";
+    let fn_span = Span::new(Position::new(1, 0), Position::new(1, 8));
 
     let output = Diagnostic::warning("Multiple issues")
         .with_span(fn_span)
-        .with_suggestion_replace(fn_span, "fun")
+        .with_suggestion_replace(fn_span, "fn")
         .render(Some(source), None);
 
-    assert!(output.contains("fun add(a, b)"));
-    assert!(output.contains("~~~"));
+    assert!(output.contains("fn add(a, b)"));
+    assert!(output.contains("~"));
 }
 
 #[test]

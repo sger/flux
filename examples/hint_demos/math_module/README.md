@@ -39,7 +39,7 @@ Expected 2 arguments, found 3
    = note: function defined here
   --> examples/hint_demos/math_module/math.flx:15:5
    |
-15 | fun average(num1, num2) {
+15 | fn average(num1, num2) {
    |     ^^^^^^^^^^^^^^^^^^^
 ```
 

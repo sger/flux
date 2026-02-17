@@ -11,7 +11,7 @@ This document describes the current module system behavior in Flux.
 module Modules.Analytics.Rules {
     let PASSING_SCORE = 60
 
-    fun passing_score() {
+    fn passing_score() {
         PASSING_SCORE
     }
 }
@@ -118,9 +118,9 @@ Flux uses naming convention-based privacy:
 
 ```flux
 module Demo.PrivateTest {
-    fun _private(x) { x * 2 }
+    fn _private(x) { x * 2 }
 
-    fun public(x) {
+    fn public(x) {
         _private(x) + 1
     }
 }
@@ -137,7 +137,7 @@ module Modules.Analytics.Transforms {
     let SCORE_SCALE = 2
     let shout_prefix = "["
 
-    fun double(x) {
+    fn double(x) {
         x * SCORE_SCALE
     }
 }
@@ -153,8 +153,8 @@ Flux returns the last expression by default.
 `return` is optional unless you want explicit early-exit style.
 
 ```flux
-fun a() { 42 }
-fun b(x) { x * 2 }
+fn a() { 42 }
+fn b(x) { x * 2 }
 ```
 
 Both return values without explicit `return`.

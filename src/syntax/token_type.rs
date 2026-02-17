@@ -96,6 +96,7 @@ define_tokens! {
 
         // Pipe operator
         Pipe => "|>",
+        Bar  => "|",
 
         // Delimiters
         LParen    => "(",
@@ -108,6 +109,7 @@ define_tokens! {
         RBracket  => "]",
         Colon     => ":",
         Dot       => ".",
+        Hash      => "#",
         Arrow     => "->",
         Backslash => "\\",
         InterpolationStart => "#{",
@@ -116,6 +118,7 @@ define_tokens! {
 
     keywords {
         Let    => "let",
+        Fn     => "fn",
         Fun    => "fun",
         If     => "if",
         Else   => "else",

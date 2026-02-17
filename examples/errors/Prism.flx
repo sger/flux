@@ -1,4 +1,4 @@
-  fun main() {
-    let f = fun(x, x) { x };
+  fn main() {
+    let f = fn(x, x) { x };
     print(f(1, 2));
   }

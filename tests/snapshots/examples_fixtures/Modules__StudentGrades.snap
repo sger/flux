@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/Modules/StudentGrades.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `Modules.StudentGrades` doesn't match file path `examples/Modules/StudentGrades.flx`.
+
+  --> examples/Modules/StudentGrades.flx:6:1
+  |
+6 | module Modules.StudentGrades {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

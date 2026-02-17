@@ -188,10 +188,15 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             arguments: arguments.into_iter().map(|a| folder.fold_expr(a)).collect(),
             span,
         },
-        Expression::Array { elements, span } => Expression::Array {
+        Expression::ListLiteral { elements, span } => Expression::ListLiteral {
             elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
             span,
         },
+        Expression::ArrayLiteral { elements, span } => Expression::ArrayLiteral {
+            elements: elements.into_iter().map(|e| folder.fold_expr(e)).collect(),
+            span,
+        },
+        Expression::EmptyList { span } => Expression::EmptyList { span },
         Expression::Index { left, index, span } => Expression::Index {
             left: Box::new(folder.fold_expr(*left)),
             index: Box::new(folder.fold_expr(*index)),
@@ -235,6 +240,11 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             value: Box::new(folder.fold_expr(*value)),
             span,
         },
+        Expression::Cons { head, tail, span } => Expression::Cons {
+            head: Box::new(folder.fold_expr(*head)),
+            tail: Box::new(folder.fold_expr(*tail)),
+            span,
+        },
     }
 }
 
@@ -262,6 +272,12 @@ pub fn fold_pat<F: Folder + ?Sized>(folder: &mut F, pat: Pattern) -> Pattern {
             pattern: Box::new(folder.fold_pat(*pattern)),
             span,
         },
+        Pattern::Cons { head, tail, span } => Pattern::Cons {
+            head: Box::new(folder.fold_pat(*head)),
+            tail: Box::new(folder.fold_pat(*tail)),
+            span,
+        },
+        Pattern::EmptyList { span } => Pattern::EmptyList { span },
     }
 }
 

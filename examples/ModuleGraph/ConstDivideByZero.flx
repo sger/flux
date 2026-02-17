@@ -2,5 +2,5 @@
 // Expected: compiler error for division by zero during const eval.
 module ModuleGraph.ConstDivideByZero {
     let crash = 1 / 0;
-    fun value() { crash; }
+    fn value() { crash; }
 }

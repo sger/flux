@@ -5,5 +5,5 @@
 let result = "hello" + 123;
 
 // Example 2: Function call with wrong argument types  
-fun add(a, b) { a + b }
+fn add(a, b) { a + b }
 add("text", 456);

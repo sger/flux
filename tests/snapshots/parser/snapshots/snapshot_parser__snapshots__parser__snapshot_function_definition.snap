@@ -79,7 +79,7 @@ Program {
                 span: Span {
                     start: Position {
                         line: 2,
-                        column: 14,
+                        column: 13,
                     },
                     end: Position {
                         line: 4,

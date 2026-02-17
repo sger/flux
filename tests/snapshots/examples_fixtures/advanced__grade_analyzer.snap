@@ -1,0 +1,51 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/advanced/grade_analyzer.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.StudentGrades` to import.
+
+  --> examples/advanced/grade_analyzer.flx:20:1
+   |
+20 | import Modules.StudentGrades as SG
+   | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.StudentGrades.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.StudentGrades` under roots: examples/advanced, src (imported from examples/advanced/grade_analyzer.flx).
+
+
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.MapUtils` to import.
+
+  --> examples/advanced/grade_analyzer.flx:21:1
+   |
+21 | import Modules.MapUtils as M
+   | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.MapUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.MapUtils` under roots: examples/advanced, src (imported from examples/advanced/grade_analyzer.flx).
+
+
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Modules.ListUtils` to import.
+
+  --> examples/advanced/grade_analyzer.flx:22:1
+   |
+22 | import Modules.ListUtils as L
+   | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Modules.ListUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Modules.ListUtils` under roots: examples/advanced, src (imported from examples/advanced/grade_analyzer.flx).
+
+Found 3 errors.
+== stdout ==
+<not executed>

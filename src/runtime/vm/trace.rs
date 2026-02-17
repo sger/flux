@@ -29,6 +29,8 @@ impl VM {
             "E1008" // DIVISION_BY_ZERO_RUNTIME
         } else if title.contains("not a function") {
             "E1001" // NOT_A_FUNCTION
+        } else if title.contains("expected") || title.contains("expects") {
+            "E1004" // RUNTIME_TYPE_ERROR
         } else {
             "EXXX" // Unmigrated error - needs proper error code
         };
@@ -175,15 +177,15 @@ impl VM {
         for width in widths {
             match width {
                 1 => {
-                    operands.push(read_u8(instructions, offset) as usize);
+                    operands.push(read_u8(instructions, offset).to_string());
                     offset += 1;
                 }
                 2 => {
-                    operands.push(read_u16(instructions, offset) as usize);
+                    operands.push((read_u16(instructions, offset) as usize).to_string());
                     offset += 2;
                 }
                 4 => {
-                    operands.push(read_u32(instructions, offset) as usize);
+                    operands.push((read_u32(instructions, offset) as usize).to_string());
                     offset += 4;
                 }
                 _ => {}
@@ -192,14 +194,7 @@ impl VM {
         let operand_str = if operands.is_empty() {
             "".to_string()
         } else {
-            format!(
-                " {}",
-                operands
-                    .iter()
-                    .map(|o| o.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            )
+            format!(" {}", operands.join(" "))
         };
         println!("IP={:04} {}{}", ip, op, operand_str);
         self.trace_stack();
@@ -252,7 +247,14 @@ pub(super) fn strip_ansi(input: &str) -> String {
 
 fn split_hint(message: &str) -> (&str, Option<&str>) {
     if let Some(index) = message.find("\nHint:") {
-        (&message[..index], Some(&message[index..]))
+        // Skip past the "Hint:" prefix since the diagnostic renderer adds its own
+        let hint_start = index + "\nHint:".len();
+        let hint_content = message[hint_start..].trim_start();
+        if hint_content.is_empty() {
+            (&message[..index], None)
+        } else {
+            (&message[..index], Some(hint_content))
+        }
     } else {
         (message, None)
     }

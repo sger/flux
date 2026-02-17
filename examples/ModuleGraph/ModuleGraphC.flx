@@ -1,5 +1,5 @@
 module ModuleGraph.ModuleGraphC {
-  fun value() {
+  fn value() {
     3;
   }
 }

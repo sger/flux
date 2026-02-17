@@ -938,7 +938,7 @@ mod parser_fuzz_tests {
         let malformed = vec![
             "1 + + 2",
             "let = 5",
-            "fun () {}",  // Missing name
+            "fn () {}",  // Missing name
             "if { }",  // Missing condition
             "match { }",  // Missing scrutinee
         ];

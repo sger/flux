@@ -62,7 +62,7 @@ fn test_tail_call_deep_recursion_countdown() {
     // Test deep recursion without stack overflow
     // This would fail without tail call optimization
     let input = r#"
-        fun countdown(n) {
+        fn countdown(n) {
             if n == 0 {
                 0;
             } else {
@@ -80,7 +80,7 @@ fn test_tail_call_deep_recursion_countdown() {
 fn test_tail_call_factorial_accumulator() {
     // Test tail-recursive accumulator pattern
     let input = r#"
-        fun factorial(n, acc) {
+        fn factorial(n, acc) {
             if n == 0 {
                 acc;
             } else {
@@ -100,7 +100,7 @@ fn test_non_tail_recursion_still_works() {
     // Test that non-tail recursion still works correctly
     // This should use OpCall, not OpTailCall
     let input = r#"
-        fun fib(n) {
+        fn fib(n) {
             if n <= 1 {
                 n;
             } else {
@@ -118,7 +118,7 @@ fn test_non_tail_recursion_still_works() {
 fn test_tail_call_in_if_branches() {
     // Test that tail calls work in both if/else branches
     let input = r#"
-        fun even_odd(n) {
+        fn even_odd(n) {
             if n == 0 {
                 "even";
             } else {
@@ -140,7 +140,7 @@ fn test_tail_call_in_if_branches() {
 fn test_tail_call_in_match_arms() {
     // Test that tail calls work in match expressions
     let input = r#"
-        fun match_countdown(n) {
+        fn match_countdown(n) {
             match n {
                 0 -> 0,
                 _ -> match_countdown(n - 1),
@@ -157,7 +157,7 @@ fn test_tail_call_in_match_arms() {
 fn test_tail_call_with_multiple_args() {
     // Test tail call with multiple arguments
     let input = r#"
-        fun sum_to_n(n, acc) {
+        fn sum_to_n(n, acc) {
             if n == 0 {
                 acc;
             } else {
@@ -177,7 +177,7 @@ fn test_tail_call_with_same_arg_twice() {
     // Test that pre-copying arguments works correctly
     // when the same variable is passed multiple times
     let input = r#"
-        fun repeat_until_zero(n, count) {
+        fn repeat_until_zero(n, count) {
             if n == 0 {
                 count;
             } else {
@@ -196,7 +196,7 @@ fn test_mutual_recursion_not_optimized() {
     // Test that mutual recursion still works (not optimized yet)
     // This uses OpCall, not OpTailCall, but should still work for small inputs
     let input = r#"
-        fun is_even(n) {
+        fn is_even(n) {
             if n == 0 {
                 true;
             } else {
@@ -204,7 +204,7 @@ fn test_mutual_recursion_not_optimized() {
             }
         }
 
-        fun is_odd(n) {
+        fn is_odd(n) {
             if n == 0 {
                 false;
             } else {
@@ -223,7 +223,7 @@ fn test_mutual_recursion_not_optimized() {
 fn test_tail_call_returns_correct_value() {
     // Test that tail calls return the correct final value
     let input = r#"
-        fun find_value(n, target) {
+        fn find_value(n, target) {
             if n == target {
                 n;
             } else {
@@ -245,7 +245,7 @@ fn test_tail_call_returns_correct_value() {
 fn test_tail_call_with_complex_condition() {
     // Test tail call with more complex conditional logic
     let input = r#"
-        fun collatz(n, steps) {
+        fn collatz(n, steps) {
             if n == 1 {
                 steps;
             } else {
@@ -267,7 +267,7 @@ fn test_tail_call_with_complex_condition() {
 #[test]
 fn test_non_value_tail_statement_does_not_emit_tail_call() {
     let input = r#"
-        fun f(n) {
+        fn f(n) {
             if n == 0 {
                 let x = 1;
             } else {
@@ -284,7 +284,7 @@ fn test_non_value_tail_statement_does_not_emit_tail_call() {
 #[test]
 fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
     let input = r#"
-        fun build(n, acc) {
+        fn build(n, acc) {
             if n == 0 {
                 acc;
             } else {
@@ -303,8 +303,8 @@ fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
 #[test]
 fn test_phase2_does_not_consume_captured_accumulator_parameter() {
     let input = r#"
-        fun build(n, acc) {
-            let get = fun() { acc; };
+        fn build(n, acc) {
+            let get = fn() { acc; };
             if n == 0 {
                 return get();
             } else {
@@ -326,8 +326,8 @@ fn test_phase2_does_not_consume_captured_accumulator_parameter() {
 #[test]
 fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator() {
     let input = r#"
-        fun build(n, acc) {
-            let const_one = fun() { 1; };
+        fn build(n, acc) {
+            let const_one = fn() { 1; };
             if n == 0 {
                 return acc;
             } else {
@@ -345,7 +345,7 @@ fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator(
 #[test]
 fn test_return_nested_no_semicolon() {
     let input = r#"
-        fun test(n) {
+        fn test(n) {
             if n == 0 {
                 return "zero";
             } else {

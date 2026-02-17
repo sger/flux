@@ -1,9 +1,9 @@
 module Math {
-  fun _secret() { 1; }
+  fn _secret() { 1; }
 }
 
 module Main {
-  fun main() {
+  fn main() {
     Math
       ._secret();
   }

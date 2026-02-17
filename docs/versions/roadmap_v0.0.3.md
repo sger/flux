@@ -257,7 +257,7 @@ error[E007]: UNDEFINED VARIABLE
 **v0.0.3 Additions:**
 1. **Dead Code Detection** - W008: Code after return/break
    ```flux
-   fun test() {
+   fn test() {
        return 42;
        print("unreachable");  // ← W008: Dead code after return
    }
@@ -265,14 +265,14 @@ error[E007]: UNDEFINED VARIABLE
 
 2. **Function Complexity** - W009: Function too long (>50 lines)
    ```flux
-   fun massive_function() {  // ← W009: Function too long (75 lines)
+   fn massive_function() {  // ← W009: Function too long (75 lines)
        // 75 lines of code...
    }
    ```
 
 3. **Parameter Count** - W010: Too many parameters (>5)
    ```flux
-   fun complex(a, b, c, d, e, f) {  // ← W010: Too many parameters (6)
+   fn complex(a, b, c, d, e, f) {  // ← W010: Too many parameters (6)
        // ...
    }
    ```
@@ -359,7 +359,7 @@ let (a, b) = pair;              // Pattern matching (M6)
 
 **Example:**
 ```flux
-fun min_max(arr) {
+fn min_max(arr) {
     (min(arr), max(arr))
 }
 
@@ -413,7 +413,7 @@ print(stats.1);  // 5
 import Flow.Option as Opt
 import Flow.Either as E
 
-fun process(data) {
+fn process(data) {
     validate(data)
         |> E.and_then(\valid -> transform(valid))
         |> E.map(\result -> result * 2)
@@ -451,7 +451,7 @@ for item in collection {
    // Compiler generates:
    {
        let __iter = arr;
-       fun __loop(__i) {
+       fn __loop(__i) {
            if __i >= len(__iter) {
                None;
            } else {

@@ -44,20 +44,20 @@ All code lives in modules. Modules provide namespacing and organization.
 // Modules/Math.flx
 module Modules.Math {
   // public
-  fun square(x) {
+  fn square(x) {
     x * x;
   }
   
   // public
-  fun cube(x) {
+  fn cube(x) {
     x * square(x);
   }
 
-  fun call_another_function() {
+  fn call_another_function() {
     print(cube(100));
   }
 
-  fun _private_function() {
+  fn _private_function() {
     print("cannot be called");
   }
 }
@@ -66,9 +66,9 @@ module Modules.Math {
 import Modules.Math
 
 module Modules.Main {
-  fun main() {
+  fn main() {
     print(Math.square(5));
-    print(Math._private_function()); // error fun is private
+    print(Math._private_function()); // error fn is private
   }
 }
 ```
@@ -128,17 +128,17 @@ Flux emits human-friendly diagnostics with stable error codes.
 | --- | --- | --- | --- |
 | E001 | DUPLICATE NAME | `let x = 1; let x = 2;` | `examples/functions/function_redeclaration_error.flx` |
 | E002 | IMMUTABLE BINDING | `let x = 1; x = 2;` | — |
-| E003 | OUTER ASSIGNMENT | `let x = 1; let f = fun() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
+| E003 | OUTER ASSIGNMENT | `let x = 1; let f = fn() { x = 2; };` | `examples/functions/closure_outer_assign_error.flx` |
 | E007 | UNDEFINED VARIABLE | `print(leng(items));` | — |
 | E010 | UNKNOWN PREFIX OPERATOR | `!~x` | — |
 | E011 | UNKNOWN INFIX OPERATOR | `1 ^^ 2` | — |
-| E012 | DUPLICATE PARAMETER | `fun f(x, x) { x }` | `examples/duplicate_params_error.flx` |
+| E012 | DUPLICATE PARAMETER | `fn f(x, x) { x }` | `examples/duplicate_params_error.flx` |
 | E016 | INVALID MODULE NAME | `module math { }` | `examples/Errors/module_name_lowercase_error.flx` |
-| E018 | MODULE NAME CLASH | `module Math { fun Math() {} }` | `examples/Errors/module_name_clobber_error.flx` |
+| E018 | MODULE NAME CLASH | `module Math { fn Math() {} }` | `examples/Errors/module_name_clobber_error.flx` |
 | E019 | INVALID MODULE CONTENT | `module Math { let x = 1; }` | — |
 | E021 | PRIVATE MEMBER | `Math._private()` | — |
 | E030 | IMPORT NAME COLLISION | `let Math = 1; import Modules.Math` | `examples/imports/import_collision_error.flx` |
-| E031 | IMPORT SCOPE | `fun main() { import Modules.Math }` | `examples/imports/import_in_function_error.flx` |
+| E031 | IMPORT SCOPE | `fn main() { import Modules.Math }` | `examples/imports/import_in_function_error.flx` |
 | E032 | IMPORT NOT FOUND | `import Missing` | — |
 | E033 | IMPORT READ FAILED | `import Broken` | — |
 | E101 | UNKNOWN KEYWORD | `fn main() {}` | `examples/Errors/unknown_keyword_fn_error.flx` |
@@ -149,26 +149,26 @@ Flux emits human-friendly diagnostics with stable error codes.
 
 ### Functions
 
-Functions are defined with `fun`. The last expression is the return value.
+Functions are defined with `fn`. The last expression is the return value.
 Function names must be unique within the same scope.
 Parameter names must be unique.
 
 ```
 // Named function
-fun add(a, b) {
+fn add(a, b) {
   a + b;
 }
 
 // Anonymous function (lambda)
-let double = fun(x) { x * 2; };
+let double = fn(x) { x * 2; };
 
 // Higher-order function
-fun apply_twice(f, x) {
+fn apply_twice(f, x) {
   f(f(x));
 }
 
 // Calling functions from functions
-fun sum_of_squares(a, b) {
+fn sum_of_squares(a, b) {
   add(square(a), square(b));
 }
 ```
@@ -189,7 +189,7 @@ Flux uses scope-based shadowing, but does not allow duplicate `let` names in the
 ```flux
 let x = 3
 
-fun t(x) {
+fn t(x) {
   x;        // parameter `x` shadows global `x`
 }
 ```
@@ -197,7 +197,7 @@ fun t(x) {
 ```flux
 let x = 3
 
-fun t(x) {
+fn t(x) {
   let x = x;   // error (E001): duplicate binding in same scope
 }
 ```
@@ -577,21 +577,21 @@ let matrix = for row in rows {
 For complex iteration, use recursion with pattern matching.
 
 ```
-fun sum(list) {
+fn sum(list) {
   match list {
     [] -> 0;
     [head, ...tail] -> head + sum(tail);
   }
 }
 
-fun factorial(n) {
+fn factorial(n) {
   match n {
     0 -> 1;
     _ -> n * factorial(n - 1);
   }
 }
 
-fun map(list, f) {
+fn map(list, f) {
   match list {
     [] -> [];
     [head, ...tail] -> [f(head), ...map(tail, f)];
@@ -611,8 +611,8 @@ print(filter(map(numbers, double), is_even));
 
 // With pipeline
 numbers
-  |> map(fun(x) { x * 2; })
-  |> filter(fun(x) { x > 4; })
+  |> map(fn(x) { x * 2; })
+  |> filter(fn(x) { x > 4; })
   |> print;
 ```
 
@@ -650,9 +650,9 @@ match get(map, "key") {
 head(list)              // Option - first element
 tail(list)              // List - all but first
 length(list)            // Int - count elements
-map(list, fun)           // List - transform each
-filter(list, fun)        // List - keep matching
-reduce(list, init, fun)  // Any - fold into value
+map(list, fn)           // List - transform each
+filter(list, fn)        // List - keep matching
+reduce(list, init, fn)  // Any - fold into value
 concat(list1, list2)    // List - join lists
 reverse(list)           // List - reverse order
 ```
@@ -724,19 +724,19 @@ const MAX_SIZE = 1024;
 
 ```flx
 #if DEBUG {
-  fun log(msg) with IO {
+  fn log(msg) with IO {
     print("[DEBUG] " + msg);
   }
 } #else {
-  fun log(msg) {
+  fn log(msg) {
     // no-op in release
   }
 }
 
 #if PLATFORM == "windows" {
-  fun path_separator() { "\\"; }
+  fn path_separator() { "\\"; }
 } #else {
-  fun path_separator() { "/"; }
+  fn path_separator() { "/"; }
 }
 ```
 
@@ -746,13 +746,13 @@ const MAX_SIZE = 1024;
 // Generate functions at compile time
 #run {
   for i in 0..5 {
-    #emit fun get_{i}() { {i}; };
+    #emit fn get_{i}() { {i}; };
   }
 }
 
 // Generates:
-// fun get_0() { 0; }
-// fun get_1() { 1; }
+// fn get_0() { 0; }
+// fn get_1() { 1; }
 // ...
 ```
 
@@ -897,7 +897,7 @@ The function `add` expects 2 arguments, but you gave it 3.
 
 The definition of `add` is:
 
-  2 │   fun add(a, b) {
+  2 │   fn add(a, b) {
     │          ^^^^
     │          expects 2 arguments
 
@@ -913,7 +913,7 @@ Hint: Remove the extra argument:
 
 You're trying to use `print` in a pure function.
 
-  5 │   fun calculate(x) {
+  5 │   fn calculate(x) {
   6 │     let result = x * 2;
   7 │     print(result);
     │     ^^^^^^^^^^^^^
@@ -928,13 +928,13 @@ You have two options:
 
 1. Add the effect to your function:
 
-    fun calculate(x) with IO {
+    fn calculate(x) with IO {
       ...
     }
 
 2. Remove the side effect (recommended for pure calculations):
 
-    fun calculate(x) {
+    fn calculate(x) {
       let result = x * 2;
       result;
     }
@@ -966,7 +966,7 @@ Or did you mean to use it somewhere?
 
 This function might never terminate.
 
-  2 │   fun countdown(n) {
+  2 │   fn countdown(n) {
   3 │     countdown(n - 1);
   4 │   }
 
@@ -974,7 +974,7 @@ I don't see a base case that stops the recursion.
 
 Hint: Add a terminating condition:
 
-    fun countdown(n) {
+    fn countdown(n) {
       match n {
         0 -> print("Done!");
         _ -> countdown(n - 1);
@@ -1081,7 +1081,7 @@ statement      = module_stmt
 module_stmt    = "module" qualified_name block ;
 import_stmt    = "import" qualified_name [ "as" IDENT ] ;
 qualified_name = IDENT ( "." IDENT )* ;
-function_stmt  = "fun" IDENT "(" parameters? ")" block ;
+function_stmt  = "fn" IDENT "(" parameters? ")" block ;
 let_stmt       = "let" IDENT "=" expression ";"? ;
 assign_stmt    = IDENT "=" expression ";"? ;
 return_stmt    = "return" expression? ";"? ;
@@ -1109,7 +1109,7 @@ primary        = INT | FLOAT | STRING | "true" | "false" | "None" | "Some" "(" e
                | "(" expression ")"
                | "[" arguments? "]"
                | "{" hash_items? "}"
-               | "fun" "(" parameters? ")" block
+               | "fn" "(" parameters? ")" block
                | if_expr
                | match_expr ;
 
@@ -1132,9 +1132,9 @@ Note: structs/enums, match, for, pipelines, directives, and types are planned bu
 import Modules.Math
 
 module Main {
-  fun main() {
+  fn main() {
     let numbers = [1, 2, 3, 4, 5];
-    let squared = fun(x) { x * x };
+    let squared = fn(x) { x * x };
     let first = numbers[0];
 
     if first > 0 {
@@ -1154,12 +1154,12 @@ module Main {
 
 ```flux
 // Type annotations
-fun add(a: Int, b: Int) -> Int {
+fn add(a: Int, b: Int) -> Int {
   a + b;
 }
 
 // Untyped still works
-fun double(x) {
+fn double(x) {
   x * 2;
 }
 ```
@@ -1170,29 +1170,29 @@ Pure functions by default, explicit effect annotations for side effects.
 
 ```flux
 // Pure - no annotation needed, compiler enforces no effects
-fun add(a, b) {
+fn add(a, b) {
   a + b;
 }
 
 // Impure - must declare effects
-fun greet(name) with IO {
+fn greet(name) with IO {
   print("Hello " + name);
 }
 
 // Effects propagate
-fun greet_twice(name) with IO {
+fn greet_twice(name) with IO {
   greet(name);
   greet(name);
 }
 
 // Multiple effects
-fun fetch_and_log(url) with IO, Async {
+fn fetch_and_log(url) with IO, Async {
   let data = http_get(url);
   print(data);
 }
 
 // main allows IO
-fun main() with IO {
+fn main() with IO {
   let x = add(1, 2);   // pure - works anywhere
   greet("Alice");       // IO - only in IO context
 }
@@ -1211,9 +1211,9 @@ Pipelines are reified data structures — save, compose, debug, parallelize.
 ```flux
 // Define a pipeline as a value
 let process = pipeline {
-  map(fun(x) { x * 2; })
-  |> filter(fun(x) { x > 10; })
-  |> reduce(0, fun(acc, x) { acc + x; })
+  map(fn(x) { x * 2; })
+  |> filter(fn(x) { x > 10; })
+  |> reduce(0, fn(acc, x) { acc + x; })
 };
 
 // Apply it
@@ -1250,9 +1250,9 @@ let ticks = interval(1000);
 
 // Process with familiar syntax
 let processed = clicks
-  |> filter(fun(e) { e.target == button; })
+  |> filter(fn(e) { e.target == button; })
   |> debounce(300)
-  |> map(fun(e) { e.position; });
+  |> map(fn(e) { e.position; });
 
 // Combine streams
 let combined = merge(clicks, ticks);
@@ -1260,7 +1260,7 @@ let synced = zip(userInput, serverResponse);
 
 // Same pipeline works on lists AND streams
 let transform = pipeline {
-  filter(fun(x) { x.valid; })
+  filter(fn(x) { x.valid; })
   |> map(process)
 };
 
@@ -1275,7 +1275,7 @@ Pure functions get automatic caching.
 ```flux
 // Mark function as memoized
 @memo
-fun fibonacci(n) {
+fn fibonacci(n) {
   match n {
     0 -> 0;
     1 -> 1;
@@ -1288,13 +1288,13 @@ fibonacci(100);  // instant
 
 // Smart cache policies
 @memo(max: 1000, ttl: 3600)
-fun expensive_calculation(input) {
+fn expensive_calculation(input) {
   // complex computation
 }
 
 // Cache invalidation via effects
 @memo(invalidate_on: [UserUpdated])
-fun get_user_data(id) with IO {
+fn get_user_data(id) with IO {
   fetch_from_db(id);
 }
 ```
@@ -1331,6 +1331,6 @@ fun get_user_data(id) with IO {
 | Streams (v2) | Reactive | Unified sync/async model |
 | Caching (v2) | Auto-memoization | Effect system enables smart invalidation |
 | File extension | `.flx` | Short, unique |
-| Function keyword | `fun` | FUNctional, playful, short |
+| Function keyword | `fn` | FUNctional, playful, short |
 | Module keyword | `mod` | Short, Rust-familiar |
 | Compile-time | `#run`, `#assert`, `#if`, `#emit` | Jai-style metaprogramming |
