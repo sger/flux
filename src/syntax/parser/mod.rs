@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        Diagnostic,
+        Diagnostic, DiagnosticBuilder,
         position::{Position, Span},
         unexpected_token,
     },
@@ -20,7 +20,9 @@ pub struct Parser {
     pub(super) peek_token: Token,
     pub(super) peek2_token: Token,
     pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     pub(super) suppress_unterminated_string_error_at: Option<Position>,
+    pub(super) reported_unclosed_brace: bool,
 }
 
 impl Parser {
@@ -31,7 +33,9 @@ impl Parser {
             peek_token: Token::new_static(TokenType::Eof, "", 0, 0),
             peek2_token: Token::new_static(TokenType::Eof, "", 0, 0),
             errors: Vec::new(),
+            warnings: Vec::new(),
             suppress_unterminated_string_error_at: None,
+            reported_unclosed_brace: false,
         };
         parser.prime();
         parser
@@ -61,6 +65,20 @@ impl Parser {
     /// Returns an immutable reference to the parser's interner.
     pub fn interner(&self) -> &Interner {
         self.lexer.interner()
+    }
+
+    pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.warnings)
+    }
+
+    pub(super) fn warn_deprecated_fun(&mut self, span: Span) {
+        self.warnings.push(
+            Diagnostic::warning("DEPRECATED KEYWORD")
+                .with_code("W013")
+                .with_span(span)
+                .with_message("`fun` is deprecated; use `fn` for function declarations.")
+                .with_hint_text("Use `fn` to declare functions."),
+        );
     }
 
     pub fn parse_program(&mut self) -> Program {

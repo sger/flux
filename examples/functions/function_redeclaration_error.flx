@@ -1,7 +1,7 @@
-  fun my_func() {
+  fn my_func() {
     return 1;
   }
 
-  fun my_func() {
+  fn my_func() {
     return 2;
   }

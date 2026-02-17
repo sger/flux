@@ -91,7 +91,7 @@ impl fmt::Display for Statement {
                 ..
             } => {
                 let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fun {}({}) {}", name, params.join(", "), body)
+                write!(f, "fn {}({}) {}", name, params.join(", "), body)
             }
             Statement::Assign { name, value, .. } => {
                 write!(f, "{} = {};", name, value)
@@ -141,7 +141,7 @@ impl Statement {
             } => {
                 let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
                 format!(
-                    "fun {}({}) {}",
+                    "fn {}({}) {}",
                     interner.resolve(*name),
                     params.join(", "),
                     body

@@ -9,16 +9,16 @@
 // Expected output:
 // -- Compiler error: UNKNOWN KEYWORD [E101]
 //
-// Flux uses `fun` for function declarations.
+// Flux uses `fn` for function declarations.
 //
 //   --> inline_suggestion_demo.flx:19:1
 //    |
 // 19 | fn add(a, b) {
 //    |  ^^
 //    |
-// help: Replace 'fn' with 'fun' 'fun'
+// help: Replace 'function' with 'fn'
 //    |
-// 19 | fun add(a, b) {
+// 19 | fn add(a, b) {
 //    |  ~~~
 
 fn add(a, b) {

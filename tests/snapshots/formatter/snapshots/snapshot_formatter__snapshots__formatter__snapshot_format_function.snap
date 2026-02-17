@@ -2,4 +2,4 @@
 source: tests/snapshots/formatter/mod.rs
 expression: output
 ---
-fun add(  a,b  ){return a+b;}
+fn add(  a,b  ){return a+b;}

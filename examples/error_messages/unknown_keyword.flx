@@ -2,17 +2,17 @@
 // This demonstrates the enhanced error message for using keywords
 // from other languages that don't exist in Flux.
 
-// Common mistake: using 'function' instead of 'fun'
+// Common mistake: using 'function' instead of 'fn'
 function add(a, b) {
     a + b
 }
 
-// FIX: Use 'fun' keyword
-// fun add(a, b) {
+// FIX: Use 'fn' keyword
+// fn add(a, b) {
 //     a + b
 // }
 
 // Other common mistakes:
 // - Using 'var' or 'const' instead of 'let'
-// - Using 'def' (Python) instead of 'fun'
+// - Using 'def' (Python) instead of 'fn'
 // - Using 'fn' alone instead of 'let x = fn() ...'

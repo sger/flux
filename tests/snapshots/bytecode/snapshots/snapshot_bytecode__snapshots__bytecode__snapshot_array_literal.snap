@@ -8,8 +8,9 @@ Constants:
   2: 3
 
 Instructions:
-0000 OpConstant 0
-0003 OpConstant 1
-0006 OpConstant 2
-0009 OpArray 3
-0012 OpSetGlobal 0
+0000 OpGetBuiltin 50
+0002 OpConstant 0
+0005 OpConstant 1
+0008 OpConstant 2
+0011 OpCall 3
+0013 OpSetGlobal 0

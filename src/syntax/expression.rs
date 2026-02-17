@@ -13,13 +13,40 @@ pub enum StringPart {
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
-    Wildcard { span: Span },
-    Literal { expression: Expression, span: Span },
-    Identifier { name: Identifier, span: Span },
-    None { span: Span },
-    Some { pattern: Box<Pattern>, span: Span },
-    Left { pattern: Box<Pattern>, span: Span },
-    Right { pattern: Box<Pattern>, span: Span },
+    Wildcard {
+        span: Span,
+    },
+    Literal {
+        expression: Expression,
+        span: Span,
+    },
+    Identifier {
+        name: Identifier,
+        span: Span,
+    },
+    None {
+        span: Span,
+    },
+    Some {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Left {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Right {
+        pattern: Box<Pattern>,
+        span: Span,
+    },
+    Cons {
+        head: Box<Pattern>,
+        tail: Box<Pattern>,
+        span: Span,
+    },
+    EmptyList {
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -83,8 +110,15 @@ pub enum Expression {
         arguments: Vec<Expression>,
         span: Span,
     },
-    Array {
+    ListLiteral {
         elements: Vec<Expression>,
+        span: Span,
+    },
+    ArrayLiteral {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+    EmptyList {
         span: Span,
     },
     Index {
@@ -120,6 +154,11 @@ pub enum Expression {
     },
     Right {
         value: Box<Expression>,
+        span: Span,
+    },
+    Cons {
+        head: Box<Expression>,
+        tail: Box<Expression>,
         span: Span,
     },
 }
@@ -171,7 +210,7 @@ impl fmt::Display for Expression {
                 parameters, body, ..
             } => {
                 let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fun({}) {}", params.join(", "), body)
+                write!(f, "fn({}) {}", params.join(", "), body)
             }
             Expression::Call {
                 function,
@@ -181,10 +220,15 @@ impl fmt::Display for Expression {
                 let args: Vec<String> = arguments.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", function, args.join(", "))
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
                 let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[{}]", elems.join(", "))
             }
+            Expression::ArrayLiteral { elements, .. } => {
+                let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                write!(f, "[|{}|]", elems.join(", "))
+            }
+            Expression::EmptyList { .. } => write!(f, "[]"),
             Expression::Index { left, index, .. } => {
                 write!(f, "({}[{}])", left, index)
             }
@@ -213,6 +257,7 @@ impl fmt::Display for Expression {
             Expression::Some { value, .. } => write!(f, "Some({})", value),
             Expression::Left { value, .. } => write!(f, "Left({})", value),
             Expression::Right { value, .. } => write!(f, "Right({})", value),
+            Expression::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
         }
     }
 }
@@ -231,7 +276,9 @@ impl Expression {
             | Expression::If { span, .. }
             | Expression::Function { span, .. }
             | Expression::Call { span, .. }
-            | Expression::Array { span, .. }
+            | Expression::ListLiteral { span, .. }
+            | Expression::ArrayLiteral { span, .. }
+            | Expression::EmptyList { span, .. }
             | Expression::Index { span, .. }
             | Expression::Hash { span, .. }
             | Expression::MemberAccess { span, .. }
@@ -240,6 +287,7 @@ impl Expression {
             | Expression::Some { span, .. } => *span,
             // Either type expressions
             Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
+            Expression::Cons { span, .. } => *span,
         }
     }
 }
@@ -296,7 +344,7 @@ impl Expression {
                 parameters, body, ..
             } => {
                 let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
-                format!("fun({}) {}", params.join(", "), body)
+                format!("fn({}) {}", params.join(", "), body)
             }
             Expression::Call {
                 function,
@@ -307,11 +355,17 @@ impl Expression {
                     arguments.iter().map(|a| a.display_with(interner)).collect();
                 format!("{}({})", function.display_with(interner), args.join(", "))
             }
-            Expression::Array { elements, .. } => {
+            Expression::ListLiteral { elements, .. } => {
                 let elems: Vec<String> =
                     elements.iter().map(|e| e.display_with(interner)).collect();
                 format!("[{}]", elems.join(", "))
             }
+            Expression::ArrayLiteral { elements, .. } => {
+                let elems: Vec<String> =
+                    elements.iter().map(|e| e.display_with(interner)).collect();
+                format!("[|{}|]", elems.join(", "))
+            }
+            Expression::EmptyList { .. } => "[]".to_string(),
             Expression::Index { left, index, .. } => {
                 format!(
                     "({}[{}])",
@@ -368,6 +422,13 @@ impl Expression {
             Expression::Right { value, .. } => {
                 format!("Right({})", value.display_with(interner))
             }
+            Expression::Cons { head, tail, .. } => {
+                format!(
+                    "[{} | {}]",
+                    head.display_with(interner),
+                    tail.display_with(interner)
+                )
+            }
         }
     }
 }
@@ -389,6 +450,14 @@ impl Pattern {
             Pattern::Right { pattern, .. } => {
                 format!("Right({})", pattern.display_with(interner))
             }
+            Pattern::Cons { head, tail, .. } => {
+                format!(
+                    "[{} | {}]",
+                    head.display_with(interner),
+                    tail.display_with(interner)
+                )
+            }
+            Pattern::EmptyList { .. } => "[]".to_string(),
         }
     }
 }
@@ -403,6 +472,8 @@ impl fmt::Display for Pattern {
             Pattern::Some { pattern, .. } => write!(f, "Some({})", pattern),
             Pattern::Left { pattern, .. } => write!(f, "Left({})", pattern),
             Pattern::Right { pattern, .. } => write!(f, "Right({})", pattern),
+            Pattern::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
+            Pattern::EmptyList { .. } => write!(f, "[]"),
         }
     }
 }
@@ -417,6 +488,7 @@ impl Pattern {
             | Pattern::Some { span, .. }
             | Pattern::Left { span, .. }
             | Pattern::Right { span, .. } => *span,
+            Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }
 }

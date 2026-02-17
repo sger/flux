@@ -13,8 +13,8 @@ Module declaration must be at the top of the file.
   |
 3 |   module Inner {
   |   ^^^^^^^^^^^^^^
-4 |     fun value() { 1; }
-  | ^^^^^^^^^^^^^^^^^^^^^^
+4 |     fn value() { 1; }
+  | ^^^^^^^^^^^^^^^^^^^^^
 5 |   }
   | ^^^
 

@@ -22,43 +22,43 @@ fn warns_on_unused_let() {
 
 #[test]
 fn warns_on_unused_param() {
-    let output = lint("fun f(x) { 1; }");
+    let output = lint("fn f(x) { 1; }");
     assert!(output.contains("W002:UNUSED PARAMETER"));
 }
 
 #[test]
 fn warns_on_unused_import() {
-    let output = lint("import Math module Main { fun main() { 1; } }");
+    let output = lint("import Math module Main { fn main() { 1; } }");
     assert!(output.contains("W003:UNUSED IMPORT"));
 }
 
 #[test]
 fn warns_on_shadowed_name() {
-    let output = lint("let x = 1; fun f() { let x = 2; x; }");
+    let output = lint("let x = 1; fn f() { let x = 2; x; }");
     assert!(output.contains("W004:SHADOWED NAME"));
 }
 
 #[test]
 fn warns_on_function_name_style() {
-    let output = lint("fun NotSnakeCase() { 1; }");
+    let output = lint("fn NotSnakeCase() { 1; }");
     assert!(output.contains("W005:FUNCTION NAME STYLE"));
 }
 
 #[test]
 fn warns_on_import_name_style() {
-    let output = lint("import math module Main { fun main() { 1; } }");
+    let output = lint("import math module Main { fn main() { 1; } }");
     assert!(output.contains("W006:IMPORT NAME STYLE"));
 }
 
 #[test]
 fn warns_on_unused_function() {
-    let output = lint("fun never_called() { 1; }");
+    let output = lint("fn never_called() { 1; }");
     assert!(output.contains("W007:UNUSED FUNCTION"));
 }
 
 #[test]
 fn no_warn_on_used_function() {
-    let output = lint("fun used() { 1; } used();");
+    let output = lint("fn used() { 1; } used();");
     assert!(!output.contains("W007"));
 }
 
@@ -106,19 +106,19 @@ fn tracks_identifiers_in_guard() {
 
 #[test]
 fn warns_on_dead_code_after_return() {
-    let output = lint("fun f() { return 1; 2; } f();");
+    let output = lint("fn f() { return 1; 2; } f();");
     assert!(output.contains("W008:DEAD CODE"));
 }
 
 #[test]
 fn warns_on_too_many_params() {
-    let output = lint("fun f(a, b, c, d, e, f) { 1; } f(1,2,3,4,5,6);");
+    let output = lint("fn f(a, b, c, d, e, f) { 1; } f(1,2,3,4,5,6);");
     assert!(output.contains("W010:TOO MANY PARAMETERS"));
 }
 
 #[test]
 fn warns_on_function_too_long() {
-    let mut source = String::from("fun big() {\n");
+    let mut source = String::from("fn big() {\n");
     for _ in 0..55 {
         source.push_str("  1;\n");
     }
@@ -132,7 +132,7 @@ fn warns_on_function_too_long() {
 fn warns_on_high_cyclomatic_complexity() {
     // Many match arms = high complexity
     let source = r#"
-        fun complex(x) {
+        fn complex(x) {
             match x {
                 1 -> 1,
                 2 -> 2,
@@ -158,7 +158,7 @@ fn warns_on_high_cyclomatic_complexity() {
 fn warns_on_deep_nesting() {
     // 5 levels of nesting
     let source = r#"
-        fun deeply_nested(x) {
+        fn deeply_nested(x) {
             if x > 0 {
                 if x > 1 {
                     if x > 2 {
@@ -179,7 +179,7 @@ fn warns_on_deep_nesting() {
 
 #[test]
 fn no_warn_on_reasonable_complexity() {
-    let source = "fun simple(x) { if x > 0 { 1; } else { 0; } } simple(1);";
+    let source = "fn simple(x) { if x > 0 { 1; } else { 0; } } simple(1);";
     let output = lint(source);
     assert!(!output.contains("W011"));
     assert!(!output.contains("W012"));

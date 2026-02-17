@@ -26,15 +26,15 @@ Output is produced by the diagnostics aggregator, which provides:
 --> examples/hint_demos/fn_keyword_error.flx
 -- Compiler error: UNKNOWN KEYWORD [E101]
 
-Flux uses `fun` for function declarations.
+Flux uses `fn` for function declarations.
 
   --> examples/hint_demos/fn_keyword_error.flx:3:1
   |
 3 | fn add(x, y) {
   | ^^
-help: Replace 'fn' with 'fun'
+help: Replace 'function' with 'fn'
    |
-3 | fun add(x, y) {
+3 | fn add(x, y) {
   | ~~~
 ```
 

@@ -6,8 +6,7 @@ use super::VM;
 
 impl VM {
     pub(super) fn execute_comparison(&mut self, opcode: OpCode) -> Result<(), String> {
-        let right = self.pop()?;
-        let left = self.pop()?;
+        let (left, right) = self.pop_pair_untracked()?;
 
         // Fast path: pointer equality for Rc-wrapped types
         // If two values share the same Rc pointer, they're guaranteed equal
@@ -15,12 +14,12 @@ impl VM {
             let ptr_eq = match (&left, &right) {
                 (Value::String(l), Value::String(r)) => Rc::ptr_eq(l, r),
                 (Value::Array(l), Value::Array(r)) => Rc::ptr_eq(l, r),
-                (Value::Hash(l), Value::Hash(r)) => Rc::ptr_eq(l, r),
                 (Value::Some(l), Value::Some(r)) => Rc::ptr_eq(l, r),
                 (Value::Left(l), Value::Left(r)) => Rc::ptr_eq(l, r),
                 (Value::Right(l), Value::Right(r)) => Rc::ptr_eq(l, r),
                 (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
+                (Value::Gc(l), Value::Gc(r)) => l == r,
                 _ => false,
             };
             if ptr_eq {

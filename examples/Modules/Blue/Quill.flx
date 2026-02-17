@@ -1,5 +1,5 @@
 module Modules.Blue.Quill {
-  fun greet(name) {
+  fn greet(name) {
     "Hello, " + name;
   }
 }

@@ -115,6 +115,29 @@ impl Compiler {
         symbol_table.define_builtin(39, interner.intern("map"));
         symbol_table.define_builtin(40, interner.intern("filter"));
         symbol_table.define_builtin(41, interner.intern("fold"));
+        // List builtins (persistent cons-cell lists)
+        symbol_table.define_builtin(42, interner.intern("hd"));
+        symbol_table.define_builtin(43, interner.intern("tl"));
+        symbol_table.define_builtin(44, interner.intern("is_list"));
+        symbol_table.define_builtin(45, interner.intern("to_list"));
+        symbol_table.define_builtin(46, interner.intern("to_array"));
+        // Map builtins (persistent HAMT maps)
+        symbol_table.define_builtin(47, interner.intern("put"));
+        symbol_table.define_builtin(48, interner.intern("get"));
+        symbol_table.define_builtin(49, interner.intern("is_map"));
+        symbol_table.define_builtin(50, interner.intern("list"));
+        // I/O and parsing builtins
+        symbol_table.define_builtin(51, interner.intern("read_file"));
+        symbol_table.define_builtin(52, interner.intern("read_lines"));
+        symbol_table.define_builtin(53, interner.intern("read_stdin"));
+        symbol_table.define_builtin(54, interner.intern("parse_int"));
+        symbol_table.define_builtin(55, interner.intern("now_ms"));
+        symbol_table.define_builtin(56, interner.intern("time"));
+        symbol_table.define_builtin(57, interner.intern("range"));
+        symbol_table.define_builtin(58, interner.intern("sum"));
+        symbol_table.define_builtin(59, interner.intern("product"));
+        symbol_table.define_builtin(60, interner.intern("parse_ints"));
+        symbol_table.define_builtin(61, interner.intern("split_ints"));
 
         Self {
             constants: Vec::new(),
@@ -150,6 +173,12 @@ impl Compiler {
         compiler.constants = constants;
         compiler.interner = interner;
         compiler
+    }
+
+    /// Consumes the compiler and returns persistent state for REPL reuse.
+    /// Pairs with `new_with_state()` to bootstrap the next REPL iteration.
+    pub fn take_state(self) -> (SymbolTable, Vec<Value>, Interner) {
+        (self.symbol_table, self.constants, self.interner)
     }
 
     pub fn set_file_path(&mut self, file_path: impl Into<String>) {
@@ -386,9 +415,90 @@ impl Compiler {
     }
 
     pub(super) fn replace_last_pop_with_return(&mut self) {
-        let pos = self.scopes[self.scope_index].last_instruction.position;
-        self.replace_instruction(pos, make(OpCode::OpReturnValue, &[]));
+        let scope = &self.scopes[self.scope_index];
+        let pop_pos = scope.last_instruction.position;
+        let prev_op = scope.previous_instruction.opcode;
+        let prev_pos = scope.previous_instruction.position;
+
+        // Superinstruction: GetLocal(n) + Pop → ReturnLocal(n)
+        // Only safe when the previous instruction is adjacent AND no jump targets
+        // pop_pos (which would land on the operand byte after fusion).
+        let adjacent = match prev_op {
+            Some(OpCode::OpGetLocal) => prev_pos + 2 == pop_pos,
+            Some(OpCode::OpGetLocal0 | OpCode::OpGetLocal1) => prev_pos + 1 == pop_pos,
+            _ => false,
+        };
+
+        if adjacent && !self.has_jump_target_at(pop_pos) {
+            match prev_op {
+                Some(OpCode::OpGetLocal) => {
+                    let local_idx =
+                        self.scopes[self.scope_index].instructions[prev_pos + 1] as usize;
+                    self.replace_instruction(prev_pos, make(OpCode::OpReturnLocal, &[local_idx]));
+                    self.scopes[self.scope_index].instructions.truncate(pop_pos);
+                    while let Some(last) = self.scopes[self.scope_index].locations.last() {
+                        if last.offset >= pop_pos {
+                            self.scopes[self.scope_index].locations.pop();
+                        } else {
+                            break;
+                        }
+                    }
+                    self.scopes[self.scope_index].last_instruction.opcode =
+                        Some(OpCode::OpReturnLocal);
+                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
+                    return;
+                }
+                Some(OpCode::OpGetLocal0) => {
+                    self.scopes[self.scope_index].instructions[prev_pos] =
+                        OpCode::OpReturnLocal as u8;
+                    self.scopes[self.scope_index].instructions[pop_pos] = 0u8;
+                    self.scopes[self.scope_index].last_instruction.opcode =
+                        Some(OpCode::OpReturnLocal);
+                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
+                    return;
+                }
+                Some(OpCode::OpGetLocal1) => {
+                    self.scopes[self.scope_index].instructions[prev_pos] =
+                        OpCode::OpReturnLocal as u8;
+                    self.scopes[self.scope_index].instructions[pop_pos] = 1u8;
+                    self.scopes[self.scope_index].last_instruction.opcode =
+                        Some(OpCode::OpReturnLocal);
+                    self.scopes[self.scope_index].last_instruction.position = prev_pos;
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        // Default: just replace Pop with ReturnValue
+        self.replace_instruction(pop_pos, make(OpCode::OpReturnValue, &[]));
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
+    }
+
+    /// Scans the current scope's instruction stream for jump instructions
+    /// targeting `target_pos`. Used by the superinstruction peephole to verify
+    /// that fusing instructions at a position won't break jump targets.
+    fn has_jump_target_at(&self, target_pos: usize) -> bool {
+        use crate::bytecode::op_code::{operand_widths, read_u16};
+        let instructions = &self.scopes[self.scope_index].instructions;
+        let mut ip = 0;
+        while ip < instructions.len() {
+            let op = OpCode::from(instructions[ip]);
+            match op {
+                OpCode::OpJump | OpCode::OpJumpNotTruthy | OpCode::OpJumpTruthy => {
+                    let target = read_u16(instructions, ip + 1) as usize;
+                    if target == target_pos {
+                        return true;
+                    }
+                    ip += 3;
+                }
+                _ => {
+                    let widths = operand_widths(op);
+                    ip += 1 + widths.iter().sum::<usize>();
+                }
+            }
+        }
+        false
     }
 
     pub(super) fn find_duplicate_name(names: &[Symbol]) -> Option<Symbol> {

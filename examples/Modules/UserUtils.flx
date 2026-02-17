@@ -1,9 +1,9 @@
 module Modules.UserUtils {
-    fun make_user(name, age) {
+    fn make_user(name, age) {
         return {"name": name, "age": age};
     }
 
-    fun age_if_adult(user) {
+    fn age_if_adult(user) {
         let age_opt = user["age"];
         return match age_opt {
             Some(a) -> if a > 17 { Some(a) } else { None },

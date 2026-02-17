@@ -1,0 +1,66 @@
+// Module: StudentGrades
+// Student grade analysis using MapUtils for map operations
+
+import Modules.MapUtils as M
+
+module Modules.StudentGrades {
+    // Create a student record as a map with name and scores
+    fn make_student(name, scores) {
+        let m = put({}, "name", name)
+        put(m, "scores", scores)
+    }
+
+    // Compute the average of an array of numbers
+    fn average(scores) {
+        fold(scores, 0.0, \(acc, x) -> acc + x) / len(scores)
+    }
+
+    // Convert a numeric average to a letter grade
+    fn letter_grade(avg) {
+        if avg >= 90.0 {
+            "A"
+        } else {
+            if avg >= 80.0 {
+                "B"
+            } else {
+                if avg >= 70.0 {
+                    "C"
+                } else {
+                    if avg >= 60.0 { "D" } else { "F" }
+                }
+            }
+        }
+    }
+
+    // Analyze a single student, returns a summary map
+    fn _summarize(student) {
+        let scores = M.val(student, "scores")
+        let avg = average(scores)
+        let grade = letter_grade(avg)
+        let passed = avg >= 60.0
+        let r1 = put({}, "average", avg)
+        let r2 = put(r1, "grade", grade)
+        put(r2, "passed", passed)
+    }
+
+    // Analyze all students: returns a map of name -> summary
+    fn analyze(students) {
+        fold(students, {}, \(acc, s) -> put(acc, M.val(s, "name"), _summarize(s)))
+    }
+
+    // Count the distribution of letter grades
+    fn grade_distribution(results) {
+        let grades = map(values(results), \r -> M.val(r, "grade"))
+        M.frequencies(grades)
+    }
+
+    // Count how many students passed
+    fn count_passed(results) {
+        len(filter(keys(results), \name -> M.val(M.val(results, name), "passed")))
+    }
+
+    // Count how many students failed
+    fn count_failed(results) {
+        len(filter(keys(results), \name -> M.val(M.val(results, name), "passed") == false))
+    }
+}

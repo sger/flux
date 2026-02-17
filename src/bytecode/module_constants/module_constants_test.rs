@@ -258,7 +258,7 @@ fn const_large_array() {
         })
         .collect();
 
-    let expr = Expression::Array {
+    let expr = Expression::ArrayLiteral {
         elements,
         span: Default::default(),
     };
@@ -275,8 +275,8 @@ fn const_large_array() {
 }
 
 #[test]
-fn const_large_hash() {
-    let pairs: Vec<(Expression, Expression)> = (0..50)
+fn const_hash_not_supported() {
+    let pairs: Vec<(Expression, Expression)> = (0..3)
         .map(|i| {
             (
                 Expression::Integer {
@@ -296,21 +296,11 @@ fn const_large_hash() {
         span: Default::default(),
     };
 
-    let result = eval(&expr).unwrap();
-    match result {
-        Value::Hash(map) => {
-            assert_eq!(map.len(), 50);
-            assert_eq!(
-                map.get(&crate::runtime::hash_key::HashKey::Integer(0)),
-                Some(&Value::Integer(0))
-            );
-            assert_eq!(
-                map.get(&crate::runtime::hash_key::HashKey::Integer(49)),
-                Some(&Value::Integer(98))
-            );
-        }
-        _ => panic!("Expected hash"),
-    }
+    // Hash literals are not supported in module constants (require runtime GC heap)
+    let result = eval(&expr);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("not supported"));
 }
 
 #[test]

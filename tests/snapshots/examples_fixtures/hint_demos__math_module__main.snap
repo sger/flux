@@ -3,8 +3,22 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/hint_demos/math_module/main.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `sum` is already defined.
+
+  --> examples/hint_demos/math_module/main.flx:12:1
+   |
+12 | let sum = Math.add(x, y);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/hint_demos/math_module/main.flx:0:1
+  |
 == stdout ==
 <not executed>

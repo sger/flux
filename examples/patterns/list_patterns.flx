@@ -1,0 +1,77 @@
+// Test: List pattern matching with cons syntax
+// Expected output:
+// head: 1
+// empty list
+// Sum: 10
+// Length: 4
+// first is 10
+// [|3, 2, 1|]
+
+// =============================================================================
+// Basic Cons Pattern Matching
+// =============================================================================
+
+let xs = [1 | [2 | [3 | None]]];
+
+// Destructure head and tail
+match xs {
+    [h | t] -> print("head: " + to_string(h)),
+    _ -> print("empty list"),
+}
+
+// Match empty list (None represents empty list)
+match None {
+    [h | t] -> print("head: " + to_string(h)),
+    _ -> print("empty list"),
+}
+
+// =============================================================================
+// Recursive List Processing
+// =============================================================================
+
+// Sum all elements in a list
+fn sum(lst) {
+    match lst {
+        [h | t] -> h + sum(t),
+        _ -> 0,
+    }
+}
+
+let nums = [1, 2, 3, 4];
+print("Sum: " + to_string(sum(nums)));  // 10
+
+// Count elements
+fn length(lst) {
+    match lst {
+        [_ | t] -> 1 + length(t),
+        _ -> 0,
+    }
+}
+
+print("Length: " + to_string(length(nums)));  // 4
+
+// =============================================================================
+// Matching Specific Head Values
+// =============================================================================
+
+let data = [10 | [20 | [30 | None]]];
+
+match data {
+    [10 | rest] -> print("first is 10"), [h | t] -> print("first is " + to_string(h)),
+    _ -> print("empty"),
+}
+
+// =============================================================================
+// Building New Lists via Pattern Match
+// =============================================================================
+
+// Reverse a list using pattern matching
+fn rev(lst, acc) {
+    match lst {
+        [h | t] -> rev(t, [h | acc]),
+        _ -> acc,
+    }
+}
+
+let reversed = rev([1, 2, 3], None);
+print(reversed);  // [|3, 2, 1|]

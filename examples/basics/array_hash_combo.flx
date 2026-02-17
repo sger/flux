@@ -9,10 +9,10 @@
 // 3
 
 // Array of hashes
-let users = [
+let users = [|
     {"name": "Alice", "age": 25},
     {"name": "Bob", "age": 30}
-];
+|];
 
 let first_user = users[0];
 let second_user = users[1];
@@ -53,7 +53,7 @@ print(second_age);
 
 // Hash with array values
 let skills = {
-    "languages": ["python", "rust", "go"],
+    "languages": [|"python", "rust", "go"|],
     "count": 3
 };
 

@@ -42,11 +42,11 @@ module Flow.Math {
     let E = 2.718281828459045;
 
     // Functions can use module constants
-    fun circle_area(r) {
+    fn circle_area(r) {
         PI * r * r;
     }
 
-    fun circle_circumference(r) {
+    fn circle_circumference(r) {
         TAU * r;
     }
 }
@@ -147,8 +147,8 @@ module Math {
     let _INTERNAL = 42;     // Private
     let PI = 3.14159;       // Public
 
-    fun _helper() { ... }   // Private
-    fun add(a, b) { a + b } // Public
+    fn _helper() { ... }   // Private
+    fn add(a, b) { a + b } // Public
 }
 ```
 
@@ -203,10 +203,10 @@ module Flow.Math {
     let LN2 = 0.6931471805599453;
     let LN10 = 2.302585092994046;
 
-    fun circle_area(r) { PI * r * r }
-    fun circle_circumference(r) { TAU * r }
-    fun degrees_to_radians(d) { d * PI / 180 }
-    fun radians_to_degrees(r) { r * 180 / PI }
+    fn circle_area(r) { PI * r * r }
+    fn circle_circumference(r) { TAU * r }
+    fn degrees_to_radians(d) { d * PI / 180 }
+    fn radians_to_degrees(r) { r * 180 / PI }
 }
 ```
 

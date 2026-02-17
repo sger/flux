@@ -3,7 +3,7 @@ use crate::{
         Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
         missing_comma,
         position::{Position, Span},
-        unexpected_token,
+        unclosed_delimiter, unexpected_token,
     },
     syntax::{
         Identifier, block::Block, expression::Expression, precedence::Precedence,
@@ -135,9 +135,11 @@ impl Parser {
                 | TokenType::Bang
                 | TokenType::Minus
                 | TokenType::LParen
+                | TokenType::Hash
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If
+                | TokenType::Fn
                 | TokenType::Fun
                 | TokenType::Match
                 | TokenType::Backslash
@@ -212,7 +214,7 @@ impl Parser {
             // Move to parameter candidate token
             self.next_token();
 
-            // Allow trailing comma: fun f(a, ) { ... }
+            // Allow trailing comma: fn f(a, ) { ... }
             if self.is_current_token(TokenType::RParen) {
                 return Some(identifiers);
             }
@@ -284,6 +286,13 @@ impl Parser {
             self.next_token();
         }
 
+        // Detect unclosed block: reached EOF without finding closing `}`
+        if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
+            self.reported_unclosed_brace = true;
+            self.errors
+                .push(unclosed_delimiter(Span::new(start, start)));
+        }
+
         Block {
             statements,
             span: Span::new(start, self.current_token.end_position),
@@ -291,46 +300,75 @@ impl Parser {
     }
 
     pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
-        let mut list = Vec::new();
+        if self.consume_if_peek(end) {
+            return Some(vec![]);
+        }
+        self.parse_expression_list_core(vec![], end, true)
+    }
+
+    /// Like `parse_expression_list`, but the first element has already been
+    /// parsed by the caller. Provides identical error recovery (missing-comma
+    /// detection, error limiting, etc.).
+    pub(super) fn parse_expression_list_with_first(
+        &mut self,
+        first: Expression,
+        end: TokenType,
+    ) -> Option<Vec<Expression>> {
+        self.parse_expression_list_core(vec![first], end, false)
+    }
+
+    /// Core loop for comma-separated expression lists.
+    ///
+    /// When `advance_first` is true, the loop starts by advancing and parsing
+    /// the first expression (normal path). When false, the first element is
+    /// already in `list` and the loop starts at the "after expression" phase.
+    fn parse_expression_list_core(
+        &mut self,
+        mut list: Vec<Expression>,
+        end: TokenType,
+        advance_first: bool,
+    ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
-
-        if self.consume_if_peek(end) {
-            return Some(list);
-        }
+        let mut need_advance = advance_first;
 
         loop {
-            self.next_token();
+            // === Phase A: advance to next token and parse expression ===
+            if need_advance {
+                self.next_token();
 
-            // Allow trailing comma in list contexts: f(a, ), [a, ], ...
-            if self.is_current_token(end) {
-                return Some(list);
-            }
-
-            if self.is_current_token(TokenType::Comma) {
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    "Expected expression after `,`, got `,`.",
-                ));
-                if self.check_list_error_limit(diag_start, end, "list") {
+                // Allow trailing comma in list contexts: f(a, ), [a, ], ...
+                if self.is_current_token(end) {
                     return Some(list);
                 }
-                continue;
-            }
 
-            if self.is_current_token(TokenType::Eof) {
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    format!("Expected `{}` before end of file.", end),
-                ));
-                if self.check_list_error_limit(diag_start, end, "list") {
-                    return Some(list);
+                if self.is_current_token(TokenType::Comma) {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        "Expected expression after `,`, got `,`.",
+                    ));
+                    if self.check_list_error_limit(diag_start, end, "list") {
+                        return Some(list);
+                    }
+                    continue;
                 }
-                return None;
+
+                if self.is_current_token(TokenType::Eof) {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!("Expected `{}` before end of file.", end),
+                    ));
+                    if self.check_list_error_limit(diag_start, end, "list") {
+                        return Some(list);
+                    }
+                    return None;
+                }
+
+                list.push(self.parse_expression(Precedence::Lowest)?);
             }
+            need_advance = true;
 
-            list.push(self.parse_expression(Precedence::Lowest)?);
-
+            // === Phase B: handle separator after expression ===
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume comma
 
@@ -368,11 +406,16 @@ impl Parser {
                 continue;
             }
 
+            let context = match end {
+                TokenType::RParen => "argument",
+                TokenType::RBracket => "array element",
+                _ => "item",
+            };
             self.errors.push(unexpected_token(
                 self.peek_token.span(),
                 format!(
-                    "Expected `,` or `{}` after list item, got {}.",
-                    end, self.peek_token.token_type
+                    "Expected `,` or `{}` after {}, got {}.",
+                    end, context, self.peek_token.token_type
                 ),
             ));
             if self.check_list_error_limit(diag_start, end, "list") {
@@ -392,6 +435,21 @@ impl Parser {
             }
 
             if self.consume_if_peek(end) {
+                return Some(list);
+            }
+
+            // If recovery stopped at a statement boundary, the closing
+            // delimiter was simply forgotten. Return what we have and let the
+            // parser continue from the next statement without a second error.
+            if matches!(
+                self.peek_token.token_type,
+                TokenType::Semicolon
+                    | TokenType::Let
+                    | TokenType::Fn
+                    | TokenType::Fun
+                    | TokenType::Import
+                    | TokenType::Module
+            ) {
                 return Some(list);
             }
 
@@ -442,6 +500,23 @@ impl Parser {
             let token_type = self.peek_token.token_type;
 
             if at_top_level && (token_type == TokenType::Comma || token_type == end) {
+                break;
+            }
+
+            // A semicolon or statement keyword at top level means the unclosed
+            // delimiter was simply forgotten — stop recovering here so we don't
+            // cascade errors all the way to EOF.
+            if at_top_level
+                && matches!(
+                    token_type,
+                    TokenType::Semicolon
+                        | TokenType::Let
+                        | TokenType::Fn
+                        | TokenType::Fun
+                        | TokenType::Import
+                        | TokenType::Module
+                )
+            {
                 break;
             }
 

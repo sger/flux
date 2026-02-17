@@ -1,9 +1,9 @@
 //! Compile-time evaluation of constant expressions.
 
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use crate::{
-    runtime::{hash_key::HashKey, value::Value},
+    runtime::value::Value,
     syntax::{expression::Expression, interner::Interner, symbol::Symbol},
 };
 
@@ -27,10 +27,10 @@ pub fn eval_const_expr(
 
         Expression::Some { value, .. } => {
             let inner = eval_const_expr(value, defined, interner)?;
-            Ok(Value::Some(Rc::new(inner)))
+            Ok(Value::Some(std::rc::Rc::new(inner)))
         }
 
-        Expression::Array { elements, .. } => {
+        Expression::ArrayLiteral { elements, .. } => {
             let mut values = Vec::with_capacity(elements.len());
             for element in elements {
                 values.push(eval_const_expr(element, defined, interner)?);
@@ -38,27 +38,21 @@ pub fn eval_const_expr(
             Ok(Value::Array(values.into()))
         }
 
-        Expression::Hash { pairs, .. } => {
-            let mut map = HashMap::with_capacity(pairs.len());
-            for (key, value) in pairs {
-                let k = eval_const_expr(key, defined, interner)?;
-                let v = eval_const_expr(value, defined, interner)?;
+        Expression::EmptyList { .. } | Expression::ListLiteral { .. } => Err(ConstEvalError::new(
+            "E040",
+            "List literals are not supported in module constants.",
+        )
+        .with_hint(
+            "List literals allocate runtime cons cells; use array literals (#[...]) in constants.",
+        )),
 
-                let hash_key = match &k {
-                    Value::Integer(i) => HashKey::Integer(*i),
-                    Value::Boolean(b) => HashKey::Boolean(*b),
-                    Value::String(s) => HashKey::String(s.to_string()),
-                    _ => {
-                        return Err(ConstEvalError::new(
-                            "E040",
-                            "Hash keys must be integers, booleans, or strings.",
-                        ));
-                    }
-                };
-                map.insert(hash_key, v);
-            }
-            Ok(Value::Hash(map.into()))
-        }
+        Expression::Hash { .. } => Err(ConstEvalError::new(
+            "E040",
+            "Hash literals are not supported in module constants.",
+        )
+        .with_hint(
+            "Hash maps require the runtime GC heap and cannot be evaluated at compile time.",
+        )),
 
         Expression::Identifier { name, .. } => defined.get(name).cloned().ok_or_else(|| {
             let name_str = interner.resolve(*name);

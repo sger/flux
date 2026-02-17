@@ -6,7 +6,7 @@ mod tests {
         statement::Statement,
     };
 
-    const SEMICOLON_VERIFICATION_PROGRAM: &str = r#"fun f(a, b, c, d) {
+    const SEMICOLON_VERIFICATION_PROGRAM: &str = r#"fn f(a, b, c, d) {
     print(a);
     print(b);
     print(c);
@@ -245,13 +245,13 @@ let test2 = "this compiles";
 
     #[test]
     fn function_literal() {
-        let (program, _interner) = parse("fun(x, y) { x + y; };");
+        let (program, _interner) = parse("fn(x, y) { x + y; };");
         assert_eq!(program.statements.len(), 1);
     }
 
     #[test]
     fn test_function_statement() {
-        let (program, interner) = parse("fun add(x, y) { x + y; }");
+        let (program, interner) = parse("fn add(x, y) { x + y; }");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -278,7 +278,7 @@ let test2 = "this compiles";
             r#"
 let x = 3
 
-fun t(x) {
+fn t(x) {
     let x = x;
 }
 "#,
@@ -734,7 +734,7 @@ fun t(x) {
 
     #[test]
     fn test_non_identifier_function_parameter_reports_diagnostic() {
-        let lexer = Lexer::new("fun add(x, 1) { x }");
+        let lexer = Lexer::new("fn add(x, 1) { x }");
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
@@ -843,7 +843,7 @@ fun t(x) {
 
     #[test]
     fn test_invalid_function_parameter_recovers_and_continues() {
-        let lexer = Lexer::new("fun f(1) { 1 }\nlet x = 2;");
+        let lexer = Lexer::new("fn f(1) { 1 }\nlet x = 2;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -854,7 +854,7 @@ fun t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier function parameter");
         let span = diag.span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 6));
+        assert_eq!(span.start, Position::new(1, 5));
 
         assert!(
             program.statements.iter().any(
@@ -866,7 +866,7 @@ fun t(x) {
 
     #[test]
     fn test_function_parameter_recovery_keeps_later_valid_parameter() {
-        let lexer = Lexer::new("fun f(1, x) { x }");
+        let lexer = Lexer::new("fn f(1, x) { x }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -877,7 +877,7 @@ fun t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier function parameter");
         let span = diag.span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 6));
+        assert_eq!(span.start, Position::new(1, 5));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -890,7 +890,7 @@ fun t(x) {
 
     #[test]
     fn test_function_parameter_missing_comma_reports_at_offending_token() {
-        let lexer = Lexer::new("fun f(a b) { }");
+        let lexer = Lexer::new("fn f(a b) { }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -901,7 +901,7 @@ fun t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for missing comma between parameters");
         let span = diag.span().expect("expected diagnostic span");
-        assert_eq!(span.start, Position::new(1, 8));
+        assert_eq!(span.start, Position::new(1, 7));
         assert!(
             diag.message()
                 .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
@@ -918,7 +918,7 @@ fun t(x) {
 
     #[test]
     fn test_function_parameter_trailing_comma_is_accepted() {
-        let lexer = Lexer::new("fun f(a,) { }");
+        let lexer = Lexer::new("fn f(a,) { }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -939,7 +939,7 @@ fun t(x) {
 
     #[test]
     fn test_function_parameter_double_comma_recovers_and_keeps_later_parameter() {
-        let lexer = Lexer::new("fun f(a,,b) { b }");
+        let lexer = Lexer::new("fn f(a,,b) { b }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -967,7 +967,7 @@ fun t(x) {
 
     #[test]
     fn test_function_parameter_leading_comma_recovers_and_keeps_parameter() {
-        let lexer = Lexer::new("fun f(,x) { x }");
+        let lexer = Lexer::new("fn f(,x) { x }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
@@ -1016,7 +1016,7 @@ fun t(x) {
 
     #[test]
     fn test_array_literal_trailing_comma_is_accepted() {
-        let lexer = Lexer::new("[1,]");
+        let lexer = Lexer::new("#[1,]");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
 
@@ -1026,10 +1026,52 @@ fun t(x) {
         );
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::Array { elements, .. },
+                expression: Expression::ArrayLiteral { elements, .. },
                 ..
             } => {
                 assert_eq!(elements.len(), 1);
+            }
+            _ => panic!("expected array expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_bar_array_literal_trailing_comma_is_accepted() {
+        let lexer = Lexer::new("[|1,|]");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.is_empty(),
+            "expected no diagnostics for trailing comma in [|...|] array literal"
+        );
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::ArrayLiteral { elements, .. },
+                ..
+            } => {
+                assert_eq!(elements.len(), 1);
+            }
+            _ => panic!("expected array expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_empty_bar_array_literal_is_accepted() {
+        let lexer = Lexer::new("[||]");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.is_empty(),
+            "expected no diagnostics for empty [||] array literal"
+        );
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::ArrayLiteral { elements, .. },
+                ..
+            } => {
+                assert!(elements.is_empty());
             }
             _ => panic!("expected array expression statement"),
         }
@@ -1063,7 +1105,7 @@ fun t(x) {
 
     #[test]
     fn test_nested_trailing_commas_are_accepted() {
-        let (program, _interner) = parse("f([1,2,], g(3,4,),)");
+        let (program, _interner) = parse("f(#[1,2,], g(3,4,),)");
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
@@ -1073,7 +1115,29 @@ fun t(x) {
             } => {
                 assert_eq!(arguments.len(), 2);
                 assert!(
-                    matches!(&arguments[0], Expression::Array { elements, .. } if elements.len() == 2)
+                    matches!(&arguments[0], Expression::ArrayLiteral { elements, .. } if elements.len() == 2)
+                );
+                assert!(
+                    matches!(&arguments[1], Expression::Call { arguments, .. } if arguments.len() == 2)
+                );
+            }
+            _ => panic!("expected nested call expression statement"),
+        }
+    }
+
+    #[test]
+    fn test_nested_trailing_commas_with_bar_arrays_are_accepted() {
+        let (program, _interner) = parse("f([|1,2,|], g(3,4,),)");
+        assert_eq!(program.statements.len(), 1);
+
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Call { arguments, .. },
+                ..
+            } => {
+                assert_eq!(arguments.len(), 2);
+                assert!(
+                    matches!(&arguments[0], Expression::ArrayLiteral { elements, .. } if elements.len() == 2)
                 );
                 assert!(
                     matches!(&arguments[1], Expression::Call { arguments, .. } if arguments.len() == 2)

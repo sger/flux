@@ -114,10 +114,11 @@ impl Parser {
             TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
-            TokenType::LBracket => self.parse_array(),
+            TokenType::LBracket => self.parse_list_literal(),
+            TokenType::Hash => self.parse_array_literal_prefixed(),
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
-            TokenType::Fun => self.parse_function_literal(),
+            TokenType::Fn | TokenType::Fun => self.parse_function_literal(),
             TokenType::Backslash => self.parse_lambda(),
             token if prefix_op(token).is_some() => self.parse_prefix_expression(),
             _ => {
@@ -363,10 +364,98 @@ impl Parser {
     }
 
     // Collections
-    pub(super) fn parse_array(&mut self) -> Option<Expression> {
+    pub(super) fn parse_list_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let elements = self.parse_expression_list(TokenType::RBracket)?;
-        Some(Expression::Array {
+
+        // Empty array shorthand: [||]
+        // Lexer tokenizes "||" as TokenType::Or.
+        if self.consume_if_peek(TokenType::Or) {
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::ArrayLiteral {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Array literal: [| ... |]
+        if self.consume_if_peek(TokenType::Bar) {
+            // Empty array: [||]
+            if self.consume_if_peek(TokenType::RBracket) {
+                return Some(Expression::ArrayLiteral {
+                    elements: vec![],
+                    span: Span::new(start, self.current_token.end_position),
+                });
+            }
+
+            self.next_token();
+            let first = self.parse_expression(Precedence::Lowest)?;
+            let elements = self.parse_expression_list_with_first(first, TokenType::Bar)?;
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::ArrayLiteral {
+                elements,
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Empty list: []
+        if self.consume_if_peek(TokenType::RBracket) {
+            return Some(Expression::EmptyList {
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Parse the first element
+        self.next_token();
+        let first = self.parse_expression(Precedence::Lowest)?;
+
+        // Check for cons syntax: [head | tail]
+        if self.is_peek_token(TokenType::Bar) {
+            self.next_token();
+            self.next_token();
+            let tail = self.parse_expression(Precedence::Lowest)?;
+
+            if !self.expect_peek(TokenType::RBracket) {
+                return None;
+            }
+            return Some(Expression::Cons {
+                head: Box::new(first),
+                tail: Box::new(tail),
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        // Otherwise, parse remaining elements as list literal.
+        // `first` is already parsed; delegate to the "with_first" variant
+        // which provides the same missing-comma recovery as parse_expression_list.
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        Some(Expression::ListLiteral {
+            elements,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {
+        // Legacy syntax kept for compatibility: #[a, b, c]
+        let start = self.current_token.position;
+        if !self.expect_peek(TokenType::LBracket) {
+            return None;
+        }
+
+        if self.consume_if_peek(TokenType::RBracket) {
+            return Some(Expression::ArrayLiteral {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        self.next_token();
+        let first = self.parse_expression(Precedence::Lowest)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
         })
@@ -582,6 +671,31 @@ impl Parser {
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
+            TokenType::LBracket => {
+                // Empty list pattern: []
+                if self.is_peek_token(TokenType::RBracket) {
+                    self.next_token(); // consume ]
+                    return Some(Pattern::EmptyList {
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+                // Cons pattern: [head | tail]
+                self.next_token(); // advance to head pattern
+                let head = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::Bar) {
+                    return None;
+                }
+                self.next_token(); // advance to tail pattern
+                let tail = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::RBracket) {
+                    return None;
+                }
+                Some(Pattern::Cons {
+                    head: Box::new(head),
+                    tail: Box::new(tail),
+                    span: Span::new(start, self.current_token.end_position),
+                })
+            }
             TokenType::Int
             | TokenType::Float
             | TokenType::String
@@ -606,6 +720,9 @@ impl Parser {
 
     pub(super) fn parse_function_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+        if self.current_token.token_type == TokenType::Fun {
+            self.warn_deprecated_fun(self.current_token.span());
+        }
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
