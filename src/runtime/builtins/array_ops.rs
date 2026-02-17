@@ -573,7 +573,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "map",
@@ -649,7 +649,7 @@ pub(super) fn builtin_filter(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "filter",
@@ -730,7 +730,7 @@ pub(super) fn builtin_fold(
     let func = &args[2];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "fold",

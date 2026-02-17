@@ -24,6 +24,7 @@ pub fn jit_compile_and_run(program: &Program, interner: &Interner) -> Result<Val
 
     // Create JIT execution context
     let mut ctx = JitContext::new();
+    ctx.set_jit_functions(compiler.jit_function_entries());
 
     // Call the compiled main function: fn(ctx: *mut JitContext) -> *mut Value
     let result_ptr: *mut Value = unsafe {
@@ -34,7 +35,9 @@ pub fn jit_compile_and_run(program: &Program, interner: &Interner) -> Result<Val
 
     // Check for errors
     if result_ptr.is_null() {
-        return Err(ctx.take_error().unwrap_or_else(|| "unknown JIT error".to_string()));
+        return Err(ctx
+            .take_error()
+            .unwrap_or_else(|| "unknown JIT error".to_string()));
     }
 
     // Clone the result out of the arena before it's dropped
