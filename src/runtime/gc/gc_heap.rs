@@ -267,6 +267,14 @@ impl GcHeap {
                             i += 1;
                         }
                     }
+                    Value::JitClosure(closure) => {
+                        let mut i = 0;
+                        let len = closure.captures.len();
+                        while i < len {
+                            worklist.push(WorkItem::Value(closure.captures[i].clone()));
+                            i += 1;
+                        }
+                    }
                     // Leaf types: no GC references
                     Value::Uninit
                     | Value::Integer(_)
