@@ -11,7 +11,12 @@ use std::ptr;
 use std::rc::Rc;
 
 use crate::runtime::{
-    builtins::get_builtin_by_index, gc::heap_object::HeapObject, jit_closure::JitClosure,
+    builtins::get_builtin_by_index,
+    gc::{
+        hamt::{hamt_empty, hamt_insert, hamt_lookup},
+        heap_object::HeapObject,
+    },
+    jit_closure::JitClosure,
     value::Value,
 };
 
@@ -520,6 +525,245 @@ pub extern "C" fn rt_set_arity_error(ctx: *mut JitContext, got: i64, want: i64) 
 }
 
 // ---------------------------------------------------------------------------
+// Value wrappers: Some / Left / Right
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_some(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let v = unsafe { (*value).clone() };
+    unsafe { ctx_ref(ctx) }.alloc(Value::Some(Rc::new(v)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_left(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let v = unsafe { (*value).clone() };
+    unsafe { ctx_ref(ctx) }.alloc(Value::Left(Rc::new(v)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_right(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let v = unsafe { (*value).clone() };
+    unsafe { ctx_ref(ctx) }.alloc(Value::Right(Rc::new(v)))
+}
+
+// ---------------------------------------------------------------------------
+// Pattern matching helpers
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_some(_ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if matches!(unsafe { &*value }, Value::Some(_)) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_left(_ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if matches!(unsafe { &*value }, Value::Left(_)) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_right(_ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if matches!(unsafe { &*value }, Value::Right(_)) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_none(_ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if matches!(unsafe { &*value }, Value::None) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_empty_list(ctx: *mut JitContext, value: *mut Value) -> i64 {
+    let v = unsafe { &*value };
+    match v {
+        Value::EmptyList | Value::None => 1,
+        // Also check for empty cons-based list (shouldn't normally happen,
+        // but handle gracefully)
+        Value::Gc(h) => {
+            let ctx = unsafe { ctx_ref(ctx) };
+            match ctx.gc_heap.get(*h) {
+                HeapObject::Cons { .. } => 0,
+                _ => 0,
+            }
+        }
+        _ => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_unwrap_some(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match unsafe { &*value } {
+        Value::Some(inner) => ctx.alloc(inner.as_ref().clone()),
+        _ => {
+            ctx.error = Some("unwrap_some on non-Some value".to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_unwrap_left(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match unsafe { &*value } {
+        Value::Left(inner) => ctx.alloc(inner.as_ref().clone()),
+        _ => {
+            ctx.error = Some("unwrap_left on non-Left value".to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_unwrap_right(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match unsafe { &*value } {
+        Value::Right(inner) => ctx.alloc(inner.as_ref().clone()),
+        _ => {
+            ctx.error = Some("unwrap_right on non-Right value".to_string());
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_values_equal(_ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> i64 {
+    let (a, b) = unsafe { (&*a, &*b) };
+    if values_equal(a, b) { 1 } else { 0 }
+}
+
+// ---------------------------------------------------------------------------
+// Collections
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_array(
+    ctx: *mut JitContext,
+    elements_ptr: *const *mut Value,
+    len: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let mut elements = Vec::with_capacity(len as usize);
+    for i in 0..len as usize {
+        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
+        elements.push(elem);
+    }
+    ctx.alloc(Value::Array(Rc::new(elements)))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_hash(
+    ctx: *mut JitContext,
+    pairs_ptr: *const *mut Value,
+    npairs: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let mut root = hamt_empty(&mut ctx.gc_heap);
+    for i in 0..npairs as usize {
+        let key = unsafe { (*pairs_ptr.add(i * 2)).as_ref().unwrap().clone() };
+        let value = unsafe { (*pairs_ptr.add(i * 2 + 1)).as_ref().unwrap().clone() };
+        let hash_key = match key.to_hash_key() {
+            Some(k) => k,
+            None => {
+                ctx.error = Some(format!("unusable as hash key: {}", key.type_name()));
+                return ptr::null_mut();
+            }
+        };
+        root = hamt_insert(&mut ctx.gc_heap, root, hash_key, value);
+    }
+    ctx.alloc(Value::Gc(root))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_index(
+    ctx: *mut JitContext,
+    collection: *mut Value,
+    key: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let left = unsafe { &*collection };
+    let index = unsafe { &*key };
+    match (left, index) {
+        (Value::Array(elements), Value::Integer(idx)) => {
+            if *idx < 0 || *idx as usize >= elements.len() {
+                ctx.alloc(Value::None)
+            } else {
+                ctx.alloc(Value::Some(Rc::new(elements[*idx as usize].clone())))
+            }
+        }
+        (Value::Gc(handle), _) => match index {
+            Value::Integer(idx) => match ctx.gc_heap.get(*handle) {
+                HeapObject::Cons { .. } => {
+                    if *idx < 0 {
+                        return ctx.alloc(Value::None);
+                    }
+                    let mut current = Value::Gc(*handle);
+                    let mut remaining = *idx as usize;
+                    loop {
+                        match &current {
+                            Value::Gc(h) => match ctx.gc_heap.get(*h) {
+                                HeapObject::Cons { head, tail } => {
+                                    if remaining == 0 {
+                                        return ctx.alloc(Value::Some(Rc::new(head.clone())));
+                                    }
+                                    remaining -= 1;
+                                    current = tail.clone();
+                                }
+                                _ => return ctx.alloc(Value::None),
+                            },
+                            _ => return ctx.alloc(Value::None),
+                        }
+                    }
+                }
+                _ => {
+                    let hash_key = match index.to_hash_key() {
+                        Some(k) => k,
+                        None => {
+                            ctx.error =
+                                Some(format!("unusable as hash key: {}", index.type_name()));
+                            return ptr::null_mut();
+                        }
+                    };
+                    match hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
+                        Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
+                        None => ctx.alloc(Value::None),
+                    }
+                }
+            },
+            _ => {
+                let hash_key = match index.to_hash_key() {
+                    Some(k) => k,
+                    None => {
+                        ctx.error = Some(format!("unusable as hash key: {}", index.type_name()));
+                        return ptr::null_mut();
+                    }
+                };
+                match hamt_lookup(&ctx.gc_heap, *handle, &hash_key) {
+                    Some(value) => ctx.alloc(Value::Some(Rc::new(value))),
+                    None => ctx.alloc(Value::None),
+                }
+            }
+        },
+        _ => {
+            ctx.error = Some(format!(
+                "index operator not supported: {}",
+                left.type_name()
+            ));
+            ptr::null_mut()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// String operations
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let v = unsafe { &*value };
+    let s = v.to_string_value();
+    unsafe { ctx_ref(ctx) }.alloc(Value::String(s.into()))
+}
+
+// ---------------------------------------------------------------------------
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -560,5 +804,25 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
         ("rt_set_arity_error", rt_set_arity_error as *const u8),
+        // Phase 4: wrappers
+        ("rt_make_some", rt_make_some as *const u8),
+        ("rt_make_left", rt_make_left as *const u8),
+        ("rt_make_right", rt_make_right as *const u8),
+        // Phase 4: pattern matching
+        ("rt_is_some", rt_is_some as *const u8),
+        ("rt_is_left", rt_is_left as *const u8),
+        ("rt_is_right", rt_is_right as *const u8),
+        ("rt_is_none", rt_is_none as *const u8),
+        ("rt_is_empty_list", rt_is_empty_list as *const u8),
+        ("rt_unwrap_some", rt_unwrap_some as *const u8),
+        ("rt_unwrap_left", rt_unwrap_left as *const u8),
+        ("rt_unwrap_right", rt_unwrap_right as *const u8),
+        ("rt_values_equal", rt_values_equal as *const u8),
+        // Phase 4: collections
+        ("rt_make_array", rt_make_array as *const u8),
+        ("rt_make_hash", rt_make_hash as *const u8),
+        ("rt_index", rt_index as *const u8),
+        // Phase 4: string ops
+        ("rt_to_string", rt_to_string as *const u8),
     ]
 }
