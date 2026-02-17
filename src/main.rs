@@ -30,6 +30,10 @@ fn main() {
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let no_gc = args.iter().any(|arg| arg == "--no-gc");
     let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
+    #[cfg(feature = "jit")]
+    let use_jit = args.iter().any(|arg| arg == "--jit");
+    #[cfg(not(feature = "jit"))]
+    let use_jit = false;
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -57,6 +61,9 @@ fn main() {
     }
     if gc_telemetry {
         args.retain(|arg| arg != "--gc-telemetry");
+    }
+    if use_jit {
+        args.retain(|arg| arg != "--jit");
     }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
@@ -90,6 +97,7 @@ fn main() {
             no_gc,
             gc_threshold,
             gc_telemetry,
+            use_jit,
         );
         return;
     }
@@ -122,6 +130,7 @@ fn main() {
                 no_gc,
                 gc_threshold,
                 gc_telemetry,
+                use_jit,
             )
         }
         "tokens" => {
@@ -253,6 +262,8 @@ fn run_file(
     no_gc: bool,
     gc_threshold: Option<usize>,
     gc_telemetry: bool,
+    #[cfg_attr(not(feature = "jit"), allow(unused))]
+    use_jit: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -404,6 +415,22 @@ fn run_file(
                     std::process::exit(1);
                 }
                 eprintln!("{}", report.rendered);
+            }
+
+            // --- JIT execution path ---
+            #[cfg(feature = "jit")]
+            if use_jit {
+                match flux::jit::jit_compile_and_run(&program, &compiler.interner) {
+                    Ok(_result) => {}
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
+                    }
+                }
+                if leak_detector {
+                    print_leak_stats();
+                }
+                return;
             }
 
             let bytecode = compiler.bytecode();
