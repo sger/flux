@@ -421,6 +421,9 @@ fn run_file(
             // --- JIT execution path ---
             #[cfg(feature = "jit")]
             if use_jit {
+                use flux::ast::{constant_fold, desugar, rename};
+                use std::collections::HashMap;
+
                 // JIT must see the same module set as the VM path (entry + imports).
                 let mut jit_program = Program::new();
                 for node in graph.topo_order() {
@@ -429,7 +432,18 @@ fn run_file(
                         .extend(node.program.statements.clone());
                 }
 
-                match flux::jit::jit_compile_and_run(&jit_program, &compiler.interner) {
+                // Apply AST optimizations if requested (same pipeline as bytecode path)
+                if enable_optimize {
+                    let desugared = desugar(jit_program);
+                    let optimized = constant_fold(desugared);
+                    jit_program = rename(optimized, HashMap::new());
+                }
+
+                let jit_options = flux::jit::JitOptions {
+                    no_gc,
+                    gc_threshold,
+                };
+                match flux::jit::jit_compile_and_run(&jit_program, &compiler.interner, &jit_options) {
                     Ok((_result, ctx)) => {
                         #[cfg(feature = "gc-telemetry")]
                         if gc_telemetry {
