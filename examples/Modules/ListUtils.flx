@@ -3,12 +3,16 @@
 
 module Modules.ListUtils {
     // Create a range list: range(1, 5) → [|1, 2, 3, 4, 5|]
-    fn range(start, stop) {
+    fn list_range(start, stop) {
         if start > stop {
             None
         } else {
-            [start | range(start + 1, stop)]
+            [start | list_range(start + 1, stop)]
         }
+    }
+
+    fn range(start, stop) {
+        list_range(start, stop)
     }
 
     // Sum all elements in a list

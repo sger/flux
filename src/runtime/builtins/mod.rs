@@ -42,7 +42,9 @@ fn builtin_print(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value
         }
         match arg {
             Value::String(s) => print!("{}", s), // Raw string
-            Value::Gc(_) | Value::Tuple(_) => print!("{}", list_ops::format_value(ctx, arg)),
+            Value::Gc(_) | Value::Tuple(_) | Value::Array(_) => {
+                print!("{}", list_ops::format_value(ctx, arg))
+            }
             _ => print!("{}", arg),
         }
     }

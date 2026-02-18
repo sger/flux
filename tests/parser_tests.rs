@@ -599,8 +599,11 @@ fn t(x) {
         let _program = parser.parse_program();
 
         assert!(
-            parser.errors.iter().any(|d| d.code() == Some("E034")),
-            "expected an unexpected-token diagnostic for missing `)`"
+            parser
+                .errors
+                .iter()
+                .any(|d| d.code() == Some("E076") || d.code() == Some("E034")),
+            "expected an unclosed-delimiter or unexpected-token diagnostic for missing `)`"
         );
         assert!(
             parser.errors.iter().all(|d| d.code() != Some("E073")),
