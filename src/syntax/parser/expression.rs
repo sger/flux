@@ -495,9 +495,18 @@ impl Parser {
         self.next_token();
         let first = self.parse_expression(Precedence::Lowest)?;
 
-        // Check for cons syntax: [head | tail]
+        // Check for cons syntax [head | tail] or list comprehension [expr | x <- xs, ...]
         if self.is_peek_token(TokenType::Bar) {
-            self.next_token();
+            self.next_token(); // consume `|`, now current = Bar
+
+            // Disambiguate: if peek is Ident and peek2 is LeftArrow, it's a comprehension
+            if self.is_peek_token(TokenType::Ident)
+                && self.peek2_token.token_type == TokenType::LeftArrow
+            {
+                return self.parse_list_comprehension(first, start);
+            }
+
+            // Otherwise: cons cell [head | tail]
             self.next_token();
             let tail = self.parse_expression(Precedence::Lowest)?;
 
@@ -538,6 +547,173 @@ impl Parser {
             elements,
             span: Span::new(start, self.current_token.end_position),
         })
+    }
+
+    /// Parse a list comprehension after `[body_expr |` has been consumed.
+    /// Current token is `|`, peek is the first generator variable.
+    ///
+    /// Syntax: [expr | var <- source, guard, var2 <- source2, ...]
+    /// Desugars to nested map/filter/flat_map calls.
+    fn parse_list_comprehension(
+        &mut self,
+        body: Expression,
+        start: Position,
+    ) -> Option<Expression> {
+        // Collect clauses: generators (var <- source) and guards (expr)
+        enum Clause {
+            Generator {
+                var: crate::syntax::Identifier,
+                source: Expression,
+            },
+            Guard(Expression),
+        }
+
+        let mut clauses = Vec::new();
+
+        // Parse first generator (required) — peek is Ident, peek2 is LeftArrow
+        loop {
+            // Expect identifier
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            let var = self.lexer.interner_mut().intern(&self.current_token.literal);
+
+            // Expect <-
+            if !self.expect_peek(TokenType::LeftArrow) {
+                return None;
+            }
+
+            // Parse source expression
+            self.next_token();
+            let source = self.parse_expression(Precedence::Lowest)?;
+            clauses.push(Clause::Generator { var, source });
+
+            // Check for more clauses separated by commas
+            while self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+
+                // Is the next clause a generator (Ident <- ...) or a guard?
+                if self.is_peek_token(TokenType::Ident)
+                    && self.peek2_token.token_type == TokenType::LeftArrow
+                {
+                    // Next generator — break inner loop, continue outer loop
+                    break;
+                }
+
+                // Guard expression
+                self.next_token();
+                let guard = self.parse_expression(Precedence::Lowest)?;
+                clauses.push(Clause::Guard(guard));
+            }
+
+            // If we broke out because of a new generator, continue the outer loop
+            if self.is_peek_token(TokenType::Ident)
+                && self.peek2_token.token_type == TokenType::LeftArrow
+            {
+                continue;
+            }
+
+            break;
+        }
+
+        // Expect closing ]
+        if !self.expect_peek(TokenType::RBracket) {
+            return None;
+        }
+
+        let span = Span::new(start, self.current_token.end_position);
+
+        // Desugar clauses into nested map/filter/flat_map calls.
+        // Process left-to-right: each generator groups with its trailing guards.
+        // The algorithm builds from the inside out using recursion over clause groups.
+
+        // Group clauses: each group is (generator, trailing_guards)
+        struct GeneratorGroup {
+            var: crate::syntax::Identifier,
+            source: Expression,
+            guards: Vec<Expression>,
+        }
+
+        let mut groups: Vec<GeneratorGroup> = Vec::new();
+        for clause in clauses {
+            match clause {
+                Clause::Generator { var, source } => {
+                    groups.push(GeneratorGroup {
+                        var,
+                        source,
+                        guards: Vec::new(),
+                    });
+                }
+                Clause::Guard(expr) => {
+                    if let Some(group) = groups.last_mut() {
+                        group.guards.push(expr);
+                    }
+                }
+            }
+        }
+
+        // Build the desugared expression from right to left
+        let mut result = body;
+        for (i, group) in groups.iter().enumerate().rev() {
+            // Apply guards to the source: filter(filter(source, \v -> g1), \v -> g2)
+            let mut source = group.source.clone();
+            for guard in &group.guards {
+                let lambda = self.make_lambda(group.var, guard.clone(), span);
+                source = self.make_call("filter", vec![source, lambda], span);
+            }
+
+            // If this is the last (innermost) generator, use map; otherwise flat_map
+            let lambda = self.make_lambda(group.var, result, span);
+            result = if i == groups.len() - 1 {
+                self.make_call("map", vec![source, lambda], span)
+            } else {
+                self.make_call("flat_map", vec![source, lambda], span)
+            };
+        }
+
+        Some(result)
+    }
+
+    /// Build an `Expression::Identifier` from a string, interning it.
+    fn make_ident(&mut self, name: &str, span: Span) -> Expression {
+        let sym = self.lexer.interner_mut().intern(name);
+        Expression::Identifier { name: sym, span }
+    }
+
+    /// Build a single-parameter lambda: `\param -> body`
+    fn make_lambda(
+        &self,
+        param: crate::syntax::Identifier,
+        body: Expression,
+        span: Span,
+    ) -> Expression {
+        let body_span = body.span();
+        Expression::Function {
+            parameters: vec![param],
+            body: Block {
+                statements: vec![Statement::Expression {
+                    expression: body,
+                    has_semicolon: false,
+                    span: body_span,
+                }],
+                span: body_span,
+            },
+            span,
+        }
+    }
+
+    /// Build a function call: `name(args...)`
+    fn make_call(
+        &mut self,
+        name: &str,
+        arguments: Vec<Expression>,
+        span: Span,
+    ) -> Expression {
+        Expression::Call {
+            function: Box::new(self.make_ident(name, span)),
+            arguments,
+            span,
+        }
     }
 
     pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {

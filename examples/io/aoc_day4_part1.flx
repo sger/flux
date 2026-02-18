@@ -47,16 +47,8 @@ fn count_row(lines, rows, cols, r, c, acc) {
     }
 }
 
-fn count_all(lines, rows, cols, r, acc) {
-    if r >= rows {
-        acc
-    } else {
-        let row_count = count_row(lines, rows, cols, r, 0, 0)
-        count_all(lines, rows, cols, r + 1, acc + row_count)
-    }
-}
-
 let lines = read_lines("examples/io/aoc_day4.txt")
 let rows = len(lines)
 let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
-print(count_all(lines, rows, cols, 0, 0))
+let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
+print(sum(row_counts))

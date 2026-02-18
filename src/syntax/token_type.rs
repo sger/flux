@@ -111,6 +111,7 @@ define_tokens! {
         Dot       => ".",
         Hash      => "#",
         Arrow     => "->",
+        LeftArrow => "<-",
         Backslash => "\\",
         InterpolationStart => "#{",
         StringEnd => "STRING_END",

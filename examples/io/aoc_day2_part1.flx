@@ -51,21 +51,18 @@ let range_tokens = read_file("examples/io/aoc_day2.txt")
     |> split(",")
     |> filter(\t -> trim(t) != "")
 
-let parsed_ranges = range_tokens
-    |> map(\t -> parse_range_token(t))
+let parsed_ranges = [parse_range_token(t) | t <- range_tokens]
 
 let max_end = parsed_ranges
     |> map(\r -> range_end(r))
     |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
 
-let invalid_candidates = range(1, seed_limit_for_max_id(max_end))
-    |> map(\seed -> invalid_from_seed(seed))
+let invalid_candidates = [invalid_from_seed(seed) | seed <- range(1, seed_limit_for_max_id(max_end))]
 
-let total = invalid_candidates
-    |> filter(\id ->
-        parsed_ranges
-            |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
-    )
-    |> sum
+let in_any_range = \id ->
+    parsed_ranges
+        |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+
+let total = [id | id <- invalid_candidates, in_any_range(id)] |> sum
 
 print(total)

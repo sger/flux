@@ -16,6 +16,13 @@ fn str_at(arr, idx) {
     }
 }
 
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
 fn char_at(s, idx) {
     substring(s, idx, idx + 1)
 }
@@ -51,24 +58,16 @@ fn result_memo(r) {
     }
 }
 
-fn parse_graph(lines, idx, g) {
-    if idx >= len(lines) {
-        g
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            parse_graph(lines, idx + 1, g)
-        } else {
-            let c = find_char_from(line, ":", 0)
-            if c < 0 {
-                parse_graph(lines, idx + 1, g)
-            } else {
-                let name = trim(substring(line, 0, c))
-                let outs = split(trim(substring(line, c + 1, len(line))), " ")
-                parse_graph(lines, idx + 1, put(g, name, outs))
-            }
-        }
-    }
+fn parse_entry(line) {
+    let c = find_char_from(line, ":", 0);
+    let name = trim(substring(line, 0, c));
+    let outs = split(trim(substring(line, c + 1, len(line))), " ");
+    [|name, outs|]
+}
+
+fn parse_graph(lines) {
+    let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
+    fold(entries, {}, \(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
 }
 
 fn bool_i(v) {
@@ -132,6 +131,6 @@ fn dfs_count2(node, seen_dac0, seen_fft0, graph, memo) {
 }
 
 let lines = read_lines("examples/io/aoc_day11.txt")
-let graph = parse_graph(lines, 0, {})
+let graph = parse_graph(lines)
 let ans = dfs_count2("svr", false, false, graph, {})
 print(result_count(ans))

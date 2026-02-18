@@ -50,32 +50,6 @@ fn find_blank(lines, idx) {
     }
 }
 
-fn parse_ranges(lines, idx, stop, acc) {
-    if idx >= stop {
-        acc
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            parse_ranges(lines, idx + 1, stop, acc)
-        } else {
-            parse_ranges(lines, idx + 1, stop, push(acc, parse_range_line(line)))
-        }
-    }
-}
-
-fn parse_ids(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            parse_ids(lines, idx + 1, acc)
-        } else {
-            parse_ids(lines, idx + 1, push(acc, parse_int(line)))
-        }
-    }
-}
-
 fn id_in_any_range(id, ranges, ridx) {
     if ridx >= len(ranges) {
         false
@@ -103,6 +77,8 @@ fn count_fresh(ids, ranges, idx, acc) {
 
 let lines = read_lines("examples/io/aoc_day5.txt")
 let sep = find_blank(lines, 0)
-let ranges = parse_ranges(lines, 0, sep, [||])
-let ids = parse_ids(lines, sep + 1, [||])
+let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
+let ranges = [parse_range_line(line) | line <- range_lines]
+let id_lines = [trim(line) | line <- slice(lines, sep + 1, len(lines)), trim(line) != ""]
+let ids = [parse_int(line) | line <- id_lines]
 print(count_fresh(ids, ranges, 0, 0))

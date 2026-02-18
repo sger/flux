@@ -20,19 +20,6 @@ fn char_at(line, col) {
     substring(line, col, col + 1)
 }
 
-fn keep_non_empty(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let line = line_at(lines, idx)
-        if line == "" {
-            keep_non_empty(lines, idx + 1, acc)
-        } else {
-            keep_non_empty(lines, idx + 1, push(acc, line))
-        }
-    }
-}
-
 fn is_roll(lines, rows, cols, r, c) {
     if r < 0 || c < 0 || r >= rows || c >= cols {
         false
@@ -96,7 +83,7 @@ fn remove_until_stable(lines, rows, cols, removed_acc) {
 }
 
 let raw_lines = read_lines("examples/io/aoc_day4.txt")
-let lines = keep_non_empty(raw_lines, 0, [||])
+let lines = [line | line <- raw_lines, line != ""]
 let rows = len(lines)
 let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
 print(remove_until_stable(lines, rows, cols, 0))

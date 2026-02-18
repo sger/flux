@@ -319,6 +319,7 @@ impl Lexer {
             (b'=', Some(b'=')) => (TokenType::Eq, "=="),
             (b'!', Some(b'=')) => (TokenType::NotEq, "!="),
             (b'<', Some(b'=')) => (TokenType::Lte, "<="),
+            (b'<', Some(b'-')) => (TokenType::LeftArrow, "<-"),
             (b'>', Some(b'=')) => (TokenType::Gte, ">="),
             (b'-', Some(b'>')) => (TokenType::Arrow, "->"),
             (b'&', Some(b'&')) => (TokenType::And, "&&"),

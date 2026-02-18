@@ -15,7 +15,11 @@ use compiler::JitCompiler;
 use context::JitContext;
 
 /// High-level entry point: compile and run a Flux program via JIT.
-pub fn jit_compile_and_run(program: &Program, interner: &Interner) -> Result<Value, String> {
+/// Returns the result value and the JIT context (for telemetry/diagnostics).
+pub fn jit_compile_and_run(
+    program: &Program,
+    interner: &Interner,
+) -> Result<(Value, JitContext), String> {
     let mut compiler = JitCompiler::new()?;
     let main_id = compiler.compile_program(program, interner)?;
     compiler.finalize();
@@ -42,5 +46,5 @@ pub fn jit_compile_and_run(program: &Program, interner: &Interner) -> Result<Val
 
     // Clone the result out of the arena before it's dropped
     let result = unsafe { (*result_ptr).clone() };
-    Ok(result)
+    Ok((result, ctx))
 }
