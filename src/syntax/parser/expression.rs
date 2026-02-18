@@ -2,7 +2,7 @@ use crate::{
     diagnostics::{
         DiagnosticBuilder, invalid_pattern, lambda_syntax_error, pipe_target_error,
         position::{Position, Span},
-        unexpected_token,
+        unclosed_delimiter, unexpected_token,
     },
     syntax::{
         block::Block,
@@ -248,7 +248,8 @@ impl Parser {
 
     pub(super) fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
         let start = function.span().start;
-        let arguments = self.parse_expression_list(TokenType::RParen)?;
+        let open_pos = self.current_token.position;
+        let arguments = self.parse_expression_list(TokenType::RParen, open_pos)?;
         Some(Expression::Call {
             function: Box::new(function),
             arguments,
@@ -472,7 +473,8 @@ impl Parser {
 
             self.next_token();
             let first = self.parse_expression(Precedence::Lowest)?;
-            let elements = self.parse_expression_list_with_first(first, TokenType::Bar)?;
+            let elements =
+                self.parse_expression_list_with_first(first, TokenType::Bar, start)?;
             if !self.expect_peek(TokenType::RBracket) {
                 return None;
             }
@@ -499,8 +501,26 @@ impl Parser {
             self.next_token();
             let tail = self.parse_expression(Precedence::Lowest)?;
 
-            if !self.expect_peek(TokenType::RBracket) {
+            if !self.is_peek_token(TokenType::RBracket) {
+                // Heuristic: if the next token is on a different line or
+                // starts a statement, this is likely a missing `]` — point
+                // the error at the opening `[` (Rust-style).
+                if self.peek_token.position.line > self.current_token.end_position.line
+                    || self.token_starts_statement(self.peek_token.token_type)
+                    || self.peek_token.token_type == TokenType::Eof
+                {
+                    self.errors.push(unclosed_delimiter(
+                        Span::new(start, start),
+                        "[",
+                        "]",
+                        Some(self.peek_token.span()),
+                    ));
+                } else {
+                    self.peek_error(TokenType::RBracket);
+                }
                 return None;
+            } else {
+                self.next_token();
             }
             return Some(Expression::Cons {
                 head: Box::new(first),
@@ -512,7 +532,8 @@ impl Parser {
         // Otherwise, parse remaining elements as list literal.
         // `first` is already parsed; delegate to the "with_first" variant
         // which provides the same missing-comma recovery as parse_expression_list.
-        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        let elements =
+            self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ListLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
@@ -535,7 +556,8 @@ impl Parser {
 
         self.next_token();
         let first = self.parse_expression(Precedence::Lowest)?;
-        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        let elements =
+            self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),

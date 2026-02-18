@@ -198,6 +198,7 @@ impl JitCompiler {
 
         // Register builtins
         register_builtins(&mut scope, interner);
+        self.predeclare_imports(program, &mut scope);
         self.predeclare_globals(program, &mut scope);
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
@@ -360,6 +361,17 @@ impl JitCompiler {
             }
         }
         Ok(())
+    }
+
+    fn predeclare_imports(&self, program: &Program, scope: &mut Scope) {
+        for stmt in &program.statements {
+            if let Statement::Import { name, alias, .. } = stmt {
+                scope.imported_modules.insert(*name);
+                if let Some(alias) = alias {
+                    scope.import_aliases.insert(*alias, *name);
+                }
+            }
+        }
     }
 
     fn predeclare_globals(&self, program: &Program, scope: &mut Scope) {
