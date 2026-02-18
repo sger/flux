@@ -15,7 +15,6 @@ mod tests {
                 self.token_type,
                 TokenType::Let
                     | TokenType::Fn
-                    | TokenType::Fun
                     | TokenType::If
                     | TokenType::Else
                     | TokenType::Return

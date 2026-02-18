@@ -1518,7 +1518,7 @@ fn t(x) {
 
     #[test]
     fn test_assignment_parses_as_statement_top_level_and_in_block() {
-        let (program, interner) = parse("x = 2;\nfun f() { y = 3; }");
+        let (program, interner) = parse("x = 2;\nfn f() { y = 3; }");
 
         assert!(
             matches!(&program.statements[0], Statement::Assign { name, .. } if interner.resolve(*name) == "x"),

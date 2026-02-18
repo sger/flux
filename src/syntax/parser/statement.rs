@@ -15,17 +15,12 @@ impl Parser {
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
             }
-            TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
-                self.warn_deprecated_fun(self.current_token.span());
-                self.parse_function_statement()
-            }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
                 None
             }
             TokenType::Ident
                 if self.current_token.literal != "fn"
-                    && self.current_token.literal != "fun"
                     && (self.current_token.literal.starts_with("fn")
                         || self.current_token.literal.starts_with("fun"))
                     && self.is_peek_token(TokenType::Ident) =>
