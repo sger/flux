@@ -136,6 +136,34 @@ impl Parser {
     pub(super) fn parse_let_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
+        if self.is_peek_token(TokenType::LParen) {
+            self.next_token(); // consume '(' so parse_pattern sees tuple pattern start
+            let pattern = self.parse_pattern()?;
+
+            if !self.expect_peek(TokenType::Assign) {
+                return None;
+            }
+
+            self.next_token();
+            let value = match self.parse_expression(Precedence::Lowest) {
+                Some(expression) => expression,
+                None => {
+                    self.synchronize(SyncMode::Stmt);
+                    return None;
+                }
+            };
+
+            if self.is_peek_token(TokenType::Semicolon) {
+                self.next_token();
+            }
+
+            return Some(Statement::LetDestructure {
+                pattern,
+                value,
+                span: self.span_from(start),
+            });
+        }
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }

@@ -191,6 +191,12 @@ impl Compiler {
                 }
                 self.emit_array_count(elements.len());
             }
+            Expression::TupleLiteral { elements, .. } => {
+                for element in elements {
+                    self.compile_non_tail_expression(element)?;
+                }
+                self.emit_tuple_count(elements.len());
+            }
             Expression::EmptyList { .. } => {
                 let list_sym = self.interner.intern("list");
                 let symbol = self
@@ -331,6 +337,10 @@ impl Compiler {
                 self.emit(OpCode::OpIndex, &[]);
                 // Member access should yield the value, not Option.
                 self.emit(OpCode::OpUnwrapSome, &[]);
+            }
+            Expression::TupleFieldAccess { object, index, .. } => {
+                self.compile_non_tail_expression(object)?;
+                self.emit(OpCode::OpTupleIndex, &[*index]);
             }
             Expression::None { .. } => {
                 self.emit(OpCode::OpNone, &[]);
@@ -821,6 +831,41 @@ impl Compiler {
 
                 Ok(jumps)
             }
+            Pattern::Tuple { elements, .. } => {
+                self.load_symbol(scrutinee);
+                self.emit(OpCode::OpIsTuple, &[]);
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                for (index, element) in elements.iter().enumerate() {
+                    match element {
+                        Pattern::Wildcard { .. } | Pattern::Identifier { .. } => continue,
+                        _ => {}
+                    }
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpTupleIndex, &[index]);
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    let inner_jumps = self.compile_pattern_check(&inner_symbol, element)?;
+                    jumps.extend(inner_jumps);
+                }
+
+                Ok(jumps)
+            }
         }
     }
 
@@ -964,6 +1009,30 @@ impl Compiler {
                 }
                 self.compile_pattern_bind(&tail_symbol, tail)?;
             }
+            Pattern::Tuple { elements, .. } => {
+                for (index, element) in elements.iter().enumerate() {
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpTupleIndex, &[index]);
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    self.compile_pattern_bind(&inner_symbol, element)?;
+                }
+            }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
         Ok(())
@@ -1038,6 +1107,9 @@ impl Compiler {
             Statement::Let { value, .. } | Statement::Assign { value, .. } => {
                 self.collect_consumable_param_uses(value, counts)
             }
+            Statement::LetDestructure { value, .. } => {
+                self.collect_consumable_param_uses(value, counts)
+            }
             Statement::Return { value, .. } => {
                 if let Some(value) = value {
                     self.collect_consumable_param_uses(value, counts);
@@ -1098,7 +1170,8 @@ impl Compiler {
                 }
             }
             Expression::ListLiteral { elements, .. }
-            | Expression::ArrayLiteral { elements, .. } => {
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
                 for element in elements {
                     self.collect_consumable_param_uses(element, counts);
                 }
@@ -1114,6 +1187,9 @@ impl Compiler {
                 }
             }
             Expression::MemberAccess { object, .. } => {
+                self.collect_consumable_param_uses(object, counts);
+            }
+            Expression::TupleFieldAccess { object, .. } => {
                 self.collect_consumable_param_uses(object, counts);
             }
             Expression::Match {

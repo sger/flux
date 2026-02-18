@@ -347,6 +347,7 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Some(l), Value::Some(r)) => l == r,
         (Value::Left(l), Value::Left(r)) => l == r,
         (Value::Right(l), Value::Right(r)) => l == r,
+        (Value::Tuple(l), Value::Tuple(r)) => l == r,
         (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => false,
         _ => false,
     }
@@ -552,22 +553,38 @@ pub extern "C" fn rt_make_right(ctx: *mut JitContext, value: *mut Value) -> *mut
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_some(_ctx: *mut JitContext, value: *mut Value) -> i64 {
-    if matches!(unsafe { &*value }, Value::Some(_)) { 1 } else { 0 }
+    if matches!(unsafe { &*value }, Value::Some(_)) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_left(_ctx: *mut JitContext, value: *mut Value) -> i64 {
-    if matches!(unsafe { &*value }, Value::Left(_)) { 1 } else { 0 }
+    if matches!(unsafe { &*value }, Value::Left(_)) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_right(_ctx: *mut JitContext, value: *mut Value) -> i64 {
-    if matches!(unsafe { &*value }, Value::Right(_)) { 1 } else { 0 }
+    if matches!(unsafe { &*value }, Value::Right(_)) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_is_none(_ctx: *mut JitContext, value: *mut Value) -> i64 {
-    if matches!(unsafe { &*value }, Value::None) { 1 } else { 0 }
+    if matches!(unsafe { &*value }, Value::None) {
+        1
+    } else {
+        0
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -650,6 +667,21 @@ pub extern "C" fn rt_make_array(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rt_make_tuple(
+    ctx: *mut JitContext,
+    elements_ptr: *const *mut Value,
+    len: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let mut elements = Vec::with_capacity(len as usize);
+    for i in 0..len as usize {
+        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
+        elements.push(elem);
+    }
+    ctx.alloc(Value::Tuple(Rc::new(elements)))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rt_make_hash(
     ctx: *mut JitContext,
     pairs_ptr: *const *mut Value,
@@ -683,6 +715,13 @@ pub extern "C" fn rt_index(
     let index = unsafe { &*key };
     match (left, index) {
         (Value::Array(elements), Value::Integer(idx)) => {
+            if *idx < 0 || *idx as usize >= elements.len() {
+                ctx.alloc(Value::None)
+            } else {
+                ctx.alloc(Value::Some(Rc::new(elements[*idx as usize].clone())))
+            }
+        }
+        (Value::Tuple(elements), Value::Integer(idx)) => {
             if *idx < 0 || *idx as usize >= elements.len() {
                 ctx.alloc(Value::None)
             } else {
@@ -746,6 +785,56 @@ pub extern "C" fn rt_index(
             ctx.error = Some(format!(
                 "index operator not supported: {}",
                 left.type_name()
+            ));
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_tuple(_ctx: *mut JitContext, value: *mut Value) -> i64 {
+    if matches!(unsafe { &*value }, Value::Tuple(_)) {
+        1
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_tuple_len_eq(ctx: *mut JitContext, value: *mut Value, len: i64) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match unsafe { &*value } {
+        Value::Tuple(elements) => (elements.len() as i64 == len) as i64,
+        _ => {
+            ctx.error = Some(format!(
+                "expected Tuple, got {}",
+                unsafe { &*value }.type_name()
+            ));
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_tuple_get(ctx: *mut JitContext, value: *mut Value, index: i64) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match unsafe { &*value } {
+        Value::Tuple(elements) => {
+            if index < 0 || index as usize >= elements.len() {
+                ctx.error = Some(format!(
+                    "tuple index {} out of bounds for tuple of length {}",
+                    index,
+                    elements.len()
+                ));
+                ptr::null_mut()
+            } else {
+                ctx.alloc(elements[index as usize].clone())
+            }
+        }
+        _ => {
+            ctx.error = Some(format!(
+                "tuple field access expected Tuple, got {}",
+                unsafe { &*value }.type_name()
             ));
             ptr::null_mut()
         }
@@ -820,8 +909,12 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_values_equal", rt_values_equal as *const u8),
         // Phase 4: collections
         ("rt_make_array", rt_make_array as *const u8),
+        ("rt_make_tuple", rt_make_tuple as *const u8),
         ("rt_make_hash", rt_make_hash as *const u8),
         ("rt_index", rt_index as *const u8),
+        ("rt_is_tuple", rt_is_tuple as *const u8),
+        ("rt_tuple_len_eq", rt_tuple_len_eq as *const u8),
+        ("rt_tuple_get", rt_tuple_get as *const u8),
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
     ]
