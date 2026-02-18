@@ -8,9 +8,13 @@ Constants:
 
 Instructions:
 0000 OpTrue 
-0001 OpJumpNotTruthy 10
+0001 OpJumpNotTruthy 12
 0004 OpConstant 0
-0007 OpJump 14
-0010 OpPop 
-0011 OpConstant 1
-0014 OpPop
+0007 OpPop 
+0008 OpNone 
+0009 OpJump 18
+0012 OpPop 
+0013 OpConstant 1
+0016 OpPop 
+0017 OpNone 
+0018 OpPop

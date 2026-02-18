@@ -94,6 +94,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         Statement::Expression {
             expression,
+            has_semicolon: _,
             span: _,
         } => {
             visitor.visit_expr(expression);
@@ -180,6 +181,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             if let Some(alt) = alternative {
                 visitor.visit_block(alt);
             }
+        }
+        Expression::DoBlock { block, span: _ } => {
+            visitor.visit_block(block);
         }
         Expression::Function {
             parameters,

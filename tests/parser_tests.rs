@@ -100,7 +100,7 @@ let test2 = "this compiles";
             let (program, interner) = parse(input);
             assert_eq!(
                 program.display_with(&interner),
-                expected,
+                format!("{};", expected),
                 "Failed for: {}",
                 input
             );
@@ -117,6 +117,33 @@ let test2 = "this compiles";
     fn if_else_expression() {
         let (program, _interner) = parse("if x < y { x; } else { y; };");
         assert_eq!(program.statements.len(), 1);
+    }
+
+    #[test]
+    fn do_block_expression_parses() {
+        let (program, _interner) = parse("let y = do { let x = 1; x + 1 };");
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Let {
+                value: Expression::DoBlock { .. },
+                ..
+            } => {}
+            _ => panic!("expected let initializer to be a do block"),
+        }
+    }
+
+    #[test]
+    fn expression_statement_tracks_semicolon_presence() {
+        let (program, _interner) = parse("x; y");
+        assert_eq!(program.statements.len(), 2);
+        match &program.statements[0] {
+            Statement::Expression { has_semicolon, .. } => assert!(*has_semicolon),
+            _ => panic!("expected expression statement"),
+        }
+        match &program.statements[1] {
+            Statement::Expression { has_semicolon, .. } => assert!(!*has_semicolon),
+            _ => panic!("expected expression statement"),
+        }
     }
 
     #[test]
@@ -482,7 +509,7 @@ fn t(x) {
     fn test_array_literal() {
         let (program, interner) = parse("[1, 2 * 2, 3 + 3];");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.display_with(&interner), "[1, (2 * 2), (3 + 3)]");
+        assert_eq!(program.display_with(&interner), "[1, (2 * 2), (3 + 3)];");
     }
 
     #[test]
@@ -543,7 +570,7 @@ fn t(x) {
     fn test_index_expression() {
         let (program, interner) = parse("arr[1 + 1];");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.display_with(&interner), "(arr[(1 + 1)])");
+        assert_eq!(program.display_with(&interner), "(arr[(1 + 1)]);");
     }
 
     #[test]
@@ -627,7 +654,10 @@ fn t(x) {
             .iter()
             .filter(|d| d.code() == Some("E034"))
             .count();
-        assert_eq!(e034_count, 1, "expected only one E034 for dangling member access");
+        assert_eq!(
+            e034_count, 1,
+            "expected only one E034 for dangling member access"
+        );
     }
 
     #[test]
@@ -638,10 +668,8 @@ fn t(x) {
         let interner = parser.take_interner();
 
         assert!(
-            parser
-                .errors
-                .iter()
-                .any(|d| d.code() == Some("E034") && d.message().is_some_and(|m| m.contains("Expected )"))),
+            parser.errors.iter().any(|d| d.code() == Some("E034")
+                && d.message().is_some_and(|m| m.contains("Expected )"))),
             "expected missing `)` diagnostic: {:?}",
             parser.errors
         );
@@ -660,6 +688,56 @@ fn t(x) {
     }
 
     #[test]
+    fn test_missing_grouped_delimiter_error_count_stays_bounded() {
+        let lexer = Lexer::new("let point = (1, 2, 3\nlet single = (42,)\nlet unit = ()");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(
+            parser.errors.len() <= 3,
+            "expected bounded cascade (<= 3 errors), got: {:?}",
+            parser.errors
+        );
+        let first = parser
+            .errors
+            .first()
+            .expect("expected at least one parse error");
+        assert_eq!(first.code(), Some("E034"));
+        assert!(
+            first
+                .message()
+                .is_some_and(|m| m.contains("Expected )") || m.contains("Expected `)`")),
+            "expected first diagnostic to be about missing `)`, got: {:?}",
+            first.message()
+        );
+    }
+
+    #[test]
+    fn test_dangling_member_access_error_count_stays_bounded() {
+        let lexer = Lexer::new("print(point.\nprint(point.1)");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(
+            parser.errors.len() <= 3,
+            "expected bounded cascade (<= 3 errors), got: {:?}",
+            parser.errors
+        );
+        let first = parser
+            .errors
+            .first()
+            .expect("expected at least one parse error");
+        assert_eq!(first.code(), Some("E034"));
+        assert!(
+            first
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier or tuple field index after `.`")),
+            "expected first diagnostic to be about incomplete member access, got: {:?}",
+            first.message()
+        );
+    }
+
+    #[test]
     fn test_hash_literal() {
         let (program, _interner) = parse(r#"{"one": 1, "two": 2};"#);
         assert_eq!(program.statements.len(), 1);
@@ -669,7 +747,7 @@ fn t(x) {
     fn test_empty_hash() {
         let (program, interner) = parse("{};");
         assert_eq!(program.statements.len(), 1);
-        assert_eq!(program.display_with(&interner), "{}");
+        assert_eq!(program.display_with(&interner), "{};");
     }
 
     // Lambda shorthand tests
@@ -771,6 +849,63 @@ fn t(x) {
         match &program.statements[0] {
             Statement::Let { name, .. } => assert_eq!(interner.resolve(*name), "double"),
             _ => panic!("expected Let statement"),
+        }
+    }
+
+    #[test]
+    fn test_let_in_expression_position_reports_targeted_diagnostic() {
+        let lexer = Lexer::new(r"let f = \x -> let y = x + 1");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let targeted = parser.errors.iter().find(|d| {
+            d.code() == Some("E031")
+                && d.message().is_some_and(|m| {
+                    m.contains("`let` is a statement and cannot appear in an expression position.")
+                })
+        });
+        assert!(
+            targeted.is_some(),
+            "expected targeted let-in-expression diagnostic, got: {:?}",
+            parser.errors
+        );
+
+        let e034_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E034"))
+            .count();
+        assert!(
+            e034_count <= 1,
+            "expected no flood of unrelated E034 diagnostics, got: {:?}",
+            parser.errors
+        );
+    }
+
+    #[test]
+    fn test_let_in_if_and_match_expression_positions_reports_targeted_diagnostic() {
+        let inputs = [
+            "if let x = 1 { 1 } else { 0 }",
+            "match 1 { 1 -> let y = 2, _ -> 0 }",
+        ];
+
+        for input in inputs {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _program = parser.parse_program();
+            assert!(
+                parser.errors.iter().any(|d| {
+                    d.code() == Some("E031")
+                        && d.message().is_some_and(|m| {
+                            m.contains(
+                                "`let` is a statement and cannot appear in an expression position.",
+                            )
+                        })
+                }),
+                "expected targeted let-in-expression diagnostic for input `{}`; got: {:?}",
+                input,
+                parser.errors
+            );
         }
     }
 

@@ -166,6 +166,12 @@ impl Compiler {
             } => {
                 self.compile_if_expression(condition, consequence, alternative)?;
             }
+            Expression::DoBlock { block, .. } => {
+                self.compile_block_with_tail(block)?;
+                if !self.block_has_value_tail(block) {
+                    self.emit(OpCode::OpNone, &[]);
+                }
+            }
             Expression::Function {
                 parameters, body, ..
             } => {
@@ -408,11 +414,15 @@ impl Compiler {
             compiler.compile_block_with_tail(body)
         })?;
 
-        if self.is_last_instruction(OpCode::OpPop) {
-            self.replace_last_pop_with_return();
-        }
-
-        if !self.is_last_instruction(OpCode::OpReturnValue)
+        if self.block_has_value_tail(body) {
+            if self.is_last_instruction(OpCode::OpPop) {
+                self.replace_last_pop_with_return();
+            } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                && !self.is_last_instruction(OpCode::OpReturnLocal)
+            {
+                self.emit(OpCode::OpReturnValue, &[]);
+            }
+        } else if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
         {
             self.emit(OpCode::OpReturn, &[]);
@@ -496,6 +506,7 @@ impl Compiler {
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
 
+        let consequence_has_value = self.block_has_value_tail(consequence);
         // Consequence branch inherits tail position
         if self.in_tail_position {
             self.compile_block_with_tail(consequence)?;
@@ -503,8 +514,12 @@ impl Compiler {
             self.compile_block(consequence)?;
         }
 
-        if self.is_last_instruction(OpCode::OpPop) {
-            self.remove_last_pop();
+        if consequence_has_value {
+            if self.is_last_instruction(OpCode::OpPop) {
+                self.remove_last_pop();
+            }
+        } else {
+            self.emit(OpCode::OpNone, &[]);
         }
 
         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
@@ -516,14 +531,19 @@ impl Compiler {
 
         // Alternative branch also inherits tail position
         if let Some(alt) = alternative {
+            let alternative_has_value = self.block_has_value_tail(alt);
             if self.in_tail_position {
                 self.compile_block_with_tail(alt)?;
             } else {
                 self.compile_block(alt)?;
             }
 
-            if self.is_last_instruction(OpCode::OpPop) {
-                self.remove_last_pop();
+            if alternative_has_value {
+                if self.is_last_instruction(OpCode::OpPop) {
+                    self.remove_last_pop();
+                }
+            } else {
+                self.emit(OpCode::OpNone, &[]);
             }
         } else {
             self.emit(OpCode::OpNone, &[]);
@@ -1156,6 +1176,11 @@ impl Compiler {
                     for statement in &alt.statements {
                         self.collect_consumable_param_uses_statement(statement, counts);
                     }
+                }
+            }
+            Expression::DoBlock { block, .. } => {
+                for statement in &block.statements {
+                    self.collect_consumable_param_uses_statement(statement, counts);
                 }
             }
             Expression::Call {

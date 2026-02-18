@@ -28,6 +28,7 @@ pub enum Statement {
     },
     Expression {
         expression: Expression,
+        has_semicolon: bool,
         span: Span,
     },
     Function {
@@ -96,8 +97,16 @@ impl fmt::Display for Statement {
             Statement::Return { value: None, .. } => {
                 write!(f, "return;")
             }
-            Statement::Expression { expression, .. } => {
-                write!(f, "{}", expression)
+            Statement::Expression {
+                expression,
+                has_semicolon,
+                ..
+            } => {
+                if *has_semicolon {
+                    write!(f, "{};", expression)
+                } else {
+                    write!(f, "{}", expression)
+                }
             }
             Statement::Function {
                 name,
@@ -154,7 +163,17 @@ impl Statement {
                 format!("return {};", v.display_with(interner))
             }
             Statement::Return { value: None, .. } => "return;".to_string(),
-            Statement::Expression { expression, .. } => expression.display_with(interner),
+            Statement::Expression {
+                expression,
+                has_semicolon,
+                ..
+            } => {
+                if *has_semicolon {
+                    format!("{};", expression.display_with(interner))
+                } else {
+                    expression.display_with(interner)
+                }
+            }
             Statement::Function {
                 name,
                 parameters,

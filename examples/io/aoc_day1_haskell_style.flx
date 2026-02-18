@@ -1,0 +1,108 @@
+// Advent of Code - Day 1 (Haskell-style translation)
+// Inspired by mapAccumL/scanl approach from the provided Haskell solution.
+// Uses input file: examples/io/aoc_day1.txt
+
+fn wrap_100(value) {
+    let reduced = value % 100
+    if reduced < 0 {
+        reduced + 100
+    } else {
+        reduced
+    }
+}
+
+fn abs_int(n) {
+    if n < 0 {
+        0 - n
+    } else {
+        n
+    }
+}
+
+// Returns (q, r) such that value = q*100 + r and 0 <= r < 100.
+fn floor_div_mod_100(value) {
+    let r = wrap_100(value)
+    let q = (value - r) / 100;
+    (q, r)
+}
+
+fn parse_rotation(line) {
+    let dir = substring(line, 0, 1)
+    let distance = parse_int(substring(line, 1, len(line)))
+    if dir == "L" {
+        0 - distance
+    } else {
+        distance
+    }
+}
+
+fn parse_line(line, rest, acc) {
+    let cleaned = trim(line)
+    if cleaned == "" {
+        parse_rotations(rest, acc)
+    } else {
+        parse_rotations(rest, [parse_rotation(cleaned) | acc])
+    }
+}
+
+fn parse_rotations(lines, acc) {
+    match lines {
+        [line | rest] -> parse_line(line, rest, acc),
+        _ -> reverse(acc),
+    }
+}
+
+// Part A: count how many intermediate dials equal 0 while stepping in mod 100.
+fn solve_a_steps(steps, state) {
+    match steps {
+        [step | rest] -> do {
+            let (dial, count) = state
+            let bump = wrap_100(step)
+            let next_dial = wrap_100(dial + bump)
+            let next_count = if next_dial == 0 { count + 1 } else { count }
+            solve_a_steps(rest, (next_dial, next_count))
+        },
+        _ -> state.1,
+    }
+}
+
+// Part B helper logic (Haskell go function):
+// go curr bump = (m, hits) where (d,m) = (curr + bump) divMod 100
+fn hits_for_step(curr, bump, d, m) {
+    if bump > 0 {
+        d
+    } else {
+        if m == 0 {
+            abs_int(d) + 1
+        } else {
+            if curr == 0 {
+                abs_int(d) - 1
+            } else {
+                abs_int(d)
+            }
+        }
+    }
+}
+
+fn solve_b_steps(steps, state) {
+    match steps {
+        [bump | rest] -> do {
+            let (curr, total) = state
+            let div_mod = floor_div_mod_100(curr + bump)
+            let d = div_mod.0
+            let m = div_mod.1
+            let hits = hits_for_step(curr, bump, d, m)
+            solve_b_steps(rest, (m, total + hits))
+        },
+        _ -> state.1,
+    }
+}
+
+let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+let steps = parse_rotations(lines, None)
+
+let part_a = solve_a_steps(steps, (50, 0))
+let part_b = solve_b_steps(steps, (50, 0))
+
+print(part_a)
+print(part_b)

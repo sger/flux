@@ -59,9 +59,8 @@ module Day2Part2 {
     }
 
     fn id_in_range(id, parsed_range) {
-        let start = range_start(parsed_range)
-        let end = range_end(parsed_range)
-        id >= start && id <= end
+        let bounds = (range_start(parsed_range), range_end(parsed_range))
+        id >= bounds.0 && id <= bounds.1
     }
 
     fn id_in_any_range(id, parsed_ranges) {
@@ -130,8 +129,8 @@ module Day2Part2 {
 
     fn solve_parsed_ranges(parsed_ranges) {
         let upper = max_end(parsed_ranges)
-        let max_chunk_len = digits_count(upper) / 2
-        sum_for_all_chunk_lens(1, max_chunk_len, upper, parsed_ranges)
+        let limits = (upper, digits_count(upper) / 2)
+        sum_for_all_chunk_lens(1, limits.1, limits.0, parsed_ranges)
     }
 
     fn solve_file(path) {

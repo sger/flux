@@ -45,6 +45,18 @@ add(2, 3)
 }
 
 #[test]
+fn jit_function_reads_top_level_global_let() {
+    let result = run_jit(
+        r#"
+let LIMIT = 100
+fn add_limit(x) { x + LIMIT }
+add_limit(23)
+"#,
+    );
+    assert_eq!(result, Value::Integer(123));
+}
+
+#[test]
 fn jit_recursive_return_works() {
     let result = run_jit(
         r#"

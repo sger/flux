@@ -1,7 +1,7 @@
 use crate::{
     diagnostics::{
-        Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
-        missing_comma,
+        Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
+        UNTERMINATED_STRING, missing_comma,
         position::{Position, Span},
         unclosed_delimiter, unexpected_token,
     },
@@ -14,6 +14,7 @@ use crate::{
 use super::Parser;
 
 const LIST_ERROR_LIMIT: usize = 50;
+const DELIMITER_RECOVERY_BUDGET: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum SyncMode {
@@ -139,6 +140,7 @@ impl Parser {
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If
+                | TokenType::Do
                 | TokenType::Fn
                 | TokenType::Fun
                 | TokenType::Match
@@ -156,6 +158,52 @@ impl Parser {
                 | TokenType::Import
                 | TokenType::Module
         )
+    }
+
+    pub(super) fn recover_to_matching_delimiter(
+        &mut self,
+        expected: TokenType,
+        stop_on: &[TokenType],
+    ) -> bool {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        let mut scanned = 0usize;
+
+        while self.peek_token.token_type != TokenType::Eof && scanned < DELIMITER_RECOVERY_BUDGET {
+            let token_type = self.peek_token.token_type;
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+
+            if at_top_level && token_type == expected {
+                self.next_token(); // consume expected delimiter
+                return true;
+            }
+
+            if at_top_level
+                && (stop_on.contains(&token_type)
+                    || token_type == TokenType::RBrace
+                    || token_type == TokenType::Eof
+                    || token_type == TokenType::Semicolon
+                    || self.token_starts_statement(token_type))
+            {
+                return false;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
+            scanned += 1;
+        }
+
+        false
     }
 
     pub(super) fn synchronize(&mut self, mode: SyncMode) {
@@ -444,7 +492,9 @@ impl Parser {
                 return Some(list);
             }
 
-            self.recover_expression_list_to_delimiter(end);
+            if self.recover_to_matching_delimiter(end, &[TokenType::Comma]) {
+                return Some(list);
+            }
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
@@ -534,50 +584,6 @@ impl Parser {
         )
     }
 
-    fn recover_expression_list_to_delimiter(&mut self, end: TokenType) {
-        let mut paren_depth = 0usize;
-        let mut bracket_depth = 0usize;
-        let mut brace_depth = 0usize;
-
-        while self.peek_token.token_type != TokenType::Eof {
-            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
-            let token_type = self.peek_token.token_type;
-
-            if at_top_level && (token_type == TokenType::Comma || token_type == end) {
-                break;
-            }
-
-            // A semicolon or statement keyword at top level means the unclosed
-            // delimiter was simply forgotten — stop recovering here so we don't
-            // cascade errors all the way to EOF.
-            if at_top_level
-                && matches!(
-                    token_type,
-                    TokenType::Semicolon
-                        | TokenType::Let
-                        | TokenType::Fn
-                        | TokenType::Fun
-                        | TokenType::Import
-                        | TokenType::Module
-                )
-            {
-                break;
-            }
-
-            match token_type {
-                TokenType::LParen => paren_depth += 1,
-                TokenType::LBracket => bracket_depth += 1,
-                TokenType::LBrace => brace_depth += 1,
-                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
-                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
-                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
-                _ => {}
-            }
-
-            self.next_token();
-        }
-    }
-
     pub(super) fn sync_to_list_end(&mut self, end: TokenType) {
         let mut paren_depth = 0usize;
         let mut bracket_depth = 0usize;
@@ -608,6 +614,23 @@ impl Parser {
 
     // Error handling
     pub(super) fn no_prefix_parse_error(&mut self) {
+        if self.current_token.token_type == TokenType::Let {
+            let diag = Diagnostic::make_error(
+                &EXPECTED_EXPRESSION,
+                &[&self.current_token.token_type.to_string()],
+                String::new(),
+                self.current_token.span(),
+            )
+            .with_message("`let` is a statement and cannot appear in an expression position.")
+            .with_hint_text(
+                "Move `let` above this expression, or use a block body `{ ... }` if this construct supports it. \
+For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression; extract the `let` before `match` \
+(or use a block only if match arms support it).",
+            );
+            self.errors.push(diag);
+            return;
+        }
+
         let error_spec = &EXPECTED_EXPRESSION;
         let diag = Diagnostic::make_error(
             error_spec,
