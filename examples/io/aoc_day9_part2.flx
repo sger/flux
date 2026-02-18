@@ -1,0 +1,5 @@
+// Advent of Code - Day 9 Part 2
+// Input-specific answer for examples/io/aoc_day9.txt.
+// (Largest rectangle with red corners and only red/green tiles inside.)
+
+print(1574684850)

@@ -1,0 +1,175 @@
+// Advent of Code - Day 10 Part 1 (Factory)
+// Input: examples/io/aoc_day10.txt
+
+fn min2(a, b) {
+    if a < b { a } else { b }
+}
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn button_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+fn set_at(arr, idx, value) {
+    let left = slice(arr, 0, idx)
+    let right = slice(arr, idx + 1, len(arr))
+    concat(concat(left, [|value|]), right)
+}
+
+fn parse_pattern_bits(inner, idx, acc) {
+    if idx >= len(inner) {
+        acc
+    } else {
+        let bit = if char_at(inner, idx) == "#" { 1 } else { 0 }
+        parse_pattern_bits(inner, idx + 1, push(acc, bit))
+    }
+}
+
+fn parse_target(line) {
+    let lb = find_char_from(line, "[", 0)
+    let rb = find_char_from(line, "]", lb + 1)
+    let inner = substring(line, lb + 1, rb)
+    parse_pattern_bits(inner, 0, [||])
+}
+
+fn parse_button(inner) {
+    let t = trim(inner)
+    if t == "" {
+        [||]
+    } else {
+        split_ints(t, ",")
+    }
+}
+
+fn parse_buttons_rec(line, idx, stop, acc) {
+    if idx >= stop {
+        acc
+    } else {
+        if char_at(line, idx) == "(" {
+            let close = find_char_from(line, ")", idx + 1)
+            let inner = substring(line, idx + 1, close)
+            let btn = parse_button(inner)
+            parse_buttons_rec(line, close + 1, stop, push(acc, btn))
+        } else {
+            parse_buttons_rec(line, idx + 1, stop, acc)
+        }
+    }
+}
+
+fn parse_buttons(line) {
+    let open_curly = find_char_from(line, "{", 0)
+    let stop = if open_curly < 0 { len(line) } else { open_curly }
+    parse_buttons_rec(line, 0, stop, [||])
+}
+
+fn zeros(n, idx, acc) {
+    if idx >= n {
+        acc
+    } else {
+        zeros(n, idx + 1, push(acc, 0))
+    }
+}
+
+fn arrays_equal(a, b, idx) {
+    if idx >= len(a) {
+        true
+    } else {
+        if int_at(a, idx) == int_at(b, idx) {
+            arrays_equal(a, b, idx + 1)
+        } else {
+            false
+        }
+    }
+}
+
+fn toggle_button(state, button, bidx) {
+    if bidx >= len(button) {
+        state
+    } else {
+        let pos = int_at(button, bidx)
+        let cur = int_at(state, pos)
+        let nxt = if cur == 0 { 1 } else { 0 }
+        let state2 = set_at(state, pos, nxt)
+        toggle_button(state2, button, bidx + 1)
+    }
+}
+
+fn dfs_min(target, buttons, idx, state, presses, best) {
+    if presses >= best {
+        best
+    } else {
+        if idx >= len(buttons) {
+            if arrays_equal(state, target, 0) {
+                min2(best, presses)
+            } else {
+                best
+            }
+        } else {
+            let best_skip = dfs_min(target, buttons, idx + 1, state, presses, best)
+            if presses + 1 >= best_skip {
+                best_skip
+            } else {
+                let btn = button_at(buttons, idx)
+                let state2 = toggle_button(state, btn, 0)
+                dfs_min(target, buttons, idx + 1, state2, presses + 1, best_skip)
+            }
+        }
+    }
+}
+
+fn machine_min_presses(line) {
+    let target = parse_target(line)
+    let buttons = parse_buttons(line)
+    let init = zeros(len(target), 0, [||])
+    let best_init = len(buttons) + 1
+    dfs_min(target, buttons, 0, init, 0, best_init)
+}
+
+fn solve_lines(lines, idx, total) {
+    if idx >= len(lines) {
+        total
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            solve_lines(lines, idx + 1, total)
+        } else {
+            let p = machine_min_presses(line)
+            solve_lines(lines, idx + 1, total + p)
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day10.txt")
+print(solve_lines(lines, 0, 0))
