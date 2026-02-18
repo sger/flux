@@ -1,0 +1,176 @@
+// Advent of Code - Day 8 Part 2 (Playground)
+// Keep connecting closest unconnected pairs until everything is one circuit.
+// Return X[a] * X[b] for the last successful union edge.
+// Input: examples/io/aoc_day8.txt
+
+fn line_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn set_at(arr, idx, value) {
+    let left = slice(arr, 0, idx)
+    let right = slice(arr, idx + 1, len(arr))
+    concat(concat(left, [|value|]), right)
+}
+
+fn parse_points(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let s = trim(line_at(lines, idx))
+        if s == "" {
+            parse_points(lines, idx + 1, acc)
+        } else {
+            parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
+        }
+    }
+}
+
+fn dist_sq(points, i, j) {
+    ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
+        * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
+        + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
+            * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
+        + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
+            * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
+}
+
+fn pair_code(i, j) {
+    (i * 1000) + j
+}
+
+fn maybe_push_edge(points, i, j, limit, acc) {
+    let d = dist_sq(points, i, j)
+    if d < limit {
+        push(acc, (d * 1000000) + pair_code(i, j))
+    } else {
+        acc
+    }
+}
+
+fn root(parents, x) {
+    let p = int_at(parents, x)
+    if p == x { x } else { root(parents, p) }
+}
+
+fn dsu_state(parents, sizes, comps, last_a, last_b) {
+    let s1 = put({}, "p", parents)
+    let s2 = put(s1, "sz", sizes)
+    let s3 = put(s2, "c", comps)
+    let s4 = put(s3, "a", last_a)
+    put(s4, "b", last_b)
+}
+
+fn dsu_parents(state) {
+    match get(state, "p") {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn dsu_sizes(state) {
+    match get(state, "sz") {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn dsu_comps(state) {
+    match get(state, "c") {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn dsu_last_a(state) {
+    match get(state, "a") {
+        Some(v) -> v,
+        _ -> -1
+    }
+}
+
+fn dsu_last_b(state) {
+    match get(state, "b") {
+        Some(v) -> v,
+        _ -> -1
+    }
+}
+
+fn union_key(state, key) {
+    let parents = dsu_parents(state)
+    let sizes = dsu_sizes(state)
+    let comps = dsu_comps(state)
+    let code = key % 1000000
+    let i = code / 1000
+    let j = code % 1000
+
+    let ri = root(parents, i)
+    let rj = root(parents, j)
+    if ri == rj {
+        state
+    } else {
+        let si = int_at(sizes, ri)
+        let sj = int_at(sizes, rj)
+        if si >= sj {
+            let p_left = set_at(parents, rj, ri)
+            let s_left = set_at(sizes, ri, si + sj)
+            dsu_state(p_left, s_left, comps - 1, i, j)
+        } else {
+            let p_right = set_at(parents, ri, rj)
+            let s_right = set_at(sizes, rj, si + sj)
+            dsu_state(p_right, s_right, comps - 1, i, j)
+        }
+    }
+}
+
+fn run_limit(points, limit) {
+    let n = len(points)
+    let idxs = range(0, n)
+    let keys =
+        fold(idxs, [||], \(acc, i) -> {
+            let js = range(i + 1, n)
+            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
+        })
+
+    let sorted_keys = sort(keys)
+    let parents0 = range(0, n)
+    let sizes0 = map(range(0, n), \_ -> 1)
+    let state0 = dsu_state(parents0, sizes0, n, -1, -1)
+    fold(sorted_keys, state0, \(st, k) -> union_key(st, k))
+}
+
+fn solve_limit(points, limit, max_limit) {
+    let st = run_limit(points, limit)
+    if dsu_comps(st) == 1 {
+        let a = dsu_last_a(st)
+        let b = dsu_last_b(st)
+        int_at(arr_at(points, a), 0) * int_at(arr_at(points, b), 0)
+    } else {
+        if limit >= max_limit {
+            0
+        } else {
+            solve_limit(points, limit * 2, max_limit)
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day8.txt")
+let points = parse_points(lines, 0, [||])
+print(solve_limit(points, 188000000, 40000000000))

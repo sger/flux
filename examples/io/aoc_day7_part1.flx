@@ -1,0 +1,139 @@
+// Advent of Code - Day 7 Part 1 (Laboratories)
+// Simulate downward beams with splitters (^), counting split events.
+// Input: examples/io/aoc_day7.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn char_at_pad(s, idx) {
+    if idx < 0 || idx >= len(s) {
+        " "
+    } else {
+        substring(s, idx, idx + 1)
+    }
+}
+
+fn set_at(arr, idx, value) {
+    let left = slice(arr, 0, idx)
+    let right = slice(arr, idx + 1, len(arr))
+    concat(concat(left, [|value|]), right)
+}
+
+fn max_width(lines, idx, cur) {
+    if idx >= len(lines) {
+        cur
+    } else {
+        let w = len(line_at(lines, idx))
+        max_width(lines, idx + 1, if w > cur { w } else { cur })
+    }
+}
+
+fn zeros(width, i, acc) {
+    if i >= width {
+        acc
+    } else {
+        zeros(width, i + 1, push(acc, 0))
+    }
+}
+
+fn set1(mask, col) {
+    if col < 0 || col >= len(mask) {
+        mask
+    } else {
+        set_at(mask, col, 1)
+    }
+}
+
+fn find_s_in_row(s, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if substring(s, idx, idx + 1) == "S" {
+            idx
+        } else {
+            find_s_in_row(s, idx + 1)
+        }
+    }
+}
+
+fn find_s(rows, r) {
+    if r >= len(rows) {
+        [|-1, -1|]
+    } else {
+        let c = find_s_in_row(line_at(rows, r), 0)
+        if c >= 0 {
+            [|r, c|]
+        } else {
+            find_s(rows, r + 1)
+        }
+    }
+}
+
+fn res(next_mask, split_count) {
+    let m = put({}, "next", next_mask)
+    put(m, "split", split_count)
+}
+
+fn res_next(x) {
+    match get(x, "next") {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn res_split(x) {
+    match get(x, "split") {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn process_cols(row_s, col, width, active, next_mask, split_count) {
+    if col >= width {
+        res(next_mask, split_count)
+    } else {
+        if int_at(active, col) == 0 {
+            process_cols(row_s, col + 1, width, active, next_mask, split_count)
+        } else {
+            let ch = char_at_pad(row_s, col)
+            if ch == "^" {
+                let split_left = set1(next_mask, col - 1)
+                let split_next = set1(split_left, col + 1)
+                process_cols(row_s, col + 1, width, active, split_next, split_count + 1)
+            } else {
+                let stay_next = set1(next_mask, col)
+                process_cols(row_s, col + 1, width, active, stay_next, split_count)
+            }
+        }
+    }
+}
+
+fn simulate(rows, row_idx, width, active, split_count) {
+    if row_idx >= len(rows) {
+        split_count
+    } else {
+        let sim_row_text = line_at(rows, row_idx)
+        let empty_next = zeros(width, 0, [||])
+        let r = process_cols(sim_row_text, 0, width, active, empty_next, split_count)
+        simulate(rows, row_idx + 1, width, res_next(r), res_split(r))
+    }
+}
+
+let input_lines = read_lines("examples/io/aoc_day7.txt")
+let grid_w = max_width(input_lines, 0, 0)
+let s = find_s(input_lines, 0)
+let srow = int_at(s, 0)
+let scol = int_at(s, 1)
+let start = set1(zeros(grid_w, 0, [||]), scol)
+print(simulate(input_lines, srow, grid_w, start, 0))

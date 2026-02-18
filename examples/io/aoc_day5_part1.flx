@@ -1,0 +1,108 @@
+// Advent of Code - Day 5 Part 1 (Cafeteria)
+// Count how many available ingredient IDs are fresh.
+// Input: examples/io/aoc_day5.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn parse_range_line(line) {
+    let parts = split_ints(trim(line), "-")
+    let a = int_at(parts, 0)
+    let b = int_at(parts, 1)
+    push(push([||], a), b)
+}
+
+fn range_start(r) {
+    int_at(r, 0)
+}
+
+fn range_end(r) {
+    int_at(r, 1)
+}
+
+fn find_blank(lines, idx) {
+    if idx >= len(lines) {
+        len(lines)
+    } else {
+        if trim(line_at(lines, idx)) == "" {
+            idx
+        } else {
+            find_blank(lines, idx + 1)
+        }
+    }
+}
+
+fn parse_ranges(lines, idx, stop, acc) {
+    if idx >= stop {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            parse_ranges(lines, idx + 1, stop, acc)
+        } else {
+            parse_ranges(lines, idx + 1, stop, push(acc, parse_range_line(line)))
+        }
+    }
+}
+
+fn parse_ids(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            parse_ids(lines, idx + 1, acc)
+        } else {
+            parse_ids(lines, idx + 1, push(acc, parse_int(line)))
+        }
+    }
+}
+
+fn id_in_any_range(id, ranges, ridx) {
+    if ridx >= len(ranges) {
+        false
+    } else {
+        let r = arr_at(ranges, ridx)
+        let a = range_start(r)
+        let b = range_end(r)
+        if id >= a && id <= b {
+            true
+        } else {
+            id_in_any_range(id, ranges, ridx + 1)
+        }
+    }
+}
+
+fn count_fresh(ids, ranges, idx, acc) {
+    if idx >= len(ids) {
+        acc
+    } else {
+        let id = int_at(ids, idx)
+        let add = if id_in_any_range(id, ranges, 0) { 1 } else { 0 }
+        count_fresh(ids, ranges, idx + 1, acc + add)
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day5.txt")
+let sep = find_blank(lines, 0)
+let ranges = parse_ranges(lines, 0, sep, [||])
+let ids = parse_ids(lines, sep + 1, [||])
+print(count_fresh(ids, ranges, 0, 0))
