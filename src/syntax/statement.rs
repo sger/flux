@@ -2,13 +2,23 @@ use std::fmt;
 
 use crate::{
     diagnostics::position::{Position, Span},
-    syntax::{Identifier, block::Block, expression::Expression, interner::Interner},
+    syntax::{
+        Identifier,
+        block::Block,
+        expression::{Expression, Pattern},
+        interner::Interner,
+    },
 };
 
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let {
         name: Identifier,
+        value: Expression,
+        span: Span,
+    },
+    LetDestructure {
+        pattern: Pattern,
         value: Expression,
         span: Span,
     },
@@ -47,6 +57,7 @@ impl Statement {
     pub fn position(&self) -> Position {
         match self {
             Statement::Let { span, .. } => span.start,
+            Statement::LetDestructure { span, .. } => span.start,
             Statement::Return { span, .. } => span.start,
             Statement::Expression { span, .. } => span.start,
             Statement::Function { span, .. } => span.start,
@@ -59,6 +70,7 @@ impl Statement {
     pub fn span(&self) -> Span {
         match self {
             Statement::Let { span, .. } => *span,
+            Statement::LetDestructure { span, .. } => *span,
             Statement::Return { span, .. } => *span,
             Statement::Expression { span, .. } => *span,
             Statement::Function { span, .. } => *span,
@@ -74,6 +86,9 @@ impl fmt::Display for Statement {
         match self {
             Statement::Let { name, value, .. } => {
                 write!(f, "let {} = {};", name, value)
+            }
+            Statement::LetDestructure { pattern, value, .. } => {
+                write!(f, "let {} = {};", pattern, value)
             }
             Statement::Return { value: Some(v), .. } => {
                 write!(f, "return {};", v)
@@ -125,6 +140,13 @@ impl Statement {
                 format!(
                     "let {} = {};",
                     interner.resolve(*name),
+                    value.display_with(interner)
+                )
+            }
+            Statement::LetDestructure { pattern, value, .. } => {
+                format!(
+                    "let {} = {};",
+                    pattern.display_with(interner),
                     value.display_with(interner)
                 )
             }

@@ -146,6 +146,18 @@ impl Parser {
         )
     }
 
+    pub(super) fn token_starts_statement(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Let
+                | TokenType::Return
+                | TokenType::Fn
+                | TokenType::Fun
+                | TokenType::Import
+                | TokenType::Module
+        )
+    }
+
     pub(super) fn synchronize(&mut self, mode: SyncMode) {
         while !self.is_current_token(TokenType::Eof) {
             let token_type = self.current_token.token_type;
@@ -383,10 +395,20 @@ impl Parser {
                 return Some(list);
             }
 
+            // Dangling member access already emitted a targeted error in
+            // `parse_member_access` (e.g. `point.\nnext`), so skip emitting
+            // a second generic list-delimiter error here.
+            if self.current_token.token_type == TokenType::Dot
+                && self.peek_token.position.line > self.current_token.end_position.line
+            {
+                return Some(list);
+            }
+
             // Adjacent expression-starting token inside a delimited list strongly
             // indicates a missing comma: f(a b), [a b], etc.
             if self.token_starts_expression(self.peek_token.token_type)
                 && !self.token_can_continue_expression(self.peek_token.token_type)
+                && !self.likely_missing_closing_delimiter(end)
             {
                 let (context, example) = match end {
                     TokenType::RParen => ("arguments", "`f(a, b)`"),
@@ -487,6 +509,28 @@ impl Parser {
                 | TokenType::Asterisk
                 | TokenType::Slash
                 | TokenType::Percent
+        )
+    }
+
+    fn likely_missing_closing_delimiter(&self, end: TokenType) -> bool {
+        // In call argument lists, a newline before the next expression-starter
+        // is more likely to be a forgotten closing ')' than a missing comma.
+        if end == TokenType::RParen
+            && self.peek_token.position.line > self.current_token.end_position.line
+        {
+            return true;
+        }
+
+        matches!(
+            self.peek_token.token_type,
+            TokenType::Semicolon
+                | TokenType::RBrace
+                | TokenType::Let
+                | TokenType::Fn
+                | TokenType::Fun
+                | TokenType::Return
+                | TokenType::Import
+                | TokenType::Module
         )
     }
 

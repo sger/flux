@@ -1,0 +1,53 @@
+// Test: Tuples
+// Expected output:
+// (1, 2, 3)
+// (42,)
+// ()
+// 3
+// 1
+// 2
+// 1
+// Some(1)
+// None
+// 3
+// Tuple
+// true
+// 6
+
+// Tuple literals
+let point = (1, 2, 3)
+let single = (42,)
+let unit = ()
+print(point)
+print(single)
+print(unit)
+
+// Parenthesized expression remains grouping, not tuple
+print((1 + 2))
+
+// Field access
+print(point.0)
+print(point.1)
+
+// Destructuring
+let (x, y, z) = point
+print(x)
+
+// Indexing returns Option
+print(point[0])
+print(point[99])
+
+// Builtins
+print(len(point))
+print(type_of(point))
+
+// Equality
+print((1, 2) == (1, 2))
+
+// Tuple patterns in match
+let nested = (1, (2, 3))
+print(match nested { (a, (b, c)) -> a + b + c, _ -> 0 })
+
+let tuple = (1, 2, 3)
+print("test")
+print(tuple)

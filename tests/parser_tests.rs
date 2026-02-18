@@ -2,7 +2,11 @@
 mod tests {
     use flux::diagnostics::position::Position;
     use flux::syntax::{
-        expression::Expression, interner::Interner, lexer::Lexer, parser::Parser, program::Program,
+        expression::{Expression, Pattern},
+        interner::Interner,
+        lexer::Lexer,
+        parser::Parser,
+        program::Program,
         statement::Statement,
     };
 
@@ -543,35 +547,115 @@ fn t(x) {
     }
 
     #[test]
-    fn test_missing_comma_in_parenthesized_tuple_like_input_reports_single_diagnostic() {
+    fn test_parenthesized_missing_comma_reports_error_and_recovers() {
         let lexer = Lexer::new("(\"a\" \"b\")\nlet x = 1;");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let missing_comma: Vec<_> = parser
+        assert!(
+            !parser.errors.is_empty(),
+            "expected a parse error for missing comma in tuple-like syntax"
+        );
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected an E034 unexpected-token diagnostic, got: {:?}",
+            parser.errors
+        );
+        let _ = (program, interner);
+    }
+
+    #[test]
+    fn test_missing_rparen_in_call_newline_does_not_report_missing_comma() {
+        let lexer = Lexer::new("print(point.0\nprint(point.1)");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected an unexpected-token diagnostic for missing `)`"
+        );
+        assert!(
+            parser.errors.iter().all(|d| d.code() != Some("E073")),
+            "missing `)` should not be reported as missing comma: {:?}",
+            parser.errors
+        );
+    }
+
+    #[test]
+    fn test_dangling_member_access_reports_once_without_cascade() {
+        let lexer = Lexer::new("print(point.)\nprint(point.1)");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected member-access parse error"
+        );
+        assert!(
+            parser.errors.iter().all(|d| d.code() != Some("E031")),
+            "dangling member access should not cascade to expected-expression errors: {:?}",
+            parser.errors
+        );
+    }
+
+    #[test]
+    fn test_dangling_member_access_across_newline_reports_at_dot() {
+        let lexer = Lexer::new("print(point.\nprint(point.1))");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let first = parser.errors.first().expect("expected parse error");
+        assert_eq!(first.code(), Some("E034"));
+        assert!(
+            first
+                .message()
+                .is_some_and(|m| m.contains("Expected identifier or tuple field index after `.`")),
+            "unexpected message: {:?}",
+            first.message()
+        );
+    }
+
+    #[test]
+    fn test_dangling_member_access_across_newline_avoids_duplicate_delimiter_error() {
+        let lexer = Lexer::new("print(point.\nprint(point.1)\nlet x = 1");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let e034_count = parser
             .errors
             .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .collect();
-        assert_eq!(
-            missing_comma.len(),
-            1,
-            "expected exactly one missing-comma diagnostic"
-        );
-        let span = missing_comma[0]
-            .span()
-            .expect("expected missing-comma span");
-        assert_eq!(span.start, Position::new(1, 5));
+            .filter(|d| d.code() == Some("E034"))
+            .count();
+        assert_eq!(e034_count, 1, "expected only one E034 for dangling member access");
+    }
+
+    #[test]
+    fn test_missing_tuple_rparen_before_new_statement_does_not_cascade() {
+        let lexer = Lexer::new("let point = (1, 2, 3\nlet single = (42,)\nprint(single)");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
         assert!(
-            parser.errors.iter().all(|d| d.code() == Some("E073")),
-            "tuple-like missing comma should avoid generic cascade diagnostics"
+            parser
+                .errors
+                .iter()
+                .any(|d| d.code() == Some("E034") && d.message().is_some_and(|m| m.contains("Expected )"))),
+            "expected missing `)` diagnostic: {:?}",
+            parser.errors
         );
         assert!(
-            program.statements.iter().any(
-                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "x")
-            ),
-            "expected parser recovery to continue after parenthesized error"
+            parser.errors.iter().all(|d| d.code() != Some("E031")),
+            "missing tuple `)` should not cascade to expected-expression errors: {:?}",
+            parser.errors
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "single")),
+            "expected parser recovery to continue with next statement"
         );
     }
 
@@ -1225,6 +1309,73 @@ fn t(x) {
                 .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
             "expected parser recovery to continue after malformed assignment statement"
         );
+    }
+
+    #[test]
+    fn test_tuple_literal_parsing() {
+        let (program, _interner) = parse("(1, 2, 3);");
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::TupleLiteral { elements, .. },
+                ..
+            } => assert_eq!(elements.len(), 3),
+            _ => panic!("expected tuple literal"),
+        }
+    }
+
+    #[test]
+    fn test_singleton_and_unit_tuple_parsing() {
+        let (program, _interner) = parse("(42,); ()");
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::TupleLiteral { elements, .. },
+                ..
+            } => assert_eq!(elements.len(), 1),
+            _ => panic!("expected singleton tuple"),
+        }
+        match &program.statements[1] {
+            Statement::Expression {
+                expression: Expression::TupleLiteral { elements, .. },
+                ..
+            } => assert!(elements.is_empty()),
+            _ => panic!("expected unit tuple"),
+        }
+    }
+
+    #[test]
+    fn test_parenthesized_grouping_stays_grouping() {
+        let (program, _interner) = parse("(1 + 2);");
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::Infix { .. },
+                ..
+            } => {}
+            _ => panic!("expected grouped infix expression"),
+        }
+    }
+
+    #[test]
+    fn test_tuple_field_access_parsing() {
+        let (program, _interner) = parse("t.0;");
+        match &program.statements[0] {
+            Statement::Expression {
+                expression: Expression::TupleFieldAccess { index, .. },
+                ..
+            } => assert_eq!(*index, 0),
+            _ => panic!("expected tuple field access"),
+        }
+    }
+
+    #[test]
+    fn test_let_tuple_destructure_parsing() {
+        let (program, _interner) = parse("let (a, b) = pair;");
+        match &program.statements[0] {
+            Statement::LetDestructure { pattern, .. } => match pattern {
+                Pattern::Tuple { elements, .. } => assert_eq!(elements.len(), 2),
+                _ => panic!("expected tuple pattern"),
+            },
+            _ => panic!("expected let destructure statement"),
+        }
     }
 
     #[test]

@@ -212,6 +212,15 @@ impl VM {
         Value::Array(Rc::new(elements))
     }
 
+    fn build_tuple(&mut self, start: usize, end: usize) -> Value {
+        let mut elements = Vec::with_capacity(end - start);
+        for i in start..end {
+            elements.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+        }
+        leak_detector::record_tuple();
+        Value::Tuple(Rc::new(elements))
+    }
+
     fn build_hash(&mut self, start: usize, end: usize) -> Result<Value, String> {
         let mut root = hamt_empty(&mut self.gc_heap);
         let mut i = start;
