@@ -1,0 +1,62 @@
+// Advent of Code - Day 4 Part 1 (Printing Department)
+// Input: examples/io/aoc_day4.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn char_at(line, col) {
+    substring(line, col, col + 1)
+}
+
+fn is_roll(lines, rows, cols, r, c) {
+    if r < 0 || c < 0 || r >= rows || c >= cols {
+        false
+    } else {
+        let line = line_at(lines, r)
+        char_at(line, c) == "@"
+    }
+}
+
+fn adjacent_rolls(lines, rows, cols, r, c) {
+    let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
+    let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
+    let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
+    let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
+    let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
+    let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
+    let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
+    let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
+    n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
+}
+
+fn count_row(lines, rows, cols, r, c, acc) {
+    if c >= cols {
+        acc
+    } else {
+        if is_roll(lines, rows, cols, r, c) {
+            let adj = adjacent_rolls(lines, rows, cols, r, c)
+            let add = if adj < 4 { 1 } else { 0 }
+            count_row(lines, rows, cols, r, c + 1, acc + add)
+        } else {
+            count_row(lines, rows, cols, r, c + 1, acc)
+        }
+    }
+}
+
+fn count_all(lines, rows, cols, r, acc) {
+    if r >= rows {
+        acc
+    } else {
+        let row_count = count_row(lines, rows, cols, r, 0, 0)
+        count_all(lines, rows, cols, r + 1, acc + row_count)
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day4.txt")
+let rows = len(lines)
+let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
+print(count_all(lines, rows, cols, 0, 0))

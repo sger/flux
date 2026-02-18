@@ -1,0 +1,767 @@
+// ============================================================================
+// Advent of Code - Day 10 Part 2 (Factory)
+// ============================================================================
+//
+// Problem
+// -------
+// Each input line describes a machine with:
+//   - A set of buttons, each covering specific positions  e.g. (0,1,3)
+//   - A target count per position                         e.g. {22,31,23}
+//
+// Pressing a button decrements every position it covers by 1.
+// Goal: find the minimum total button presses so that every position
+// reaches exactly zero.  Sum the minimum presses across all machines.
+//
+// Why naive search fails
+// ----------------------
+// A brute-force DFS over button-press counts has a state space that is
+// the product of all target values — easily 10^18+ for the given input.
+// Even with memoisation and pruning, the search space is far too large
+// for machines with 9+ buttons and targets around 40-250.
+//
+// Approach — Gaussian elimination over non-negative integers
+// ----------------------------------------------------------
+// The problem is equivalent to a system of linear equations:
+//
+//     B · x = t     where  x[j] >= 0  (integer)
+//     Minimise  sum(x[j])
+//
+//   B[i][j] = 1 if button j covers position i, else 0
+//   t[i]    = target count for position i
+//   x[j]    = number of times button j is pressed
+//
+// We solve this with integer Gaussian elimination in five steps:
+//
+//   1. BUILD the augmented matrix  [B | t]   (Section 5)
+//      An m × (n+1) matrix with m = positions, n = buttons.
+//
+//   2. REDUCE to Reduced Row-Echelon Form (RREF)   (Section 6)
+//      Using fraction-free integer elimination: multiply-and-subtract
+//      instead of dividing, then normalise each row by its GCD.
+//      This avoids floating-point entirely and keeps entries small.
+//
+//   3. CLASSIFY columns   (Section 7)
+//      Columns with a pivot → "determined" variables.
+//      Columns without a pivot → "free" variables (typically 0-3).
+//
+//   4. ENUMERATE free variable assignments   (Section 9)
+//      For each combination of non-negative integer values for the
+//      free variables, compute the implied pivot variable values and
+//      check feasibility (non-negative, integer division exact).
+//      Keep the assignment with the smallest total presses.
+//
+//   5. PRUNE the search   (Section 9)
+//      - Per-variable upper bound: for each pivot row where the free
+//        coefficient is positive AND no later free variable has a
+//        negative coefficient, compute  (rhs − partial) / coeff.
+//        Rows with negative later-free coefficients are skipped
+//        because those later variables can relax the constraint.
+//      - Global ceiling: max(target) caps any single free variable.
+//      - Sum pruning: if the partial free sum already meets or exceeds
+//        the best total found, stop early.
+//
+// Complexity
+// ----------
+//   GE:      O(m · n²)          — instant for m ≤ 10, n ≤ 13
+//   Search:  O(max_target^k)    — k = n − rank(B), typically 0-3
+//   Total:   sub-second for all 155 machines in the input.
+//
+// Comparison with ILP
+// -------------------
+// An equivalent approach (used in the Rust reference solution) is to
+// feed the same B·x = t system into an Integer Linear Programming
+// solver (e.g. microlp).  Our GE + enumeration approach achieves the
+// same result without external libraries, relying only on Flux's
+// built-in integer arithmetic and arrays.
+//
+// Input: examples/io/aoc_day10.txt
+// ============================================================================
+
+
+// ============================================================================
+// Section 1 — Array helpers
+// ============================================================================
+
+// Safe array access: returns the element at `idx`, or "" / 0 / [||]
+// if the index is out of bounds.  These wrappers let the rest of the
+// code avoid explicit Some/None matching on every lookup.
+
+// Get a string element from an array (used for lines of the input file).
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+// Get an integer element (default 0).
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+// Get a sub-array element (default empty array).
+// Used to pull a button (array of positions) out of the buttons array,
+// or to pull a row out of the matrix.
+fn button_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+// Extract a single character from string `s` at position `idx`.
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+// Immutable "set": returns a new array identical to `arr` except
+// position `idx` holds `value`.
+// Implemented by slicing around the target index and concatenating.
+fn set_at(arr, idx, value) {
+    let left = slice(arr, 0, idx)
+    let right = slice(arr, idx + 1, len(arr))
+    concat(concat(left, [|value|]), right)
+}
+
+
+// ============================================================================
+// Section 2 — Input parsing
+// ============================================================================
+//
+// Each input line has the form:
+//   [.##...#.] (1,2,6) (0) (1,2,3,4,6,7) ... {43,57,67,48,38,58,43,55}
+//
+// - The [...] part is a visual pattern (not used in Part 2).
+// - Each (...) group lists the positions that button covers.
+// - The {...} group lists the target count for every position.
+
+// Search for character `ch` in string `s` starting from index `idx`.
+// Returns the index of the first occurrence, or -1 if not found.
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+// Parse the contents between parentheses into an array of integers.
+// e.g. "1,2,6" -> [|1, 2, 6|]
+fn parse_button(inner) {
+    let t = trim(inner)
+    if t == "" {
+        [||]
+    } else {
+        split_ints(t, ",")
+    }
+}
+
+// Walk through `line[idx..stop)` looking for '(' ... ')' groups.
+// Each group is parsed into a button (array of position indices)
+// and appended to the accumulator.
+fn parse_buttons_rec(line, idx, stop, acc) {
+    if idx >= stop {
+        acc
+    } else {
+        if char_at(line, idx) == "(" {
+            let close = find_char_from(line, ")", idx + 1)
+            let inner = substring(line, idx + 1, close)
+            let btn = parse_button(inner)
+            parse_buttons_rec(line, close + 1, stop, push(acc, btn))
+        } else {
+            parse_buttons_rec(line, idx + 1, stop, acc)
+        }
+    }
+}
+
+// Parse all button definitions from a line.
+// Stops before the '{' that begins the requirements section.
+// Returns an array of buttons, where each button is an array of
+// position indices it covers.
+fn parse_buttons(line) {
+    let open_curly = find_char_from(line, "{", 0)
+    let stop = if open_curly < 0 { len(line) } else { open_curly }
+    parse_buttons_rec(line, 0, stop, [||])
+}
+
+// Parse the requirement counts from the "{...}" section.
+// e.g. "{43,57,67}" -> [|43, 57, 67|]
+fn parse_requirements(line) {
+    let lb = find_char_from(line, "{", 0)
+    let rb = find_char_from(line, "}", lb + 1)
+    let inner = substring(line, lb + 1, rb)
+    split_ints(inner, ",")
+}
+
+
+// ============================================================================
+// Section 3 — Basic utilities
+// ============================================================================
+//
+// Small helper functions used throughout the solver:
+//   all_zero     — check if a target is already satisfied
+//   btn_covers   — membership test for a button's position set
+//   abs_val      — absolute value (for GCD normalisation)
+//   arr_max      — find the largest element (used as global bound)
+//   gcd          — Euclidean GCD (for row normalisation)
+
+// Check whether every element in `rem` is zero.
+fn all_zero(rem, idx) {
+    if idx >= len(rem) {
+        true
+    } else {
+        if int_at(rem, idx) == 0 {
+            all_zero(rem, idx + 1)
+        } else {
+            false
+        }
+    }
+}
+
+// Check whether `button` (an array of position indices) contains `pos`.
+// Linear scan starting from index `i`.
+fn btn_covers(button, pos, i) {
+    if i >= len(button) {
+        false
+    } else {
+        if int_at(button, i) == pos {
+            true
+        } else {
+            btn_covers(button, pos, i + 1)
+        }
+    }
+}
+
+// Absolute value (Flux has no built-in abs).
+fn abs_val(x) {
+    if x < 0 { 0 - x } else { x }
+}
+
+// Maximum element in an integer array.
+fn arr_max(arr, i, m) {
+    if i >= len(arr) { m }
+    else {
+        let v = int_at(arr, i)
+        arr_max(arr, i + 1, if v > m { v } else { m })
+    }
+}
+
+// Greatest common divisor (Euclidean algorithm).
+// Precondition: `a` is non-negative.
+fn gcd(a, b) {
+    if b == 0 { a }
+    else { gcd(b, a % b) }
+}
+
+
+// ============================================================================
+// Section 4 — Row operations for integer Gaussian elimination
+// ============================================================================
+//
+// We perform fraction-free elimination: instead of dividing, we multiply
+// rows and subtract, then normalise by their GCD.  This keeps all entries
+// as integers and avoids floating-point entirely.
+
+// Compute the GCD of all non-zero elements in `row`.
+// `g` is the running GCD (initially 0, since gcd(0, x) = x).
+fn row_gcd(row, i, g) {
+    if i >= len(row) {
+        g
+    } else {
+        let v = abs_val(int_at(row, i))
+        if v == 0 {
+            row_gcd(row, i + 1, g)
+        } else {
+            row_gcd(row, i + 1, gcd(g, v))
+        }
+    }
+}
+
+// Divide every element of `row` by `d`.
+fn div_row(row, d, i, acc) {
+    if i >= len(row) { acc }
+    else { div_row(row, d, i + 1, push(acc, int_at(row, i) / d)) }
+}
+
+// Divide all elements of `row` by their GCD to keep numbers small.
+// If the row is all zeros (GCD = 0) or already minimal (GCD = 1),
+// return it unchanged.
+fn normalize_row(row) {
+    let g = row_gcd(row, 0, 0)
+    if g <= 1 { row }
+    else { div_row(row, g, 0, [||]) }
+}
+
+// Negate every element of `row`.  Used to ensure pivot entries are positive
+// after elimination.
+fn negate_row(row, i, acc) {
+    if i >= len(row) { acc }
+    else { negate_row(row, i + 1, push(acc, 0 - int_at(row, i))) }
+}
+
+// Linear combination of two rows:
+//   result[i] = a[i] * fa  -  b[i] * fb
+//
+// This is the core elimination step.  To zero out column `col` in row A
+// using pivot row B:
+//   fa = B[col]   (the pivot value)
+//   fb = A[col]   (the entry to eliminate)
+//
+// After this, result[col] = A[col]*B[col] - B[col]*A[col] = 0.
+fn combine_rows(a, fa, b, fb, i, acc) {
+    if i >= len(a) { acc }
+    else {
+        let v = int_at(a, i) * fa - int_at(b, i) * fb
+        combine_rows(a, fa, b, fb, i + 1, push(acc, v))
+    }
+}
+
+
+// ============================================================================
+// Section 5 — Matrix construction
+// ============================================================================
+//
+// We build an  m × (n+1)  augmented matrix where:
+//   - m   = number of positions (rows)
+//   - n   = number of buttons   (columns 0..n-1)
+//   - n+1 = the augmented column holding target values
+//
+// Entry B[i][j] = 1 if button j covers position i, else 0.
+
+// Build one row for position `pos`.
+// Iterates over button columns 0..nbtn-1, then appends the target value.
+fn build_row(buttons, target, pos, col, nbtn, acc) {
+    if col >= nbtn {
+        push(acc, int_at(target, pos))
+    } else {
+        let v = if btn_covers(button_at(buttons, col), pos, 0) { 1 } else { 0 }
+        build_row(buttons, target, pos, col + 1, nbtn, push(acc, v))
+    }
+}
+
+// Build the full augmented matrix, one row per position.
+fn build_matrix(buttons, target, pos, npos, nbtn, acc) {
+    if pos >= npos { acc }
+    else {
+        let row = build_row(buttons, target, pos, 0, nbtn, [||])
+        build_matrix(buttons, target, pos + 1, npos, nbtn, push(acc, row))
+    }
+}
+
+
+// ============================================================================
+// Section 6 — Gaussian elimination (RREF)
+// ============================================================================
+//
+// We reduce the augmented matrix to Reduced Row-Echelon Form:
+//   - Process columns left-to-right.
+//   - For each column, find a row with a non-zero entry (pivot).
+//   - Swap that row into the current pivot position.
+//   - Eliminate the column from ALL other rows (not just below —
+//     this gives RREF, not just REF).
+//   - Normalise modified rows by GCD to prevent integer growth.
+//   - Record which columns became pivots.
+//
+// After RREF, each pivot row has a non-zero entry only in its pivot
+// column and in free-variable columns (plus the augmented column).
+
+// Find the first row at index >= `start` with a non-zero entry in `col`.
+// Returns the row index, or -1 if no such row exists.
+fn find_pivot_row(mat, col, start, nrows) {
+    if start >= nrows { -1 }
+    else {
+        if int_at(button_at(mat, start), col) != 0 { start }
+        else { find_pivot_row(mat, col, start + 1, nrows) }
+    }
+}
+
+// Swap rows r1 and r2 in the matrix.
+fn swap_rows(mat, r1, r2) {
+    if r1 == r2 { mat }
+    else {
+        let row1 = button_at(mat, r1)
+        let row2 = button_at(mat, r2)
+        set_at(set_at(mat, r1, row2), r2, row1)
+    }
+}
+
+// Eliminate column `col` from every row except the pivot row at `pivot_idx`.
+// For each non-pivot row with a non-zero entry in `col`:
+//   new_row = old_row × pivot_val  −  pivot_row × old_row[col]
+// Then normalise by GCD.
+fn eliminate_col(mat, pivot_idx, col, row, nrows) {
+    if row >= nrows { mat }
+    else {
+        if row == pivot_idx {
+            eliminate_col(mat, pivot_idx, col, row + 1, nrows)
+        } else {
+            let entry = int_at(button_at(mat, row), col)
+            if entry == 0 {
+                eliminate_col(mat, pivot_idx, col, row + 1, nrows)
+            } else {
+                let pivot_row = button_at(mat, pivot_idx)
+                let pivot_val = int_at(pivot_row, col)
+                let cur_row = button_at(mat, row)
+                let raw = combine_rows(cur_row, pivot_val, pivot_row, entry, 0, [||])
+                let norm = normalize_row(raw)
+                let new_mat = set_at(mat, row, norm)
+                eliminate_col(new_mat, pivot_idx, col, row + 1, nrows)
+            }
+        }
+    }
+}
+
+// Main GE driver.  Processes columns 0..nbtn-1 one at a time.
+//
+// State:
+//   cur_row  — next available row for a new pivot
+//   cur_col  — column currently being processed
+//   pivot_cols — accumulator of columns that received a pivot
+//
+// Returns [| reduced_matrix, pivot_cols_array |].
+fn ge_step(mat, nrows, nbtn, cur_row, cur_col, pivot_cols) {
+    if cur_col >= nbtn {
+        [|mat, pivot_cols|]
+    } else {
+        if cur_row >= nrows {
+            // All rows used — remaining columns are free variables.
+            ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+        } else {
+            let pr = find_pivot_row(mat, cur_col, cur_row, nrows)
+            if pr < 0 {
+                // No non-zero entry → this column is a free variable.
+                ge_step(mat, nrows, nbtn, cur_row, cur_col + 1, pivot_cols)
+            } else {
+                let mat2 = swap_rows(mat, cur_row, pr)
+                let mat3 = eliminate_col(mat2, cur_row, cur_col, 0, nrows)
+                ge_step(mat3, nrows, nbtn, cur_row + 1, cur_col + 1, push(pivot_cols, cur_col))
+            }
+        }
+    }
+}
+
+// After RREF, some pivot entries may be negative (e.g. the row was
+// multiplied by -1 during elimination).  We negate those rows so that
+// every pivot coefficient is positive, which simplifies the later
+// bound calculations.
+fn fix_pivot_signs(mat, pivot_cols, row) {
+    if row >= len(pivot_cols) { mat }
+    else {
+        let r = button_at(mat, row)
+        let pc = int_at(pivot_cols, row)
+        let pv = int_at(r, pc)
+        if pv < 0 {
+            fix_pivot_signs(set_at(mat, row, negate_row(r, 0, [||])), pivot_cols, row + 1)
+        } else {
+            fix_pivot_signs(mat, pivot_cols, row + 1)
+        }
+    }
+}
+
+
+// ============================================================================
+// Section 7 — Free variable identification
+// ============================================================================
+//
+// After GE, every column is either a pivot column (the variable is
+// determined once the free variables are chosen) or a free column
+// (the variable can be set independently).
+//
+// Number of free variables = n_buttons − rank(B).
+// Typical values: 0 (unique solution), 1-3 (small search).
+
+// Check whether `col` appears in the `pivot_cols` array.
+fn is_pivot_col(pivot_cols, col, i) {
+    if i >= len(pivot_cols) { false }
+    else {
+        if int_at(pivot_cols, i) == col { true }
+        else { is_pivot_col(pivot_cols, col, i + 1) }
+    }
+}
+
+// Collect all non-pivot column indices into an array.
+fn get_free_cols(nbtn, pivot_cols, col, acc) {
+    if col >= nbtn { acc }
+    else {
+        if is_pivot_col(pivot_cols, col, 0) {
+            get_free_cols(nbtn, pivot_cols, col + 1, acc)
+        } else {
+            get_free_cols(nbtn, pivot_cols, col + 1, push(acc, col))
+        }
+    }
+}
+
+
+// ============================================================================
+// Section 8 — Solution evaluation
+// ============================================================================
+//
+// After RREF, each pivot row i looks like:
+//
+//   pivot_coeff · x[pivot_col_i]  +  Σ (coeff_j · x[free_col_j])  =  rhs
+//
+// (all other pivot-column entries in that row are zero).
+//
+// Given concrete values for the free variables, each pivot variable is:
+//
+//   x[pivot_col_i] = (rhs − Σ coeff_j · free_val_j) / pivot_coeff
+//
+// A valid solution requires every pivot variable to be a non-negative
+// integer (exact division, no remainder).
+
+// Compute the weighted sum of free-variable contributions in a row:
+//   Σ  row[free_cols[i]] × free_vals[i]
+fn free_contrib(row, free_cols, free_vals, i) {
+    if i >= len(free_vals) { 0 }
+    else {
+        let fc = int_at(free_cols, i)
+        let coeff = int_at(row, fc)
+        let val = int_at(free_vals, i)
+        coeff * val + free_contrib(row, free_cols, free_vals, i + 1)
+    }
+}
+
+// Sum of all free variable values.
+fn sum_free(free_vals, i) {
+    if i >= len(free_vals) { 0 }
+    else { int_at(free_vals, i) + sum_free(free_vals, i + 1) }
+}
+
+// Given free variable assignments, compute every pivot variable and
+// return the total number of presses (pivot sum + free sum).
+// Returns -1 if any pivot variable is fractional or negative.
+fn eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row, total) {
+    if row >= len(pivot_cols) {
+        // All pivot variables valid — add the free variable presses.
+        total + sum_free(free_vals, 0)
+    } else {
+        let r = button_at(mat, row)
+        let pc = int_at(pivot_cols, row)
+        let pivot_coeff = int_at(r, pc)
+        let rhs = int_at(r, nbtn)
+        let fc = free_contrib(r, free_cols, free_vals, 0)
+        let numerator = rhs - fc
+        if pivot_coeff == 0 {
+            -1
+        } else {
+            if numerator % pivot_coeff != 0 {
+                // Not an integer solution — skip.
+                -1
+            } else {
+                let pivot_val = numerator / pivot_coeff
+                if pivot_val < 0 {
+                    // Negative presses are impossible — skip.
+                    -1
+                } else {
+                    eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, row + 1, total + pivot_val)
+                }
+            }
+        }
+    }
+}
+
+
+// ============================================================================
+// Section 9 — Free variable enumeration
+// ============================================================================
+//
+// We enumerate assignments for the free variables and keep the one
+// that yields the smallest total.
+//
+// Key optimisations:
+//
+//   • Upper bound per free variable:  for each pivot row whose
+//     coefficient on this free column is positive, the free value
+//     can be at most  (rhs − already_assigned) / coeff.
+//     We take the minimum across all such rows.
+//
+//   • Negative-future-coefficient guard:  a pivot row like
+//         x4 = 10 − x9 + x10
+//     does NOT bound x9 to ≤ 10, because a later free variable x10
+//     with a negative coefficient (−1 in this case, contributing +x10
+//     to the numerator) can compensate.  We detect this with
+//     `any_neg_future` and skip such rows when computing bounds.
+//     Without this guard, the solver falsely rejects solvable systems.
+//
+//   • Global ceiling:  max(target) caps every free variable, ensuring
+//     the search space stays bounded even when per-row constraints are
+//     relaxed by the negative-future guard.
+//
+//   • Total-sum pruning:  if the partial sum of free variables already
+//     assigned plus the current candidate value meets or exceeds the
+//     best total found so far, we stop early (since the pivot variables
+//     only add more presses).
+//
+//   • Ascending iteration:  we iterate each free variable from 0 upward.
+//     Once the partial sum exceeds `best`, all larger values are worse,
+//     so we break out of the loop.
+
+// Compute the contribution of free variables assigned so far
+// (indices 0 through stop-1 only).  Used to tighten the upper bound
+// for the next free variable.
+fn free_contrib_partial(row, free_cols, free_vals, i, stop) {
+    if i >= stop { 0 }
+    else {
+        let fc = int_at(free_cols, i)
+        let coeff = int_at(row, fc)
+        let val = int_at(free_vals, i)
+        coeff * val + free_contrib_partial(row, free_cols, free_vals, i + 1, stop)
+    }
+}
+
+// Check whether any free variable after index `fidx` has a negative
+// coefficient in `row`.  If so, that later variable can compensate by
+// being set to a positive value, so this row cannot tightly bound the
+// current free variable.
+fn any_neg_future(row, free_cols, j) {
+    if j >= len(free_cols) { false }
+    else {
+        let fc = int_at(free_cols, j)
+        let c = int_at(row, fc)
+        if c < 0 { true }
+        else { any_neg_future(row, free_cols, j + 1) }
+    }
+}
+
+// Compute the maximum feasible value for free variable at index `fidx`,
+// given values already assigned to free variables 0..fidx-1.
+//
+// For each pivot row where the coefficient on this free column is
+// positive (with positive pivot):
+//   free_val ≤ (rhs − partial_contrib) / coeff
+//
+// We skip rows where:
+//   - The coefficient is non-positive (no upper-bound constraint).
+//   - Any later free variable has a negative coefficient (it can relax
+//     the constraint, so the bound would be too tight).
+fn max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row, cur_max) {
+    if row >= len(pivot_cols) { cur_max }
+    else {
+        let r = button_at(mat, row)
+        let fc = int_at(free_cols, fidx)
+        let coeff = int_at(r, fc)
+        if coeff <= 0 {
+            max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+        } else {
+            if any_neg_future(r, free_cols, fidx + 1) {
+                // A later free variable can compensate — skip this row.
+                max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, cur_max)
+            } else {
+                let rhs = int_at(r, nbtn)
+                let partial = free_contrib_partial(r, free_cols, free_vals, 0, fidx)
+                let remaining = rhs - partial
+                let limit = remaining / coeff
+                let new_max = if limit < cur_max { limit } else { cur_max }
+                max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, row + 1, new_max)
+            }
+        }
+    }
+}
+
+// Recursively assign values to free variables starting at index `fidx`.
+// `free_vals` holds the assignments made so far (indices 0..fidx-1).
+// `best` is the smallest total presses found across all valid assignments.
+// `mt` is the global upper bound (max target value).
+fn search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, best, mt) {
+    if fidx >= len(free_cols) {
+        // All free variables assigned — evaluate the full solution.
+        let total = eval_pivots(mat, pivot_cols, free_cols, free_vals, nbtn, 0, 0)
+        if total >= 0 {
+            if total < best { total } else { best }
+        } else {
+            best
+        }
+    } else {
+        // Determine the range [0, max_v] for this free variable.
+        // Start with `mt` (max target) as the global ceiling, then tighten
+        // using per-row constraints where possible.
+        let max_v = max_for_free(mat, pivot_cols, free_cols, free_vals, nbtn, fidx, 0, mt)
+        iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+    }
+}
+
+// Iterate free variable `fidx` from value `v` up to `max_v`.
+// Stops early when the partial free sum alone reaches `best`.
+fn iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v, max_v, best, mt) {
+    if v > max_v { best }
+    else {
+        let free_sum = sum_free(free_vals, 0) + v
+        if free_sum >= best {
+            // Every larger v only increases the sum — prune the rest.
+            best
+        } else {
+            let new_vals = push(free_vals, v)
+            let sub = search_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx + 1, new_vals, best, mt)
+            let new_best = if sub < best { sub } else { best }
+            iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, v + 1, max_v, new_best, mt)
+        }
+    }
+}
+
+
+// ============================================================================
+// Section 10 — Top-level solver
+// ============================================================================
+//
+// For each machine (input line):
+//   1. Parse buttons and target requirements.
+//   2. Build the augmented matrix.
+//   3. Run Gaussian elimination to RREF.
+//   4. Ensure all pivots are positive.
+//   5. Identify free-variable columns.
+//   6. Search over free variables to find the minimum total presses.
+
+fn solve_machine(buttons, target) {
+    let npos = len(target)
+    let nbtn = len(buttons)
+    if nbtn == 0 {
+        if all_zero(target, 0) { 0 } else { 1000000000 }
+    } else {
+        let mt = arr_max(target, 0, 0)
+        let mat = build_matrix(buttons, target, 0, npos, nbtn, [||])
+        let result = ge_step(mat, npos, nbtn, 0, 0, [||])
+        let rmat = button_at(result, 0)
+        let pivots = button_at(result, 1)
+        let rmat2 = fix_pivot_signs(rmat, pivots, 0)
+        let fcols = get_free_cols(nbtn, pivots, 0, [||])
+        let ans = search_free_bounded(rmat2, pivots, fcols, nbtn, 0, [||], 1000000000, mt)
+        ans
+    }
+}
+
+// Parse a single input line and return the minimum presses for that machine.
+fn machine_min_presses(line) {
+    let target = parse_requirements(line)
+    let buttons = parse_buttons(line)
+    solve_machine(buttons, target)
+}
+
+// Process all input lines, accumulating the total presses.
+fn solve_lines(lines, idx, total) {
+    if idx >= len(lines) {
+        total
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            solve_lines(lines, idx + 1, total)
+        } else {
+            let p = machine_min_presses(line)
+            solve_lines(lines, idx + 1, total + p)
+        }
+    }
+}
+
+
+// ============================================================================
+// Main — read the input file and print the answer.
+// ============================================================================
+
+let lines = read_lines("examples/io/aoc_day10.txt")
+print(solve_lines(lines, 0, 0))

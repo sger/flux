@@ -1,0 +1,83 @@
+// Advent of Code - Day 12 Part 1
+// Count regions that can fit the requested presents using the rule:
+//   width * height >= 9 * sum(counts)
+// This mirrors the provided Rust solution logic, implemented in Flux.
+// Input: examples/io/aoc_day12.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+fn has_char(s, ch) {
+    find_char_from(s, ch, 0) >= 0
+}
+
+fn sum_arr(arr, idx, acc) {
+    if idx >= len(arr) {
+        acc
+    } else {
+        sum_arr(arr, idx + 1, acc + int_at(arr, idx))
+    }
+}
+
+fn region_fits(line) {
+    let c = find_char_from(line, ":", 0)
+    let left = trim(substring(line, 0, c))
+    let right = trim(substring(line, c + 1, len(line)))
+
+    let dims = split_ints(left, "x")
+    let w = int_at(dims, 0)
+    let h = int_at(dims, 1)
+
+    let counts = split_ints(right, " ")
+    let needed = 9 * sum_arr(counts, 0, 0)
+    let area = w * h
+    area >= needed
+}
+
+fn solve_lines(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            solve_lines(lines, idx + 1, acc)
+        } else {
+            if has_char(line, "x") && has_char(line, ":") {
+                let add = if region_fits(line) { 1 } else { 0 }
+                solve_lines(lines, idx + 1, acc + add)
+            } else {
+                solve_lines(lines, idx + 1, acc)
+            }
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day12.txt")
+print(solve_lines(lines, 0, 0))
