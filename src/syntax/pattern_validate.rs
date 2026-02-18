@@ -138,6 +138,11 @@ fn validate_pattern_bindings(
             validate_pattern_bindings(head, ctx, diagnostics, bindings);
             validate_pattern_bindings(tail, ctx, diagnostics, bindings);
         }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                validate_pattern_bindings(element, ctx, diagnostics, bindings);
+            }
+        }
         Pattern::Wildcard { .. }
         | Pattern::Literal { .. }
         | Pattern::None { .. }

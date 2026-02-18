@@ -602,10 +602,12 @@ impl JitCompiler {
                     let mut param_bindings: Vec<(Identifier, Variable)> =
                         Vec::with_capacity(parameters.len());
                     for (idx, ident) in parameters.iter().enumerate() {
-                        let arg_ptr =
-                            builder
-                                .ins()
-                                .load(PTR_TYPE, MemFlags::new(), args_ptr, (idx * 8) as i32);
+                        let arg_ptr = builder.ins().load(
+                            PTR_TYPE,
+                            MemFlags::new(),
+                            args_ptr,
+                            (idx * 8) as i32,
+                        );
                         let var = builder.declare_var(PTR_TYPE);
                         builder.def_var(var, arg_ptr);
                         fn_scope.locals.insert(*ident, var);
@@ -676,8 +678,12 @@ impl JitCompiler {
                         let ret = match last_val {
                             Some(v) => v,
                             None => {
-                                let make_none =
-                                    get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
+                                let make_none = get_helper_func_ref(
+                                    module,
+                                    helpers,
+                                    &mut builder,
+                                    "rt_make_none",
+                                );
                                 let call = builder.ins().call(make_none, &[ctx_val]);
                                 builder.inst_results(call)[0]
                             }
@@ -982,6 +988,21 @@ fn compile_statement(
             scope.locals.insert(*name, var);
             Ok(StmtOutcome::None)
         }
+        Statement::LetDestructure { pattern, value, .. } => {
+            let val = compile_expression(
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                value,
+                interner,
+            )?;
+            bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+            Ok(StmtOutcome::None)
+        }
         Statement::Expression { expression, .. } => {
             let val = compile_expression(
                 module,
@@ -1215,6 +1236,56 @@ fn compile_expression(
             let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
             Ok(builder.inst_results(call)[0])
         }
+        Expression::TupleLiteral { elements, .. } => {
+            let mut elem_vals = Vec::with_capacity(elements.len());
+            for elem in elements {
+                let val = compile_expression(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    elem,
+                    interner,
+                )?;
+                elem_vals.push(val);
+            }
+            let len = elem_vals.len();
+            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (len as u32).max(1) * 8,
+                3,
+            ));
+            for (i, val) in elem_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 8) as i32);
+            }
+            let elems_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let len_val = builder.ins().iconst(PTR_TYPE, len as i64);
+            let make_tuple = get_helper_func_ref(module, helpers, builder, "rt_make_tuple");
+            let call = builder
+                .ins()
+                .call(make_tuple, &[ctx_val, elems_ptr, len_val]);
+            Ok(builder.inst_results(call)[0])
+        }
+        Expression::TupleFieldAccess { object, index, .. } => {
+            let tuple_val = compile_expression(
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                object,
+                interner,
+            )?;
+            let index_val = builder.ins().iconst(PTR_TYPE, *index as i64);
+            let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+            let call = builder.ins().call(tuple_get, &[ctx_val, tuple_val, index_val]);
+            Ok(builder.inst_results(call)[0])
+        }
 
         // --- Identifiers ---
         Expression::Identifier { name, .. } => {
@@ -1246,22 +1317,18 @@ fn compile_expression(
         }
         Expression::MemberAccess { object, member, .. } => {
             if let Expression::Identifier { name, .. } = object.as_ref() {
-                let module_name = scope
-                    .import_aliases
-                    .get(name)
-                    .copied()
-                    .or_else(|| {
-                        if scope.imported_modules.contains(name)
-                            || scope
-                                .module_functions
-                                .keys()
-                                .any(|(module_name, _)| module_name == name)
-                        {
-                            Some(*name)
-                        } else {
-                            None
-                        }
-                    });
+                let module_name = scope.import_aliases.get(name).copied().or_else(|| {
+                    if scope.imported_modules.contains(name)
+                        || scope
+                            .module_functions
+                            .keys()
+                            .any(|(module_name, _)| module_name == name)
+                    {
+                        Some(*name)
+                    } else {
+                        None
+                    }
+                });
 
                 if let Some(module_name) = module_name {
                     if let Some(meta) = scope.module_functions.get(&(module_name, *member)).copied()
@@ -1271,10 +1338,9 @@ fn compile_expression(
                         let fn_idx = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
                         let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
                         let zero = builder.ins().iconst(PTR_TYPE, 0);
-                        let call =
-                            builder
-                                .ins()
-                                .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
+                        let call = builder
+                            .ins()
+                            .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                         return Ok(builder.inst_results(call)[0]);
                     }
 
@@ -1503,7 +1569,15 @@ fn compile_expression(
 
         Expression::Some { value, .. } => {
             let inner = compile_expression(
-                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                value,
+                interner,
             )?;
             let make_some = get_helper_func_ref(module, helpers, builder, "rt_make_some");
             let call = builder.ins().call(make_some, &[ctx_val, inner]);
@@ -1511,7 +1585,15 @@ fn compile_expression(
         }
         Expression::Left { value, .. } => {
             let inner = compile_expression(
-                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                value,
+                interner,
             )?;
             let make_left = get_helper_func_ref(module, helpers, builder, "rt_make_left");
             let call = builder.ins().call(make_left, &[ctx_val, inner]);
@@ -1519,7 +1601,15 @@ fn compile_expression(
         }
         Expression::Right { value, .. } => {
             let inner = compile_expression(
-                module, helpers, builder, scope, ctx_val, return_block, tail_call, value, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                value,
+                interner,
             )?;
             let make_right = get_helper_func_ref(module, helpers, builder, "rt_make_right");
             let call = builder.ins().call(make_right, &[ctx_val, inner]);
@@ -1529,18 +1619,24 @@ fn compile_expression(
             let mut elem_vals = Vec::with_capacity(elements.len());
             for elem in elements {
                 let val = compile_expression(
-                    module, helpers, builder, scope, ctx_val, return_block, tail_call, elem,
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    elem,
                     interner,
                 )?;
                 elem_vals.push(val);
             }
             let len = elem_vals.len();
-            let slot =
-                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (len as u32).max(1) * 8,
-                    3,
-                ));
+            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (len as u32).max(1) * 8,
+                3,
+            ));
             for (i, val) in elem_vals.iter().enumerate() {
                 builder.ins().stack_store(*val, slot, (i * 8) as i32);
             }
@@ -1560,7 +1656,14 @@ fn compile_expression(
             let mut acc = builder.inst_results(none_call)[0];
             for elem in elements.iter().rev() {
                 let val = compile_expression(
-                    module, helpers, builder, scope, ctx_val, return_block, tail_call, elem,
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    elem,
                     interner,
                 )?;
                 let cons_call = builder.ins().call(make_cons, &[ctx_val, val, acc]);
@@ -1573,23 +1676,36 @@ fn compile_expression(
             let mut pair_vals = Vec::with_capacity(npairs * 2);
             for (key, value) in pairs {
                 let k = compile_expression(
-                    module, helpers, builder, scope, ctx_val, return_block, tail_call, key,
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    key,
                     interner,
                 )?;
                 let v = compile_expression(
-                    module, helpers, builder, scope, ctx_val, return_block, tail_call, value,
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    value,
                     interner,
                 )?;
                 pair_vals.push(k);
                 pair_vals.push(v);
             }
             let slot_size = (npairs as u32 * 2).max(1) * 8;
-            let slot =
-                builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    slot_size,
-                    3,
-                ));
+            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                slot_size,
+                3,
+            ));
             for (i, val) in pair_vals.iter().enumerate() {
                 builder.ins().stack_store(*val, slot, (i * 8) as i32);
             }
@@ -1603,10 +1719,26 @@ fn compile_expression(
         }
         Expression::Index { left, index, .. } => {
             let left_val = compile_expression(
-                module, helpers, builder, scope, ctx_val, return_block, tail_call, left, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                left,
+                interner,
             )?;
             let index_val = compile_expression(
-                module, helpers, builder, scope, ctx_val, return_block, tail_call, index, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                index,
+                interner,
             )?;
             let rt_index = get_helper_func_ref(module, helpers, builder, "rt_index");
             let call = builder
@@ -1629,9 +1761,7 @@ fn compile_expression(
                             .map_err(|e| e.to_string())?;
                         let mut desc = cranelift_module::DataDescription::new();
                         desc.define(bytes.to_vec().into_boxed_slice());
-                        module
-                            .define_data(data, &desc)
-                            .map_err(|e| e.to_string())?;
+                        module.define_data(data, &desc).map_err(|e| e.to_string())?;
                         let gv = module.declare_data_in_func(data, builder.func);
                         let ptr = builder.ins().global_value(PTR_TYPE, gv);
                         let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
@@ -1642,8 +1772,15 @@ fn compile_expression(
                     }
                     StringPart::Interpolation(expr) => {
                         let val = compile_expression(
-                            module, helpers, builder, scope, ctx_val, return_block, tail_call,
-                            expr, interner,
+                            module,
+                            helpers,
+                            builder,
+                            scope,
+                            ctx_val,
+                            return_block,
+                            tail_call,
+                            expr,
+                            interner,
                         )?;
                         let call = builder.ins().call(rt_to_string, &[ctx_val, val]);
                         builder.inst_results(call)[0]
@@ -1670,7 +1807,6 @@ fn compile_expression(
                 }
             }
         }
-
     }
 }
 
@@ -1756,8 +1892,7 @@ fn compile_match_expression(
                 pending_test = Some(next);
             }
             Pattern::EmptyList { .. } => {
-                let is_el =
-                    get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
+                let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
                 let call = builder.ins().call(is_el, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
                 let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
@@ -1799,14 +1934,30 @@ fn compile_match_expression(
             Pattern::Literal { expression, .. } => {
                 // Compile the literal value, then compare with scrutinee
                 let lit_val = compile_expression(
-                    module, helpers, builder, scope, ctx_val, return_block, tail_call,
-                    expression, interner,
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    expression,
+                    interner,
                 )?;
-                let vals_eq =
-                    get_helper_func_ref(module, helpers, builder, "rt_values_equal");
+                let vals_eq = get_helper_func_ref(module, helpers, builder, "rt_values_equal");
                 let call = builder
                     .ins()
                     .call(vals_eq, &[ctx_val, scrutinee_val, lit_val]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Tuple { .. } => {
+                let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
+                let call = builder.ins().call(is_tuple, &[ctx_val, scrutinee_val]);
                 let result = builder.inst_results(call)[0];
                 let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
                 let next = builder.create_block();
@@ -1942,6 +2093,16 @@ fn bind_pattern_value(
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
             bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Tuple { elements, .. } => {
+            let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+            for (index, element) in elements.iter().enumerate() {
+                let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(tuple_get, &[ctx_val, value, index_val]);
+                let item = builder.inst_results(call)[0];
+                bind_pattern_value(module, helpers, builder, scope, ctx_val, element, item)?;
+            }
+            Ok(())
         }
     }
 }
@@ -2488,6 +2649,11 @@ impl LiteralCollector {
                 self.bind_pattern_identifiers(head);
                 self.bind_pattern_identifiers(tail);
             }
+            Pattern::Tuple { elements, .. } => {
+                for element in elements {
+                    self.bind_pattern_identifiers(element);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -2500,6 +2666,10 @@ impl LiteralCollector {
             Statement::Let { name, value, .. } => {
                 self.collect_expr(value);
                 self.define(*name);
+            }
+            Statement::LetDestructure { pattern, value, .. } => {
+                self.collect_expr(value);
+                self.bind_pattern_identifiers(pattern);
             }
             Statement::Assign { value, .. } => self.collect_expr(value),
             Statement::Expression { expression, .. } => self.collect_expr(expression),
@@ -2630,7 +2800,8 @@ impl LiteralCollector {
                 }
             }
             Expression::ListLiteral { elements, .. }
-            | Expression::ArrayLiteral { elements, .. } => {
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
                 for e in elements {
                     self.collect_expr(e);
                 }
@@ -2646,6 +2817,7 @@ impl LiteralCollector {
                 }
             }
             Expression::MemberAccess { object, .. } => self.collect_expr(object),
+            Expression::TupleFieldAccess { object, .. } => self.collect_expr(object),
             Expression::Match {
                 scrutinee, arms, ..
             } => {
@@ -3020,6 +3192,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             },
         ),
         (
+            "rt_make_tuple",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        (
             "rt_make_hash",
             HelperSig {
                 num_params: 3,
@@ -3028,6 +3207,27 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         ),
         (
             "rt_index",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_is_tuple",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_tuple_len_eq",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_tuple_get",
             HelperSig {
                 num_params: 3,
                 has_return: true,

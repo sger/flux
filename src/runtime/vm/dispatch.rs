@@ -94,6 +94,24 @@ impl VM {
         format!("tail: expected list, got {:?}", other)
     }
 
+    #[cold]
+    #[inline(never)]
+    fn tuple_expected_err(found: &Value) -> String {
+        format!(
+            "tuple field access expected Tuple, got {}",
+            found.type_name()
+        )
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn tuple_oob_err(index: usize, len: usize) -> String {
+        format!(
+            "tuple index {} out of bounds for tuple of length {}",
+            index, len
+        )
+    }
+
     pub(super) fn dispatch_instruction(
         &mut self,
         instructions: &[u8],
@@ -397,6 +415,44 @@ impl VM {
                 self.reset_sp(self.sp - num_elements)?;
                 self.push(array)?;
                 Ok(5)
+            }
+            OpCode::OpTuple => {
+                let num_elements = Self::read_u16_fast(instructions, ip + 1);
+                let tuple = self.build_tuple(self.sp - num_elements, self.sp);
+                self.reset_sp(self.sp - num_elements)?;
+                self.push(tuple)?;
+                Ok(3)
+            }
+            OpCode::OpTupleLong => {
+                let num_elements = Self::read_u32_fast(instructions, ip + 1);
+                let tuple = self.build_tuple(self.sp - num_elements, self.sp);
+                self.reset_sp(self.sp - num_elements)?;
+                self.push(tuple)?;
+                Ok(5)
+            }
+            OpCode::OpTupleIndex => {
+                let index = Self::read_u8_fast(instructions, ip + 1);
+                let tuple = self.pop_untracked()?;
+                match tuple {
+                    Value::Tuple(elements) => {
+                        let value = elements
+                            .get(index)
+                            .cloned()
+                            .ok_or_else(|| Self::tuple_oob_err(index, elements.len()))?;
+                        self.push(value)?;
+                        Ok(2)
+                    }
+                    other => Err(Self::tuple_expected_err(&other)),
+                }
+            }
+            OpCode::OpIsTuple => {
+                if self.sp == 0 {
+                    return Err(Self::stack_underflow_err());
+                }
+                let idx = self.sp - 1;
+                let is_tuple = matches!(self.stack[idx], Value::Tuple(_));
+                self.stack[idx] = Value::Boolean(is_tuple);
+                Ok(1)
             }
             OpCode::OpHash => {
                 let num_elements = Self::read_u16_fast(instructions, ip + 1);

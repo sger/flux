@@ -4,6 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(feature = "jit")]
+use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
     bytecode::{
@@ -18,8 +20,6 @@ use flux::{
         module_graph::ModuleGraph, parser::Parser,
     },
 };
-#[cfg(feature = "jit")]
-use flux::syntax::program::Program;
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();

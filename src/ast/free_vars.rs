@@ -54,6 +54,11 @@ impl FreeVarCollector {
                 self.extract_pattern_bindings(head);
                 self.extract_pattern_bindings(tail);
             }
+            Pattern::Tuple { elements, .. } => {
+                for element in elements {
+                    self.extract_pattern_bindings(element);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -73,6 +78,14 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 // Visit value before defining the binding (value can't reference itself).
                 self.visit_expr(value);
                 self.define(*name);
+            }
+            Statement::LetDestructure {
+                pattern,
+                value,
+                span: _,
+            } => {
+                self.visit_expr(value);
+                self.extract_pattern_bindings(pattern);
             }
             Statement::Function {
                 name,

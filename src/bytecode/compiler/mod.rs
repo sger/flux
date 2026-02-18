@@ -353,6 +353,14 @@ impl Compiler {
         }
     }
 
+    pub(super) fn emit_tuple_count(&mut self, count: usize) {
+        if u16::try_from(count).is_ok() {
+            self.emit(OpCode::OpTuple, &[count]);
+        } else {
+            self.emit(OpCode::OpTupleLong, &[count]);
+        }
+    }
+
     pub(super) fn emit_hash_count(&mut self, count: usize) {
         if u16::try_from(count).is_ok() {
             self.emit(OpCode::OpHash, &[count]);

@@ -1249,3 +1249,49 @@ fn test_list_is_list() {
     assert_eq!(run("is_list(list());"), Value::Boolean(true));
     assert_eq!(run("is_list(#[1, 2]);"), Value::Boolean(false));
 }
+
+#[test]
+fn test_tuple_literals_and_grouping() {
+    assert_eq!(
+        run("to_string((1, 2, 3));"),
+        Value::String("(1, 2, 3)".into())
+    );
+    assert_eq!(run("to_string((42,));"), Value::String("(42,)".into()));
+    assert_eq!(run("to_string(());"), Value::String("()".into()));
+    assert_eq!(run("(1 + 2);"), Value::Integer(3));
+}
+
+#[test]
+fn test_tuple_destructure_and_nested_destructure() {
+    assert_eq!(run("let (a, b) = (1, 2); a + b;"), Value::Integer(3));
+    assert_eq!(
+        run(r#"let (x, y, z) = (1, "two", true); type_of(y);"#),
+        Value::String("String".into())
+    );
+    assert_eq!(
+        run("let (a, (b, c)) = (1, (2, 3)); a + b + c;"),
+        Value::Integer(6)
+    );
+}
+
+#[test]
+fn test_tuple_access_and_indexing() {
+    assert_eq!(run("let t = (1, 2, 3); t.0;"), Value::Integer(1));
+    assert_eq!(run("let t = (1, 2, 3); t.1;"), Value::Integer(2));
+    assert_eq!(
+        run("let t = (1, 2, 3); t[0];"),
+        Value::Some(std::rc::Rc::new(Value::Integer(1)))
+    );
+    assert_eq!(run("let t = (1, 2, 3); t[99];"), Value::None);
+}
+
+#[test]
+fn test_tuple_match_and_builtins() {
+    assert_eq!(
+        run("let pair = (1, 2); match pair { (a, b) -> a + b, _ -> 0 };"),
+        Value::Integer(3)
+    );
+    assert_eq!(run("len((1, 2, 3));"), Value::Integer(3));
+    assert_eq!(run(r#"type_of((1, 2));"#), Value::String("Tuple".into()));
+    assert_eq!(run("(1, 2) == (1, 2);"), Value::Boolean(true));
+}

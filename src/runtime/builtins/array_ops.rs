@@ -16,6 +16,7 @@ pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
+        Value::Tuple(tuple) => Ok(Value::Integer(tuple.len() as i64)),
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::list_len(ctx, &args[0]) {
@@ -29,7 +30,7 @@ pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         other => Err(type_error(
             "len",
             "argument",
-            "String, Array, List, or Map",
+            "String, Array, Tuple, List, or Map",
             other.type_name(),
             "len(value)",
         )),

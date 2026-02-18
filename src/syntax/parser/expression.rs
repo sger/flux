@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
+        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, pipe_target_error,
         position::{Position, Span},
         unexpected_token,
     },
@@ -273,6 +273,52 @@ impl Parser {
 
     pub(super) fn parse_member_access(&mut self, object: Expression) -> Option<Expression> {
         let start = object.span().start;
+        // A newline right after `.` strongly indicates a dangling member access
+        // (e.g. `point.\nnext_stmt`) rather than a continued expression.
+        if self.peek_token.position.line > self.current_token.end_position.line {
+            self.errors.push(unexpected_token(
+                self.current_token.span(),
+                format!(
+                    "Expected identifier or tuple field index after `.`, got {}.",
+                    self.peek_token.token_type
+                ),
+            ));
+            // Recover by dropping the dangling dot and keeping the object.
+            return Some(object);
+        }
+
+        if self.is_peek_token(TokenType::Int) {
+            self.next_token();
+            let index = match self.current_token.literal.parse::<usize>() {
+                Ok(index) => index,
+                Err(_) => {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!(
+                            "Invalid tuple field index `{}`; expected non-negative integer.",
+                            self.current_token.literal
+                        ),
+                    ));
+                    return None;
+                }
+            };
+
+            return Some(Expression::TupleFieldAccess {
+                object: Box::new(object),
+                index,
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        if self.is_peek_token(TokenType::RParen) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                "Expected identifier or tuple field index after `.`, got `)`.".to_string(),
+            ));
+            // Recover as if the member access was omitted so parsing can continue.
+            return Some(object);
+        }
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -317,50 +363,76 @@ impl Parser {
     }
 
     pub(super) fn parse_grouped_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+            return Some(Expression::TupleLiteral {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
         self.next_token();
-        let expression = self.parse_expression(Precedence::Lowest)?;
+        let first = self.parse_expression(Precedence::Lowest)?;
 
-        // Tuple-like input "(a b)" is a common missing-comma error. Flux currently
-        // treats parenthesized forms as grouped expressions; recover to ')' to avoid
-        // cascading diagnostics and keep parsing subsequent statements.
-        if self.token_starts_expression(self.peek_token.token_type) {
-            self.errors
-                .push(missing_comma(self.peek_token.span(), "items", "`(a, b)`"));
+        if self.is_peek_token(TokenType::Comma) {
+            let mut elements = vec![first];
+            self.next_token(); // consume comma after first tuple element
 
-            // Recover to the matching ')' of this group. If this group is malformed
-            // and likely belongs to a larger statement (for example `if (cond { ...`),
-            // stop at top-level statement boundaries to avoid consuming following code.
-            let mut nested_parens = 0usize;
-            while self.peek_token.token_type != TokenType::Eof {
-                if nested_parens == 0
-                    && matches!(
-                        self.peek_token.token_type,
-                        TokenType::Semicolon | TokenType::RBrace | TokenType::LBrace
-                    )
-                {
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token();
+                return Some(Expression::TupleLiteral {
+                    elements,
+                    span: Span::new(start, self.current_token.end_position),
+                });
+            }
+
+            loop {
+                self.next_token();
+                elements.push(self.parse_expression(Precedence::Lowest)?);
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token();
+                } else {
                     break;
                 }
-                match self.peek_token.token_type {
-                    TokenType::LParen => {
-                        nested_parens += 1;
-                        self.next_token();
-                    }
-                    TokenType::RParen => {
-                        if nested_parens == 0 {
-                            break;
-                        }
-                        nested_parens -= 1;
-                        self.next_token();
-                    }
-                    _ => self.next_token(),
+            }
+
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token();
+            } else {
+                // Recover missing `)` at end of line so the following statement
+                // is not misparsed as part of this tuple literal.
+                if self.peek_token.position.line > self.current_token.end_position.line
+                    && self.token_starts_statement(self.peek_token.token_type)
+                {
+                    self.peek_error(TokenType::RParen);
+                } else {
+                    self.peek_error(TokenType::RParen);
+                    return None;
                 }
             }
+
+            return Some(Expression::TupleLiteral {
+                elements,
+                span: Span::new(start, self.current_token.end_position),
+            });
         }
 
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+        } else {
+            // Same recovery as tuple literals: report missing `)` but keep the
+            // grouped expression when the next line starts a new statement.
+            if self.peek_token.position.line > self.current_token.end_position.line
+                && self.token_starts_statement(self.peek_token.token_type)
+            {
+                self.peek_error(TokenType::RParen);
+            } else {
+                self.peek_error(TokenType::RParen);
+                return None;
+            }
         }
-        Some(expression)
+        Some(first)
     }
 
     // Collections
@@ -693,6 +765,53 @@ impl Parser {
                 Some(Pattern::Cons {
                     head: Box::new(head),
                     tail: Box::new(tail),
+                    span: Span::new(start, self.current_token.end_position),
+                })
+            }
+            TokenType::LParen => {
+                if self.is_peek_token(TokenType::RParen) {
+                    self.next_token();
+                    return Some(Pattern::Tuple {
+                        elements: vec![],
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+
+                self.next_token();
+                let first = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::Comma) {
+                    self.errors.push(unexpected_token(
+                        self.peek_token.span(),
+                        "Tuple patterns require a comma, for example `(x, y)`.".to_string(),
+                    ));
+                    return None;
+                }
+
+                let mut elements = vec![first];
+                if self.is_peek_token(TokenType::RParen) {
+                    self.next_token();
+                    return Some(Pattern::Tuple {
+                        elements,
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+
+                loop {
+                    self.next_token();
+                    elements.push(self.parse_pattern()?);
+                    if self.is_peek_token(TokenType::Comma) {
+                        self.next_token();
+                    } else {
+                        break;
+                    }
+                }
+
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+
+                Some(Pattern::Tuple {
+                    elements,
                     span: Span::new(start, self.current_token.end_position),
                 })
             }

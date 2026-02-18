@@ -74,6 +74,27 @@ impl Compiler {
                         self.file_scope_symbols.insert(name);
                     }
                 }
+                Statement::LetDestructure { pattern, value, .. } => {
+                    self.compile_expression(value)?;
+                    let temp_symbol = self.symbol_table.define_temp();
+                    match temp_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[temp_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_SYMBOL_SCOPE_LET,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    self.compile_pattern_bind(&temp_symbol, pattern)?;
+                }
                 Statement::Assign { name, span, .. } => {
                     let name = *name;
                     // Check if variable exists

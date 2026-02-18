@@ -73,6 +73,8 @@ pub enum Value {
     Builtin(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
+    /// Fixed-size heterogeneous ordered collection.
+    Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
 }
@@ -98,6 +100,14 @@ impl fmt::Display for Value {
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[|{}|]", items.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match items.len() {
+                    0 => write!(f, "()"),
+                    1 => write!(f, "({},)", items[0]),
+                    _ => write!(f, "({})", items.join(", ")),
+                }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
@@ -126,6 +136,7 @@ impl Value {
             Value::JitClosure(_) => "JitClosure",
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
+            Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
         }
     }
@@ -181,6 +192,14 @@ impl Value {
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[|{}|]", items.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match items.len() {
+                    0 => "()".to_string(),
+                    1 => format!("({},)", items[0]),
+                    _ => format!("({})", items.join(", ")),
+                }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }

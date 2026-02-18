@@ -15,6 +15,9 @@ impl VM {
             (Value::Array(elements), Value::Integer(idx)) => {
                 self.execute_array_index(elements, *idx)
             }
+            (Value::Tuple(elements), Value::Integer(idx)) => {
+                self.execute_array_index(elements, *idx)
+            }
             (Value::Gc(handle), _) => {
                 match &index {
                     Value::Integer(idx) => {
