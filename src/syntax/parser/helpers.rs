@@ -142,7 +142,6 @@ impl Parser {
                 | TokenType::If
                 | TokenType::Do
                 | TokenType::Fn
-                | TokenType::Fun
                 | TokenType::Match
                 | TokenType::Backslash
         )
@@ -154,7 +153,6 @@ impl Parser {
             TokenType::Let
                 | TokenType::Return
                 | TokenType::Fn
-                | TokenType::Fun
                 | TokenType::Import
                 | TokenType::Module
         )
@@ -539,7 +537,6 @@ impl Parser {
                 TokenType::Semicolon
                     | TokenType::Let
                     | TokenType::Fn
-                    | TokenType::Fun
                     | TokenType::Import
                     | TokenType::Module
             ) {
@@ -620,7 +617,6 @@ impl Parser {
                 | TokenType::RBrace
                 | TokenType::Let
                 | TokenType::Fn
-                | TokenType::Fun
                 | TokenType::Return
                 | TokenType::Import
                 | TokenType::Module

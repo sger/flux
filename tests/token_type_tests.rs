@@ -16,7 +16,6 @@ mod tests {
                 TokenType::Let
                     | TokenType::Do
                     | TokenType::Fn
-                    | TokenType::Fun
                     | TokenType::If
                     | TokenType::Else
                     | TokenType::Return
@@ -31,7 +30,6 @@ mod tests {
         assert_eq!(lookup_ident("let"), TokenType::Let);
         assert_eq!(lookup_ident("do"), TokenType::Do);
         assert_eq!(lookup_ident("fn"), TokenType::Fn);
-        assert_eq!(lookup_ident("fun"), TokenType::Fun);
         assert_eq!(lookup_ident("if"), TokenType::If);
         assert_eq!(lookup_ident("else"), TokenType::Else);
         assert_eq!(lookup_ident("return"), TokenType::Return);
@@ -51,7 +49,6 @@ mod tests {
         assert!(TokenType::Let.is_keyword());
         assert!(TokenType::Do.is_keyword());
         assert!(TokenType::Fn.is_keyword());
-        assert!(TokenType::Fun.is_keyword());
         assert!(!TokenType::Ident.is_keyword());
         assert!(!TokenType::Plus.is_keyword());
     }

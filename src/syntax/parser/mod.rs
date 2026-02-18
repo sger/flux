@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        Diagnostic, DiagnosticBuilder,
+        Diagnostic,
         position::{Position, Span},
         unexpected_token,
     },
@@ -69,16 +69,6 @@ impl Parser {
 
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
-    }
-
-    pub(super) fn warn_deprecated_fun(&mut self, span: Span) {
-        self.warnings.push(
-            Diagnostic::warning("DEPRECATED KEYWORD")
-                .with_code("W013")
-                .with_span(span)
-                .with_message("`fun` is deprecated; use `fn` for function declarations.")
-                .with_hint_text("Use `fn` to declare functions."),
-        );
     }
 
     pub fn parse_program(&mut self) -> Program {

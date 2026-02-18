@@ -121,7 +121,6 @@ define_tokens! {
         Let    => "let",
         Do     => "do",
         Fn     => "fn",
-        Fun    => "fun",
         If     => "if",
         Else   => "else",
         Return => "return",
