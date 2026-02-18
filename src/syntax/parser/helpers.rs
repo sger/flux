@@ -350,7 +350,7 @@ impl Parser {
         if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
             self.reported_unclosed_brace = true;
             self.errors
-                .push(unclosed_delimiter(Span::new(start, start)));
+                .push(unclosed_delimiter(Span::new(start, start), "{", "}", None));
         }
 
         Block {
@@ -359,11 +359,15 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
+    pub(super) fn parse_expression_list(
+        &mut self,
+        end: TokenType,
+        open_pos: Position,
+    ) -> Option<Vec<Expression>> {
         if self.consume_if_peek(end) {
             return Some(vec![]);
         }
-        self.parse_expression_list_core(vec![], end, true)
+        self.parse_expression_list_core(vec![], end, true, open_pos)
     }
 
     /// Like `parse_expression_list`, but the first element has already been
@@ -373,8 +377,9 @@ impl Parser {
         &mut self,
         first: Expression,
         end: TokenType,
+        open_pos: Position,
     ) -> Option<Vec<Expression>> {
-        self.parse_expression_list_core(vec![first], end, false)
+        self.parse_expression_list_core(vec![first], end, false, open_pos)
     }
 
     /// Core loop for comma-separated expression lists.
@@ -387,6 +392,7 @@ impl Parser {
         mut list: Vec<Expression>,
         end: TokenType,
         advance_first: bool,
+        open_pos: Position,
     ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
@@ -476,6 +482,21 @@ impl Parser {
                 continue;
             }
 
+            // Heuristic: if the next token is on a different line or starts
+            // a statement, the closing delimiter was likely forgotten.
+            // Point the error at the opening delimiter instead of the
+            // unexpected token (Rust-style).
+            if self.likely_missing_closing_delimiter(end) {
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    Some(self.peek_token.span()),
+                ));
+                return Some(list);
+            }
+
             let context = match end {
                 TokenType::RParen => "argument",
                 TokenType::RBracket => "array element",
@@ -511,8 +532,8 @@ impl Parser {
             }
 
             // If recovery stopped at a statement boundary, the closing
-            // delimiter was simply forgotten. Return what we have and let the
-            // parser continue from the next statement without a second error.
+            // delimiter was simply forgotten. Emit unclosed-delimiter error
+            // pointing at the opener (Rust-style).
             if matches!(
                 self.peek_token.token_type,
                 TokenType::Semicolon
@@ -522,11 +543,25 @@ impl Parser {
                     | TokenType::Import
                     | TokenType::Module
             ) {
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    Some(self.peek_token.span()),
+                ));
                 return Some(list);
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {
-                format!("Expected `{}` before end of file.", end)
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    None,
+                ));
+                return None;
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
             };
@@ -560,6 +595,14 @@ impl Parser {
                 | TokenType::Slash
                 | TokenType::Percent
         )
+    }
+
+    fn delimiter_chars(end: TokenType) -> (&'static str, &'static str) {
+        match end {
+            TokenType::RParen => ("(", ")"),
+            TokenType::RBracket => ("[", "]"),
+            _ => ("{", "}"),
+        }
     }
 
     fn likely_missing_closing_delimiter(&self, end: TokenType) -> bool {

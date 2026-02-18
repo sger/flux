@@ -4,6 +4,22 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/error_limit_missing_commas.flx
 exit_code: 1
 
+--> compiler error[E076]: UNCLOSED DELIMITER
+
+Expected a closing `)` to match this opening `(`.
+
+  --> tests/fixtures/collections/error_limit_missing_commas.flx:2:6
+  |
+2 | print(
+  |      ^
+
+note: Expected `)` before this token.
+  --> tests/fixtures/collections/error_limit_missing_commas.flx:4:3
+  |
+4 |   11 12 13 14 15 16 17 18 19 20
+  |   ^^
+
+
 --> compiler error[E073]: MISSING COMMA
 
 Missing comma between arguments.
@@ -121,13 +137,13 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+--> compiler error[E031]: EXPECTED EXPRESSION
 
-Expected `,` or `)` after argument, got INT.
+Expected expression, found ).
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:4:3
+  --> tests/fixtures/collections/error_limit_missing_commas.flx:9:1
   |
-4 |   11 12 13 14 15 16 17 18 19 20
-  |   ^^
+9 | );
+  | ^
 
-Found 10 errors.
+Found 11 errors.
