@@ -1318,3 +1318,99 @@ fn test_tuple_match_and_builtins() {
     assert_eq!(run(r#"type_of((1, 2));"#), Value::String("Tuple".into()));
     assert_eq!(run("(1, 2) == (1, 2);"), Value::Boolean(true));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  List comprehensions
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_list_comprehension_single_generator() {
+    assert_eq!(
+        run("[x * 2 | x <- [|1, 2, 3|]];"),
+        Value::Array(vec![Value::Integer(2), Value::Integer(4), Value::Integer(6)].into())
+    );
+}
+
+#[test]
+fn test_list_comprehension_with_guard() {
+    assert_eq!(
+        run("[x * 2 | x <- [|1, 2, 3, 4, 5|], x > 3];"),
+        Value::Array(vec![Value::Integer(8), Value::Integer(10)].into())
+    );
+}
+
+#[test]
+fn test_list_comprehension_multiple_guards() {
+    assert_eq!(
+        run("[x | x <- [|1, 2, 3, 4, 5, 6|], x > 2, x < 5];"),
+        Value::Array(vec![Value::Integer(3), Value::Integer(4)].into())
+    );
+}
+
+#[test]
+fn test_list_comprehension_two_generators() {
+    assert_eq!(
+        run("[x + y | x <- [|1, 2|], y <- [|10, 20|]];"),
+        Value::Array(
+            vec![
+                Value::Integer(11),
+                Value::Integer(21),
+                Value::Integer(12),
+                Value::Integer(22),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_list_comprehension_guard_and_two_generators() {
+    assert_eq!(
+        run("[x + y | x <- [|1, 2, 3|], x > 1, y <- [|100, 200|]];"),
+        Value::Array(
+            vec![
+                Value::Integer(102),
+                Value::Integer(202),
+                Value::Integer(103),
+                Value::Integer(203),
+            ]
+            .into()
+        )
+    );
+}
+
+#[test]
+fn test_list_comprehension_cons_list() {
+    // Comprehension over cons lists should return a cons list
+    // We verify by converting to array since GcHandles differ across runs
+    assert_eq!(
+        run("let xs = list(1, 2, 3); to_array([x * 10 | x <- xs]);"),
+        Value::Array(vec![Value::Integer(10), Value::Integer(20), Value::Integer(30)].into())
+    );
+}
+
+#[test]
+fn test_list_comprehension_identity() {
+    assert_eq!(
+        run("[x | x <- [|1, 2, 3|]];"),
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
+    );
+}
+
+#[test]
+fn test_flat_map_builtin() {
+    assert_eq!(
+        run(r#"flat_map([|1, 2, 3|], \x -> [|x, x * 10|]);"#),
+        Value::Array(
+            vec![
+                Value::Integer(1),
+                Value::Integer(10),
+                Value::Integer(2),
+                Value::Integer(20),
+                Value::Integer(3),
+                Value::Integer(30),
+            ]
+            .into()
+        )
+    );
+}

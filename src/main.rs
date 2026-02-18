@@ -430,7 +430,19 @@ fn run_file(
                 }
 
                 match flux::jit::jit_compile_and_run(&jit_program, &compiler.interner) {
-                    Ok(_result) => {}
+                    Ok((_result, ctx)) => {
+                        #[cfg(feature = "gc-telemetry")]
+                        if gc_telemetry {
+                            println!("\n{}", ctx.gc_heap.telemetry_report());
+                        }
+                        #[cfg(not(feature = "gc-telemetry"))]
+                        if gc_telemetry {
+                            eprintln!(
+                                "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
+                            );
+                        }
+                        let _ = ctx;
+                    }
                     Err(err) => {
                         eprintln!("{}", err);
                         std::process::exit(1);

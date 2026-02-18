@@ -1,0 +1,42 @@
+// List Comprehensions (List-focused)
+// Haskell-style syntax: [expr | var <- collection, guards...]
+
+// Base lists
+let nums = [1, 2, 3, 4, 5]
+let r = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+// Basic: double each element
+print([x * 2 | x <- nums])
+
+// With a guard: only even numbers
+print([x | x <- nums, x % 2 == 0])
+
+// Transform + guard: square numbers greater than 2
+print([x * x | x <- nums, x > 2])
+
+// Multiple guards: range filtering
+print([x | x <- r, x > 3, x < 8])
+
+// Two generators: cartesian product
+let colors = ["red", "blue"]
+let sizes = ["S", "M", "L"]
+print([color + "-" + size | color <- colors, size <- sizes])
+
+// Nested computation: multiplication table
+let small = [1, 2, 3]
+print([x * y | x <- small, y <- small])
+
+// Guard with two generators: pairs where sum > 4
+print([to_string(x) + "+" + to_string(y) | x <- small, y <- small, x + y > 4])
+
+// Pythagorean triples
+let triples = [to_string(a) + "," + to_string(b) + "," + to_string(c)
+  | a <- r, b <- r, b >= a, c <- r, c >= b, a*a + b*b == c*c]
+print(triples)
+
+// More list-only examples
+let ps = [1, 2, 3]
+let qs = [10, 20]
+print([a + b | a <- ps, b <- qs])
+print([a * b | a <- ps, a > 1, b <- qs])
+print([x | x <- nums, x > 1, x < 5])

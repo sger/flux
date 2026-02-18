@@ -5,13 +5,6 @@ fn max2(a, b) {
     if a > b { a } else { b }
 }
 
-fn line_at(lines, idx) {
-    match lines[idx] {
-        Some(v) -> v,
-        _ -> ""
-    }
-}
-
 fn digit_at(line, idx) {
     parse_int(substring(line, idx, idx + 1))
 }
@@ -32,19 +25,7 @@ fn max_bank_value(line) {
     if n < 2 { 0 } else { max_bank_scan(line, n - 1, -1, 0) }
 }
 
-fn sum_banks(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            sum_banks(lines, idx + 1, acc)
-        } else {
-            let best = max_bank_value(line)
-            sum_banks(lines, idx + 1, acc + best)
-        }
-    }
-}
-
 let lines = read_lines("examples/io/aoc_day3.txt")
-print(sum_banks(lines, 0, 0))
+let non_empty = [trim(line) | line <- lines, trim(line) != ""]
+let bests = [max_bank_value(line) | line <- non_empty]
+print(sum(bests))

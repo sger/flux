@@ -743,25 +743,11 @@ fn machine_min_presses(line) {
     solve_machine(buttons, target)
 }
 
-// Process all input lines, accumulating the total presses.
-fn solve_lines(lines, idx, total) {
-    if idx >= len(lines) {
-        total
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            solve_lines(lines, idx + 1, total)
-        } else {
-            let p = machine_min_presses(line)
-            solve_lines(lines, idx + 1, total + p)
-        }
-    }
-}
-
-
 // ============================================================================
 // Main — read the input file and print the answer.
 // ============================================================================
 
 let lines = read_lines("examples/io/aoc_day10.txt")
-print(solve_lines(lines, 0, 0))
+let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
+let presses = [machine_min_presses(line) | line <- machine_lines]
+print(sum(presses))

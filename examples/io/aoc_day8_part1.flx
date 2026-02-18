@@ -3,13 +3,6 @@
 // Performance: prune edges by distance threshold (from the Rust approach).
 // Input: examples/io/aoc_day8.txt
 
-fn line_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> ""
-    }
-}
-
 fn int_at(arr, idx) {
     match arr[idx] {
         Some(v) -> v,
@@ -28,19 +21,6 @@ fn set_at(arr, idx, value) {
     let left = slice(arr, 0, idx)
     let right = slice(arr, idx + 1, len(arr))
     concat(concat(left, [|value|]), right)
-}
-
-fn parse_points(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let s = trim(line_at(lines, idx))
-        if s == "" {
-            parse_points(lines, idx + 1, acc)
-        } else {
-            parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
-        }
-    }
 }
 
 fn dist_sq(points, i, j) {
@@ -119,20 +99,8 @@ fn union_key(state, key) {
     }
 }
 
-fn root_sizes(parents, sizes, i, acc) {
-    if i >= len(parents) {
-        acc
-    } else {
-        if int_at(parents, i) == i {
-            root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
-        } else {
-            root_sizes(parents, sizes, i + 1, acc)
-        }
-    }
-}
-
 let lines = read_lines("examples/io/aoc_day8.txt")
-let points = parse_points(lines, 0, [||])
+let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 let n = len(points)
 let idxs = range(0, n)
 let max_dist = 188000000
@@ -153,6 +121,6 @@ let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
 
 let parents1 = dsu_parents(state1)
 let sizes1 = dsu_sizes(state1)
-let comps = root_sizes(parents1, sizes1, 0, [||])
+let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
 let top = sort(comps, "desc")
 print(int_at(top, 0) * int_at(top, 1) * int_at(top, 2))

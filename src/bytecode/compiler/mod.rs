@@ -138,6 +138,7 @@ impl Compiler {
         symbol_table.define_builtin(59, interner.intern("product"));
         symbol_table.define_builtin(60, interner.intern("parse_ints"));
         symbol_table.define_builtin(61, interner.intern("split_ints"));
+        symbol_table.define_builtin(62, interner.intern("flat_map"));
 
         Self {
             constants: Vec::new(),

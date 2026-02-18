@@ -38,14 +38,6 @@ fn has_char(s, ch) {
     find_char_from(s, ch, 0) >= 0
 }
 
-fn sum_arr(arr, idx, acc) {
-    if idx >= len(arr) {
-        acc
-    } else {
-        sum_arr(arr, idx + 1, acc + int_at(arr, idx))
-    }
-}
-
 fn region_fits(line) {
     let c = find_char_from(line, ":", 0)
     let left = trim(substring(line, 0, c))
@@ -56,28 +48,12 @@ fn region_fits(line) {
     let h = int_at(dims, 1)
 
     let counts = split_ints(right, " ")
-    let needed = 9 * sum_arr(counts, 0, 0)
+    let needed = 9 * sum(counts)
     let area = w * h
     area >= needed
 }
 
-fn solve_lines(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            solve_lines(lines, idx + 1, acc)
-        } else {
-            if has_char(line, "x") && has_char(line, ":") {
-                let add = if region_fits(line) { 1 } else { 0 }
-                solve_lines(lines, idx + 1, acc + add)
-            } else {
-                solve_lines(lines, idx + 1, acc)
-            }
-        }
-    }
-}
-
 let lines = read_lines("examples/io/aoc_day12.txt")
-print(solve_lines(lines, 0, 0))
+let region_lines = [trim(line) | line <- lines, trim(line) != "", has_char(trim(line), "x"), has_char(trim(line), ":")]
+let fits = [if region_fits(line) { 1 } else { 0 } | line <- region_lines]
+print(sum(fits))

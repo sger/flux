@@ -41,12 +41,39 @@ struct LiteralKey {
     sc: usize,
     el: usize,
     ec: usize,
+    bsl: usize,
+    bsc: usize,
+    bel: usize,
+    bec: usize,
+    arity: usize,
+    first_param: u32,
 }
 
 impl LiteralKey {
     fn from_expr(expr: &Expression) -> Self {
-        let span = expr.span();
-        Self::from_span(span)
+        match expr {
+            Expression::Function {
+                parameters,
+                body,
+                span,
+                ..
+            } => Self {
+                sl: span.start.line,
+                sc: span.start.column,
+                el: span.end.line,
+                ec: span.end.column,
+                bsl: body.span.start.line,
+                bsc: body.span.start.column,
+                bel: body.span.end.line,
+                bec: body.span.end.column,
+                arity: parameters.len(),
+                first_param: parameters.first().map(|p| p.as_u32()).unwrap_or(0),
+            },
+            _ => {
+                let span = expr.span();
+                Self::from_span(span)
+            }
+        }
     }
 
     fn from_span(span: crate::diagnostics::position::Span) -> Self {
@@ -55,6 +82,12 @@ impl LiteralKey {
             sc: span.start.column,
             el: span.end.line,
             ec: span.end.column,
+            bsl: 0,
+            bsc: 0,
+            bel: 0,
+            bec: 0,
+            arity: 0,
+            first_param: 0,
         }
     }
 }
@@ -793,8 +826,17 @@ impl JitCompiler {
             }
             let sig = self.user_function_signature();
             let fn_name = format!(
-                "flux_lit_{}_{}_{}_{}",
-                spec.key.sl, spec.key.sc, spec.key.el, spec.key.ec
+                "flux_lit_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}",
+                spec.key.sl,
+                spec.key.sc,
+                spec.key.el,
+                spec.key.ec,
+                spec.key.bsl,
+                spec.key.bsc,
+                spec.key.bel,
+                spec.key.bec,
+                spec.key.arity,
+                spec.key.first_param
             );
             let id = self
                 .module
@@ -1322,7 +1364,14 @@ fn compile_expression(
         Expression::String { value, .. } => {
             let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
             let bytes = value.as_bytes();
-            let ptr = builder.ins().iconst(PTR_TYPE, bytes.as_ptr() as i64);
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = cranelift_module::DataDescription::new();
+            desc.define(bytes.to_vec().into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let gv = module.declare_data_in_func(data, builder.func);
+            let ptr = builder.ins().global_value(PTR_TYPE, gv);
             let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
             let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
             Ok(builder.inst_results(call)[0])
