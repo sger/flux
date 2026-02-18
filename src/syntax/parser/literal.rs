@@ -154,7 +154,6 @@ impl Parser {
                 | TokenType::LBrace
                 | TokenType::If
                 | TokenType::Fn
-                | TokenType::Fun
                 | TokenType::Match
                 | TokenType::String
         )

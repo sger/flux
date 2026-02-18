@@ -171,7 +171,7 @@ impl Folder for IdentityFolder {}
 
 #[test]
 fn identity_fold_preserves_structure() {
-    let (program, interner) = parse("let x = 1 + 2;\nfun f(a) { return a; }");
+    let (program, interner) = parse("let x = 1 + 2;\nfn f(a) { return a; }");
 
     let original_display = program.display_with(&interner);
 

@@ -119,7 +119,7 @@ impl Parser {
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
             TokenType::Do => self.parse_do_block_expression(),
-            TokenType::Fn | TokenType::Fun => self.parse_function_literal(),
+            TokenType::Fn => self.parse_function_literal(),
             TokenType::Backslash => self.parse_lambda(),
             token if prefix_op(token).is_some() => self.parse_prefix_expression(),
             _ => {
@@ -1067,9 +1067,6 @@ impl Parser {
 
     pub(super) fn parse_function_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if self.current_token.token_type == TokenType::Fun {
-            self.warn_deprecated_fun(self.current_token.span());
-        }
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
