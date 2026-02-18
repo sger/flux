@@ -14,11 +14,19 @@ use crate::syntax::{interner::Interner, program::Program};
 use compiler::JitCompiler;
 use context::JitContext;
 
+/// Runtime options for JIT execution.
+#[derive(Default)]
+pub struct JitOptions {
+    pub no_gc: bool,
+    pub gc_threshold: Option<usize>,
+}
+
 /// High-level entry point: compile and run a Flux program via JIT.
 /// Returns the result value and the JIT context (for telemetry/diagnostics).
 pub fn jit_compile_and_run(
     program: &Program,
     interner: &Interner,
+    options: &JitOptions,
 ) -> Result<(Value, JitContext), String> {
     let mut compiler = JitCompiler::new()?;
     let main_id = compiler.compile_program(program, interner)?;
@@ -29,6 +37,14 @@ pub fn jit_compile_and_run(
     // Create JIT execution context
     let mut ctx = JitContext::new();
     ctx.set_jit_functions(compiler.jit_function_entries());
+
+    // Apply GC options
+    if options.no_gc {
+        ctx.gc_heap.set_enabled(false);
+    }
+    if let Some(threshold) = options.gc_threshold {
+        ctx.gc_heap.set_threshold(threshold);
+    }
 
     // Call the compiled main function: fn(ctx: *mut JitContext) -> *mut Value
     let result_ptr: *mut Value = unsafe {
