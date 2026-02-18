@@ -64,9 +64,9 @@ fn test_tail_call_deep_recursion_countdown() {
     let input = r#"
         fn countdown(n) {
             if n == 0 {
-                0;
+                0
             } else {
-                countdown(n - 1);
+                countdown(n - 1)
             }
         }
         countdown(100000);
@@ -82,9 +82,9 @@ fn test_tail_call_factorial_accumulator() {
     let input = r#"
         fn factorial(n, acc) {
             if n == 0 {
-                acc;
+                acc
             } else {
-                factorial(n - 1, n * acc);
+                factorial(n - 1, n * acc)
             }
         }
         factorial(20, 1);
@@ -102,9 +102,9 @@ fn test_non_tail_recursion_still_works() {
     let input = r#"
         fn fib(n) {
             if n <= 1 {
-                n;
+                n
             } else {
-                fib(n - 1) + fib(n - 2);
+                fib(n - 1) + fib(n - 2)
             }
         }
         fib(10);
@@ -120,12 +120,12 @@ fn test_tail_call_in_if_branches() {
     let input = r#"
         fn even_odd(n) {
             if n == 0 {
-                "even";
+                "even"
             } else {
                 if n == 1 {
-                    "odd";
+                    "odd"
                 } else {
-                    even_odd(n - 2);
+                    even_odd(n - 2)
                 }
             }
         }
@@ -159,9 +159,9 @@ fn test_tail_call_with_multiple_args() {
     let input = r#"
         fn sum_to_n(n, acc) {
             if n == 0 {
-                acc;
+                acc
             } else {
-                sum_to_n(n - 1, acc + n);
+                sum_to_n(n - 1, acc + n)
             }
         }
         sum_to_n(1000, 0);
@@ -179,9 +179,9 @@ fn test_tail_call_with_same_arg_twice() {
     let input = r#"
         fn repeat_until_zero(n, count) {
             if n == 0 {
-                count;
+                count
             } else {
-                repeat_until_zero(n - 1, count + 1);
+                repeat_until_zero(n - 1, count + 1)
             }
         }
         repeat_until_zero(100, 0);
@@ -198,17 +198,17 @@ fn test_mutual_recursion_not_optimized() {
     let input = r#"
         fn is_even(n) {
             if n == 0 {
-                true;
+                true
             } else {
-                is_odd(n - 1);
+                is_odd(n - 1)
             }
         }
 
         fn is_odd(n) {
             if n == 0 {
-                false;
+                false
             } else {
-                is_even(n - 1);
+                is_even(n - 1)
             }
         }
 
@@ -225,12 +225,12 @@ fn test_tail_call_returns_correct_value() {
     let input = r#"
         fn find_value(n, target) {
             if n == target {
-                n;
+                n
             } else {
                 if n > target {
-                    "not found";
+                    "not found"
                 } else {
-                    find_value(n + 1, target);
+                    find_value(n + 1, target)
                 }
             }
         }
@@ -247,12 +247,12 @@ fn test_tail_call_with_complex_condition() {
     let input = r#"
         fn collatz(n, steps) {
             if n == 1 {
-                steps;
+                steps
             } else {
                 if n % 2 == 0 {
-                    collatz(n / 2, steps + 1);
+                    collatz(n / 2, steps + 1)
                 } else {
-                    collatz(n * 3 + 1, steps + 1);
+                    collatz(n * 3 + 1, steps + 1)
                 }
             }
         }
@@ -286,9 +286,9 @@ fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
     let input = r#"
         fn build(n, acc) {
             if n == 0 {
-                acc;
+                acc
             } else {
-                build(n - 1, push(acc, n));
+                build(n - 1, push(acc, n))
             }
         }
         build(3, []);
@@ -304,12 +304,12 @@ fn test_phase2_emits_consume_local_for_accumulator_tail_call() {
 fn test_phase2_does_not_consume_captured_accumulator_parameter() {
     let input = r#"
         fn build(n, acc) {
-            let get = fn() { acc; };
+            let get = fn() { acc };
             if n == 0 {
                 return get();
             } else {
                 return build(n - 1, push(acc, n));
-            };
+            }
         }
         build(3, []);
     "#;
@@ -327,12 +327,12 @@ fn test_phase2_does_not_consume_captured_accumulator_parameter() {
 fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator() {
     let input = r#"
         fn build(n, acc) {
-            let const_one = fn() { 1; };
+            let const_one = fn() { 1 };
             if n == 0 {
                 return acc;
             } else {
                 return build(n - 1, push(acc, const_one()));
-            };
+            }
         }
         build(3, []);
     "#;

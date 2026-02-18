@@ -104,6 +104,10 @@ pub enum Expression {
         alternative: Option<Block>,
         span: Span,
     },
+    DoBlock {
+        block: Block,
+        span: Span,
+    },
     Function {
         parameters: Vec<Identifier>,
         body: Block,
@@ -219,6 +223,7 @@ impl fmt::Display for Expression {
                 }
                 Ok(())
             }
+            Expression::DoBlock { block, .. } => write!(f, "do {}", block),
             Expression::Function {
                 parameters, body, ..
             } => {
@@ -298,6 +303,7 @@ impl Expression {
             | Expression::Prefix { span, .. }
             | Expression::Infix { span, .. }
             | Expression::If { span, .. }
+            | Expression::DoBlock { span, .. }
             | Expression::Function { span, .. }
             | Expression::Call { span, .. }
             | Expression::ListLiteral { span, .. }
@@ -365,6 +371,9 @@ impl Expression {
                     out.push_str(&format!(" else {}", alt));
                 }
                 out
+            }
+            Expression::DoBlock { block, .. } => {
+                format!("do {}", block)
             }
             Expression::Function {
                 parameters, body, ..

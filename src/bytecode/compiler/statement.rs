@@ -27,9 +27,15 @@ impl Compiler {
         self.current_span = Some(statement.span());
         let result = (|| {
             match statement {
-                Statement::Expression { expression, .. } => {
+                Statement::Expression {
+                    expression,
+                    has_semicolon,
+                    ..
+                } => {
                     self.compile_expression(expression)?;
-                    self.emit(OpCode::OpPop, &[]);
+                    if !self.in_tail_position || *has_semicolon {
+                        self.emit(OpCode::OpPop, &[]);
+                    }
                 }
                 Statement::Let { name, value, span } => {
                     let name = *name;
@@ -266,11 +272,15 @@ impl Compiler {
             compiler.compile_block_with_tail(body)
         })?;
 
-        if self.is_last_instruction(OpCode::OpPop) {
-            self.replace_last_pop_with_return();
-        }
-
-        if !self.is_last_instruction(OpCode::OpReturnValue)
+        if self.block_has_value_tail(body) {
+            if self.is_last_instruction(OpCode::OpPop) {
+                self.replace_last_pop_with_return();
+            } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                && !self.is_last_instruction(OpCode::OpReturnLocal)
+            {
+                self.emit(OpCode::OpReturnValue, &[]);
+            }
+        } else if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
         {
             self.emit(OpCode::OpReturn, &[]);
@@ -475,7 +485,10 @@ impl Compiler {
             let is_last = i == len - 1;
             let tail_eligible = matches!(
                 statement,
-                Statement::Expression { .. } | Statement::Return { .. }
+                Statement::Expression {
+                    has_semicolon: false,
+                    ..
+                } | Statement::Return { .. }
             );
 
             if is_last && tail_eligible {
@@ -487,5 +500,15 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    pub(super) fn block_has_value_tail(&self, block: &Block) -> bool {
+        matches!(
+            block.statements.last(),
+            Some(Statement::Expression {
+                has_semicolon: false,
+                ..
+            })
+        )
     }
 }

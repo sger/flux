@@ -1,0 +1,10 @@
+---
+source: tests/examples_advanced_snapshots.rs
+---
+Fixture: examples/advanced/tuple_pipelines.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

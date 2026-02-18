@@ -1,0 +1,169 @@
+// Advent of Code - Day 12 (Haskell-style translation)
+// Inspired by AOC2025.Day12 day12a.
+// Uses input file: examples/io/aoc_day12.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+fn has_char(s, ch) {
+    find_char_from(s, ch, 0) >= 0
+}
+
+fn count_hashes(s, idx, acc) {
+    if idx >= len(s) {
+        acc
+    } else {
+        let add = if char_at(s, idx) == "#" { 1 } else { 0 }
+        count_hashes(s, idx + 1, acc + add)
+    }
+}
+
+fn parse_block_sizes(lines, idx, in_block, cur_size, acc) {
+    if idx >= len(lines) {
+        if in_block {
+            push(acc, cur_size)
+        } else {
+            acc
+        }
+    } else {
+        let line = trim(line_at(lines, idx))
+        if has_char(line, "x") && has_char(line, ":") {
+            if in_block {
+                push(acc, cur_size)
+            } else {
+                acc
+            }
+        } else {
+            if line == "" {
+                parse_block_sizes(lines, idx + 1, in_block, cur_size, acc)
+            } else {
+                if has_char(line, ":") {
+                    if in_block {
+                        parse_block_sizes(lines, idx + 1, true, 0, push(acc, cur_size))
+                    } else {
+                        parse_block_sizes(lines, idx + 1, true, 0, acc)
+                    }
+                } else {
+                    if in_block {
+                        parse_block_sizes(lines, idx + 1, true, cur_size + count_hashes(line, 0, 0), acc)
+                    } else {
+                        parse_block_sizes(lines, idx + 1, in_block, cur_size, acc)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn parse_area_counts(tokens, idx, acc) {
+    if idx >= len(tokens) {
+        acc
+    } else {
+        let t = str_at(tokens, idx)
+        if trim(t) == "" {
+            parse_area_counts(tokens, idx + 1, acc)
+        } else {
+            parse_area_counts(tokens, idx + 1, push(acc, parse_int(t)))
+        }
+    }
+}
+
+fn str_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn parse_areas(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            parse_areas(lines, idx + 1, acc)
+        } else {
+            if has_char(line, "x") && has_char(line, ":") {
+                let parts = split(line, " ") |> filter(\t -> trim(t) != "")
+                let dims_raw = str_at(parts, 0)
+                let dims = substring(dims_raw, 0, len(dims_raw) - 1)
+                let bounds = split_ints(dims, "x")
+                let counts = parse_area_counts(parts, 1, [||])
+                let w = int_at(bounds, 0)
+                let h = int_at(bounds, 1)
+                parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
+            } else {
+                parse_areas(lines, idx + 1, acc)
+            }
+        }
+    }
+}
+
+fn weighted_sum(block_sizes, counts, idx, acc) {
+    if idx >= len(block_sizes) || idx >= len(counts) {
+        acc
+    } else {
+        weighted_sum(block_sizes, counts, idx + 1, acc + (int_at(block_sizes, idx) * int_at(counts, idx)))
+    }
+}
+
+fn area_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn count_valid_areas(block_sizes, areas, idx, acc) {
+    if idx >= len(areas) {
+        acc
+    } else {
+        let area = area_at(areas, idx)
+        let w = int_at(area, 0)
+        let h = int_at(area, 1)
+        let counts = match area[2] {
+            Some(v) -> v,
+            _ -> [||]
+        }
+        let lhs = w * h
+        let rhs = weighted_sum(block_sizes, counts, 0, 0)
+        let add = if lhs >= rhs { 1 } else { 0 }
+        count_valid_areas(block_sizes, areas, idx + 1, acc + add)
+    }
+}
+
+fn day12a(input_lines) {
+    let block_sizes = parse_block_sizes(input_lines, 0, false, 0, [||])
+    let areas = parse_areas(input_lines, 0, [||])
+    count_valid_areas(block_sizes, areas, 0, 0)
+}
+
+let input_lines = read_lines("examples/io/aoc_day12.txt")
+print(day12a(input_lines))

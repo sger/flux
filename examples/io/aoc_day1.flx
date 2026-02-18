@@ -36,23 +36,21 @@ fn parse_rotations(lines, acc) {
     }
 }
 
-fn process_step(step, rest, pos, hits) {
+fn process_step(step, rest, state) {
+    let (pos, hits) = state
     let next_pos = wrap_100(pos + step)
-    if next_pos == 0 {
-        solve_steps(rest, next_pos, hits + 1)
-    } else {
-        solve_steps(rest, next_pos, hits)
-    }
+    let next_hits = if next_pos == 0 { hits + 1 } else { hits }
+    solve_steps(rest, (next_pos, next_hits))
 }
 
-fn solve_steps(steps, pos, hits) {
+fn solve_steps(steps, state) {
     match steps {
-        [step | rest] -> process_step(step, rest, pos, hits),
-        _ -> hits,
+        [step | rest] -> process_step(step, rest, state),
+        _ -> state.1,
     }
 }
 
 let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
 let steps = parse_rotations(lines, None)
-let password = solve_steps(steps, 50, 0)
+let password = solve_steps(steps, (50, 0))
 print(password)

@@ -1,0 +1,132 @@
+// Advent of Code - Day 4 (Haskell-style translation)
+// Inspired by AOC2025.Day04 using Set Point semantics.
+// Uses input file: examples/io/aoc_day4.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn char_at(line, col) {
+    substring(line, col, col + 1)
+}
+
+fn point_key(pt) {
+    to_string(pt.0) + "," + to_string(pt.1)
+}
+
+fn list_len(xs) {
+    match xs {
+        [_ | rest] -> 1 + list_len(rest),
+        _ -> 0
+    }
+}
+
+fn collect_row_points(lines, row, col, cols, acc) {
+    if col >= cols {
+        acc
+    } else {
+        let ch = char_at(line_at(lines, row), col)
+        if ch == "@" {
+            collect_row_points(lines, row, col + 1, cols, [(row, col) | acc])
+        } else {
+            collect_row_points(lines, row, col + 1, cols, acc)
+        }
+    }
+}
+
+fn collect_points(lines, row, rows, cols, acc) {
+    if row >= rows {
+        reverse(acc)
+    } else {
+        let next_acc = collect_row_points(lines, row, 0, cols, acc)
+        collect_points(lines, row + 1, rows, cols, next_acc)
+    }
+}
+
+fn points_to_set(points, acc) {
+    match points {
+        [pt | rest] -> points_to_set(rest, put(acc, point_key(pt), true)),
+        _ -> acc
+    }
+}
+
+fn has_point(point_set, r, c) {
+    has_key(point_set, to_string(r) + "," + to_string(c))
+}
+
+fn neighbor_count(point_set, pt) {
+    let r = pt.0
+    let c = pt.1
+    let n1 = if has_point(point_set, r - 1, c - 1) { 1 } else { 0 }
+    let n2 = if has_point(point_set, r - 1, c) { 1 } else { 0 }
+    let n3 = if has_point(point_set, r - 1, c + 1) { 1 } else { 0 }
+    let n4 = if has_point(point_set, r, c - 1) { 1 } else { 0 }
+    let n5 = if has_point(point_set, r, c + 1) { 1 } else { 0 }
+    let n6 = if has_point(point_set, r + 1, c - 1) { 1 } else { 0 }
+    let n7 = if has_point(point_set, r + 1, c) { 1 } else { 0 }
+    let n8 = if has_point(point_set, r + 1, c + 1) { 1 } else { 0 }
+    n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
+}
+
+fn reachable_points(points, point_set, acc) {
+    match points {
+        [pt | rest] -> do {
+            if neighbor_count(point_set, pt) < 4 {
+                reachable_points(rest, point_set, [pt | acc])
+            } else {
+                reachable_points(rest, point_set, acc)
+            }
+        },
+        _ -> reverse(acc)
+    }
+}
+
+fn diff_points(points, removed_set, acc) {
+    match points {
+        [pt | rest] -> do {
+            if has_key(removed_set, point_key(pt)) {
+                diff_points(rest, removed_set, acc)
+            } else {
+                diff_points(rest, removed_set, [pt | acc])
+            }
+        },
+        _ -> reverse(acc)
+    }
+}
+
+fn day04a(points) {
+    let point_set = points_to_set(points, {})
+    list_len(reachable_points(points, point_set, None))
+}
+
+fn sum_removed_layers(points, acc) {
+    if list_len(points) == 0 {
+        acc
+    } else {
+        let point_set = points_to_set(points, {})
+        let removed = reachable_points(points, point_set, None)
+        let removed_count = list_len(removed)
+        if removed_count == 0 {
+            acc
+        } else {
+            let removed_set = points_to_set(removed, {})
+            let remaining = diff_points(points, removed_set, None)
+            sum_removed_layers(remaining, acc + removed_count)
+        }
+    }
+}
+
+fn day04b(points) {
+    sum_removed_layers(points, 0)
+}
+
+let lines = read_lines("examples/io/aoc_day4.txt")
+let rows = len(lines)
+let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
+let points = collect_points(lines, 0, rows, cols, None)
+
+print(day04a(points))
+print(day04b(points))

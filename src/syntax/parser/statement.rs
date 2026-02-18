@@ -65,12 +65,16 @@ impl Parser {
             }
         };
 
-        if self.is_peek_token(TokenType::Semicolon) {
+        let has_semicolon = if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
-        }
+            true
+        } else {
+            false
+        };
 
         Some(Statement::Expression {
             expression,
+            has_semicolon,
             span: self.span_from(start),
         })
     }

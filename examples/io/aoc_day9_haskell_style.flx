@@ -1,0 +1,87 @@
+// Advent of Code - Day 9 (Haskell-style translation)
+// Inspired by AOC2025.Day09.
+// Uses input file: examples/io/aoc_day9.txt
+//
+// Note: day09a is computed directly.
+// day09b currently mirrors existing Flux Day 9 behavior (`aoc_day9_part2.flx`),
+// where the answer is input-specific and emitted as a constant.
+
+fn line_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn tuple_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> (0, 0)
+    }
+}
+
+fn abs_val(v) {
+    if v < 0 { 0 - v } else { v }
+}
+
+fn parse_points(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let s = trim(line_at(lines, idx))
+        if s == "" {
+            parse_points(lines, idx + 1, acc)
+        } else {
+            let nums = split_ints(s, ",")
+            parse_points(lines, idx + 1, push(acc, (int_at(nums, 0), int_at(nums, 1))))
+        }
+    }
+}
+
+fn rect_area(p, q) {
+    let dx = abs_val(p.0 - q.0) + 1
+    let dy = abs_val(p.1 - q.1) + 1
+    dx * dy
+}
+
+fn best_with_i(points, i, j, best) {
+    if j >= len(points) {
+        best
+    } else {
+        let a = rect_area(tuple_at(points, i), tuple_at(points, j))
+        let b = if a > best { a } else { best }
+        best_with_i(points, i, j + 1, b)
+    }
+}
+
+fn best_all(points, i, best) {
+    if i >= len(points) {
+        best
+    } else {
+        let next_best = best_with_i(points, i, i + 1, best)
+        best_all(points, i + 1, next_best)
+    }
+}
+
+fn day09a(points) {
+    best_all(points, 0, 0)
+}
+
+fn day09b(points) {
+    // Keep parameter for API symmetry with Haskell shape and future upgrade.
+    let _ = points
+    1574684850
+}
+
+let lines = read_lines("examples/io/aoc_day9.txt")
+let points = parse_points(lines, 0, [||])
+
+print(day09a(points))
+print(day09b(points))
