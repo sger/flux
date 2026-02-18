@@ -92,8 +92,13 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             value: value.map(|v| folder.fold_expr(v)),
             span,
         },
-        Statement::Expression { expression, span } => Statement::Expression {
+        Statement::Expression {
+            expression,
+            has_semicolon,
+            span,
+        } => Statement::Expression {
             expression: folder.fold_expr(expression),
+            has_semicolon,
             span,
         },
         Statement::Function {
@@ -174,6 +179,10 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             condition: Box::new(folder.fold_expr(*condition)),
             consequence: folder.fold_block(consequence),
             alternative: alternative.map(|a| folder.fold_block(a)),
+            span,
+        },
+        Expression::DoBlock { block, span } => Expression::DoBlock {
+            block: folder.fold_block(block),
             span,
         },
         Expression::Function {

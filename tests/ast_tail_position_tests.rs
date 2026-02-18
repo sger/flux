@@ -17,7 +17,7 @@ fn parse(input: &str) -> Program {
 
 #[test]
 fn simple_tail_call() {
-    let program = parse("fn f(n) { f(n - 1); }");
+    let program = parse("fn f(n) { f(n - 1) }");
     let tail_calls = find_tail_calls(&program);
     assert_eq!(tail_calls.len(), 1);
 }
@@ -40,10 +40,10 @@ fn tail_call_in_if_branches() {
         r#"
         fn f(n) {
             if n == 0 {
-                0;
+                0
             } else {
-                f(n - 1);
-            };
+                f(n - 1)
+            }
         }
     "#,
     );
@@ -106,10 +106,10 @@ fn multiple_tail_calls_in_branches() {
         r#"
         fn f(n) {
             if n == 0 {
-                g(0);
+                g(0)
             } else {
-                f(n - 1);
-            };
+                f(n - 1)
+            }
         }
     "#,
     );
@@ -124,14 +124,14 @@ fn nested_if_tail_propagation() {
         r#"
         fn f(n) {
             if n == 0 {
-                0;
+                0
             } else {
                 if n == 1 {
-                    1;
+                    1
                 } else {
-                    f(n - 2);
-                };
-            };
+                    f(n - 2)
+                }
+            }
         }
     "#,
     );
@@ -198,7 +198,7 @@ fn call_in_argument_not_tail() {
     let program = parse(
         r#"
         fn f(n) {
-            f(g(n));
+            f(g(n))
         }
     "#,
     );

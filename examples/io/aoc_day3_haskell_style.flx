@@ -1,0 +1,87 @@
+// Advent of Code - Day 3 (Haskell-style translation)
+// Mirrors the provided StateT/List backtracking approach.
+// Uses input file: examples/io/aoc_day3.txt
+
+fn find_next_pos(line, digit_str, idx) {
+    if idx >= len(line) {
+        -1
+    } else {
+        if substring(line, idx, idx + 1) == digit_str {
+            idx
+        } else {
+            find_next_pos(line, digit_str, idx + 1)
+        }
+    }
+}
+
+fn best_number_string(line, start_idx, k) {
+    if k == 0 {
+        Some("")
+    } else {
+        best_with_digit(line, start_idx, k, 9)
+    }
+}
+
+fn best_with_digit(line, start_idx, k, digit) {
+    if digit <= 0 {
+        None
+    } else {
+        let digit_str = to_string(digit)
+        let first_pos = find_next_pos(line, digit_str, start_idx)
+        match try_occurrences(line, digit_str, first_pos, k) {
+            Some(found) -> Some(found),
+            _ -> best_with_digit(line, start_idx, k, digit - 1)
+        }
+    }
+}
+
+fn try_occurrences(line, digit_str, pos, k) {
+    if pos < 0 {
+        None
+    } else {
+        match best_number_string(line, pos + 1, k - 1) {
+            Some(rest) -> Some(digit_str + rest),
+            _ -> do {
+                let next_pos = find_next_pos(line, digit_str, pos + 1)
+                try_occurrences(line, digit_str, next_pos, k)
+            }
+        }
+    }
+}
+
+fn parse_line_value(line, n) {
+    let cleaned = trim(line)
+    if cleaned == "" {
+        Some(0)
+    } else {
+        match best_number_string(cleaned, 0, n) {
+            Some(s) -> Some(parse_int(s)),
+            _ -> None
+        }
+    }
+}
+
+fn sum_values(lines, n, acc) {
+    match lines {
+        [line | rest] -> do {
+            match parse_line_value(line, n) {
+                Some(v) -> sum_values(rest, n, acc + v),
+                _ -> None
+            }
+        },
+        _ -> Some(acc)
+    }
+}
+
+fn day03(n, path) {
+    match sum_values(to_list(read_lines(path)), n, 0) {
+        Some(total) -> total,
+        _ -> 0
+    }
+}
+
+let day03a = day03(2, "examples/io/aoc_day3.txt")
+let day03b = day03(12, "examples/io/aoc_day3.txt")
+
+print(day03a)
+print(day03b)

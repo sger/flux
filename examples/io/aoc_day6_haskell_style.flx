@@ -1,0 +1,245 @@
+// Advent of Code - Day 6 (Haskell-style translation)
+// Inspired by AOC2025.Day06 day06a/day06b.
+// Uses input file: examples/io/aoc_day6.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn str_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn char_at_pad(s, idx) {
+    if idx >= len(s) {
+        " "
+    } else {
+        substring(s, idx, idx + 1)
+    }
+}
+
+fn parse_op(op) {
+    if op == "*" {
+        Some("*")
+    } else {
+        if op == "+" {
+            Some("+")
+        } else {
+            None
+        }
+    }
+}
+
+fn split_words_line(line) {
+    split(trim(line), " ") |> filter(\x -> x != "")
+}
+
+fn parse_words_lines(lines) {
+    lines |> map(\line -> split_words_line(line))
+}
+
+fn max_row_width(rows, idx, best) {
+    if idx >= len(rows) {
+        best
+    } else {
+        let w = len(arr_at(rows, idx))
+        max_row_width(rows, idx + 1, if w > best { w } else { best })
+    }
+}
+
+fn collect_token_col(rows, col, row_idx, acc) {
+    if row_idx >= len(rows) {
+        acc
+    } else {
+        let row = arr_at(rows, row_idx)
+        match row[col] {
+            Some(v) -> collect_token_col(rows, col, row_idx + 1, push(acc, v)),
+            _ -> collect_token_col(rows, col, row_idx + 1, acc)
+        }
+    }
+}
+
+fn transpose_token_rows(rows, col, width, acc) {
+    if col >= width {
+        acc
+    } else {
+        let col_tokens = collect_token_col(rows, col, 0, [||])
+        transpose_token_rows(rows, col + 1, width, push(acc, col_tokens))
+    }
+}
+
+fn parse_tokens_to_ints(tokens, idx, acc) {
+    if idx >= len(tokens) {
+        acc
+    } else {
+        parse_tokens_to_ints(tokens, idx + 1, push(acc, parse_int(str_at(tokens, idx))))
+    }
+}
+
+fn sum_ints(xs, idx, acc) {
+    if idx >= len(xs) { acc } else { sum_ints(xs, idx + 1, acc + int_at(xs, idx)) }
+}
+
+fn prod_ints(xs, idx, acc) {
+    if idx >= len(xs) { acc } else { prod_ints(xs, idx + 1, acc * int_at(xs, idx)) }
+}
+
+fn eval_day06a_col(tokens) {
+    let rev = reverse(tokens)
+    let op_token = str_at(rev, 0)
+    let nums = parse_tokens_to_ints(slice(rev, 1, len(rev)), 0, [||])
+    match parse_op(op_token) {
+        Some(op) -> if op == "*" { prod_ints(nums, 0, 1) } else { sum_ints(nums, 0, 0) },
+        _ -> 0
+    }
+}
+
+fn solve_day06a(lines) {
+    let rows = parse_words_lines(lines)
+    let width = max_row_width(rows, 0, 0)
+    let cols = transpose_token_rows(rows, 0, width, [||])
+    cols |> fold(0, \(acc, col) -> acc + eval_day06a_col(col))
+}
+
+fn max_line_width(lines, idx, best) {
+    if idx >= len(lines) {
+        best
+    } else {
+        let w = len(line_at(lines, idx))
+        max_line_width(lines, idx + 1, if w > best { w } else { best })
+    }
+}
+
+fn collect_char_col(lines, col, row, acc) {
+    if row >= len(lines) {
+        acc
+    } else {
+        collect_char_col(lines, col, row + 1, acc + char_at_pad(line_at(lines, row), col))
+    }
+}
+
+fn transpose_lines(lines, col, width, acc) {
+    if col >= width {
+        acc
+    } else {
+        let col_str = collect_char_col(lines, col, 0, "")
+        transpose_lines(lines, col + 1, width, push(acc, col_str))
+    }
+}
+
+fn all_spaces(s, idx) {
+    if idx >= len(s) {
+        true
+    } else {
+        if substring(s, idx, idx + 1) == " " {
+            all_spaces(s, idx + 1)
+        } else {
+            false
+        }
+    }
+}
+
+fn split_when_blank_cols(cols, idx, current, acc) {
+    if idx >= len(cols) {
+        if len(current) == 0 {
+            acc
+        } else {
+            push(acc, current)
+        }
+    } else {
+        let col = str_at(cols, idx)
+        if all_spaces(col, 0) {
+            if len(current) == 0 {
+                split_when_blank_cols(cols, idx + 1, current, acc)
+            } else {
+                split_when_blank_cols(cols, idx + 1, [||], push(acc, current))
+            }
+        } else {
+            split_when_blank_cols(cols, idx + 1, push(current, col), acc)
+        }
+    }
+}
+
+fn last_char(s) {
+    if len(s) == 0 { "" } else { substring(s, len(s) - 1, len(s)) }
+}
+
+fn init_str(s) {
+    if len(s) == 0 { "" } else { substring(s, 0, len(s) - 1) }
+}
+
+fn compact_non_space(s, idx, acc) {
+    if idx >= len(s) {
+        acc
+    } else {
+        let ch = substring(s, idx, idx + 1)
+        if ch == " " {
+            compact_non_space(s, idx + 1, acc)
+        } else {
+            compact_non_space(s, idx + 1, acc + ch)
+        }
+    }
+}
+
+fn read_compact_int(s) {
+    parse_int(compact_non_space(s, 0, ""))
+}
+
+fn read_compact_ints(cols, idx, acc) {
+    if idx >= len(cols) {
+        acc
+    } else {
+        read_compact_ints(cols, idx + 1, push(acc, read_compact_int(str_at(cols, idx))))
+    }
+}
+
+fn eval_day06b_group(group_cols) {
+    if len(group_cols) == 0 {
+        0
+    } else {
+        let x_and_op = str_at(group_cols, 0)
+        let op_char = last_char(x_and_op)
+        let first_num = read_compact_int(init_str(x_and_op))
+        let rest_nums = read_compact_ints(slice(group_cols, 1, len(group_cols)), 0, [||])
+        let nums = concat([|first_num|], rest_nums)
+        match parse_op(op_char) {
+            Some(op) -> if op == "*" { prod_ints(nums, 0, 1) } else { sum_ints(nums, 0, 0) },
+            _ -> 0
+        }
+    }
+}
+
+fn solve_day06b(lines) {
+    let width = max_line_width(lines, 0, 0)
+    let cols = transpose_lines(lines, 0, width, [||])
+    let groups = split_when_blank_cols(cols, 0, [||], [||])
+    groups |> fold(0, \(acc, g) -> acc + eval_day06b_group(g))
+}
+
+let lines = read_lines("examples/io/aoc_day6.txt")
+
+let day06a = solve_day06a(lines)
+let day06b = solve_day06b(lines)
+
+print(day06a)
+print(day06b)

@@ -118,6 +118,7 @@ impl Parser {
             TokenType::Hash => self.parse_array_literal_prefixed(),
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
+            TokenType::Do => self.parse_do_block_expression(),
             TokenType::Fn | TokenType::Fun => self.parse_function_literal(),
             TokenType::Backslash => self.parse_lambda(),
             token if prefix_op(token).is_some() => self.parse_prefix_expression(),
@@ -261,6 +262,7 @@ impl Parser {
         let index = self.parse_expression(Precedence::Lowest)?;
 
         if !self.expect_peek(TokenType::RBracket) {
+            let _ = self.recover_to_matching_delimiter(TokenType::RBracket, &[TokenType::Comma]);
             return None;
         }
 
@@ -283,6 +285,9 @@ impl Parser {
                     self.peek_token.token_type
                 ),
             ));
+            // Recover to a statement boundary (or the nearest call-arg close) to
+            // avoid cascading diagnostics from a dangling member access.
+            let _ = self.recover_to_matching_delimiter(TokenType::RParen, &[TokenType::Ident]);
             // Recover by dropping the dangling dot and keeping the object.
             return Some(object);
         }
@@ -400,14 +405,16 @@ impl Parser {
             if self.is_peek_token(TokenType::RParen) {
                 self.next_token();
             } else {
-                // Recover missing `)` at end of line so the following statement
-                // is not misparsed as part of this tuple literal.
-                if self.peek_token.position.line > self.current_token.end_position.line
-                    && self.token_starts_statement(self.peek_token.token_type)
+                self.peek_error(TokenType::RParen);
+                // Recover missing `)` so following code can continue parsing with
+                // minimal cascades.
+                if !self.recover_to_matching_delimiter(
+                    TokenType::RParen,
+                    &[TokenType::Comma, TokenType::LBrace],
+                ) && !self.is_peek_token(TokenType::LBrace)
+                    && !(self.peek_token.position.line > self.current_token.end_position.line
+                        && self.token_starts_statement(self.peek_token.token_type))
                 {
-                    self.peek_error(TokenType::RParen);
-                } else {
-                    self.peek_error(TokenType::RParen);
                     return None;
                 }
             }
@@ -421,14 +428,16 @@ impl Parser {
         if self.is_peek_token(TokenType::RParen) {
             self.next_token();
         } else {
-            // Same recovery as tuple literals: report missing `)` but keep the
-            // grouped expression when the next line starts a new statement.
-            if self.peek_token.position.line > self.current_token.end_position.line
-                && self.token_starts_statement(self.peek_token.token_type)
+            self.peek_error(TokenType::RParen);
+            // Same recovery as tuple literals: report missing `)` and try to
+            // resynchronize locally before giving up.
+            if !self.recover_to_matching_delimiter(
+                TokenType::RParen,
+                &[TokenType::Comma, TokenType::LBrace],
+            ) && !self.is_peek_token(TokenType::LBrace)
+                && !(self.peek_token.position.line > self.current_token.end_position.line
+                    && self.token_starts_statement(self.peek_token.token_type))
             {
-                self.peek_error(TokenType::RParen);
-            } else {
-                self.peek_error(TokenType::RParen);
                 return None;
             }
         }
@@ -593,6 +602,27 @@ impl Parser {
             condition: Box::new(condition),
             consequence,
             alternative,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.is_peek_token(TokenType::LBrace) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                format!(
+                    "Expected `{{` after `do`, got {}.",
+                    self.peek_token.token_type
+                ),
+            ));
+            return None;
+        }
+        self.next_token();
+
+        let block = self.parse_block();
+        Some(Expression::DoBlock {
+            block,
             span: Span::new(start, self.current_token.end_position),
         })
     }
@@ -918,6 +948,7 @@ impl Parser {
             Block {
                 statements: vec![Statement::Expression {
                     expression: expr,
+                    has_semicolon: false,
                     span: Span::new(expr_start, self.current_token.end_position),
                 }],
                 span: expr_span,

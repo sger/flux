@@ -35,7 +35,10 @@ fn parse_expr_to_string(input: &str) -> String {
         input,
         errors
     );
-    program.display_with(&interner)
+    program
+        .display_with(&interner)
+        .trim_end_matches(';')
+        .to_string()
 }
 
 fn parse_program_no_panic(input: &str) -> (Program, Vec<Diagnostic>, Interner) {

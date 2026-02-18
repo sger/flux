@@ -198,6 +198,7 @@ impl JitCompiler {
 
         // Register builtins
         register_builtins(&mut scope, interner);
+        self.predeclare_globals(program, &mut scope);
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
         self.predeclare_functions(program, &mut scope, interner)?;
@@ -234,6 +235,7 @@ impl JitCompiler {
                     ctx_val,
                     None,
                     None,
+                    true,
                     stmt,
                     interner,
                 )?;
@@ -360,6 +362,55 @@ impl JitCompiler {
         Ok(())
     }
 
+    fn predeclare_globals(&self, program: &Program, scope: &mut Scope) {
+        fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<Identifier>) {
+            match pattern {
+                Pattern::Identifier { name, .. } => out.push(*name),
+                Pattern::Some { pattern, .. }
+                | Pattern::Left { pattern, .. }
+                | Pattern::Right { pattern, .. } => collect_pattern_names(pattern, out),
+                Pattern::Cons { head, tail, .. } => {
+                    collect_pattern_names(head, out);
+                    collect_pattern_names(tail, out);
+                }
+                Pattern::Tuple { elements, .. } => {
+                    for element in elements {
+                        collect_pattern_names(element, out);
+                    }
+                }
+                Pattern::Wildcard { .. }
+                | Pattern::Literal { .. }
+                | Pattern::None { .. }
+                | Pattern::EmptyList { .. } => {}
+            }
+        }
+
+        let mut next_idx = scope.globals.len();
+        for stmt in &program.statements {
+            match stmt {
+                Statement::Let { name, .. } => {
+                    scope.globals.entry(*name).or_insert_with(|| {
+                        let idx = next_idx;
+                        next_idx += 1;
+                        idx
+                    });
+                }
+                Statement::LetDestructure { pattern, .. } => {
+                    let mut names = Vec::new();
+                    collect_pattern_names(pattern, &mut names);
+                    for name in names {
+                        scope.globals.entry(name).or_insert_with(|| {
+                            let idx = next_idx;
+                            next_idx += 1;
+                            idx
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn compile_functions(
         &mut self,
         program: &Program,
@@ -481,6 +532,7 @@ impl JitCompiler {
                         ctx_val,
                         Some(return_block),
                         Some(&tail_ctx),
+                        false,
                         body_stmt,
                         interner,
                     )?;
@@ -661,6 +713,7 @@ impl JitCompiler {
                             ctx_val,
                             Some(return_block),
                             Some(&tail_ctx),
+                            false,
                             body_stmt,
                             interner,
                         )?;
@@ -891,6 +944,7 @@ impl JitCompiler {
                         ctx_val,
                         Some(return_block),
                         Some(&tail_ctx),
+                        false,
                         body_stmt,
                         interner,
                     )?;
@@ -967,6 +1021,7 @@ fn compile_statement(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
+    top_level: bool,
     stmt: &Statement,
     interner: &Interner,
 ) -> Result<StmtOutcome, String> {
@@ -983,9 +1038,21 @@ fn compile_statement(
                 value,
                 interner,
             )?;
-            let var = builder.declare_var(PTR_TYPE);
-            builder.def_var(var, val);
-            scope.locals.insert(*name, var);
+            if top_level {
+                if let Some(&idx) = scope.globals.get(name) {
+                    let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
+                    let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
+                    builder.ins().call(set_global, &[ctx_val, idx_val, val]);
+                } else {
+                    let var = builder.declare_var(PTR_TYPE);
+                    builder.def_var(var, val);
+                    scope.locals.insert(*name, var);
+                }
+            } else {
+                let var = builder.declare_var(PTR_TYPE);
+                builder.def_var(var, val);
+                scope.locals.insert(*name, var);
+            }
             Ok(StmtOutcome::None)
         }
         Statement::LetDestructure { pattern, value, .. } => {
@@ -1000,10 +1067,18 @@ fn compile_statement(
                 value,
                 interner,
             )?;
-            bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+            if top_level {
+                bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+            } else {
+                bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+            }
             Ok(StmtOutcome::None)
         }
-        Statement::Expression { expression, .. } => {
+        Statement::Expression {
+            expression,
+            has_semicolon,
+            ..
+        } => {
             let val = compile_expression(
                 module,
                 helpers,
@@ -1015,7 +1090,11 @@ fn compile_statement(
                 expression,
                 interner,
             )?;
-            Ok(StmtOutcome::Value(val))
+            if *has_semicolon {
+                Ok(StmtOutcome::None)
+            } else {
+                Ok(StmtOutcome::Value(val))
+            }
         }
         Statement::Assign { name, value, .. } => {
             let val = compile_expression(
@@ -1283,7 +1362,9 @@ fn compile_expression(
             )?;
             let index_val = builder.ins().iconst(PTR_TYPE, *index as i64);
             let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
-            let call = builder.ins().call(tuple_get, &[ctx_val, tuple_val, index_val]);
+            let call = builder
+                .ins()
+                .call(tuple_get, &[ctx_val, tuple_val, index_val]);
             Ok(builder.inst_results(call)[0])
         }
 
@@ -1469,6 +1550,26 @@ fn compile_expression(
             alternative.as_ref(),
             interner,
         ),
+        Expression::DoBlock { block, .. } => {
+            match compile_block_expression(
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                return_block,
+                tail_call,
+                block,
+                interner,
+            )? {
+                BlockEval::Returned => {
+                    let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+                    let call = builder.ins().call(make_none, &[ctx_val]);
+                    Ok(builder.inst_results(call)[0])
+                }
+                BlockEval::Value(v) => Ok(v),
+            }
+        }
 
         // --- Function calls ---
         Expression::Call {
@@ -2107,6 +2208,72 @@ fn bind_pattern_value(
     }
 }
 
+fn bind_top_level_pattern_value(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    pattern: &Pattern,
+    value: CraneliftValue,
+) -> Result<(), String> {
+    match pattern {
+        Pattern::Identifier { name, .. } => {
+            if let Some(&idx) = scope.globals.get(name) {
+                let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
+                let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
+                builder.ins().call(set_global, &[ctx_val, idx_val, value]);
+                Ok(())
+            } else {
+                bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, value)
+            }
+        }
+        Pattern::Cons { head, tail, .. } => {
+            let cons_head = get_helper_func_ref(module, helpers, builder, "rt_cons_head");
+            let cons_tail = get_helper_func_ref(module, helpers, builder, "rt_cons_tail");
+            let h_call = builder.ins().call(cons_head, &[ctx_val, value]);
+            let t_call = builder.ins().call(cons_tail, &[ctx_val, value]);
+            let h_val = builder.inst_results(h_call)[0];
+            let t_val = builder.inst_results(t_call)[0];
+            bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, head, h_val)?;
+            bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
+            Ok(())
+        }
+        Pattern::Some { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Left { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Right { pattern, .. } => {
+            let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
+            let call = builder.ins().call(unwrap, &[ctx_val, value]);
+            let inner = builder.inst_results(call)[0];
+            bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
+        }
+        Pattern::Tuple { elements, .. } => {
+            let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+            for (index, element) in elements.iter().enumerate() {
+                let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(tuple_get, &[ctx_val, value, index_val]);
+                let item = builder.inst_results(call)[0];
+                bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, element, item)?;
+            }
+            Ok(())
+        }
+        Pattern::Wildcard { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. }
+        | Pattern::Literal { .. } => Ok(()),
+    }
+}
+
 fn compile_block_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -2119,8 +2286,8 @@ fn compile_block_expression(
     interner: &Interner,
 ) -> Result<BlockEval, String> {
     let mut block_scope = scope.clone();
-    let mut last_val = None;
-    for stmt in &block.statements {
+    for (idx, stmt) in block.statements.iter().enumerate() {
+        let is_last = idx + 1 == block.statements.len();
         let outcome = compile_statement(
             module,
             helpers,
@@ -2129,23 +2296,19 @@ fn compile_block_expression(
             ctx_val,
             return_block,
             tail_call,
+            false,
             stmt,
             interner,
         )?;
         match outcome {
-            StmtOutcome::Value(v) => last_val = Some(v),
+            StmtOutcome::Value(v) if is_last => return Ok(BlockEval::Value(v)),
             StmtOutcome::Returned => return Ok(BlockEval::Returned),
-            StmtOutcome::None => {}
+            StmtOutcome::Value(_) | StmtOutcome::None => {}
         }
     }
-    match last_val {
-        Some(v) => Ok(BlockEval::Value(v)),
-        None => {
-            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
-            let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(BlockEval::Value(builder.inst_results(call)[0]))
-        }
-    }
+    let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+    let call = builder.ins().call(make_none, &[ctx_val]);
+    Ok(BlockEval::Value(builder.inst_results(call)[0]))
 }
 
 fn compile_if_expression(
@@ -2788,6 +2951,13 @@ impl LiteralCollector {
                     }
                     self.pop_scope();
                 }
+            }
+            Expression::DoBlock { block, .. } => {
+                self.push_scope();
+                for s in &block.statements {
+                    self.collect_stmt(s);
+                }
+                self.pop_scope();
             }
             Expression::Call {
                 function,

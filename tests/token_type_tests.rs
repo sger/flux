@@ -14,6 +14,7 @@ mod tests {
             matches!(
                 self,
                 TokenType::Let
+                    | TokenType::Do
                     | TokenType::Fn
                     | TokenType::Fun
                     | TokenType::If
@@ -28,6 +29,7 @@ mod tests {
     #[test]
     fn test_lookup_keywords() {
         assert_eq!(lookup_ident("let"), TokenType::Let);
+        assert_eq!(lookup_ident("do"), TokenType::Do);
         assert_eq!(lookup_ident("fn"), TokenType::Fn);
         assert_eq!(lookup_ident("fun"), TokenType::Fun);
         assert_eq!(lookup_ident("if"), TokenType::If);
@@ -47,6 +49,7 @@ mod tests {
     #[test]
     fn test_is_keyword() {
         assert!(TokenType::Let.is_keyword());
+        assert!(TokenType::Do.is_keyword());
         assert!(TokenType::Fn.is_keyword());
         assert!(TokenType::Fun.is_keyword());
         assert!(!TokenType::Ident.is_keyword());

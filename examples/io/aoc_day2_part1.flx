@@ -42,9 +42,8 @@ fn seed_limit_for_max_id(max_id) {
 }
 
 fn id_in_range(id, parsed_range) {
-    let start = range_start(parsed_range)
-    let end = range_end(parsed_range)
-    id >= start && id <= end
+    let bounds = (range_start(parsed_range), range_end(parsed_range))
+    id >= bounds.0 && id <= bounds.1
 }
 
 let range_tokens = read_file("examples/io/aoc_day2.txt")
