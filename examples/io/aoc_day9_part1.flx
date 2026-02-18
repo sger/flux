@@ -2,13 +2,6 @@
 // Largest rectangle area using any two red tiles as opposite corners.
 // Input: examples/io/aoc_day9.txt
 
-fn line_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> ""
-    }
-}
-
 fn int_at(arr, idx) {
     match arr[idx] {
         Some(v) -> v,
@@ -25,19 +18,6 @@ fn arr_at(arr, idx) {
 
 fn abs_val(v) {
     if v < 0 { 0 - v } else { v }
-}
-
-fn parse_points(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let s = trim(line_at(lines, idx))
-        if s == "" {
-            parse_points(lines, idx + 1, acc)
-        } else {
-            parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
-        }
-    }
 }
 
 fn pair_area(p1, p2) {
@@ -68,5 +48,5 @@ fn best_all(points, i, best) {
 }
 
 let lines = read_lines("examples/io/aoc_day9.txt")
-let points = parse_points(lines, 0, [||])
+let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 print(best_all(points, 0, 0))

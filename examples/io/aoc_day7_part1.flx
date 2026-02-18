@@ -39,12 +39,8 @@ fn max_width(lines, idx, cur) {
     }
 }
 
-fn zeros(width, i, acc) {
-    if i >= width {
-        acc
-    } else {
-        zeros(width, i + 1, push(acc, 0))
-    }
+fn zeros(width) {
+    map(range(0, width), \_ -> 0)
 }
 
 fn set1(mask, col) {
@@ -124,7 +120,7 @@ fn simulate(rows, row_idx, width, active, split_count) {
         split_count
     } else {
         let sim_row_text = line_at(rows, row_idx)
-        let empty_next = zeros(width, 0, [||])
+        let empty_next = zeros(width)
         let r = process_cols(sim_row_text, 0, width, active, empty_next, split_count)
         simulate(rows, row_idx + 1, width, res_next(r), res_split(r))
     }
@@ -135,5 +131,5 @@ let grid_w = max_width(input_lines, 0, 0)
 let s = find_s(input_lines, 0)
 let srow = int_at(s, 0)
 let scol = int_at(s, 1)
-let start = set1(zeros(grid_w, 0, [||]), scol)
+let start = set1(zeros(grid_w), scol)
 print(simulate(input_lines, srow, grid_w, start, 0))

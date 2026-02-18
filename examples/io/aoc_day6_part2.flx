@@ -77,46 +77,25 @@ fn slice_padded(s, start, stop) {
     }
 }
 
-fn collect_col_digits(lines, num_rows, col, row, acc) {
-    if row >= num_rows {
-        acc
-    } else {
-        let ch = char_at_pad(line_at(lines, row), col)
-        if ch == " " {
-            collect_col_digits(lines, num_rows, col, row + 1, acc)
-        } else {
-            collect_col_digits(lines, num_rows, col, row + 1, push(acc, ch))
-        }
-    }
-}
-
-fn eval_cols_add(lines, num_rows, col, start, acc) {
-    if col < start {
-        acc
-    } else {
-        let digits = collect_col_digits(lines, num_rows, col, 0, [||])
-        let add = if len(digits) == 0 { 0 } else { parse_int(join(digits, "")) }
-        eval_cols_add(lines, num_rows, col - 1, start, acc + add)
-    }
-}
-
-fn eval_cols_mul(lines, num_rows, col, start, acc) {
-    if col < start {
-        acc
-    } else {
-        let digits = collect_col_digits(lines, num_rows, col, 0, [||])
-        let mul = if len(digits) == 0 { 1 } else { parse_int(join(digits, "")) }
-        eval_cols_mul(lines, num_rows, col - 1, start, acc * mul)
-    }
+fn col_value(lines, num_rows, col, empty_default) {
+    let digits = [
+        char_at_pad(line_at(lines, row), col)
+        | row <- range(0, num_rows),
+          char_at_pad(line_at(lines, row), col) != " "
+    ]
+    if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
 }
 
 fn eval_problem(lines, num_rows, start, stop) {
     let op_line = line_at(lines, num_rows)
     let op = trim(slice_padded(op_line, start, stop))
+    let cols = range(start, stop)
     if op == "*" {
-        eval_cols_mul(lines, num_rows, stop - 1, start, 1)
+        let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+        product(factors)
     } else {
-        eval_cols_add(lines, num_rows, stop - 1, start, 0)
+        let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
+        sum(terms)
     }
 }
 

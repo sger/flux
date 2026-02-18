@@ -39,12 +39,8 @@ fn add_at(arr, idx, delta) {
     }
 }
 
-fn zeros(n, i, acc) {
-    if i >= n {
-        acc
-    } else {
-        zeros(n, i + 1, push(acc, 0))
-    }
+fn zeros(n) {
+    map(range(0, n), \_ -> 0)
 }
 
 fn max_width(lines, i, cur) {
@@ -78,14 +74,6 @@ fn find_s(lines, r) {
         } else {
             find_s(lines, r + 1)
         }
-    }
-}
-
-fn sum_arr(arr, i, acc) {
-    if i >= len(arr) {
-        acc
-    } else {
-        sum_arr(arr, i + 1, acc + int_at(arr, i))
     }
 }
 
@@ -135,10 +123,10 @@ fn process_cols(row_txt, col, width, active_counts, next_counts, finished) {
 
 fn simulate(lines, row_idx, width, active_counts, finished) {
     if row_idx >= len(lines) {
-        finished + sum_arr(active_counts, 0, 0)
+        finished + sum(active_counts)
     } else {
         let row_txt_sim = line_at(lines, row_idx)
-        let next0 = zeros(width, 0, [||])
+        let next0 = zeros(width)
         let r = process_cols(row_txt_sim, 0, width, active_counts, next0, finished)
         simulate(lines, row_idx + 1, width, step_next(r), step_done(r))
     }
@@ -149,5 +137,5 @@ let width7 = max_width(input7, 0, 0)
 let s7 = find_s(input7, 0)
 let srow7 = int_at(s7, 0)
 let scol7 = int_at(s7, 1)
-let start_counts7 = add_at(zeros(width7, 0, [||]), scol7, 1)
+let start_counts7 = add_at(zeros(width7), scol7, 1)
 print(simulate(input7, srow7, width7, start_counts7, 0))

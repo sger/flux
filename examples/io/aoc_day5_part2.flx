@@ -56,19 +56,6 @@ fn find_blank(lines, idx) {
     }
 }
 
-fn parse_ranges(lines, idx, stop, acc) {
-    if idx >= stop {
-        acc
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            parse_ranges(lines, idx + 1, stop, acc)
-        } else {
-            parse_ranges(lines, idx + 1, stop, push(acc, parse_range_line(line)))
-        }
-    }
-}
-
 fn insert_range_rec(sorted, r, i, acc) {
     if i >= len(sorted) {
         push(acc, r)
@@ -121,6 +108,7 @@ fn count_merged(sorted, idx, cur_a, cur_b, acc) {
 
 let lines = read_lines("examples/io/aoc_day5.txt")
 let sep = find_blank(lines, 0)
-let ranges = parse_ranges(lines, 0, sep, [||])
+let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
+let ranges = [parse_range_line(line) | line <- range_lines]
 let sorted = sort_ranges(ranges, 0, [||])
 print(count_merged(sorted, 0, -1, -1, 0))

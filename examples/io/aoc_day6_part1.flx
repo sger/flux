@@ -17,13 +17,6 @@ fn char_at_pad(s, idx) {
     }
 }
 
-fn int_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> 0
-    }
-}
-
 fn max_width(lines, idx, cur) {
     if idx >= len(lines) {
         cur
@@ -83,33 +76,17 @@ fn slice_padded(s, start, stop) {
     }
 }
 
-fn sum_problem(lines, num_rows, row, start, stop, acc) {
-    if row >= num_rows {
-        acc
-    } else {
-        let token = trim(slice_padded(line_at(lines, row), start, stop))
-        let v = parse_int(token)
-        sum_problem(lines, num_rows, row + 1, start, stop, acc + v)
-    }
-}
-
-fn prod_problem(lines, num_rows, row, start, stop, acc) {
-    if row >= num_rows {
-        acc
-    } else {
-        let token = trim(slice_padded(line_at(lines, row), start, stop))
-        let v = parse_int(token)
-        prod_problem(lines, num_rows, row + 1, start, stop, acc * v)
-    }
-}
-
 fn eval_problem(lines, num_rows, start, stop) {
     let op_line = line_at(lines, num_rows)
     let op = trim(slice_padded(op_line, start, stop))
+    let values = [
+        parse_int(trim(slice_padded(line_at(lines, row), start, stop)))
+        | row <- range(0, num_rows)
+    ]
     if op == "*" {
-        prod_problem(lines, num_rows, 0, start, stop, 1)
+        product(values)
     } else {
-        sum_problem(lines, num_rows, 0, start, stop, 0)
+        sum(values)
     }
 }
 

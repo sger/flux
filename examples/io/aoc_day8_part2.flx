@@ -3,13 +3,6 @@
 // Return X[a] * X[b] for the last successful union edge.
 // Input: examples/io/aoc_day8.txt
 
-fn line_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> ""
-    }
-}
-
 fn int_at(arr, idx) {
     match arr[idx] {
         Some(v) -> v,
@@ -28,19 +21,6 @@ fn set_at(arr, idx, value) {
     let left = slice(arr, 0, idx)
     let right = slice(arr, idx + 1, len(arr))
     concat(concat(left, [|value|]), right)
-}
-
-fn parse_points(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
-        let s = trim(line_at(lines, idx))
-        if s == "" {
-            parse_points(lines, idx + 1, acc)
-        } else {
-            parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
-        }
-    }
 }
 
 fn dist_sq(points, i, j) {
@@ -172,5 +152,5 @@ fn solve_limit(points, limit, max_limit) {
 }
 
 let lines = read_lines("examples/io/aoc_day8.txt")
-let points = parse_points(lines, 0, [||])
+let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 print(solve_limit(points, 188000000, 40000000000))

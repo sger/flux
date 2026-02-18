@@ -114,17 +114,16 @@ module Day2Part2 {
     }
 
     fn parse_ranges(path) {
-        read_file(path)
-            |> trim
-            |> split(",")
-            |> filter(\t -> trim(t) != "")
-            |> map(\t -> parse_range_token(t))
+        [parse_range_token(t)
+            | t <- read_file(path)
+                |> trim
+                |> split(","),
+              trim(t) != ""]
     }
 
     fn max_end(parsed_ranges) {
-        parsed_ranges
-            |> map(\r -> range_end(r))
-            |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
+        let ends = [range_end(r) | r <- parsed_ranges]
+        ends |> fold(0, \(acc, x) -> if x > acc { x } else { acc })
     }
 
     fn solve_parsed_ranges(parsed_ranges) {

@@ -20,22 +20,6 @@ fn parse_rotation(line) {
     }
 }
 
-fn parse_line(line, rest, acc) {
-    let cleaned = trim(line)
-    if cleaned == "" {
-        parse_rotations(rest, acc)
-    } else {
-        parse_rotations(rest, [parse_rotation(cleaned) | acc])
-    }
-}
-
-fn parse_rotations(lines, acc) {
-    match lines {
-        [line | rest] -> parse_line(line, rest, acc),
-        _ -> reverse(acc),
-    }
-}
-
 fn process_step(step, rest, state) {
     let (pos, hits) = state
     let next_pos = wrap_100(pos + step)
@@ -51,6 +35,6 @@ fn solve_steps(steps, state) {
 }
 
 let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-let steps = parse_rotations(lines, None)
+let steps = [parse_rotation(trim(line)) | line <- lines, trim(line) != ""]
 let password = solve_steps(steps, (50, 0))
 print(password)

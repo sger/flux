@@ -157,19 +157,7 @@ fn machine_min_presses(line) {
     dfs_min(target, buttons, 0, init, 0, best_init)
 }
 
-fn solve_lines(lines, idx, total) {
-    if idx >= len(lines) {
-        total
-    } else {
-        let line = trim(line_at(lines, idx))
-        if line == "" {
-            solve_lines(lines, idx + 1, total)
-        } else {
-            let p = machine_min_presses(line)
-            solve_lines(lines, idx + 1, total + p)
-        }
-    }
-}
-
 let lines = read_lines("examples/io/aoc_day10.txt")
-print(solve_lines(lines, 0, 0))
+let machine_lines = [trim(line) | line <- lines, trim(line) != ""]
+let presses = [machine_min_presses(line) | line <- machine_lines]
+print(sum(presses))
