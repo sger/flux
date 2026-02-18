@@ -133,11 +133,12 @@ done
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "== Build release binaries =="
-  cargo build --release --bin flux --bin "$RUST_BIN"
+  cargo build --release --features jit --bin flux --bin "$RUST_BIN"
   echo
 fi
 
 FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
+FLUX_JIT_CMD="./target/release/flux $FLUX_PROGRAM --jit"
 RUST_CMD="./target/release/$RUST_BIN $INPUT"
 PYTHON_CMD="python3 $PYTHON_SCRIPT $INPUT"
 
@@ -152,6 +153,7 @@ scripts/bench_cross_lang.sh --native --runs "$RUNS" --warmup "$WARMUP" \
   --input "$INPUT" \
   --name-prefix "$NAME_PREFIX" \
   --flux-cmd "$FLUX_CMD" \
+  --flux-jit-cmd "$FLUX_JIT_CMD" \
   --rust-cmd "$RUST_CMD" \
   --python-cmd "$PYTHON_CMD"
 echo
@@ -171,4 +173,3 @@ echo "== Flamewatch (top ${TOP_N}) =="
 perl -ne 'while(/<title>([^<]+)<\/title>/g){$t=$1; if($t =~ /^(.*) \(([0-9,]+) samples, ([0-9.]+)%\)$/){$n=$1;$p=$3; if(!defined $m{$n} || $p>$m{$n}){$m{$n}=$p;} }} END { for $k (keys %m){ printf "%.2f\t%s\n", $m{$k}, $k; } }' flamegraph.svg \
   | sort -nr \
   | head -n "$TOP_N"
-
