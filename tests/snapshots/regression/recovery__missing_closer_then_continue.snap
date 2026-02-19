@@ -4,10 +4,16 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/missing_closer_then_continue.flx
 exit_code: 1
 
---> compiler error[E034]: UNEXPECTED TOKEN
+--> compiler error[E076]: UNCLOSED DELIMITER
 
-Expected `,` or `]` after array element, got ;.
+Expected a closing `]` to match this opening `[`.
 
+  --> tests/fixtures/recovery/missing_closer_then_continue.flx:1:9
+  |
+1 | let a = [1, 2, 3;
+  |         ^
+
+note: Expected `]` before this token.
   --> tests/fixtures/recovery/missing_closer_then_continue.flx:1:17
   |
 1 | let a = [1, 2, 3;

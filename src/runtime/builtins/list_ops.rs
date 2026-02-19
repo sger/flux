@@ -214,6 +214,18 @@ pub(super) fn format_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Str
 /// Format a value with GC-aware display.
 pub fn format_value(ctx: &dyn RuntimeContext, value: &Value) -> String {
     match value {
+        Value::Array(elements) => {
+            let items: Vec<String> = elements.iter().map(|e| format_value(ctx, e)).collect();
+            format!("[|{}|]", items.join(", "))
+        }
+        Value::Tuple(elements) => {
+            let items: Vec<String> = elements.iter().map(|e| format_value(ctx, e)).collect();
+            match items.len() {
+                0 => "()".to_string(),
+                1 => format!("({},)", items[0]),
+                _ => format!("({})", items.join(", ")),
+            }
+        }
         Value::Gc(h) => {
             if is_hamt(ctx.gc_heap(), *h) {
                 format_hamt(ctx.gc_heap(), *h)

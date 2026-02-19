@@ -25,13 +25,14 @@ import Modules.ListUtils as L
 // Create Student Data
 // =============================================================================
 
-let students = [|
-    SG.make_student("Alice", [|92, 88, 95, 91|]),
-    SG.make_student("Bob", [|78, 82, 75, 80|]),
-    SG.make_student("Charlie", [|95, 98, 92, 97|]),
-    SG.make_student("Diana", [|65, 70, 68, 72|]),
-    SG.make_student("Eve", [|55, 60, 48, 52|]),
+let student_rows = [|
+    ("Alice", [|92, 88, 95, 91|]),
+    ("Bob", [|78, 82, 75, 80|]),
+    ("Charlie", [|95, 98, 92, 97|]),
+    ("Diana", [|65, 70, 68, 72|]),
+    ("Eve", [|55, 60, 48, 52|]),
 |]
+let students = map(student_rows, \row -> SG.make_student(row.0, row.1))
 
 // =============================================================================
 // Run Analysis
@@ -43,10 +44,12 @@ let results = SG.analyze(students)
 // Print each student's results
 fn show(results, name) {
     let r = M.val(results, name)
-    let avg = to_string(M.val(r, "average"))
-    let grade = M.val(r, "grade")
-    let passed = to_string(M.val(r, "passed"))
-    print(name + ": avg=" + avg + ", grade=" + grade + ", passed=" + passed)
+    let summary = (
+        to_string(M.val(r, "average")),
+        M.val(r, "grade"),
+        to_string(M.val(r, "passed"))
+    )
+    print(name + ": avg=" + summary.0 + ", grade=" + summary.1 + ", passed=" + summary.2)
 }
 
 show(results, "Alice")
@@ -109,8 +112,9 @@ print("Range 1..10:", nums)
 print("Sum: " + to_string(L.sum(nums)))
 
 // Take and drop
-print("First 3:", L.take(nums, 3))
-print("Last 3:", L.drop(nums, 7))
+let slices = (L.take(nums, 3), L.drop(nums, 7))
+print("First 3:", slices.0)
+print("Last 3:", slices.1)
 
 // Pipeline: range -> filter evens -> map square -> sum
 let even_squares_sum = L.sum(map(filter(nums, \x -> x % 2 == 0), \x -> x * x))

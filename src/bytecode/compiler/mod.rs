@@ -138,6 +138,7 @@ impl Compiler {
         symbol_table.define_builtin(59, interner.intern("product"));
         symbol_table.define_builtin(60, interner.intern("parse_ints"));
         symbol_table.define_builtin(61, interner.intern("split_ints"));
+        symbol_table.define_builtin(62, interner.intern("flat_map"));
 
         Self {
             constants: Vec::new(),
@@ -350,6 +351,14 @@ impl Compiler {
             self.emit(OpCode::OpArray, &[count]);
         } else {
             self.emit(OpCode::OpArrayLong, &[count]);
+        }
+    }
+
+    pub(super) fn emit_tuple_count(&mut self, count: usize) {
+        if u16::try_from(count).is_ok() {
+            self.emit(OpCode::OpTuple, &[count]);
+        } else {
+            self.emit(OpCode::OpTupleLong, &[count]);
         }
     }
 

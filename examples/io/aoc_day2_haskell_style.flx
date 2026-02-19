@@ -1,0 +1,128 @@
+// Advent of Code - Day 2 (Haskell-style translation)
+// Inspired by AOC2025.Day02 day02a/day02b structure.
+// Uses input file: examples/io/aoc_day2.txt
+
+fn digits_count(n) {
+    if n < 10 {
+        1
+    } else {
+        1 + digits_count(n / 10)
+    }
+}
+
+fn pow10(exp) {
+    if exp <= 0 {
+        1
+    } else {
+        10 * pow10(exp - 1)
+    }
+}
+
+fn repeat_value(seed, base, times_left, acc) {
+    if times_left <= 0 {
+        acc
+    } else {
+        repeat_value(seed, base, times_left - 1, acc * base + seed)
+    }
+}
+
+// repDigits n x
+fn rep_digits(times, value) {
+    let base = pow10(digits_count(value))
+    repeat_value(value, base, times - 1, value)
+}
+
+fn parse_range_token(token) {
+    let start = first(split_ints(trim(token), "-"));
+    let end = last(split_ints(trim(token), "-"));
+    (start, end)
+}
+
+fn parse_ranges(path) {
+    read_file(path)
+        |> trim
+        |> split(",")
+        |> filter(\t -> trim(t) != "")
+        |> map(\t -> parse_range_token(t))
+}
+
+fn id_in_range(id, range_pair) {
+    let (start, end) = range_pair
+    id >= start && id <= end
+}
+
+fn id_in_any_range(id, ranges) {
+    ranges |> fold(false, \(found, r) -> if found { true } else { id_in_range(id, r) })
+}
+
+fn maybe_add_candidate(candidate, ranges, state) {
+    let total = state.0
+    let seen = state.1
+
+    if id_in_any_range(candidate, ranges) {
+        if has_key(seen, candidate) {
+            state
+        } else {
+            (total + candidate, put(seen, candidate, true))
+        }
+    } else {
+        state
+    }
+}
+
+fn max_seed_for_repeat_count(repeat_count) {
+    // rep_digits(repeat_count, seed) must stay below 1e11.
+    // A safe bound is based on decimal digits:
+    // if seed has d digits, repeated number has repeat_count * d digits.
+    let max_digits = 10 / repeat_count
+    if max_digits <= 0 {
+        0
+    } else {
+        pow10(max_digits) - 1
+    }
+}
+
+fn generate_for_repeat_count(repeat_count, ranges, state) {
+    let max_seed = max_seed_for_repeat_count(repeat_count)
+    if max_seed <= 0 {
+        state
+    } else {
+        range(1, max_seed + 1)
+            |> fold(state, \(acc, s) ->
+                do {
+                    let candidate = rep_digits(repeat_count, s)
+                    if candidate >= 100000000000 {
+                        acc
+                    } else {
+                        maybe_add_candidate(candidate, ranges, acc)
+                    }
+                }
+            )
+    }
+}
+
+fn solve_for_repeat_counts(repeat_counts, ranges, state) {
+    match repeat_counts {
+        [count | rest] -> do {
+            let next_state = generate_for_repeat_count(count, ranges, state)
+            solve_for_repeat_counts(rest, ranges, next_state)
+        },
+        _ -> state.0
+    }
+}
+
+fn day02(repeat_counts, ranges) {
+    // state = (sum, seen_set_as_hash)
+    solve_for_repeat_counts(repeat_counts, ranges, (0, {}))
+}
+
+let ranges = parse_ranges("examples/io/aoc_day2.txt")
+
+// day02a: repetitions [2]
+let day02a = day02([2], ranges)
+
+// day02b: repetitions [2..11]
+let day02b = day02(to_list(range(2, 12)), ranges)
+
+print(day02a)
+print(day02b)

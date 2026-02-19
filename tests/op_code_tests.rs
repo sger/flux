@@ -127,6 +127,9 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpClosureLong), vec![4, 1]);
         assert_eq!(operand_widths(OpCode::OpArrayLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpHashLong), vec![4]);
+        assert_eq!(operand_widths(OpCode::OpTuple), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpTupleLong), vec![4]);
+        assert_eq!(operand_widths(OpCode::OpTupleIndex), vec![1]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
     }
 }

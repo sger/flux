@@ -79,6 +79,14 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             visitor.visit_identifier(name);
             visitor.visit_expr(value);
         }
+        Statement::LetDestructure {
+            pattern,
+            value,
+            span: _,
+        } => {
+            visitor.visit_pat(pattern);
+            visitor.visit_expr(value);
+        }
         Statement::Return { value, span: _ } => {
             if let Some(expr) = value {
                 visitor.visit_expr(expr);
@@ -86,6 +94,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         Statement::Expression {
             expression,
+            has_semicolon: _,
             span: _,
         } => {
             visitor.visit_expr(expression);
@@ -173,6 +182,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_block(alt);
             }
         }
+        Expression::DoBlock { block, span: _ } => {
+            visitor.visit_block(block);
+        }
         Expression::Function {
             parameters,
             body,
@@ -194,7 +206,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             }
         }
         Expression::ListLiteral { elements, span: _ }
-        | Expression::ArrayLiteral { elements, span: _ } => {
+        | Expression::ArrayLiteral { elements, span: _ }
+        | Expression::TupleLiteral { elements, span: _ } => {
             for elem in elements {
                 visitor.visit_expr(elem);
             }
@@ -221,6 +234,13 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         } => {
             visitor.visit_expr(object);
             visitor.visit_identifier(member);
+        }
+        Expression::TupleFieldAccess {
+            object,
+            index: _,
+            span: _,
+        } => {
+            visitor.visit_expr(object);
         }
         Expression::Match {
             scrutinee,
@@ -276,6 +296,11 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
             visitor.visit_pat(tail);
         }
         Pattern::EmptyList { .. } => {}
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                visitor.visit_pat(element);
+            }
+        }
     }
 }
 

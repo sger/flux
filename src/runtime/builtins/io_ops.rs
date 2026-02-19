@@ -186,7 +186,7 @@ pub(super) fn builtin_time(
 ) -> Result<Value, String> {
     check_arity(&args, 1, "time", "time(fn)")?;
     match &args[0] {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "time",

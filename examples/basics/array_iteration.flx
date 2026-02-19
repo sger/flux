@@ -22,23 +22,23 @@ fn printAll(arr) {
 printAll([|1, 2, 3, 4, 5|]);
 
 // Sum all elements
-fn sum(arr) {
+fn mySum(arr) {
     if len(arr) == 0 {
-        0;
+        0
     } else {
-        first(arr) + sum(rest(arr));
-    };
+        first(arr) + mySum(rest(arr))
+    }
 }
 
-print(sum([|1, 2, 3, 4, 5|]));
+print(mySum([|1, 2, 3, 4, 5|]));
 
 // Count elements (alternative to len)
 fn count(arr) {
     if len(arr) == 0 {
-        0;
+        0
     } else {
-        1 + count(rest(arr));
-    };
+        1 + count(rest(arr))
+    }
 }
 
 print(count([|10, 20, 30|]));

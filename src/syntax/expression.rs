@@ -47,6 +47,10 @@ pub enum Pattern {
     EmptyList {
         span: Span,
     },
+    Tuple {
+        elements: Vec<Pattern>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +104,10 @@ pub enum Expression {
         alternative: Option<Block>,
         span: Span,
     },
+    DoBlock {
+        block: Block,
+        span: Span,
+    },
     Function {
         parameters: Vec<Identifier>,
         body: Block,
@@ -118,6 +126,10 @@ pub enum Expression {
         elements: Vec<Expression>,
         span: Span,
     },
+    TupleLiteral {
+        elements: Vec<Expression>,
+        span: Span,
+    },
     EmptyList {
         span: Span,
     },
@@ -133,6 +145,11 @@ pub enum Expression {
     MemberAccess {
         object: Box<Expression>,
         member: Identifier,
+        span: Span,
+    },
+    TupleFieldAccess {
+        object: Box<Expression>,
+        index: usize,
         span: Span,
     },
     Match {
@@ -206,6 +223,7 @@ impl fmt::Display for Expression {
                 }
                 Ok(())
             }
+            Expression::DoBlock { block, .. } => write!(f, "do {}", block),
             Expression::Function {
                 parameters, body, ..
             } => {
@@ -228,6 +246,14 @@ impl fmt::Display for Expression {
                 let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[|{}|]", elems.join(", "))
             }
+            Expression::TupleLiteral { elements, .. } => {
+                let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match elems.len() {
+                    0 => write!(f, "()"),
+                    1 => write!(f, "({},)", elems[0]),
+                    _ => write!(f, "({})", elems.join(", ")),
+                }
+            }
             Expression::EmptyList { .. } => write!(f, "[]"),
             Expression::Index { left, index, .. } => {
                 write!(f, "({}[{}])", left, index)
@@ -239,6 +265,9 @@ impl fmt::Display for Expression {
             }
             Expression::MemberAccess { object, member, .. } => {
                 write!(f, "{}.{}", object, member)
+            }
+            Expression::TupleFieldAccess { object, index, .. } => {
+                write!(f, "{}.{}", object, index)
             }
             Expression::Match {
                 scrutinee, arms, ..
@@ -274,14 +303,17 @@ impl Expression {
             | Expression::Prefix { span, .. }
             | Expression::Infix { span, .. }
             | Expression::If { span, .. }
+            | Expression::DoBlock { span, .. }
             | Expression::Function { span, .. }
             | Expression::Call { span, .. }
             | Expression::ListLiteral { span, .. }
             | Expression::ArrayLiteral { span, .. }
+            | Expression::TupleLiteral { span, .. }
             | Expression::EmptyList { span, .. }
             | Expression::Index { span, .. }
             | Expression::Hash { span, .. }
             | Expression::MemberAccess { span, .. }
+            | Expression::TupleFieldAccess { span, .. }
             | Expression::Match { span, .. }
             | Expression::None { span, .. }
             | Expression::Some { span, .. } => *span,
@@ -340,6 +372,9 @@ impl Expression {
                 }
                 out
             }
+            Expression::DoBlock { block, .. } => {
+                format!("do {}", block)
+            }
             Expression::Function {
                 parameters, body, ..
             } => {
@@ -365,6 +400,15 @@ impl Expression {
                     elements.iter().map(|e| e.display_with(interner)).collect();
                 format!("[|{}|]", elems.join(", "))
             }
+            Expression::TupleLiteral { elements, .. } => {
+                let elems: Vec<String> =
+                    elements.iter().map(|e| e.display_with(interner)).collect();
+                match elems.len() {
+                    0 => "()".to_string(),
+                    1 => format!("({},)", elems[0]),
+                    _ => format!("({})", elems.join(", ")),
+                }
+            }
             Expression::EmptyList { .. } => "[]".to_string(),
             Expression::Index { left, index, .. } => {
                 format!(
@@ -388,6 +432,9 @@ impl Expression {
                     object.display_with(interner),
                     interner.resolve(*member)
                 )
+            }
+            Expression::TupleFieldAccess { object, index, .. } => {
+                format!("{}.{}", object.display_with(interner), index)
             }
             Expression::Match {
                 scrutinee, arms, ..
@@ -458,6 +505,15 @@ impl Pattern {
                 )
             }
             Pattern::EmptyList { .. } => "[]".to_string(),
+            Pattern::Tuple { elements, .. } => {
+                let elems: Vec<String> =
+                    elements.iter().map(|e| e.display_with(interner)).collect();
+                match elems.len() {
+                    0 => "()".to_string(),
+                    1 => format!("({},)", elems[0]),
+                    _ => format!("({})", elems.join(", ")),
+                }
+            }
         }
     }
 }
@@ -474,6 +530,14 @@ impl fmt::Display for Pattern {
             Pattern::Right { pattern, .. } => write!(f, "Right({})", pattern),
             Pattern::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
             Pattern::EmptyList { .. } => write!(f, "[]"),
+            Pattern::Tuple { elements, .. } => {
+                let elems: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match elems.len() {
+                    0 => write!(f, "()"),
+                    1 => write!(f, "({},)", elems[0]),
+                    _ => write!(f, "({})", elems.join(", ")),
+                }
+            }
         }
     }
 }
@@ -487,7 +551,8 @@ impl Pattern {
             | Pattern::None { span }
             | Pattern::Some { span, .. }
             | Pattern::Left { span, .. }
-            | Pattern::Right { span, .. } => *span,
+            | Pattern::Right { span, .. }
+            | Pattern::Tuple { span, .. } => *span,
             Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }

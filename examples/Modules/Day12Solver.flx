@@ -1,0 +1,49 @@
+import Modules.Day12Parser as P
+
+module Modules.Day12Solver {
+    fn int_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0
+        }
+    }
+
+    fn area_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [||]
+        }
+    }
+
+    fn weighted_sum(block_sizes, counts, idx, acc) {
+        if idx >= len(block_sizes) || idx >= len(counts) {
+            acc
+        } else {
+            weighted_sum(block_sizes, counts, idx + 1, acc + (int_at(block_sizes, idx) * int_at(counts, idx)))
+        }
+    }
+
+    fn count_valid_areas(block_sizes, areas, idx, acc) {
+        if idx >= len(areas) {
+            acc
+        } else {
+            let area = area_at(areas, idx)
+            let w = int_at(area, 0)
+            let h = int_at(area, 1)
+            let counts = match area[2] {
+                Some(v) -> v,
+                _ -> [||]
+            }
+            let lhs = w * h
+            let rhs = weighted_sum(block_sizes, counts, 0, 0)
+            let add = if lhs >= rhs { 1 } else { 0 }
+            count_valid_areas(block_sizes, areas, idx + 1, acc + add)
+        }
+    }
+
+    fn day12a(input_lines) {
+        let block_sizes = P.parse_block_sizes(input_lines)
+        let areas = P.parse_areas(input_lines)
+        count_valid_areas(block_sizes, areas, 0, 0)
+    }
+}

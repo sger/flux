@@ -1,0 +1,160 @@
+// Advent of Code - Day 5 (Haskell-style translation)
+// Inspired by AOC2025.Day05 day05a/day05b.
+// Uses input file: examples/io/aoc_day5.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn tuple_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> (0, 0)
+    }
+}
+
+fn find_blank(lines, idx) {
+    if idx >= len(lines) {
+        len(lines)
+    } else {
+        if trim(line_at(lines, idx)) == "" {
+            idx
+        } else {
+            find_blank(lines, idx + 1)
+        }
+    }
+}
+
+fn parse_range_line(line) {
+    let parts = split_ints(trim(line), "-")
+    let a = int_at(parts, 0)
+    let b = int_at(parts, 1)
+    if a <= b { (a, b) } else { (b, a) }
+}
+
+fn parse_ranges(lines, idx, stop, acc) {
+    if idx >= stop {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            parse_ranges(lines, idx + 1, stop, acc)
+        } else {
+            parse_ranges(lines, idx + 1, stop, push(acc, parse_range_line(line)))
+        }
+    }
+}
+
+fn parse_values(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let line = trim(line_at(lines, idx))
+        if line == "" {
+            parse_values(lines, idx + 1, acc)
+        } else {
+            parse_values(lines, idx + 1, push(acc, parse_int(line)))
+        }
+    }
+}
+
+fn parse_input(path) {
+    let lines = read_lines(path)
+    let sep = find_blank(lines, 0)
+    let ranges = parse_ranges(lines, 0, sep, [||])
+    let values = parse_values(lines, sep + 1, [||]);
+    (ranges, values)
+}
+
+fn in_any_range(x, ranges, idx) {
+    if idx >= len(ranges) {
+        false
+    } else {
+        let r = tuple_at(ranges, idx)
+        if x >= r.0 && x <= r.1 {
+            true
+        } else {
+            in_any_range(x, ranges, idx + 1)
+        }
+    }
+}
+
+fn count_members(xs, ranges, idx, acc) {
+    if idx >= len(xs) {
+        acc
+    } else {
+        let x = int_at(xs, idx)
+        let add = if in_any_range(x, ranges, 0) { 1 } else { 0 }
+        count_members(xs, ranges, idx + 1, acc + add)
+    }
+}
+
+fn insert_sorted_ranges(sorted, r, idx, acc) {
+    if idx >= len(sorted) {
+        push(acc, r)
+    } else {
+        let cur = tuple_at(sorted, idx)
+        if r.0 < cur.0 {
+            concat(concat(acc, [|r|]), slice(sorted, idx, len(sorted)))
+        } else {
+            insert_sorted_ranges(sorted, r, idx + 1, push(acc, cur))
+        }
+    }
+}
+
+fn sort_ranges(ranges, idx, acc) {
+    if idx >= len(ranges) {
+        acc
+    } else {
+        sort_ranges(ranges, idx + 1, insert_sorted_ranges(acc, tuple_at(ranges, idx), 0, [||]))
+    }
+}
+
+fn merged_width_sum(sorted, idx, cur_lo, cur_hi, acc) {
+    if idx >= len(sorted) {
+        if cur_lo < 0 {
+            acc
+        } else {
+            acc + (cur_hi - cur_lo + 1)
+        }
+    } else {
+        let r = tuple_at(sorted, idx)
+        if cur_lo < 0 {
+            merged_width_sum(sorted, idx + 1, r.0, r.1, acc)
+        } else {
+            if r.0 <= cur_hi + 1 {
+                let next_hi = if r.1 > cur_hi { r.1 } else { cur_hi }
+                merged_width_sum(sorted, idx + 1, cur_lo, next_hi, acc)
+            } else {
+                merged_width_sum(sorted, idx + 1, r.0, r.1, acc + (cur_hi - cur_lo + 1))
+            }
+        }
+    }
+}
+
+fn day05a(parsed) {
+    let ranges = parsed.0
+    let xs = parsed.1
+    count_members(xs, ranges, 0, 0)
+}
+
+fn day05b(ranges) {
+    let sorted = sort_ranges(ranges, 0, [||])
+    merged_width_sum(sorted, 0, -1, -1, 0)
+}
+
+let parsed = parse_input("examples/io/aoc_day5.txt")
+let ranges = parsed.0
+
+print(day05a(parsed))
+print(day05b(ranges))

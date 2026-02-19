@@ -27,9 +27,15 @@ impl Compiler {
         self.current_span = Some(statement.span());
         let result = (|| {
             match statement {
-                Statement::Expression { expression, .. } => {
+                Statement::Expression {
+                    expression,
+                    has_semicolon,
+                    ..
+                } => {
                     self.compile_expression(expression)?;
-                    self.emit(OpCode::OpPop, &[]);
+                    if !self.in_tail_position || *has_semicolon {
+                        self.emit(OpCode::OpPop, &[]);
+                    }
                 }
                 Statement::Let { name, value, span } => {
                     let name = *name;
@@ -73,6 +79,27 @@ impl Compiler {
                     if self.scope_index == 0 {
                         self.file_scope_symbols.insert(name);
                     }
+                }
+                Statement::LetDestructure { pattern, value, .. } => {
+                    self.compile_expression(value)?;
+                    let temp_symbol = self.symbol_table.define_temp();
+                    match temp_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[temp_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_SYMBOL_SCOPE_LET,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    self.compile_pattern_bind(&temp_symbol, pattern)?;
                 }
                 Statement::Assign { name, span, .. } => {
                     let name = *name;
@@ -245,11 +272,15 @@ impl Compiler {
             compiler.compile_block_with_tail(body)
         })?;
 
-        if self.is_last_instruction(OpCode::OpPop) {
-            self.replace_last_pop_with_return();
-        }
-
-        if !self.is_last_instruction(OpCode::OpReturnValue)
+        if self.block_has_value_tail(body) {
+            if self.is_last_instruction(OpCode::OpPop) {
+                self.replace_last_pop_with_return();
+            } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                && !self.is_last_instruction(OpCode::OpReturnLocal)
+            {
+                self.emit(OpCode::OpReturnValue, &[]);
+            }
+        } else if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
         {
             self.emit(OpCode::OpReturn, &[]);
@@ -454,7 +485,10 @@ impl Compiler {
             let is_last = i == len - 1;
             let tail_eligible = matches!(
                 statement,
-                Statement::Expression { .. } | Statement::Return { .. }
+                Statement::Expression {
+                    has_semicolon: false,
+                    ..
+                } | Statement::Return { .. }
             );
 
             if is_last && tail_eligible {
@@ -466,5 +500,15 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    pub(super) fn block_has_value_tail(&self, block: &Block) -> bool {
+        matches!(
+            block.statements.last(),
+            Some(Statement::Expression {
+                has_semicolon: false,
+                ..
+            })
+        )
     }
 }
