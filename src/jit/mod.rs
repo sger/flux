@@ -21,24 +21,34 @@ pub struct JitOptions {
     pub gc_threshold: Option<usize>,
 }
 
-/// High-level entry point: compile and run a Flux program via JIT.
-/// Returns the result value and the JIT context (for telemetry/diagnostics).
-pub fn jit_compile_and_run(
+/// Compiled JIT program ready to execute.
+/// Keeps the `JitCompiler` alive so the code memory backing `main_ptr` is valid.
+pub struct JitCompiledProgram {
+    _compiler: JitCompiler,
+    main_ptr: *const u8,
+    pub ctx: JitContext,
+}
+
+// SAFETY: The function pointer points into memory owned by `_compiler` (the
+// JITModule), which travels with this struct. Single-threaded use only.
+unsafe impl Send for JitCompiledProgram {}
+
+/// Compile a Flux program to native code via Cranelift. Does not execute.
+/// Returns a `JitCompiledProgram` ready to pass to `jit_execute`.
+pub fn jit_compile(
     program: &Program,
     interner: &Interner,
     options: &JitOptions,
-) -> Result<(Value, JitContext), String> {
+) -> Result<JitCompiledProgram, String> {
     let mut compiler = JitCompiler::new()?;
     let main_id = compiler.compile_program(program, interner)?;
     compiler.finalize();
 
     let main_ptr = compiler.get_func_ptr(main_id);
 
-    // Create JIT execution context
     let mut ctx = JitContext::new();
     ctx.set_jit_functions(compiler.jit_function_entries());
 
-    // Apply GC options
     if options.no_gc {
         ctx.gc_heap.set_enabled(false);
     }
@@ -46,21 +56,39 @@ pub fn jit_compile_and_run(
         ctx.gc_heap.set_threshold(threshold);
     }
 
-    // Call the compiled main function: fn(ctx: *mut JitContext) -> *mut Value
+    Ok(JitCompiledProgram {
+        _compiler: compiler,
+        main_ptr,
+        ctx,
+    })
+}
+
+/// Execute a previously compiled JIT program.
+pub fn jit_execute(mut compiled: JitCompiledProgram) -> Result<(Value, JitContext), String> {
     let result_ptr: *mut Value = unsafe {
         let func: unsafe extern "C" fn(*mut JitContext) -> *mut Value =
-            std::mem::transmute(main_ptr);
-        func(&mut ctx as *mut JitContext)
+            std::mem::transmute(compiled.main_ptr);
+        func(&mut compiled.ctx as *mut JitContext)
     };
 
-    // Check for errors
     if result_ptr.is_null() {
-        return Err(ctx
+        return Err(compiled
+            .ctx
             .take_error()
             .unwrap_or_else(|| "unknown JIT error".to_string()));
     }
 
-    // Clone the result out of the arena before it's dropped
     let result = unsafe { (*result_ptr).clone() };
-    Ok((result, ctx))
+    Ok((result, compiled.ctx))
+}
+
+/// High-level entry point: compile and run a Flux program via JIT.
+/// Returns the result value and the JIT context (for telemetry/diagnostics).
+pub fn jit_compile_and_run(
+    program: &Program,
+    interner: &Interner,
+    options: &JitOptions,
+) -> Result<(Value, JitContext), String> {
+    let compiled = jit_compile(program, interner, options)?;
+    jit_execute(compiled)
 }
