@@ -1,0 +1,126 @@
+// Advent of Code - Day 8 Part 1 (Playground)
+// Connect the 1000 closest pairs and multiply the sizes of the 3 largest circuits.
+// Performance: prune edges by distance threshold (from the Rust approach).
+// Input: examples/io/aoc_day8.txt
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn set_at(arr, idx, value) {
+    let left = slice(arr, 0, idx)
+    let right = slice(arr, idx + 1, len(arr))
+    concat(concat(left, [|value|]), right)
+}
+
+fn dist_sq(points, i, j) {
+    ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
+        * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
+        + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
+            * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
+        + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
+            * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
+}
+
+fn pair_code(i, j) {
+    (i * 1000) + j
+}
+
+fn edge_key(points, i, j) {
+    (dist_sq(points, i, j) * 1000000) + pair_code(i, j)
+}
+
+fn maybe_push_edge(points, i, j, max_dist, acc) {
+    let d = dist_sq(points, i, j)
+    if d < max_dist {
+        push(acc, (d * 1000000) + pair_code(i, j))
+    } else {
+        acc
+    }
+}
+
+fn root(parents, x) {
+    let p = int_at(parents, x)
+    if p == x { x } else { root(parents, p) }
+}
+
+fn dsu_state(parents, sizes) {
+    let s = put({}, "p", parents)
+    put(s, "sz", sizes)
+}
+
+fn dsu_parents(state) {
+    match get(state, "p") {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn dsu_sizes(state) {
+    match get(state, "sz") {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn union_key(state, key) {
+    let parents = dsu_parents(state)
+    let sizes = dsu_sizes(state)
+    let code = key % 1000000
+    let i = code / 1000
+    let j = code % 1000
+    let ri = root(parents, i)
+    let rj = root(parents, j)
+
+    if ri == rj {
+        state
+    } else {
+        let si = int_at(sizes, ri)
+        let sj = int_at(sizes, rj)
+        if si >= sj {
+            let p_merge_left = set_at(parents, rj, ri)
+            let s_merge_left = set_at(sizes, ri, si + sj)
+            dsu_state(p_merge_left, s_merge_left)
+        } else {
+            let p_merge_right = set_at(parents, ri, rj)
+            let s_merge_right = set_at(sizes, rj, si + sj)
+            dsu_state(p_merge_right, s_merge_right)
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day8.txt")
+let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+let n = len(points)
+let idxs = range(0, n)
+let max_dist = 188000000
+
+let all_keys =
+    fold(idxs, [||], \(acc, i) -> {
+        let js = range(i + 1, n)
+        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
+    })
+
+let sorted_keys = sort(all_keys)
+let top_keys = slice(sorted_keys, 0, 1000)
+
+let parents0 = range(0, n)
+let sizes0 = map(range(0, n), \_ -> 1)
+let state0 = dsu_state(parents0, sizes0)
+let state1 = fold(top_keys, state0, \(st, k) -> union_key(st, k))
+
+let parents1 = dsu_parents(state1)
+let sizes1 = dsu_sizes(state1)
+let comps = [int_at(sizes1, i) | i <- range(0, len(parents1)), int_at(parents1, i) == i]
+let top = sort(comps, "desc")
+print(int_at(top, 0) * int_at(top, 1) * int_at(top, 2))

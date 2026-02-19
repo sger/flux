@@ -652,8 +652,8 @@ pub const UNCLOSED_DELIMITER: ErrorCode = ErrorCode {
     code: "E076",
     title: "UNCLOSED DELIMITER",
     error_type: ErrorType::Compiler,
-    message: "Expected a closing `}}` to match this opening `{{`.",
-    hint: Some("Add the missing closing `}`."),
+    message: "Expected a closing delimiter to match the opening one.",
+    hint: Some("Add the missing closing delimiter."),
 };
 
 pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
@@ -672,6 +672,7 @@ pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
 
 use super::diagnostic::Diagnostic;
 use super::registry::diag_enhanced;
+use super::types::RelatedDiagnostic;
 use crate::diagnostics::position::Span;
 
 // Parser Errors
@@ -755,9 +756,28 @@ pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
         .with_hint_text(format!("Add a comma between items, e.g. {}.", example))
 }
 
-/// Create an "unclosed delimiter" error for unmatched `{`
-pub fn unclosed_delimiter(open_span: Span) -> Diagnostic {
-    diag_enhanced(&UNCLOSED_DELIMITER)
+/// Create an "unclosed delimiter" error for unmatched `{`, `[`, or `(`
+///
+/// Points the primary span at the opening delimiter. If `found_span` is
+/// provided, adds a related note showing where the mismatch was detected
+/// (Rust-style two-location diagnostic).
+pub fn unclosed_delimiter(
+    open_span: Span,
+    open: &str,
+    close: &str,
+    found_span: Option<Span>,
+) -> Diagnostic {
+    let mut diag = diag_enhanced(&UNCLOSED_DELIMITER)
         .with_span(open_span)
-        .with_message("Expected a closing `}` to match this opening `{`.")
+        .with_message(format!(
+            "Expected a closing `{}` to match this opening `{}`.",
+            close, open
+        ));
+    if let Some(span) = found_span {
+        diag = diag.with_related(
+            RelatedDiagnostic::note(format!("Expected `{}` before this token.", close))
+                .with_span(span),
+        );
+    }
+    diag
 }

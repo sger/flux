@@ -10,9 +10,9 @@ mod string_ops;
 mod type_check;
 
 use array_ops::{
-    builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_fold, builtin_last,
-    builtin_len, builtin_map, builtin_product, builtin_push, builtin_range, builtin_rest,
-    builtin_reverse, builtin_slice, builtin_sort, builtin_sum,
+    builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_flat_map,
+    builtin_fold, builtin_last, builtin_len, builtin_map, builtin_product, builtin_push,
+    builtin_range, builtin_rest, builtin_reverse, builtin_slice, builtin_sort, builtin_sum,
 };
 use hash_ops::{
     builtin_delete, builtin_get, builtin_has_key, builtin_is_map, builtin_keys, builtin_merge,
@@ -42,7 +42,9 @@ fn builtin_print(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value
         }
         match arg {
             Value::String(s) => print!("{}", s), // Raw string
-            Value::Gc(_) => print!("{}", list_ops::format_value(ctx, arg)),
+            Value::Gc(_) | Value::Tuple(_) | Value::Array(_) => {
+                print!("{}", list_ops::format_value(ctx, arg))
+            }
             _ => print!("{}", arg),
         }
     }
@@ -301,6 +303,10 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "split_ints",
         func: builtin_split_ints,
+    },
+    BuiltinFunction {
+        name: "flat_map",
+        func: builtin_flat_map,
     },
 ];
 

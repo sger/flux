@@ -7,7 +7,7 @@ use flux::{
 fn compile_with_opts_applies_all_transformations() {
     let source = r#"
         fn factorial(n, acc) {
-            if n == 0 { acc; } else { factorial(n - 1, n * acc); }
+            if n == 0 { acc } else { factorial(n - 1, n * acc) }
         }
         let x = !!(2 + 3);
         let y = !(5 == 3);

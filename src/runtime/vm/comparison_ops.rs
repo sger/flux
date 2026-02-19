@@ -14,6 +14,7 @@ impl VM {
             let ptr_eq = match (&left, &right) {
                 (Value::String(l), Value::String(r)) => Rc::ptr_eq(l, r),
                 (Value::Array(l), Value::Array(r)) => Rc::ptr_eq(l, r),
+                (Value::Tuple(l), Value::Tuple(r)) => Rc::ptr_eq(l, r),
                 (Value::Some(l), Value::Some(r)) => Rc::ptr_eq(l, r),
                 (Value::Left(l), Value::Left(r)) => Rc::ptr_eq(l, r),
                 (Value::Right(l), Value::Right(r)) => Rc::ptr_eq(l, r),
@@ -91,6 +92,14 @@ impl VM {
                     OpCode::OpLessThanOrEqual => l <= r,
                     OpCode::OpGreaterThanOrEqual => l >= r,
                     _ => return Err(format!("unknown string comparison: {:?}", opcode)),
+                };
+                self.push(Value::Boolean(result))
+            }
+            (Value::Tuple(l), Value::Tuple(r)) => {
+                let result = match opcode {
+                    OpCode::OpEqual => l == r,
+                    OpCode::OpNotEqual => l != r,
+                    _ => return Err(format!("cannot compare Tuple with {:?}", opcode)),
                 };
                 self.push(Value::Boolean(result))
             }

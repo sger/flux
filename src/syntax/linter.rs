@@ -191,6 +191,11 @@ impl<'a> Linter<'a> {
                 self.extract_pattern_bindings(head);
                 self.extract_pattern_bindings(tail);
             }
+            Pattern::Tuple { elements, .. } => {
+                for element in elements {
+                    self.extract_pattern_bindings(element);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -295,6 +300,14 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             Statement::Let { name, value, span } => {
                 self.visit_expr(value);
                 self.define_binding(*name, span.start, BindingKind::Let);
+            }
+            Statement::LetDestructure {
+                pattern,
+                value,
+                span: _,
+            } => {
+                self.visit_expr(value);
+                self.extract_pattern_bindings(pattern);
             }
             Statement::Assign {
                 name,

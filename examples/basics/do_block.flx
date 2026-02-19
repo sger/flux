@@ -1,0 +1,46 @@
+// Test: do block expressions
+// Expected output:
+// 2
+// None
+// 4
+// 3
+// Some(1)
+
+// do-block returns its tail expression value
+let y = do {
+  let x1 = 1
+  x1 + 1
+}
+print(y)
+
+// trailing semicolon discards tail value -> None
+let z = do {
+  let x2 = 1
+  x2 + 1;
+}
+print(z)
+
+// do-block inside if expression branch
+let branch = if true {
+  do {
+    let a = 2
+    a * 2
+  }
+} else {
+  0
+}
+print(branch)
+
+// do-block inside match arm body
+let m = match 1 {
+  1 -> do {
+    let v = 3
+    v
+  },
+  _ -> 0
+}
+print(m)
+
+// hash literals remain bare braces
+let h = {"a": 1, "b": 2}
+print(h["a"])

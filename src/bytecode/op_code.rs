@@ -63,6 +63,14 @@ pub enum OpCode {
     /// Superinstruction: fuses OpGetLocal(n) + OpReturnValue.
     /// Operand: 1-byte local index.
     OpReturnLocal = 57,
+    /// Build a tuple from N stack values (u16 count).
+    OpTuple = 58,
+    /// Build a tuple from N stack values (u32 count).
+    OpTupleLong = 59,
+    /// Direct tuple field access by constant index (u8).
+    OpTupleIndex = 60,
+    /// Pushes whether top-of-stack value is a tuple.
+    OpIsTuple = 61,
 }
 
 impl From<u8> for OpCode {
@@ -126,6 +134,10 @@ impl From<u8> for OpCode {
             55 => OpCode::OpGetLocal0,
             56 => OpCode::OpGetLocal1,
             57 => OpCode::OpReturnLocal,
+            58 => OpCode::OpTuple,
+            59 => OpCode::OpTupleLong,
+            60 => OpCode::OpTupleIndex,
+            61 => OpCode::OpIsTuple,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -146,8 +158,11 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetGlobal
         | OpCode::OpSetGlobal
         | OpCode::OpArray
-        | OpCode::OpHash => vec![2],
-        OpCode::OpConstantLong | OpCode::OpArrayLong | OpCode::OpHashLong => vec![4],
+        | OpCode::OpHash
+        | OpCode::OpTuple => vec![2],
+        OpCode::OpConstantLong | OpCode::OpArrayLong | OpCode::OpHashLong | OpCode::OpTupleLong => {
+            vec![4]
+        }
         OpCode::OpGetLocal
         | OpCode::OpConsumeLocal
         | OpCode::OpSetLocal
@@ -155,7 +170,8 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpTailCall
         | OpCode::OpGetFree
         | OpCode::OpGetBuiltin
-        | OpCode::OpReturnLocal => vec![1],
+        | OpCode::OpReturnLocal
+        | OpCode::OpTupleIndex => vec![1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         _ => vec![],

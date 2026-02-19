@@ -259,11 +259,27 @@ impl GcHeap {
                             i += 1;
                         }
                     }
+                    Value::Tuple(elements) => {
+                        let mut i = 0;
+                        let len = elements.len();
+                        while i < len {
+                            worklist.push(WorkItem::Value(elements[i].clone()));
+                            i += 1;
+                        }
+                    }
                     Value::Closure(closure) => {
                         let mut i = 0;
                         let len = closure.free.len();
                         while i < len {
                             worklist.push(WorkItem::Value(closure.free[i].clone()));
+                            i += 1;
+                        }
+                    }
+                    Value::JitClosure(closure) => {
+                        let mut i = 0;
+                        let len = closure.captures.len();
+                        while i < len {
+                            worklist.push(WorkItem::Value(closure.captures[i].clone()));
                             i += 1;
                         }
                     }

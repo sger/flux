@@ -72,18 +72,6 @@ fn fn_keyword_parses_function_statement() {
 }
 
 #[test]
-fn fun_keyword_parses_with_deprecation_warning() {
-    let lexer = Lexer::new("fun add() { }");
-    let mut parser = Parser::new(lexer);
-    let _ = parser.parse_program();
-    assert!(parser.errors.is_empty(), "unexpected parser errors");
-    assert_eq!(parser.warnings.len(), 1, "expected one deprecation warning");
-    let warning = &parser.warnings[0];
-    assert_eq!(warning.code(), Some("W013"));
-    assert!(warning.message().is_some_and(|m| m.contains("deprecated")));
-}
-
-#[test]
 fn invalid_function_keyword_mentions_fn() {
     let lexer = Lexer::new("function add() { }");
     let mut parser = Parser::new(lexer);

@@ -88,7 +88,7 @@ fn compile_with_opts_skips_free_var_collection_without_optimization() {
 
 #[test]
 fn compile_with_opts_collects_tail_calls_when_optimized() {
-    let (program, interner) = parse_program("fn f(n) { f(n - 1); }");
+    let (program, interner) = parse_program("fn f(n) { f(n - 1) }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, true, true).unwrap();
     assert_eq!(compiler.tail_calls.len(), 1);
@@ -96,7 +96,7 @@ fn compile_with_opts_collects_tail_calls_when_optimized() {
 
 #[test]
 fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
-    let (program, interner) = parse_program("fn f(n) { f(n - 1); }");
+    let (program, interner) = parse_program("fn f(n) { f(n - 1) }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, false, false).unwrap();
     assert!(compiler.tail_calls.is_empty());

@@ -37,7 +37,10 @@ impl TailPositionAnalyzer {
             let is_last = i == len - 1;
             let tail_eligible = matches!(
                 stmt,
-                Statement::Expression { .. } | Statement::Return { .. }
+                Statement::Expression {
+                    has_semicolon: false,
+                    ..
+                } | Statement::Return { .. }
             );
 
             if is_last && tail_eligible {
@@ -163,6 +166,13 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 self.in_tail = true;
                 self.visit_block_with_tail(body);
                 self.in_tail = was_tail;
+            }
+            Expression::DoBlock { block, span: _ } => {
+                if self.in_tail {
+                    self.visit_block_with_tail(block);
+                } else {
+                    self.visit_block(block);
+                }
             }
             _ => {
                 // For all other expressions, children are NOT in tail position

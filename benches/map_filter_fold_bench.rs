@@ -46,19 +46,19 @@ fn build_array_literal(size: usize) -> String {
 }
 
 fn build_map_program(n: usize) -> String {
-    format!("map({}, fun(x) {{ x * 2; }});", build_array_literal(n))
+    format!("map({}, fn(x) {{ x * 2; }});", build_array_literal(n))
 }
 
 fn build_filter_program(n: usize) -> String {
     format!(
-        "filter({}, fun(x) {{ x % 2 == 0; }});",
+        "filter({}, fn(x) {{ x % 2 == 0; }});",
         build_array_literal(n)
     )
 }
 
 fn build_fold_program(n: usize) -> String {
     format!(
-        "fold({}, 0, fun(acc, x) {{ acc + x; }});",
+        "fold({}, 0, fn(acc, x) {{ acc + x; }});",
         build_array_literal(n)
     )
 }
@@ -67,9 +67,9 @@ fn build_chain_program(n: usize) -> String {
     format!(
         r#"
 let data = {};
-let mapped = map(data, fun(x) {{ x * 2; }});
-let filtered = filter(mapped, fun(x) {{ x % 3 == 0; }});
-fold(filtered, 0, fun(acc, x) {{ acc + x; }});
+let mapped = map(data, fn(x) {{ x * 2; }});
+let filtered = filter(mapped, fn(x) {{ x % 3 == 0; }});
+fold(filtered, 0, fn(acc, x) {{ acc + x; }});
 "#,
         build_array_literal(n)
     )

@@ -36,23 +36,18 @@ fn count_zeros_left(pos, distance) {
     count_hits_for_rotation(first_zero_click, distance)
 }
 
-fn apply_rotation(line, rest, pos, hits) {
-    let cleaned = trim(line)
-    if cleaned == "" {
-        solve(rest, pos, hits)
-    } else {
-        let dir = substring(cleaned, 0, 1)
-        let distance = parse_int(substring(cleaned, 1, len(cleaned)))
+fn apply_rotation(step, rest, pos, hits) {
+    let dir = substring(step, 0, 1)
+    let distance = parse_int(substring(step, 1, len(step)))
 
-        if dir == "R" {
-            let zeros = count_zeros_right(pos, distance)
-            let next_pos_right = wrap_100(pos + distance)
-            solve(rest, next_pos_right, hits + zeros)
-        } else {
-            let zeros_left = count_zeros_left(pos, distance)
-            let next_pos_left = wrap_100(pos - distance)
-            solve(rest, next_pos_left, hits + zeros_left)
-        }
+    if dir == "R" {
+        let zeros = count_zeros_right(pos, distance)
+        let next_pos_right = wrap_100(pos + distance)
+        solve(rest, next_pos_right, hits + zeros)
+    } else {
+        let zeros_left = count_zeros_left(pos, distance)
+        let next_pos_left = wrap_100(pos - distance)
+        solve(rest, next_pos_left, hits + zeros_left)
     }
 }
 
@@ -64,5 +59,6 @@ fn solve(lines, pos, hits) {
 }
 
 let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-let password = solve(lines, 50, 0)
+let steps = [trim(line) | line <- lines, trim(line) != ""]
+let password = solve(steps, 50, 0)
 print(password)

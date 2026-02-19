@@ -70,7 +70,7 @@ let arr = [|1, 2, 3|]
 let lst = to_list(arr)
 print(to_array(lst))  // [|1, 2, 3|]
 
-let my_new_list = []
+let my_new_list = [20, 30, 40]
 print(my_new_list)  
 
 let my_new_list2 = [|1|]
@@ -82,3 +82,4 @@ let xs_list = [100 | [200 | [300 | []]]];
 print(xs_list)
 
 print(is_list(my_new_list2))  // false
+

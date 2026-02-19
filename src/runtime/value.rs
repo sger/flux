@@ -2,7 +2,7 @@ use std::{fmt, rc::Rc};
 
 use crate::runtime::{
     closure::Closure, compiled_function::CompiledFunction, gc::gc_handle::GcHandle,
-    hash_key::HashKey,
+    hash_key::HashKey, jit_closure::JitClosure,
 };
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
@@ -67,10 +67,14 @@ pub enum Value {
     Function(Rc<CompiledFunction>),
     /// Runtime closure object.
     Closure(Rc<Closure>),
+    /// JIT-compiled closure object.
+    JitClosure(Rc<JitClosure>),
     /// Builtin function handle (index into builtins table).
     Builtin(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
+    /// Fixed-size heterogeneous ordered collection.
+    Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
 }
@@ -91,10 +95,19 @@ impl fmt::Display for Value {
             Value::ReturnValue(v) => write!(f, "{}", v),
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
+            Value::JitClosure(_) => write!(f, "<jit-closure>"),
             Value::Builtin(_) => write!(f, "<builtin>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[|{}|]", items.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match items.len() {
+                    0 => write!(f, "()"),
+                    1 => write!(f, "({},)", items[0]),
+                    _ => write!(f, "({})", items.join(", ")),
+                }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
         }
@@ -120,8 +133,10 @@ impl Value {
             Value::ReturnValue(_) => "ReturnValue",
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
+            Value::JitClosure(_) => "JitClosure",
             Value::Builtin(_) => "Builtin",
             Value::Array(_) => "Array",
+            Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
         }
     }
@@ -172,10 +187,19 @@ impl Value {
             Value::ReturnValue(v) => v.to_string_value(),
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
+            Value::JitClosure(_) => "<jit-closure>".to_string(),
             Value::Builtin(_) => "<builtin>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[|{}|]", items.join(", "))
+            }
+            Value::Tuple(elements) => {
+                let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
+                match items.len() {
+                    0 => "()".to_string(),
+                    1 => format!("({},)", items[0]),
+                    _ => format!("({})", items.join(", ")),
+                }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
         }

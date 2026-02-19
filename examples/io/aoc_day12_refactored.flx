@@ -1,0 +1,104 @@
+// Advent of Code - Day 12 (refactored: idiomatic Flux, allocation-aware)
+// Refactored from aoc_day12_haskell_style.flx
+// Uses input file: examples/io/aoc_day12.txt
+
+// Two unified safe-get helpers replace line_at / int_at / str_at / area_at
+fn safe_str(arr, idx) { match arr[idx] { Some(v) -> v, _ -> "" } }
+fn safe_int(arr, idx) { match arr[idx] { Some(v) -> v, _ -> 0  } }
+
+fn char_at(s, idx) { substring(s, idx, idx + 1) }
+
+// has_char: chars()+contains is faster than manual index recursion
+fn has_char(s, ch) { contains(chars(s), ch) }
+
+// count_hashes: fold over chars is 3x faster than manual index recursion
+fn count_hashes(s) {
+    fold(chars(s), 0, \(acc, c) -> if c == "#" { acc + 1 } else { acc })
+}
+
+// parse_block_sizes: explicit recursion kept — tuple-state fold allocates
+// ~2x Rc per line (arg-tuple + state-tuple), causing ~11ms overhead on 1029 lines
+fn parse_block_sizes(lines, idx, in_block, cur_size, acc) {
+    if idx >= len(lines) {
+        if in_block { push(acc, cur_size) } else { acc }
+    } else {
+        let line = trim(safe_str(lines, idx))
+        if has_char(line, "x") && has_char(line, ":") {
+            if in_block { push(acc, cur_size) } else { acc }
+        } else {
+            if line == "" {
+                parse_block_sizes(lines, idx + 1, in_block, cur_size, acc)
+            } else {
+                if has_char(line, ":") {
+                    parse_block_sizes(lines, idx + 1, true, 0,
+                        if in_block { push(acc, cur_size) } else { acc })
+                } else {
+                    if in_block {
+                        parse_block_sizes(lines, idx + 1, true,
+                            cur_size + count_hashes(line), acc)
+                    } else {
+                        parse_block_sizes(lines, idx + 1, in_block, cur_size, acc)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// parse_area_counts: filter + map pipeline replaces 3-arg index recursion
+fn parse_area_counts(tokens) {
+    tokens |> filter(\t -> trim(t) != "") |> map(parse_int)
+}
+
+// parse_areas: fold with simple array acc (no tuple boxing overhead)
+fn parse_areas(lines, idx, acc) {
+    if idx >= len(lines) {
+        acc
+    } else {
+        let line = trim(safe_str(lines, idx))
+        if line == "" {
+            parse_areas(lines, idx + 1, acc)
+        } else {
+            if has_char(line, "x") && has_char(line, ":") {
+                let parts    = split(line, " ") |> filter(\t -> trim(t) != "")
+                let dims_raw = safe_str(parts, 0)
+                let dims     = substring(dims_raw, 0, len(dims_raw) - 1)
+                let bounds   = split_ints(dims, "x")
+                let counts   = parse_area_counts(slice(parts, 1, len(parts)))
+                parse_areas(lines, idx + 1,
+                    push(acc, (safe_int(bounds, 0), safe_int(bounds, 1), counts)))
+            } else {
+                parse_areas(lines, idx + 1, acc)
+            }
+        }
+    }
+}
+
+// weighted_sum: explicit recursion — range(0,n) would allocate an intermediate list
+fn weighted_sum(block_sizes, counts, idx, acc) {
+    if idx >= len(block_sizes) || idx >= len(counts) {
+        acc
+    } else {
+        weighted_sum(block_sizes, counts, idx + 1,
+            acc + safe_int(block_sizes, idx) * safe_int(counts, idx))
+    }
+}
+
+// count_valid_areas: fold with scalar acc — no tuple boxing, safe to use fold
+fn count_valid_areas(block_sizes, areas) {
+    fold(areas, 0, \(acc, area) -> {
+        let w      = area.0
+        let h      = area.1
+        let counts = area.2
+        acc + if w * h >= weighted_sum(block_sizes, counts, 0, 0) { 1 } else { 0 }
+    })
+}
+
+fn day12a(input_lines) {
+    let block_sizes = parse_block_sizes(input_lines, 0, false, 0, [||])
+    let areas       = parse_areas(input_lines, 0, [||])
+    count_valid_areas(block_sizes, areas)
+}
+
+let input_lines = read_lines("examples/io/aoc_day12.txt")
+print(day12a(input_lines))

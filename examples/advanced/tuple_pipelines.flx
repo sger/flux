@@ -1,0 +1,61 @@
+// Test: Advanced tuple pipelines across arrays and lists
+// Expected output:
+// === Array pipelines with tuples ===
+// [|3, 7, 11|]
+// [|(10, 20), (30, 40), (50, 60)|]
+// [|(3, 4), (5, 6)|]
+// 21
+// === List pipelines with tuples ===
+// [6, 20, 42]
+// [5, 9, 13]
+// 12
+// === Tuple patterns inside pipeline stages ===
+// [|3, 7, 11|]
+// [|7, 37, 102|]
+
+print("=== Array pipelines with tuples ===")
+
+let array_pairs = [|(1, 2), (3, 4), (5, 6)|]
+
+let array_sums = array_pairs
+    |> map(\p -> p.0 + p.1)
+print(array_sums)
+
+let array_scaled = array_pairs
+    |> map(\p -> (p.0 * 10, p.1 * 10))
+print(array_scaled)
+
+let array_filtered = array_pairs
+    |> filter(\p -> p.0 > 2)
+print(array_filtered)
+
+let array_total = array_pairs
+    |> fold(0, \(acc, p) -> acc + p.0 + p.1)
+print(array_total)
+
+print("=== List pipelines with tuples ===")
+
+let list_pairs = [(2, 3), (4, 5), (6, 7)]
+
+let list_products = list_pairs
+    |> map(\p -> p.0 * p.1)
+print(list_products)
+
+let list_sums = list_pairs
+    |> map(\p -> p.0 + p.1)
+print(list_sums)
+
+let list_total = list_pairs
+    |> fold(0, \(acc, p) -> acc + p.0)
+print(list_total)
+
+print("=== Tuple patterns inside pipeline stages ===")
+
+let via_match = array_pairs
+    |> map(\p -> match p { (a, b) -> a + b, _ -> 0 })
+print(via_match)
+
+let nested_pairs = [|(1, (2, 3)), (2, (5, 7)), (3, (9, 11))|]
+let nested_calc = nested_pairs
+    |> map(\p -> match p { (a, (b, c)) -> a + b * c, _ -> 0 })
+print(nested_calc)
