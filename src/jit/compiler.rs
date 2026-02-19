@@ -2914,13 +2914,13 @@ impl LiteralCollector {
                 body,
                 ..
             } => {
-                let key = LiteralKey::from_span(stmt.span());
+                let expr = Expression::Function {
+                    parameters: parameters.clone(),
+                    body: body.clone(),
+                    span: stmt.span(),
+                };
+                let key = LiteralKey::from_expr(&expr);
                 if !self.seen.contains(&key) {
-                    let expr = Expression::Function {
-                        parameters: parameters.clone(),
-                        body: body.clone(),
-                        span: stmt.span(),
-                    };
                     let mut captures: Vec<Identifier> = collect_free_vars(&expr)
                         .into_iter()
                         .filter(|sym| self.is_bound(*sym))
