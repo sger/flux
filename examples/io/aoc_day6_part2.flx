@@ -1,0 +1,116 @@
+// Advent of Code - Day 6 Part 2 (Trash Compactor)
+// Each problem is read right-to-left by columns.
+// In each column, digits are read top-to-bottom to form one number.
+// Input: examples/io/aoc_day6.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn char_at_pad(s, idx) {
+    if idx >= len(s) {
+        " "
+    } else {
+        substring(s, idx, idx + 1)
+    }
+}
+
+fn max_width(lines, idx, cur) {
+    if idx >= len(lines) {
+        cur
+    } else {
+        let w = len(line_at(lines, idx))
+        max_width(lines, idx + 1, if w > cur { w } else { cur })
+    }
+}
+
+fn is_blank_col(lines, col, row) {
+    if row >= len(lines) {
+        true
+    } else {
+        let s = line_at(lines, row)
+        if char_at_pad(s, col) == " " {
+            is_blank_col(lines, col, row + 1)
+        } else {
+            false
+        }
+    }
+}
+
+fn skip_blank_cols(lines, width, col) {
+    if col >= width {
+        col
+    } else {
+        if is_blank_col(lines, col, 0) {
+            skip_blank_cols(lines, width, col + 1)
+        } else {
+            col
+        }
+    }
+}
+
+fn find_problem_end(lines, width, col) {
+    if col >= width {
+        col
+    } else {
+        if is_blank_col(lines, col, 0) {
+            col
+        } else {
+            find_problem_end(lines, width, col + 1)
+        }
+    }
+}
+
+fn slice_padded(s, start, stop) {
+    if start >= len(s) {
+        ""
+    } else {
+        let end = if stop > len(s) { len(s) } else { stop }
+        if end <= start {
+            ""
+        } else {
+            substring(s, start, end)
+        }
+    }
+}
+
+fn col_value(lines, num_rows, col, empty_default) {
+    let digits = [
+        char_at_pad(line_at(lines, row), col)
+        | row <- range(0, num_rows),
+          char_at_pad(line_at(lines, row), col) != " "
+    ]
+    if len(digits) == 0 { empty_default } else { parse_int(join(digits, "")) }
+}
+
+fn eval_problem(lines, num_rows, start, stop) {
+    let op_line = line_at(lines, num_rows)
+    let op = trim(slice_padded(op_line, start, stop))
+    let cols = range(start, stop)
+    if op == "*" {
+        let factors = [col_value(lines, num_rows, col, 1) | col <- cols]
+        product(factors)
+    } else {
+        let terms = [col_value(lines, num_rows, col, 0) | col <- cols]
+        sum(terms)
+    }
+}
+
+fn solve_cols(lines, num_rows, width, col, total) {
+    let c = skip_blank_cols(lines, width, col)
+    if c >= width {
+        total
+    } else {
+        let e = find_problem_end(lines, width, c)
+        let v = eval_problem(lines, num_rows, c, e)
+        solve_cols(lines, num_rows, width, e + 1, total + v)
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day6.txt")
+let num_rows = len(lines) - 1
+let width = max_width(lines, 0, 0)
+print(solve_cols(lines, num_rows, width, 0, 0))

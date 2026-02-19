@@ -49,7 +49,7 @@ fn build_local_access_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 28 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(src, "let use_local = fun(x) {{ len(x); }};");
+    let _ = writeln!(src, "let use_local = fn(x) {{ len(x); }};");
     for _ in 0..calls {
         let _ = writeln!(src, "use_local(payload);");
     }
@@ -60,7 +60,7 @@ fn build_global_access_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 16 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(src, "let read_global = fun() {{ len(payload); }};");
+    let _ = writeln!(src, "let read_global = fn() {{ len(payload); }};");
     for _ in 0..calls {
         let _ = writeln!(src, "read_global();");
     }
@@ -73,7 +73,7 @@ fn build_free_access_program(size: usize, calls: usize) -> String {
     let _ = writeln!(src, "let payload = {};", array);
     let _ = writeln!(
         src,
-        "let make_reader = fun() {{ let captured = payload; fun() {{ len(captured); }}; }};"
+        "let make_reader = fn() {{ let captured = payload; fn() {{ len(captured); }}; }};"
     );
     let _ = writeln!(src, "let read_free = make_reader();");
     for _ in 0..calls {
@@ -86,8 +86,8 @@ fn build_argument_passthrough_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 24 + 384);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(src, "let id = fun(x) {{ x; }};");
-    let _ = writeln!(src, "let pass = fun(x) {{ id(x); }};");
+    let _ = writeln!(src, "let id = fn(x) {{ x; }};");
+    let _ = writeln!(src, "let pass = fn(x) {{ id(x); }};");
     for _ in 0..calls {
         let _ = writeln!(src, "len(pass(payload));");
     }

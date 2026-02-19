@@ -1,8 +1,8 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, missing_comma, pipe_target_error,
+        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, pipe_target_error,
         position::{Position, Span},
-        unexpected_token,
+        unclosed_delimiter, unexpected_token,
     },
     syntax::{
         block::Block,
@@ -118,7 +118,8 @@ impl Parser {
             TokenType::Hash => self.parse_array_literal_prefixed(),
             TokenType::LBrace => self.parse_hash(),
             TokenType::If => self.parse_if_expression(),
-            TokenType::Fn | TokenType::Fun => self.parse_function_literal(),
+            TokenType::Do => self.parse_do_block_expression(),
+            TokenType::Fn => self.parse_function_literal(),
             TokenType::Backslash => self.parse_lambda(),
             token if prefix_op(token).is_some() => self.parse_prefix_expression(),
             _ => {
@@ -247,7 +248,8 @@ impl Parser {
 
     pub(super) fn parse_call_expression(&mut self, function: Expression) -> Option<Expression> {
         let start = function.span().start;
-        let arguments = self.parse_expression_list(TokenType::RParen)?;
+        let open_pos = self.current_token.position;
+        let arguments = self.parse_expression_list(TokenType::RParen, open_pos)?;
         Some(Expression::Call {
             function: Box::new(function),
             arguments,
@@ -261,6 +263,7 @@ impl Parser {
         let index = self.parse_expression(Precedence::Lowest)?;
 
         if !self.expect_peek(TokenType::RBracket) {
+            let _ = self.recover_to_matching_delimiter(TokenType::RBracket, &[TokenType::Comma]);
             return None;
         }
 
@@ -273,6 +276,55 @@ impl Parser {
 
     pub(super) fn parse_member_access(&mut self, object: Expression) -> Option<Expression> {
         let start = object.span().start;
+        // A newline right after `.` strongly indicates a dangling member access
+        // (e.g. `point.\nnext_stmt`) rather than a continued expression.
+        if self.peek_token.position.line > self.current_token.end_position.line {
+            self.errors.push(unexpected_token(
+                self.current_token.span(),
+                format!(
+                    "Expected identifier or tuple field index after `.`, got {}.",
+                    self.peek_token.token_type
+                ),
+            ));
+            // Recover to a statement boundary (or the nearest call-arg close) to
+            // avoid cascading diagnostics from a dangling member access.
+            let _ = self.recover_to_matching_delimiter(TokenType::RParen, &[TokenType::Ident]);
+            // Recover by dropping the dangling dot and keeping the object.
+            return Some(object);
+        }
+
+        if self.is_peek_token(TokenType::Int) {
+            self.next_token();
+            let index = match self.current_token.literal.parse::<usize>() {
+                Ok(index) => index,
+                Err(_) => {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!(
+                            "Invalid tuple field index `{}`; expected non-negative integer.",
+                            self.current_token.literal
+                        ),
+                    ));
+                    return None;
+                }
+            };
+
+            return Some(Expression::TupleFieldAccess {
+                object: Box::new(object),
+                index,
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        if self.is_peek_token(TokenType::RParen) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                "Expected identifier or tuple field index after `.`, got `)`.".to_string(),
+            ));
+            // Recover as if the member access was omitted so parsing can continue.
+            return Some(object);
+        }
+
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
@@ -317,50 +369,80 @@ impl Parser {
     }
 
     pub(super) fn parse_grouped_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+            return Some(Expression::TupleLiteral {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
         self.next_token();
-        let expression = self.parse_expression(Precedence::Lowest)?;
+        let first = self.parse_expression(Precedence::Lowest)?;
 
-        // Tuple-like input "(a b)" is a common missing-comma error. Flux currently
-        // treats parenthesized forms as grouped expressions; recover to ')' to avoid
-        // cascading diagnostics and keep parsing subsequent statements.
-        if self.token_starts_expression(self.peek_token.token_type) {
-            self.errors
-                .push(missing_comma(self.peek_token.span(), "items", "`(a, b)`"));
+        if self.is_peek_token(TokenType::Comma) {
+            let mut elements = vec![first];
+            self.next_token(); // consume comma after first tuple element
 
-            // Recover to the matching ')' of this group. If this group is malformed
-            // and likely belongs to a larger statement (for example `if (cond { ...`),
-            // stop at top-level statement boundaries to avoid consuming following code.
-            let mut nested_parens = 0usize;
-            while self.peek_token.token_type != TokenType::Eof {
-                if nested_parens == 0
-                    && matches!(
-                        self.peek_token.token_type,
-                        TokenType::Semicolon | TokenType::RBrace | TokenType::LBrace
-                    )
-                {
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token();
+                return Some(Expression::TupleLiteral {
+                    elements,
+                    span: Span::new(start, self.current_token.end_position),
+                });
+            }
+
+            loop {
+                self.next_token();
+                elements.push(self.parse_expression(Precedence::Lowest)?);
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token();
+                } else {
                     break;
                 }
-                match self.peek_token.token_type {
-                    TokenType::LParen => {
-                        nested_parens += 1;
-                        self.next_token();
-                    }
-                    TokenType::RParen => {
-                        if nested_parens == 0 {
-                            break;
-                        }
-                        nested_parens -= 1;
-                        self.next_token();
-                    }
-                    _ => self.next_token(),
+            }
+
+            if self.is_peek_token(TokenType::RParen) {
+                self.next_token();
+            } else {
+                self.peek_error(TokenType::RParen);
+                // Recover missing `)` so following code can continue parsing with
+                // minimal cascades.
+                if !(self.recover_to_matching_delimiter(
+                    TokenType::RParen,
+                    &[TokenType::Comma, TokenType::LBrace],
+                ) || self.is_peek_token(TokenType::LBrace)
+                    || (self.peek_token.position.line > self.current_token.end_position.line
+                        && self.token_starts_statement(self.peek_token.token_type)))
+                {
+                    return None;
                 }
             }
+
+            return Some(Expression::TupleLiteral {
+                elements,
+                span: Span::new(start, self.current_token.end_position),
+            });
         }
 
-        if !self.expect_peek(TokenType::RParen) {
-            return None;
+        if self.is_peek_token(TokenType::RParen) {
+            self.next_token();
+        } else {
+            self.peek_error(TokenType::RParen);
+            // Same recovery as tuple literals: report missing `)` and try to
+            // resynchronize locally before giving up.
+            if !(self.recover_to_matching_delimiter(
+                TokenType::RParen,
+                &[TokenType::Comma, TokenType::LBrace],
+            ) || self.is_peek_token(TokenType::LBrace)
+                || (self.peek_token.position.line > self.current_token.end_position.line
+                    && self.token_starts_statement(self.peek_token.token_type)))
+            {
+                return None;
+            }
         }
-        Some(expression)
+        Some(first)
     }
 
     // Collections
@@ -391,7 +473,7 @@ impl Parser {
 
             self.next_token();
             let first = self.parse_expression(Precedence::Lowest)?;
-            let elements = self.parse_expression_list_with_first(first, TokenType::Bar)?;
+            let elements = self.parse_expression_list_with_first(first, TokenType::Bar, start)?;
             if !self.expect_peek(TokenType::RBracket) {
                 return None;
             }
@@ -412,14 +494,41 @@ impl Parser {
         self.next_token();
         let first = self.parse_expression(Precedence::Lowest)?;
 
-        // Check for cons syntax: [head | tail]
+        // Check for cons syntax [head | tail] or list comprehension [expr | x <- xs, ...]
         if self.is_peek_token(TokenType::Bar) {
-            self.next_token();
+            self.next_token(); // consume `|`, now current = Bar
+
+            // Disambiguate: if peek is Ident and peek2 is LeftArrow, it's a comprehension
+            if self.is_peek_token(TokenType::Ident)
+                && self.peek2_token.token_type == TokenType::LeftArrow
+            {
+                return self.parse_list_comprehension(first, start);
+            }
+
+            // Otherwise: cons cell [head | tail]
             self.next_token();
             let tail = self.parse_expression(Precedence::Lowest)?;
 
-            if !self.expect_peek(TokenType::RBracket) {
+            if !self.is_peek_token(TokenType::RBracket) {
+                // Heuristic: if the next token is on a different line or
+                // starts a statement, this is likely a missing `]` — point
+                // the error at the opening `[` (Rust-style).
+                if self.peek_token.position.line > self.current_token.end_position.line
+                    || self.token_starts_statement(self.peek_token.token_type)
+                    || self.peek_token.token_type == TokenType::Eof
+                {
+                    self.errors.push(unclosed_delimiter(
+                        Span::new(start, start),
+                        "[",
+                        "]",
+                        Some(self.peek_token.span()),
+                    ));
+                } else {
+                    self.peek_error(TokenType::RBracket);
+                }
                 return None;
+            } else {
+                self.next_token();
             }
             return Some(Expression::Cons {
                 head: Box::new(first),
@@ -431,11 +540,176 @@ impl Parser {
         // Otherwise, parse remaining elements as list literal.
         // `first` is already parsed; delegate to the "with_first" variant
         // which provides the same missing-comma recovery as parse_expression_list.
-        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ListLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
         })
+    }
+
+    /// Parse a list comprehension after `[body_expr |` has been consumed.
+    /// Current token is `|`, peek is the first generator variable.
+    ///
+    /// Syntax: [expr | var <- source, guard, var2 <- source2, ...]
+    /// Desugars to nested map/filter/flat_map calls.
+    fn parse_list_comprehension(
+        &mut self,
+        body: Expression,
+        start: Position,
+    ) -> Option<Expression> {
+        // Collect clauses: generators (var <- source) and guards (expr)
+        enum Clause {
+            Generator {
+                var: crate::syntax::Identifier,
+                source: Expression,
+            },
+            Guard(Expression),
+        }
+
+        let mut clauses = Vec::new();
+
+        // Parse first generator (required) — peek is Ident, peek2 is LeftArrow
+        loop {
+            // Expect identifier
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            let var = self
+                .lexer
+                .interner_mut()
+                .intern(&self.current_token.literal);
+
+            // Expect <-
+            if !self.expect_peek(TokenType::LeftArrow) {
+                return None;
+            }
+
+            // Parse source expression
+            self.next_token();
+            let source = self.parse_expression(Precedence::Lowest)?;
+            clauses.push(Clause::Generator { var, source });
+
+            // Check for more clauses separated by commas
+            while self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+
+                // Is the next clause a generator (Ident <- ...) or a guard?
+                if self.is_peek_token(TokenType::Ident)
+                    && self.peek2_token.token_type == TokenType::LeftArrow
+                {
+                    // Next generator — break inner loop, continue outer loop
+                    break;
+                }
+
+                // Guard expression
+                self.next_token();
+                let guard = self.parse_expression(Precedence::Lowest)?;
+                clauses.push(Clause::Guard(guard));
+            }
+
+            // If we broke out because of a new generator, continue the outer loop
+            if self.is_peek_token(TokenType::Ident)
+                && self.peek2_token.token_type == TokenType::LeftArrow
+            {
+                continue;
+            }
+
+            break;
+        }
+
+        // Expect closing ]
+        if !self.expect_peek(TokenType::RBracket) {
+            return None;
+        }
+
+        let span = Span::new(start, self.current_token.end_position);
+
+        // Desugar clauses into nested map/filter/flat_map calls.
+        // Process left-to-right: each generator groups with its trailing guards.
+        // The algorithm builds from the inside out using recursion over clause groups.
+
+        // Group clauses: each group is (generator, trailing_guards)
+        struct GeneratorGroup {
+            var: crate::syntax::Identifier,
+            source: Expression,
+            guards: Vec<Expression>,
+        }
+
+        let mut groups: Vec<GeneratorGroup> = Vec::new();
+        for clause in clauses {
+            match clause {
+                Clause::Generator { var, source } => {
+                    groups.push(GeneratorGroup {
+                        var,
+                        source,
+                        guards: Vec::new(),
+                    });
+                }
+                Clause::Guard(expr) => {
+                    if let Some(group) = groups.last_mut() {
+                        group.guards.push(expr);
+                    }
+                }
+            }
+        }
+
+        // Build the desugared expression from right to left
+        let mut result = body;
+        for (i, group) in groups.iter().enumerate().rev() {
+            // Apply guards to the source: filter(filter(source, \v -> g1), \v -> g2)
+            let mut source = group.source.clone();
+            for guard in &group.guards {
+                let lambda = self.make_lambda(group.var, guard.clone(), span);
+                source = self.make_call("filter", vec![source, lambda], span);
+            }
+
+            // If this is the last (innermost) generator, use map; otherwise flat_map
+            let lambda = self.make_lambda(group.var, result, span);
+            result = if i == groups.len() - 1 {
+                self.make_call("map", vec![source, lambda], span)
+            } else {
+                self.make_call("flat_map", vec![source, lambda], span)
+            };
+        }
+
+        Some(result)
+    }
+
+    /// Build an `Expression::Identifier` from a string, interning it.
+    fn make_ident(&mut self, name: &str, span: Span) -> Expression {
+        let sym = self.lexer.interner_mut().intern(name);
+        Expression::Identifier { name: sym, span }
+    }
+
+    /// Build a single-parameter lambda: `\param -> body`
+    fn make_lambda(
+        &self,
+        param: crate::syntax::Identifier,
+        body: Expression,
+        span: Span,
+    ) -> Expression {
+        let body_span = body.span();
+        Expression::Function {
+            parameters: vec![param],
+            body: Block {
+                statements: vec![Statement::Expression {
+                    expression: body,
+                    has_semicolon: false,
+                    span: body_span,
+                }],
+                span: body_span,
+            },
+            span,
+        }
+    }
+
+    /// Build a function call: `name(args...)`
+    fn make_call(&mut self, name: &str, arguments: Vec<Expression>, span: Span) -> Expression {
+        Expression::Call {
+            function: Box::new(self.make_ident(name, span)),
+            arguments,
+            span,
+        }
     }
 
     pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {
@@ -454,7 +728,7 @@ impl Parser {
 
         self.next_token();
         let first = self.parse_expression(Precedence::Lowest)?;
-        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
@@ -509,10 +783,26 @@ impl Parser {
         let alternative = if self.is_peek_token(TokenType::Else) {
             self.next_token();
 
-            if !self.expect_peek(TokenType::LBrace) {
-                return None;
-            };
-            Some(self.parse_block())
+            if self.is_peek_token(TokenType::If) {
+                // `else if`: consume `if`, recurse, wrap in a synthetic block
+                self.next_token();
+                let span_start = self.current_token.position;
+                let nested_if = self.parse_if_expression()?;
+                let span = Span::new(span_start, self.current_token.end_position);
+                Some(Block {
+                    statements: vec![Statement::Expression {
+                        expression: nested_if,
+                        has_semicolon: false,
+                        span,
+                    }],
+                    span,
+                })
+            } else {
+                if !self.expect_peek(TokenType::LBrace) {
+                    return None;
+                };
+                Some(self.parse_block())
+            }
         } else {
             None
         };
@@ -521,6 +811,27 @@ impl Parser {
             condition: Box::new(condition),
             consequence,
             alternative,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+        if !self.is_peek_token(TokenType::LBrace) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                format!(
+                    "Expected `{{` after `do`, got {}.",
+                    self.peek_token.token_type
+                ),
+            ));
+            return None;
+        }
+        self.next_token();
+
+        let block = self.parse_block();
+        Some(Expression::DoBlock {
+            block,
             span: Span::new(start, self.current_token.end_position),
         })
     }
@@ -696,6 +1007,53 @@ impl Parser {
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
+            TokenType::LParen => {
+                if self.is_peek_token(TokenType::RParen) {
+                    self.next_token();
+                    return Some(Pattern::Tuple {
+                        elements: vec![],
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+
+                self.next_token();
+                let first = self.parse_pattern()?;
+                if !self.expect_peek(TokenType::Comma) {
+                    self.errors.push(unexpected_token(
+                        self.peek_token.span(),
+                        "Tuple patterns require a comma, for example `(x, y)`.".to_string(),
+                    ));
+                    return None;
+                }
+
+                let mut elements = vec![first];
+                if self.is_peek_token(TokenType::RParen) {
+                    self.next_token();
+                    return Some(Pattern::Tuple {
+                        elements,
+                        span: Span::new(start, self.current_token.end_position),
+                    });
+                }
+
+                loop {
+                    self.next_token();
+                    elements.push(self.parse_pattern()?);
+                    if self.is_peek_token(TokenType::Comma) {
+                        self.next_token();
+                    } else {
+                        break;
+                    }
+                }
+
+                if !self.expect_peek(TokenType::RParen) {
+                    return None;
+                }
+
+                Some(Pattern::Tuple {
+                    elements,
+                    span: Span::new(start, self.current_token.end_position),
+                })
+            }
             TokenType::Int
             | TokenType::Float
             | TokenType::String
@@ -720,9 +1078,6 @@ impl Parser {
 
     pub(super) fn parse_function_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if self.current_token.token_type == TokenType::Fun {
-            self.warn_deprecated_fun(self.current_token.span());
-        }
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
@@ -799,6 +1154,7 @@ impl Parser {
             Block {
                 statements: vec![Statement::Expression {
                     expression: expr,
+                    has_semicolon: false,
                     span: Span::new(expr_start, self.current_token.end_position),
                 }],
                 span: expr_span,

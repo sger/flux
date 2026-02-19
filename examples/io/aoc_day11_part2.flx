@@ -1,0 +1,136 @@
+// Advent of Code - Day 11 Part 2
+// Count directed paths from "svr" to "out" that visit both "dac" and "fft".
+// Input: examples/io/aoc_day11.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn str_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+fn result(count, memo) {
+    let r = put({}, "count", count)
+    put(r, "memo", memo)
+}
+
+fn result_count(r) {
+    match get(r, "count") {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn result_memo(r) {
+    match get(r, "memo") {
+        Some(v) -> v,
+        _ -> {}
+    }
+}
+
+fn parse_entry(line) {
+    let c = find_char_from(line, ":", 0);
+    let name = trim(substring(line, 0, c));
+    let outs = split(trim(substring(line, c + 1, len(line))), " ");
+    [|name, outs|]
+}
+
+fn parse_graph(lines) {
+    let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
+    fold(entries, {}, \(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
+}
+
+fn bool_i(v) {
+    if v { 1 } else { 0 }
+}
+
+fn state_mask(seen_dac, seen_fft) {
+    bool_i(seen_dac) + (2 * bool_i(seen_fft))
+}
+
+fn state_key(node, mask) {
+    join([|node, "#", to_string(mask)|], "")
+}
+
+fn sum_children2(outs, i, seen_dac, seen_fft, graph, memo, acc) {
+    if i >= len(outs) {
+        result(acc, memo)
+    } else {
+        let nxt = str_at(outs, i)
+        let r = dfs_count2(nxt, seen_dac, seen_fft, graph, memo)
+        let cnt = result_count(r)
+        let memo2 = result_memo(r)
+        sum_children2(outs, i + 1, seen_dac, seen_fft, graph, memo2, acc + cnt)
+    }
+}
+
+fn dfs2_from_outs(node, key, outs, seen_dac, seen_fft, graph, memo) {
+    let r = sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0)
+    let total = result_count(r)
+    let memo2 = result_memo(r)
+    let memo3 = put(memo2, key, total)
+    result(total, memo3)
+}
+
+fn result_zero_key(key, memo) {
+    let memo2 = put(memo, key, 0)
+    result(0, memo2)
+}
+
+fn dfs2_uncached(node, key, seen_dac, seen_fft, graph, memo) {
+    match get(graph, node) {
+        Some(outs) -> dfs2_from_outs(node, key, outs, seen_dac, seen_fft, graph, memo),
+        _ -> result_zero_key(key, memo)
+    }
+}
+
+fn dfs_count2(node, seen_dac0, seen_fft0, graph, memo) {
+    let seen_dac = if seen_dac0 || node == "dac" { true } else { false }
+    let seen_fft = if seen_fft0 || node == "fft" { true } else { false }
+
+    if node == "out" {
+        result(if seen_dac && seen_fft { 1 } else { 0 }, memo)
+    } else {
+        let mask = state_mask(seen_dac, seen_fft)
+        let key = state_key(node, mask)
+        match get(memo, key) {
+            Some(v) -> result(v, memo),
+            _ -> dfs2_uncached(node, key, seen_dac, seen_fft, graph, memo)
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day11.txt")
+let graph = parse_graph(lines)
+let ans = dfs_count2("svr", false, false, graph, {})
+print(result_count(ans))

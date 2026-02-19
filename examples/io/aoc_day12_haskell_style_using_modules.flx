@@ -1,0 +1,4 @@
+import Modules.Day12Solver as Day12
+
+let input_lines = read_lines("examples/io/aoc_day12.txt")
+print(Day12.day12a(input_lines))

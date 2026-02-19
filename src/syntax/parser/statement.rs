@@ -15,17 +15,12 @@ impl Parser {
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
             }
-            TokenType::Fun if self.is_peek_token(TokenType::Ident) => {
-                self.warn_deprecated_fun(self.current_token.span());
-                self.parse_function_statement()
-            }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
                 None
             }
             TokenType::Ident
                 if self.current_token.literal != "fn"
-                    && self.current_token.literal != "fun"
                     && (self.current_token.literal.starts_with("fn")
                         || self.current_token.literal.starts_with("fun"))
                     && self.is_peek_token(TokenType::Ident) =>
@@ -65,12 +60,16 @@ impl Parser {
             }
         };
 
-        if self.is_peek_token(TokenType::Semicolon) {
+        let has_semicolon = if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
-        }
+            true
+        } else {
+            false
+        };
 
         Some(Statement::Expression {
             expression,
+            has_semicolon,
             span: self.span_from(start),
         })
     }
@@ -135,6 +134,34 @@ impl Parser {
 
     pub(super) fn parse_let_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
+
+        if self.is_peek_token(TokenType::LParen) {
+            self.next_token(); // consume '(' so parse_pattern sees tuple pattern start
+            let pattern = self.parse_pattern()?;
+
+            if !self.expect_peek(TokenType::Assign) {
+                return None;
+            }
+
+            self.next_token();
+            let value = match self.parse_expression(Precedence::Lowest) {
+                Some(expression) => expression,
+                None => {
+                    self.synchronize(SyncMode::Stmt);
+                    return None;
+                }
+            };
+
+            if self.is_peek_token(TokenType::Semicolon) {
+                self.next_token();
+            }
+
+            return Some(Statement::LetDestructure {
+                pattern,
+                value,
+                span: self.span_from(start),
+            });
+        }
 
         if !self.expect_peek(TokenType::Ident) {
             return None;

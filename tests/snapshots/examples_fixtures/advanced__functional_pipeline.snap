@@ -3,41 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E001]: DUPLICATE NAME
-
-Duplicate binding: `sum` is already defined.
-
-  --> examples/advanced/functional_pipeline.flx:54:1
-   |
-54 | let sum = fold(numbers, 0, /(acc, x) -> acc + x);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  --> examples/advanced/functional_pipeline.flx:0:1
-  |
-
-
---> compiler error[E001]: DUPLICATE NAME
-
-Duplicate binding: `product` is already defined.
-
-  --> examples/advanced/functional_pipeline.flx:58:1
-   |
-58 | let product = fold(numbers, 1, /(acc, x) -> acc * x);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  --> examples/advanced/functional_pipeline.flx:0:1
-  |
-
-Found 2 errors.
+<none>
 == stdout ==
 <not executed>

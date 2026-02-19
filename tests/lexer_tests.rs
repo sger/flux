@@ -49,13 +49,12 @@ mod tests {
 
     #[test]
     fn keywords() {
-        let input = "let fn fun if else return true false";
+        let input = "let fn if else return true false";
         let mut lexer = Lexer::new(input);
 
         let expected = vec![
             TokenType::Let,
             TokenType::Fn,
-            TokenType::Fun,
             TokenType::If,
             TokenType::Else,
             TokenType::Return,

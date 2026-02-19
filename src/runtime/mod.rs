@@ -22,6 +22,7 @@ pub mod compiled_function;
 pub mod frame;
 pub mod gc;
 pub mod hash_key;
+pub mod jit_closure;
 pub mod leak_detector;
 pub mod value;
 pub mod vm;

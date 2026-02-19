@@ -179,6 +179,7 @@ fn resolve_imports_no_imports_returns_empty() {
                 value: 1,
                 span: span(1, 0),
             },
+            has_semicolon: false,
             span: span(1, 0),
         }],
         span: Span::default(),

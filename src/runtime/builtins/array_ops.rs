@@ -16,6 +16,7 @@ pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     match &args[0] {
         Value::String(s) => Ok(Value::Integer(s.len() as i64)),
         Value::Array(arr) => Ok(Value::Integer(arr.len() as i64)),
+        Value::Tuple(tuple) => Ok(Value::Integer(tuple.len() as i64)),
         Value::None | Value::EmptyList => Ok(Value::Integer(0)),
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
             HeapObject::Cons { .. } => match list_ops::list_len(ctx, &args[0]) {
@@ -29,7 +30,7 @@ pub(super) fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
         other => Err(type_error(
             "len",
             "argument",
-            "String, Array, List, or Map",
+            "String, Array, Tuple, List, or Map",
             other.type_name(),
             "len(value)",
         )),
@@ -573,7 +574,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "map",
@@ -649,7 +650,7 @@ pub(super) fn builtin_filter(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "filter",
@@ -715,6 +716,104 @@ pub(super) fn builtin_filter(
     }
 }
 
+/// flat_map(collection, fn) - Map each element to a collection, then flatten
+///
+/// Callback signature: fn(element) -> collection — must accept exactly 1 argument
+/// The callback must return the same collection type as the input (Array → Array, List → List)
+/// Elements are processed in left-to-right order
+/// Works on Arrays (returns Array) and Lists (returns List)
+pub(super) fn builtin_flat_map(
+    ctx: &mut dyn RuntimeContext,
+    args: Vec<Value>,
+) -> Result<Value, String> {
+    check_arity(&args, 2, "flat_map", "flat_map(collection, fn)")?;
+    let func = &args[1];
+
+    match func {
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        other => {
+            return Err(type_error(
+                "flat_map",
+                "second argument",
+                "Function",
+                other.type_name(),
+                "flat_map(collection, fn)",
+            ));
+        }
+    }
+
+    match &args[0] {
+        Value::Array(arr) => {
+            let mut results = Vec::new();
+            for (idx, item) in arr.iter().enumerate() {
+                let inner = invoke_unary_callback(ctx, func, item.clone())
+                    .map_err(|e| format!("flat_map: callback error at index {}: {}", idx, e))?;
+                match inner {
+                    Value::Array(inner_arr) => results.extend(inner_arr.iter().cloned()),
+                    Value::None | Value::EmptyList => {}
+                    other => {
+                        return Err(format!(
+                            "flat_map: callback must return an Array when input is Array, got {}",
+                            other.type_name()
+                        ));
+                    }
+                }
+            }
+            Ok(Value::Array(results.into()))
+        }
+        Value::None | Value::EmptyList => Ok(Value::None),
+        Value::Gc(h) => match ctx.gc_heap().get(*h) {
+            HeapObject::Cons { .. } => {
+                let elements =
+                    list_ops::collect_list(ctx, &args[0]).ok_or("flat_map: malformed list")?;
+                let mut results: Vec<Value> = Vec::new();
+                for (idx, item) in elements.into_iter().enumerate() {
+                    let inner = invoke_unary_callback(ctx, func, item)
+                        .map_err(|e| format!("flat_map: callback error at index {}: {}", idx, e))?;
+                    match inner {
+                        Value::None | Value::EmptyList => {}
+                        Value::Gc(_) => {
+                            let inner_elems = list_ops::collect_list(ctx, &inner)
+                                .ok_or("flat_map: callback returned malformed list")?;
+                            results.extend(inner_elems);
+                        }
+                        other => {
+                            return Err(format!(
+                                "flat_map: callback must return a List when input is List, got {}",
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                // Build cons list from results
+                let mut list = Value::None;
+                for elem in results.into_iter().rev() {
+                    let handle = ctx.gc_heap_mut().alloc(HeapObject::Cons {
+                        head: elem,
+                        tail: list,
+                    });
+                    list = Value::Gc(handle);
+                }
+                Ok(list)
+            }
+            _ => Err(type_error(
+                "flat_map",
+                "first argument",
+                "Array or List",
+                "Map",
+                "flat_map(collection, fn)",
+            )),
+        },
+        other => Err(type_error(
+            "flat_map",
+            "first argument",
+            "Array or List",
+            other.type_name(),
+            "flat_map(collection, fn)",
+        )),
+    }
+}
+
 /// fold(collection, initial, fn) - Reduce collection to single value
 ///
 /// Callback signature: fn(accumulator, element) - must accept exactly 2 arguments
@@ -730,7 +829,7 @@ pub(super) fn builtin_fold(
     let func = &args[2];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) => {}
+        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "fold",

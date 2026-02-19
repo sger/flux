@@ -28,8 +28,8 @@ let evens = FU.filter(nums, \x -> x % 2 == 0);
 print("Evens: " + to_string(evens));
 
 // Use reduce with lambda
-let sum = FU.reduce(nums, 0, \(acc, x) -> acc + x);
-print("Sum: " + to_string(sum));
+let total = FU.reduce(nums, 0, \(acc, x) -> acc + x);
+print("Sum: " + to_string(total));
 
 // =============================================================================
 // Composing Functions

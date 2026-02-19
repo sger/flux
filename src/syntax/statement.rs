@@ -2,7 +2,12 @@ use std::fmt;
 
 use crate::{
     diagnostics::position::{Position, Span},
-    syntax::{Identifier, block::Block, expression::Expression, interner::Interner},
+    syntax::{
+        Identifier,
+        block::Block,
+        expression::{Expression, Pattern},
+        interner::Interner,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -12,12 +17,18 @@ pub enum Statement {
         value: Expression,
         span: Span,
     },
+    LetDestructure {
+        pattern: Pattern,
+        value: Expression,
+        span: Span,
+    },
     Return {
         value: Option<Expression>,
         span: Span,
     },
     Expression {
         expression: Expression,
+        has_semicolon: bool,
         span: Span,
     },
     Function {
@@ -47,6 +58,7 @@ impl Statement {
     pub fn position(&self) -> Position {
         match self {
             Statement::Let { span, .. } => span.start,
+            Statement::LetDestructure { span, .. } => span.start,
             Statement::Return { span, .. } => span.start,
             Statement::Expression { span, .. } => span.start,
             Statement::Function { span, .. } => span.start,
@@ -59,6 +71,7 @@ impl Statement {
     pub fn span(&self) -> Span {
         match self {
             Statement::Let { span, .. } => *span,
+            Statement::LetDestructure { span, .. } => *span,
             Statement::Return { span, .. } => *span,
             Statement::Expression { span, .. } => *span,
             Statement::Function { span, .. } => *span,
@@ -75,14 +88,25 @@ impl fmt::Display for Statement {
             Statement::Let { name, value, .. } => {
                 write!(f, "let {} = {};", name, value)
             }
+            Statement::LetDestructure { pattern, value, .. } => {
+                write!(f, "let {} = {};", pattern, value)
+            }
             Statement::Return { value: Some(v), .. } => {
                 write!(f, "return {};", v)
             }
             Statement::Return { value: None, .. } => {
                 write!(f, "return;")
             }
-            Statement::Expression { expression, .. } => {
-                write!(f, "{}", expression)
+            Statement::Expression {
+                expression,
+                has_semicolon,
+                ..
+            } => {
+                if *has_semicolon {
+                    write!(f, "{};", expression)
+                } else {
+                    write!(f, "{}", expression)
+                }
             }
             Statement::Function {
                 name,
@@ -128,11 +152,28 @@ impl Statement {
                     value.display_with(interner)
                 )
             }
+            Statement::LetDestructure { pattern, value, .. } => {
+                format!(
+                    "let {} = {};",
+                    pattern.display_with(interner),
+                    value.display_with(interner)
+                )
+            }
             Statement::Return { value: Some(v), .. } => {
                 format!("return {};", v.display_with(interner))
             }
             Statement::Return { value: None, .. } => "return;".to_string(),
-            Statement::Expression { expression, .. } => expression.display_with(interner),
+            Statement::Expression {
+                expression,
+                has_semicolon,
+                ..
+            } => {
+                if *has_semicolon {
+                    format!("{};", expression.display_with(interner))
+                } else {
+                    expression.display_with(interner)
+                }
+            }
             Statement::Function {
                 name,
                 parameters,

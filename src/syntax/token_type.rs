@@ -111,6 +111,7 @@ define_tokens! {
         Dot       => ".",
         Hash      => "#",
         Arrow     => "->",
+        LeftArrow => "<-",
         Backslash => "\\",
         InterpolationStart => "#{",
         StringEnd => "STRING_END",
@@ -118,8 +119,8 @@ define_tokens! {
 
     keywords {
         Let    => "let",
+        Do     => "do",
         Fn     => "fn",
-        Fun    => "fun",
         If     => "if",
         Else   => "else",
         Return => "return",
@@ -133,5 +134,6 @@ define_tokens! {
         Match  => "match",
         Left   => "Left",
         Right  => "Right",
+        Where  => "where",
     }
 }

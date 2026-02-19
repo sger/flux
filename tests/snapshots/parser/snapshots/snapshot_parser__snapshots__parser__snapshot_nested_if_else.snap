@@ -137,6 +137,7 @@ Program {
                                                     },
                                                 },
                                             },
+                                            has_semicolon: true,
                                             span: Span {
                                                 start: Position {
                                                     line: 4,
@@ -206,6 +207,7 @@ Program {
                                                         },
                                                     },
                                                 },
+                                                has_semicolon: true,
                                                 span: Span {
                                                     start: Position {
                                                         line: 6,
@@ -241,6 +243,7 @@ Program {
                                     },
                                 },
                             },
+                            has_semicolon: false,
                             span: Span {
                                 start: Position {
                                     line: 3,
@@ -310,6 +313,7 @@ Program {
                                         },
                                     },
                                 },
+                                has_semicolon: true,
                                 span: Span {
                                     start: Position {
                                         line: 9,
@@ -345,6 +349,7 @@ Program {
                     },
                 },
             },
+            has_semicolon: false,
             span: Span {
                 start: Position {
                     line: 2,

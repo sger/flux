@@ -45,6 +45,7 @@ Program {
                     },
                 },
             },
+            has_semicolon: true,
             span: Span {
                 start: Position {
                     line: 1,
@@ -99,6 +100,7 @@ Program {
                     },
                 },
             },
+            has_semicolon: true,
             span: Span {
                 start: Position {
                     line: 1,
@@ -180,6 +182,7 @@ Program {
                     },
                 },
             },
+            has_semicolon: true,
             span: Span {
                 start: Position {
                     line: 1,

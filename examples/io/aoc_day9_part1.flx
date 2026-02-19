@@ -1,0 +1,52 @@
+// Advent of Code - Day 9 Part 1 (Movie Theater)
+// Largest rectangle area using any two red tiles as opposite corners.
+// Input: examples/io/aoc_day9.txt
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn abs_val(v) {
+    if v < 0 { 0 - v } else { v }
+}
+
+fn pair_area(p1, p2) {
+    let dxv = abs_val(int_at(p1, 0) - int_at(p2, 0))
+    let dyv = abs_val(int_at(p1, 1) - int_at(p2, 1))
+    let wx = dxv + 1
+    let hy = dyv + 1
+    wx * hy
+}
+
+fn best_with_i(points, i, j, best) {
+    if j >= len(points) {
+        best
+    } else {
+        let a = pair_area(arr_at(points, i), arr_at(points, j))
+        let b = if a > best { a } else { best }
+        best_with_i(points, i, j + 1, b)
+    }
+}
+
+fn best_all(points, i, best) {
+    if i >= len(points) {
+        best
+    } else {
+        let b = best_with_i(points, i, i + 1, best)
+        best_all(points, i + 1, b)
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day9.txt")
+let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
+print(best_all(points, 0, 0))

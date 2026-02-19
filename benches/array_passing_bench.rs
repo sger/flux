@@ -49,7 +49,7 @@ fn build_identity_pass_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 24 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(src, "let id = fun(x) {{ x; }};");
+    let _ = writeln!(src, "let id = fn(x) {{ x; }};");
     for _ in 0..calls {
         let _ = writeln!(src, "len(id(payload));");
     }
@@ -60,9 +60,9 @@ fn build_chain_pass_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 24 + 384);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(src, "let f1 = fun(x) {{ x; }};");
-    let _ = writeln!(src, "let f2 = fun(x) {{ f1(x); }};");
-    let _ = writeln!(src, "let f3 = fun(x) {{ f2(x); }};");
+    let _ = writeln!(src, "let f1 = fn(x) {{ x; }};");
+    let _ = writeln!(src, "let f2 = fn(x) {{ f1(x); }};");
+    let _ = writeln!(src, "let f3 = fn(x) {{ f2(x); }};");
     for _ in 0..calls {
         let _ = writeln!(src, "len(f3(payload));");
     }

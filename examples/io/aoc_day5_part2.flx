@@ -1,0 +1,114 @@
+// Advent of Code - Day 5 Part 2 (Cafeteria)
+// Count how many ingredient IDs are fresh according to the union of ranges.
+// Input: examples/io/aoc_day5.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn int_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn parse_range_line(line) {
+    let parts = split_ints(trim(line), "-")
+    let a = int_at(parts, 0)
+    let b = int_at(parts, 1)
+    let lo = if a < b { a } else { b }
+    let hi = if a < b { b } else { a }
+    push(push([||], lo), hi)
+}
+
+fn range_start(r) {
+    int_at(r, 0)
+}
+
+fn range_end(r) {
+    int_at(r, 1)
+}
+
+fn make_range(a, b) {
+    push(push([||], a), b)
+}
+
+fn find_blank(lines, idx) {
+    if idx >= len(lines) {
+        len(lines)
+    } else {
+        if trim(line_at(lines, idx)) == "" {
+            idx
+        } else {
+            find_blank(lines, idx + 1)
+        }
+    }
+}
+
+fn insert_range_rec(sorted, r, i, acc) {
+    if i >= len(sorted) {
+        push(acc, r)
+    } else {
+        let cur = arr_at(sorted, i)
+        if range_start(r) < range_start(cur) {
+            concat(concat(acc, [|r|]), slice(sorted, i, len(sorted)))
+        } else {
+            insert_range_rec(sorted, r, i + 1, push(acc, cur))
+        }
+    }
+}
+
+fn insert_range(sorted, r) {
+    insert_range_rec(sorted, r, 0, [||])
+}
+
+fn sort_ranges(ranges, i, acc) {
+    if i >= len(ranges) {
+        acc
+    } else {
+        let r = arr_at(ranges, i)
+        sort_ranges(ranges, i + 1, insert_range(acc, r))
+    }
+}
+
+fn count_merged(sorted, idx, cur_a, cur_b, acc) {
+    if idx >= len(sorted) {
+        if cur_a < 0 {
+            acc
+        } else {
+            acc + (cur_b - cur_a + 1)
+        }
+    } else {
+        let r = arr_at(sorted, idx)
+        let a = range_start(r)
+        let b = range_end(r)
+        if cur_a < 0 {
+            count_merged(sorted, idx + 1, a, b, acc)
+        } else {
+            if a <= cur_b + 1 {
+                let nb = if b > cur_b { b } else { cur_b }
+                count_merged(sorted, idx + 1, cur_a, nb, acc)
+            } else {
+                count_merged(sorted, idx + 1, a, b, acc + (cur_b - cur_a + 1))
+            }
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day5.txt")
+let sep = find_blank(lines, 0)
+let range_lines = [trim(line) | line <- slice(lines, 0, sep), trim(line) != ""]
+let ranges = [parse_range_line(line) | line <- range_lines]
+let sorted = sort_ranges(ranges, 0, [||])
+print(count_merged(sorted, 0, -1, -1, 0))

@@ -1,19 +1,20 @@
 use crate::{
     diagnostics::{
-        Diagnostic, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING,
-        missing_comma,
+        Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
+        UNTERMINATED_STRING, missing_comma,
         position::{Position, Span},
         unclosed_delimiter, unexpected_token,
     },
     syntax::{
         Identifier, block::Block, expression::Expression, precedence::Precedence,
-        token_type::TokenType,
+        statement::Statement, token_type::TokenType,
     },
 };
 
 use super::Parser;
 
 const LIST_ERROR_LIMIT: usize = 50;
+const DELIMITER_RECOVERY_BUDGET: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum SyncMode {
@@ -139,11 +140,68 @@ impl Parser {
                 | TokenType::LBracket
                 | TokenType::LBrace
                 | TokenType::If
+                | TokenType::Do
                 | TokenType::Fn
-                | TokenType::Fun
                 | TokenType::Match
                 | TokenType::Backslash
         )
+    }
+
+    pub(super) fn token_starts_statement(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Let
+                | TokenType::Return
+                | TokenType::Fn
+                | TokenType::Import
+                | TokenType::Module
+        )
+    }
+
+    pub(super) fn recover_to_matching_delimiter(
+        &mut self,
+        expected: TokenType,
+        stop_on: &[TokenType],
+    ) -> bool {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        let mut scanned = 0usize;
+
+        while self.peek_token.token_type != TokenType::Eof && scanned < DELIMITER_RECOVERY_BUDGET {
+            let token_type = self.peek_token.token_type;
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+
+            if at_top_level && token_type == expected {
+                self.next_token(); // consume expected delimiter
+                return true;
+            }
+
+            if at_top_level
+                && (stop_on.contains(&token_type)
+                    || token_type == TokenType::RBrace
+                    || token_type == TokenType::Eof
+                    || token_type == TokenType::Semicolon
+                    || self.token_starts_statement(token_type))
+            {
+                return false;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
+            scanned += 1;
+        }
+
+        false
     }
 
     pub(super) fn synchronize(&mut self, mode: SyncMode) {
@@ -279,18 +337,38 @@ impl Parser {
         let mut statements = Vec::new();
         self.next_token();
 
-        while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
+        while !self.is_current_token(TokenType::RBrace)
+            && !self.is_current_token(TokenType::Eof)
+            && !self.is_current_token(TokenType::Where)
+        {
             if let Some(statement) = self.parse_statement() {
                 statements.push(statement);
             }
             self.next_token();
         }
 
+        // `where x = val ...` — collect bindings and reorder before the body expression
+        if self.is_current_token(TokenType::Where) {
+            let where_bindings = self.parse_where_clauses();
+            // The body expression is the last statement; inject bindings before it
+            if let Some(body) = statements.pop() {
+                statements.extend(where_bindings);
+                statements.push(body);
+            } else {
+                // `where` without a preceding expression — emit an error, still collect bindings
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "`where` must follow an expression",
+                ));
+                statements.extend(where_bindings);
+            }
+        }
+
         // Detect unclosed block: reached EOF without finding closing `}`
         if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
             self.reported_unclosed_brace = true;
             self.errors
-                .push(unclosed_delimiter(Span::new(start, start)));
+                .push(unclosed_delimiter(Span::new(start, start), "{", "}", None));
         }
 
         Block {
@@ -299,11 +377,65 @@ impl Parser {
         }
     }
 
-    pub(super) fn parse_expression_list(&mut self, end: TokenType) -> Option<Vec<Expression>> {
+    /// Parse one or more `where ident = expr` clauses, returning them as `Let` statements.
+    /// Called when `current_token` is `Where`. Leaves `current_token` at `}` or `EOF`.
+    fn parse_where_clauses(&mut self) -> Vec<Statement> {
+        let mut bindings = Vec::new();
+
+        while self.is_current_token(TokenType::Where) {
+            let clause_start = self.current_token.position;
+            self.next_token(); // consume `where`
+
+            if !self.is_current_token(TokenType::Ident) {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "expected identifier after `where`",
+                ));
+                break;
+            }
+
+            let name: Identifier = self
+                .current_token
+                .symbol
+                .expect("ident token must have symbol");
+            self.next_token(); // consume identifier
+
+            if !self.is_current_token(TokenType::Assign) {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "expected `=` after where binding name",
+                ));
+                break;
+            }
+            self.next_token(); // consume `=`
+
+            let value = match self.parse_expression(Precedence::Lowest) {
+                Some(v) => v,
+                None => break,
+            };
+
+            let clause_end = self.current_token.end_position;
+            bindings.push(Statement::Let {
+                name,
+                value,
+                span: Span::new(clause_start, clause_end),
+            });
+
+            self.next_token(); // advance to next `where` or `}`
+        }
+
+        bindings
+    }
+
+    pub(super) fn parse_expression_list(
+        &mut self,
+        end: TokenType,
+        open_pos: Position,
+    ) -> Option<Vec<Expression>> {
         if self.consume_if_peek(end) {
             return Some(vec![]);
         }
-        self.parse_expression_list_core(vec![], end, true)
+        self.parse_expression_list_core(vec![], end, true, open_pos)
     }
 
     /// Like `parse_expression_list`, but the first element has already been
@@ -313,8 +445,9 @@ impl Parser {
         &mut self,
         first: Expression,
         end: TokenType,
+        open_pos: Position,
     ) -> Option<Vec<Expression>> {
-        self.parse_expression_list_core(vec![first], end, false)
+        self.parse_expression_list_core(vec![first], end, false, open_pos)
     }
 
     /// Core loop for comma-separated expression lists.
@@ -327,6 +460,7 @@ impl Parser {
         mut list: Vec<Expression>,
         end: TokenType,
         advance_first: bool,
+        open_pos: Position,
     ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
@@ -383,10 +517,20 @@ impl Parser {
                 return Some(list);
             }
 
+            // Dangling member access already emitted a targeted error in
+            // `parse_member_access` (e.g. `point.\nnext`), so skip emitting
+            // a second generic list-delimiter error here.
+            if self.current_token.token_type == TokenType::Dot
+                && self.peek_token.position.line > self.current_token.end_position.line
+            {
+                return Some(list);
+            }
+
             // Adjacent expression-starting token inside a delimited list strongly
             // indicates a missing comma: f(a b), [a b], etc.
             if self.token_starts_expression(self.peek_token.token_type)
                 && !self.token_can_continue_expression(self.peek_token.token_type)
+                && !self.likely_missing_closing_delimiter(end)
             {
                 let (context, example) = match end {
                     TokenType::RParen => ("arguments", "`f(a, b)`"),
@@ -406,6 +550,21 @@ impl Parser {
                 continue;
             }
 
+            // Heuristic: if the next token is on a different line or starts
+            // a statement, the closing delimiter was likely forgotten.
+            // Point the error at the opening delimiter instead of the
+            // unexpected token (Rust-style).
+            if self.likely_missing_closing_delimiter(end) {
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    Some(self.peek_token.span()),
+                ));
+                return Some(list);
+            }
+
             let context = match end {
                 TokenType::RParen => "argument",
                 TokenType::RBracket => "array element",
@@ -422,7 +581,9 @@ impl Parser {
                 return Some(list);
             }
 
-            self.recover_expression_list_to_delimiter(end);
+            if self.recover_to_matching_delimiter(end, &[TokenType::Comma]) {
+                return Some(list);
+            }
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
@@ -439,22 +600,35 @@ impl Parser {
             }
 
             // If recovery stopped at a statement boundary, the closing
-            // delimiter was simply forgotten. Return what we have and let the
-            // parser continue from the next statement without a second error.
+            // delimiter was simply forgotten. Emit unclosed-delimiter error
+            // pointing at the opener (Rust-style).
             if matches!(
                 self.peek_token.token_type,
                 TokenType::Semicolon
                     | TokenType::Let
                     | TokenType::Fn
-                    | TokenType::Fun
                     | TokenType::Import
                     | TokenType::Module
             ) {
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    Some(self.peek_token.span()),
+                ));
                 return Some(list);
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {
-                format!("Expected `{}` before end of file.", end)
+                let (open, close) = Self::delimiter_chars(end);
+                self.errors.push(unclosed_delimiter(
+                    Span::new(open_pos, open_pos),
+                    open,
+                    close,
+                    None,
+                ));
+                return None;
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
             };
@@ -490,48 +664,33 @@ impl Parser {
         )
     }
 
-    fn recover_expression_list_to_delimiter(&mut self, end: TokenType) {
-        let mut paren_depth = 0usize;
-        let mut bracket_depth = 0usize;
-        let mut brace_depth = 0usize;
-
-        while self.peek_token.token_type != TokenType::Eof {
-            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
-            let token_type = self.peek_token.token_type;
-
-            if at_top_level && (token_type == TokenType::Comma || token_type == end) {
-                break;
-            }
-
-            // A semicolon or statement keyword at top level means the unclosed
-            // delimiter was simply forgotten — stop recovering here so we don't
-            // cascade errors all the way to EOF.
-            if at_top_level
-                && matches!(
-                    token_type,
-                    TokenType::Semicolon
-                        | TokenType::Let
-                        | TokenType::Fn
-                        | TokenType::Fun
-                        | TokenType::Import
-                        | TokenType::Module
-                )
-            {
-                break;
-            }
-
-            match token_type {
-                TokenType::LParen => paren_depth += 1,
-                TokenType::LBracket => bracket_depth += 1,
-                TokenType::LBrace => brace_depth += 1,
-                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
-                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
-                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
-                _ => {}
-            }
-
-            self.next_token();
+    fn delimiter_chars(end: TokenType) -> (&'static str, &'static str) {
+        match end {
+            TokenType::RParen => ("(", ")"),
+            TokenType::RBracket => ("[", "]"),
+            _ => ("{", "}"),
         }
+    }
+
+    fn likely_missing_closing_delimiter(&self, end: TokenType) -> bool {
+        // In call argument lists, a newline before the next expression-starter
+        // is more likely to be a forgotten closing ')' than a missing comma.
+        if end == TokenType::RParen
+            && self.peek_token.position.line > self.current_token.end_position.line
+        {
+            return true;
+        }
+
+        matches!(
+            self.peek_token.token_type,
+            TokenType::Semicolon
+                | TokenType::RBrace
+                | TokenType::Let
+                | TokenType::Fn
+                | TokenType::Return
+                | TokenType::Import
+                | TokenType::Module
+        )
     }
 
     pub(super) fn sync_to_list_end(&mut self, end: TokenType) {
@@ -564,6 +723,23 @@ impl Parser {
 
     // Error handling
     pub(super) fn no_prefix_parse_error(&mut self) {
+        if self.current_token.token_type == TokenType::Let {
+            let diag = Diagnostic::make_error(
+                &EXPECTED_EXPRESSION,
+                &[&self.current_token.token_type.to_string()],
+                String::new(),
+                self.current_token.span(),
+            )
+            .with_message("`let` is a statement and cannot appear in an expression position.")
+            .with_hint_text(
+                "Move `let` above this expression, or use a block body `{ ... }` if this construct supports it. \
+For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression; extract the `let` before `match` \
+(or use a block only if match arms support it).",
+            );
+            self.errors.push(diag);
+            return;
+        }
+
         let error_spec = &EXPECTED_EXPRESSION;
         let diag = Diagnostic::make_error(
             error_spec,

@@ -1,0 +1,119 @@
+// Advent of Code - Day 11 Part 1
+// Count directed paths from "you" to "out".
+// Input: examples/io/aoc_day11.txt
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn str_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn arr_at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [||]
+    }
+}
+
+fn char_at(s, idx) {
+    substring(s, idx, idx + 1)
+}
+
+fn find_char_from(s, ch, idx) {
+    if idx >= len(s) {
+        -1
+    } else {
+        if char_at(s, idx) == ch {
+            idx
+        } else {
+            find_char_from(s, ch, idx + 1)
+        }
+    }
+}
+
+fn result(count, memo) {
+    let r = put({}, "count", count)
+    put(r, "memo", memo)
+}
+
+fn result_count(r) {
+    match get(r, "count") {
+        Some(v) -> v,
+        _ -> 0
+    }
+}
+
+fn result_memo(r) {
+    match get(r, "memo") {
+        Some(v) -> v,
+        _ -> {}
+    }
+}
+
+fn parse_entry(line) {
+    let c = find_char_from(line, ":", 0);
+    let name = trim(substring(line, 0, c));
+    let outs = split(trim(substring(line, c + 1, len(line))), " ");
+    [|name, outs|]
+}
+
+fn parse_graph(lines) {
+    let entries = [parse_entry(trim(line)) | line <- lines, trim(line) != "", find_char_from(trim(line), ":", 0) >= 0]
+    fold(entries, {}, \(g, e) -> put(g, str_at(e, 0), arr_at(e, 1)))
+}
+
+fn sum_children(outs, i, graph, memo, acc) {
+    if i >= len(outs) {
+        result(acc, memo)
+    } else {
+        let nxt = str_at(outs, i)
+        let r = dfs_count(nxt, graph, memo)
+        let cnt = result_count(r)
+        let memo2 = result_memo(r)
+        sum_children(outs, i + 1, graph, memo2, acc + cnt)
+    }
+}
+
+fn dfs_from_outs(node, outs, graph, memo) {
+    let r = sum_children(outs, 0, graph, memo, 0)
+    let total = result_count(r)
+    let memo2 = result_memo(r)
+    let memo3 = put(memo2, node, total)
+    result(total, memo3)
+}
+
+fn result_zero_at(node, memo) {
+    let memo2 = put(memo, node, 0)
+    result(0, memo2)
+}
+
+fn dfs_uncached(node, graph, memo) {
+    match get(graph, node) {
+        Some(outs) -> dfs_from_outs(node, outs, graph, memo),
+        _ -> result_zero_at(node, memo)
+    }
+}
+
+fn dfs_count(node, graph, memo) {
+    if node == "out" {
+        result(1, memo)
+    } else {
+        match get(memo, node) {
+            Some(v) -> result(v, memo),
+            _ -> dfs_uncached(node, graph, memo)
+        }
+    }
+}
+
+let lines = read_lines("examples/io/aoc_day11.txt")
+let graph = parse_graph(lines)
+let ans = dfs_count("you", graph, {})
+print(result_count(ans))

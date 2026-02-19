@@ -53,6 +53,18 @@ fn array_index_negative() {
 }
 
 #[test]
+fn tuple_index_in_bounds() {
+    let mut vm = new_vm();
+    let tuple = Value::Tuple(vec![Value::Integer(1), Value::Integer(2)].into());
+    let index = Value::Integer(0);
+
+    vm.execute_index_expression(tuple, index).unwrap();
+
+    let result = vm.pop().unwrap();
+    assert_eq!(result, Value::Some(std::rc::Rc::new(Value::Integer(1))));
+}
+
+#[test]
 fn hash_index_missing_key() {
     let mut vm = new_vm();
     let mut root = hamt_empty(&mut vm.gc_heap);

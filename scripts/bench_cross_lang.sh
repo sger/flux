@@ -12,6 +12,8 @@ Options:
   --warmup <n>              Warmup runs (default: 3)
   --native                  Use direct release binaries (Flux/Rust) and no shell
   --flux-cmd <cmd>          Flux command (default provided)
+  --flux-jit-cmd <cmd>      Flux JIT command (default provided)
+  --no-flux-jit             Disable Flux JIT benchmark case
   --rust-cmd <cmd>          Rust command
   --python-cmd <cmd>        Python command
   --node-cmd <cmd>          Node command
@@ -42,7 +44,10 @@ SHELL_MODE=1
 NATIVE_MODE=0
 
 DEFAULT_FLUX_CARGO_CMD="cargo run --release --bin flux -- examples/io/aoc_day1.flx"
+DEFAULT_FLUX_JIT_CARGO_CMD="cargo run --release --features jit --bin flux -- examples/io/aoc_day1.flx --jit"
 FLUX_CMD="$DEFAULT_FLUX_CARGO_CMD"
+FLUX_JIT_CMD="$DEFAULT_FLUX_JIT_CARGO_CMD"
+ENABLE_FLUX_JIT=1
 RUST_CMD=""
 PYTHON_CMD=""
 NODE_CMD=""
@@ -69,6 +74,14 @@ while [[ $# -gt 0 ]]; do
     --flux-cmd)
       FLUX_CMD="$2"
       shift 2
+      ;;
+    --flux-jit-cmd)
+      FLUX_JIT_CMD="$2"
+      shift 2
+      ;;
+    --no-flux-jit)
+      ENABLE_FLUX_JIT=0
+      shift
       ;;
     --rust-cmd)
       RUST_CMD="$2"
@@ -114,12 +127,16 @@ if [[ ! -f "$INPUT" ]]; then
 fi
 
 DEFAULT_FLUX_NATIVE_CMD="./target/release/flux examples/io/aoc_day1.flx"
+DEFAULT_FLUX_JIT_NATIVE_CMD="./target/release/flux examples/io/aoc_day1.flx --jit"
 DEFAULT_RUST_NATIVE_CMD="./target/release/aoc_day1_rust $INPUT"
 DEFAULT_PYTHON_CMD="python3 benchmarks/aoc/day1.py $INPUT"
 
 if [[ "$NATIVE_MODE" -eq 1 ]]; then
   if [[ "$FLUX_CMD" == "$DEFAULT_FLUX_CARGO_CMD" ]]; then
     FLUX_CMD="$DEFAULT_FLUX_NATIVE_CMD"
+  fi
+  if [[ "$FLUX_JIT_CMD" == "$DEFAULT_FLUX_JIT_CARGO_CMD" ]]; then
+    FLUX_JIT_CMD="$DEFAULT_FLUX_JIT_NATIVE_CMD"
   fi
   if [[ -z "$RUST_CMD" ]]; then
     RUST_CMD="$DEFAULT_RUST_NATIVE_CMD"
@@ -137,6 +154,11 @@ if [[ "$NATIVE_MODE" -eq 1 ]]; then
   if [[ "$FLUX_CMD" == "$DEFAULT_FLUX_NATIVE_CMD" && ! -x "./target/release/flux" ]]; then
     echo "Error: missing ./target/release/flux for --native mode." >&2
     echo "Build first: cargo build --release --bin flux --bin aoc_day1_rust" >&2
+    exit 1
+  fi
+  if [[ "$ENABLE_FLUX_JIT" -eq 1 && "$FLUX_JIT_CMD" == "$DEFAULT_FLUX_JIT_NATIVE_CMD" && ! -x "./target/release/flux" ]]; then
+    echo "Error: missing ./target/release/flux for --native mode." >&2
+    echo "Build first: cargo build --release --features jit --bin flux --bin aoc_day1_rust" >&2
     exit 1
   fi
   if [[ "$RUST_CMD" == "$DEFAULT_RUST_NATIVE_CMD" && ! -x "./target/release/aoc_day1_rust" ]]; then
@@ -159,6 +181,9 @@ add_case() {
 }
 
 add_case "$NAME_PREFIX/flux" "$FLUX_CMD"
+if [[ "$ENABLE_FLUX_JIT" -eq 1 ]]; then
+  add_case "$NAME_PREFIX/flux-jit" "$FLUX_JIT_CMD"
+fi
 add_case "$NAME_PREFIX/rust" "$RUST_CMD"
 add_case "$NAME_PREFIX/python" "$PYTHON_CMD"
 add_case "$NAME_PREFIX/node" "$NODE_CMD"

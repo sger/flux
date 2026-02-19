@@ -1,0 +1,89 @@
+// Advent of Code - Day 4 Part 2 (Printing Department)
+// Input: examples/io/aoc_day4.txt
+
+fn first2(arr) {
+    first(arr)
+}
+
+fn second2(arr) {
+    last(arr)
+}
+
+fn line_at(lines, idx) {
+    match lines[idx] {
+        Some(v) -> v,
+        _ -> ""
+    }
+}
+
+fn char_at(line, col) {
+    substring(line, col, col + 1)
+}
+
+fn is_roll(lines, rows, cols, r, c) {
+    if r < 0 || c < 0 || r >= rows || c >= cols {
+        false
+    } else {
+        let line = line_at(lines, r)
+        char_at(line, c) == "@"
+    }
+}
+
+fn adjacent_rolls(lines, rows, cols, r, c) {
+    let n1 = if is_roll(lines, rows, cols, r - 1, c - 1) { 1 } else { 0 }
+    let n2 = if is_roll(lines, rows, cols, r - 1, c) { 1 } else { 0 }
+    let n3 = if is_roll(lines, rows, cols, r - 1, c + 1) { 1 } else { 0 }
+    let n4 = if is_roll(lines, rows, cols, r, c - 1) { 1 } else { 0 }
+    let n5 = if is_roll(lines, rows, cols, r, c + 1) { 1 } else { 0 }
+    let n6 = if is_roll(lines, rows, cols, r + 1, c - 1) { 1 } else { 0 }
+    let n7 = if is_roll(lines, rows, cols, r + 1, c) { 1 } else { 0 }
+    let n8 = if is_roll(lines, rows, cols, r + 1, c + 1) { 1 } else { 0 }
+    n1 + n2 + n3 + n4 + n5 + n6 + n7 + n8
+}
+
+fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
+    if c >= cols {
+        [|acc_line, removed|]
+    } else {
+        let line = line_at(lines, r)
+        let ch = char_at(line, c)
+        if ch == "@" {
+            let adj = adjacent_rolls(lines, rows, cols, r, c)
+            if adj < 4 {
+                build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
+            } else {
+                build_row_after_round(lines, rows, cols, r, c + 1, acc_line + "@", removed)
+            }
+        } else {
+            build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
+        }
+    }
+}
+
+fn step_round(lines, rows, cols, r, next_lines, removed_total) {
+    if r >= rows {
+        [|next_lines, removed_total|]
+    } else {
+        let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
+        let next_line = first2(row_result)
+        let removed_row = second2(row_result)
+        step_round(lines, rows, cols, r + 1, push(next_lines, next_line), removed_total + removed_row)
+    }
+}
+
+fn remove_until_stable(lines, rows, cols, removed_acc) {
+    let step = step_round(lines, rows, cols, 0, [||], 0)
+    let next_lines = first2(step)
+    let removed_now = second2(step)
+    if removed_now == 0 {
+        removed_acc
+    } else {
+        remove_until_stable(next_lines, rows, cols, removed_acc + removed_now)
+    }
+}
+
+let raw_lines = read_lines("examples/io/aoc_day4.txt")
+let lines = [line | line <- raw_lines, line != ""]
+let rows = len(lines)
+let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
+print(remove_until_stable(lines, rows, cols, 0))

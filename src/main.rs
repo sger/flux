@@ -2,8 +2,11 @@ use std::{
     collections::HashSet,
     env, fs, io,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
+#[cfg(feature = "jit")]
+use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
     bytecode::{
@@ -30,6 +33,11 @@ fn main() {
     let enable_analyze = args.iter().any(|arg| arg == "--analyze" || arg == "-A");
     let no_gc = args.iter().any(|arg| arg == "--no-gc");
     let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
+    let show_stats = args.iter().any(|arg| arg == "--stats");
+    #[cfg(feature = "jit")]
+    let use_jit = args.iter().any(|arg| arg == "--jit");
+    #[cfg(not(feature = "jit"))]
+    let use_jit = false;
     let mut roots = Vec::new();
     if verbose {
         args.retain(|arg| arg != "--verbose");
@@ -57,6 +65,12 @@ fn main() {
     }
     if gc_telemetry {
         args.retain(|arg| arg != "--gc-telemetry");
+    }
+    if show_stats {
+        args.retain(|arg| arg != "--stats");
+    }
+    if use_jit {
+        args.retain(|arg| arg != "--jit");
     }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
@@ -90,6 +104,8 @@ fn main() {
             no_gc,
             gc_threshold,
             gc_telemetry,
+            use_jit,
+            show_stats,
         );
         return;
     }
@@ -122,6 +138,8 @@ fn main() {
                 no_gc,
                 gc_threshold,
                 gc_telemetry,
+                use_jit,
+                show_stats,
             )
         }
         "tokens" => {
@@ -228,6 +246,7 @@ Flags:
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
+  --stats            Print execution analytics (parse/compile/execute times, module info)
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -253,6 +272,8 @@ fn run_file(
     no_gc: bool,
     gc_threshold: Option<usize>,
     gc_telemetry: bool,
+    #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
+    show_stats: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -262,13 +283,15 @@ fn run_file(
             let roots_hash = roots_cache_hash(&roots);
             let cache_key = hash_cache_key(&source_hash, &roots_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache {
+            if !no_cache && !use_jit {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
                     if verbose {
                         eprintln!("cache: hit (bytecode loaded)");
                     }
+                    let functions_count = count_bytecode_functions(&bytecode.constants);
+                    let instruction_bytes = bytecode.instructions.len();
                     let mut vm = VM::new(bytecode);
                     vm.set_trace(trace);
                     if no_gc {
@@ -277,10 +300,12 @@ fn run_file(
                     if let Some(threshold) = gc_threshold {
                         vm.set_gc_threshold(threshold);
                     }
+                    let exec_start = Instant::now();
                     if let Err(err) = vm.run() {
                         eprintln!("{}", err);
                         std::process::exit(1);
                     }
+                    let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
                     #[cfg(feature = "gc-telemetry")]
                     if gc_telemetry {
                         println!("\n{}", vm.gc_telemetry_report());
@@ -294,6 +319,20 @@ fn run_file(
                     if leak_detector {
                         print_leak_stats();
                     }
+                    if show_stats {
+                        print_stats(&RunStats {
+                            parse_ms: None,
+                            compile_ms: None,
+                            execute_ms,
+                            cached: true,
+                            use_jit: false,
+                            module_count: None,
+                            source_lines: source.lines().count(),
+                            globals_count: None,
+                            functions_count: Some(functions_count),
+                            instruction_bytes: Some(instruction_bytes),
+                        });
+                    }
                     return;
                 }
                 if verbose {
@@ -301,6 +340,7 @@ fn run_file(
                 }
             }
 
+            let parse_start = Instant::now();
             let lexer = Lexer::new(&source);
             let mut parser = Parser::new(lexer);
             let program = parser.parse_program();
@@ -333,6 +373,7 @@ fn run_file(
             // --- Build module graph (always returns, may have diagnostics) ---
             let graph_result =
                 ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
+            let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
             all_diagnostics.extend(graph_result.diagnostics);
 
             // Track all failed modules (parse + validation failures from graph).
@@ -341,10 +382,12 @@ fn run_file(
                 failed.insert(canon);
             }
 
-            let is_multimodule = graph_result.graph.module_count() > 1;
+            let module_count = graph_result.graph.module_count();
+            let is_multimodule = module_count > 1;
             let graph = graph_result.graph;
 
             // --- Compile valid modules, suppress cascade ---
+            let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
             for node in graph.topo_order() {
@@ -406,7 +449,89 @@ fn run_file(
                 eprintln!("{}", report.rendered);
             }
 
+            // --- JIT execution path ---
+            #[cfg(feature = "jit")]
+            if use_jit {
+                use flux::ast::{constant_fold, desugar, rename};
+                use std::collections::HashMap;
+
+                // JIT must see the same module set as the VM path (entry + imports).
+                let mut jit_program = Program::new();
+                for node in graph.topo_order() {
+                    jit_program
+                        .statements
+                        .extend(node.program.statements.clone());
+                }
+
+                // Apply AST optimizations if requested (same pipeline as bytecode path)
+                if enable_optimize {
+                    let desugared = desugar(jit_program);
+                    let optimized = constant_fold(desugared);
+                    jit_program = rename(optimized, HashMap::new());
+                }
+
+                let jit_options = flux::jit::JitOptions {
+                    no_gc,
+                    gc_threshold,
+                };
+
+                let jit_compile_start = Instant::now();
+                let compiled =
+                    match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            eprintln!("{}", err);
+                            std::process::exit(1);
+                        }
+                    };
+                let jit_compile_ms = jit_compile_start.elapsed().as_secs_f64() * 1000.0;
+
+                let jit_exec_start = Instant::now();
+                match flux::jit::jit_execute(compiled) {
+                    Ok((_result, ctx)) => {
+                        let jit_exec_ms = jit_exec_start.elapsed().as_secs_f64() * 1000.0;
+                        #[cfg(feature = "gc-telemetry")]
+                        if gc_telemetry {
+                            println!("\n{}", ctx.gc_heap.telemetry_report());
+                        }
+                        #[cfg(not(feature = "gc-telemetry"))]
+                        if gc_telemetry {
+                            eprintln!(
+                                "Warning: --gc-telemetry requires building with `--features gc-telemetry`"
+                            );
+                        }
+                        let _ = ctx;
+                        if show_stats {
+                            print_stats(&RunStats {
+                                parse_ms: Some(parse_ms),
+                                compile_ms: Some(jit_compile_ms),
+                                execute_ms: jit_exec_ms,
+                                cached: false,
+                                use_jit: true,
+                                module_count: Some(module_count),
+                                source_lines: source.lines().count(),
+                                globals_count: None,
+                                functions_count: None,
+                                instruction_bytes: None,
+                            });
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
+                    }
+                }
+                if leak_detector {
+                    print_leak_stats();
+                }
+                return;
+            }
+
+            let compile_ms = compile_start.elapsed().as_secs_f64() * 1000.0;
             let bytecode = compiler.bytecode();
+            let globals_count = compiler.symbol_table.num_definitions;
+            let functions_count = count_bytecode_functions(&bytecode.constants);
+            let instruction_bytes = bytecode.instructions.len();
 
             let mut deps = Vec::new();
             for dep in graph.imported_files() {
@@ -414,7 +539,7 @@ fn run_file(
                     deps.push((dep, hash));
                 }
             }
-            if !no_cache {
+            if !no_cache && !use_jit {
                 let stored = cache
                     .store(
                         Path::new(path),
@@ -437,10 +562,12 @@ fn run_file(
             if let Some(threshold) = gc_threshold {
                 vm.set_gc_threshold(threshold);
             }
+            let exec_start = Instant::now();
             if let Err(err) = vm.run() {
                 eprintln!("{}", err);
                 std::process::exit(1);
             }
+            let execute_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
             #[cfg(feature = "gc-telemetry")]
             if gc_telemetry {
                 println!("\n{}", vm.gc_telemetry_report());
@@ -454,9 +581,92 @@ fn run_file(
             if leak_detector {
                 print_leak_stats();
             }
+            if show_stats {
+                print_stats(&RunStats {
+                    parse_ms: Some(parse_ms),
+                    compile_ms: Some(compile_ms),
+                    execute_ms,
+                    cached: false,
+                    use_jit: false,
+                    module_count: Some(module_count),
+                    source_lines: source.lines().count(),
+                    globals_count: Some(globals_count),
+                    functions_count: Some(functions_count),
+                    instruction_bytes: Some(instruction_bytes),
+                });
+            }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
     }
+}
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+
+struct RunStats {
+    parse_ms: Option<f64>,
+    compile_ms: Option<f64>,
+    execute_ms: f64,
+    cached: bool,
+    use_jit: bool,
+    module_count: Option<usize>,
+    source_lines: usize,
+    globals_count: Option<usize>,
+    functions_count: Option<usize>,
+    instruction_bytes: Option<usize>,
+}
+
+fn count_bytecode_functions(constants: &[flux::runtime::value::Value]) -> usize {
+    use flux::runtime::value::Value;
+    constants
+        .iter()
+        .filter(|v| matches!(v, Value::Function(_)))
+        .count()
+}
+
+fn print_stats(stats: &RunStats) {
+    let total_ms =
+        stats.parse_ms.unwrap_or(0.0) + stats.compile_ms.unwrap_or(0.0) + stats.execute_ms;
+
+    let w = 46usize;
+    eprintln!();
+    eprintln!("  ── Flux Analytics {}", "─".repeat(w - 19));
+
+    if let Some(ms) = stats.parse_ms {
+        eprintln!("  {:<20} {:>8.2} ms", "parse", ms);
+    }
+
+    if stats.cached {
+        eprintln!("  {:<20} {:>12}", "compile", "(cached)");
+    } else if stats.use_jit {
+        if let Some(ms) = stats.compile_ms {
+            eprintln!("  {:<20} {:>8.2} ms  [cranelift]", "jit compile", ms);
+        }
+    } else if let Some(ms) = stats.compile_ms {
+        eprintln!("  {:<20} {:>8.2} ms  [bytecode]", "compile", ms);
+    }
+
+    let backend = if stats.use_jit { "native" } else { "vm" };
+    eprintln!(
+        "  {:<20} {:>8.2} ms  [{}]",
+        "execute", stats.execute_ms, backend
+    );
+    eprintln!("  {:<20} {:>8.2} ms", "total", total_ms);
+    eprintln!();
+
+    if let Some(n) = stats.module_count {
+        eprintln!("  {:<20} {:>8}", "modules", n);
+    }
+    eprintln!("  {:<20} {:>8}", "source lines", stats.source_lines);
+    if let Some(n) = stats.globals_count {
+        eprintln!("  {:<20} {:>8}", "globals", n);
+    }
+    if let Some(n) = stats.functions_count {
+        eprintln!("  {:<20} {:>8}", "functions", n);
+    }
+    if let Some(n) = stats.instruction_bytes {
+        eprintln!("  {:<20} {:>8} bytes", "instructions", n);
+    }
+    eprintln!("  {}", "─".repeat(w - 2));
 }
 
 fn print_leak_stats() {
@@ -471,25 +681,29 @@ fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {
     let mut threshold = None;
     let mut i = 0;
     while i < args.len() {
-        if args[i] == "--gc-threshold" {
+        let value_str = if args[i] == "--gc-threshold" {
             if i + 1 >= args.len() {
                 eprintln!("Usage: flux <file.flx> --gc-threshold <n>");
                 return None;
             }
-            let value = args.remove(i + 1);
+            let v = args.remove(i + 1);
             args.remove(i);
-            match value.parse::<usize>() {
-                Ok(parsed) => {
-                    threshold = Some(parsed);
-                }
-                Err(_) => {
-                    eprintln!("Error: --gc-threshold expects a non-negative integer.");
-                    return None;
-                }
-            }
+            v
+        } else if let Some(v) = args[i].strip_prefix("--gc-threshold=") {
+            let v = v.to_string();
+            args.remove(i);
+            v
+        } else {
+            i += 1;
             continue;
+        };
+        match value_str.parse::<usize>() {
+            Ok(parsed) => threshold = Some(parsed),
+            Err(_) => {
+                eprintln!("Error: --gc-threshold expects a non-negative integer.");
+                return None;
+            }
         }
-        i += 1;
     }
     Some(threshold)
 }
@@ -498,25 +712,29 @@ fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
     let mut max_errors = DEFAULT_MAX_ERRORS;
     let mut i = 0;
     while i < args.len() {
-        if args[i] == "--max-errors" {
+        let value_str = if args[i] == "--max-errors" {
             if i + 1 >= args.len() {
                 eprintln!("Usage: flux <file.flx> --max-errors <n>");
                 return None;
             }
-            let value = args.remove(i + 1);
+            let v = args.remove(i + 1);
             args.remove(i);
-            match value.parse::<usize>() {
-                Ok(parsed) => {
-                    max_errors = parsed;
-                }
-                Err(_) => {
-                    eprintln!("Error: --max-errors expects a non-negative integer.");
-                    return None;
-                }
-            }
+            v
+        } else if let Some(v) = args[i].strip_prefix("--max-errors=") {
+            let v = v.to_string();
+            args.remove(i);
+            v
+        } else {
+            i += 1;
             continue;
+        };
+        match value_str.parse::<usize>() {
+            Ok(parsed) => max_errors = parsed,
+            Err(_) => {
+                eprintln!("Error: --max-errors expects a non-negative integer.");
+                return None;
+            }
         }
-        i += 1;
     }
     Some(max_errors)
 }
@@ -534,9 +752,13 @@ fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) ->
             let path = args.remove(i + 1);
             args.remove(i);
             roots.push(std::path::PathBuf::from(path));
-            continue;
+        } else if let Some(v) = args[i].strip_prefix("--root=") {
+            let path = v.to_string();
+            args.remove(i);
+            roots.push(std::path::PathBuf::from(path));
+        } else {
+            i += 1;
         }
-        i += 1;
     }
     true
 }
