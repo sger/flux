@@ -16,15 +16,11 @@ fn str_at(arr, idx) {
     }
 }
 
-fn char_at(s, idx) {
-    substring(s, idx, idx + 1)
-}
-
 fn find_char_from(s, ch, idx) {
     if idx >= len(s) {
         -1
     } else {
-        if char_at(s, idx) == ch {
+        if substring(s, idx, idx + 1) == ch {
             idx
         } else {
             find_char_from(s, ch, idx + 1)
@@ -36,82 +32,55 @@ fn parse_graph(lines, idx, g) {
     if idx >= len(lines) {
         g
     } else {
-        let line = trim(line_at(lines, idx))
         if line == "" {
             parse_graph(lines, idx + 1, g)
+        } else if c < 0 {
+            parse_graph(lines, idx + 1, g)
         } else {
-            let c = find_char_from(line, ":", 0)
-            if c < 0 {
-                parse_graph(lines, idx + 1, g)
-            } else {
-                let name = trim(substring(line, 0, c))
-                let outs = split(trim(substring(line, c + 1, len(line))), " ")
-                parse_graph(lines, idx + 1, put(g, name, outs))
-            }
+            let name = trim(substring(line, 0, c))
+            let outs = split(trim(substring(line, c + 1, len(line))), " ")
+            parse_graph(lines, idx + 1, put(g, name, outs))
         }
+        where line = trim(line_at(lines, idx))
+        where c    = find_char_from(line, ":", 0)
     }
 }
 
-fn result(count, memo) {
-    let r = put({}, "count", count)
-    put(r, "memo", memo)
-}
-
-fn result_count(r) {
-    match get(r, "count") {
-        Some(v) -> v,
-        _ -> 0
-    }
-}
-
-fn result_memo(r) {
-    match get(r, "memo") {
-        Some(v) -> v,
-        _ -> {}
-    }
+// (count, memo) tuple replaces the result/result_count/result_memo helpers.
+// add_to_cache: shared by both paths_to_uncached and paths2_uncached.
+fn add_to_cache(r, key) {
+    (r.0, put(r.1, key, r.0))
 }
 
 fn sum_children(outs, i, graph, memo, end_node, acc) {
     if i >= len(outs) {
-        result(acc, memo)
+        (acc, memo)
     } else {
-        let nxt = str_at(outs, i)
-        let r = paths_to(nxt, graph, memo, end_node)
-        let cnt = result_count(r)
-        let memo2 = result_memo(r)
-        sum_children(outs, i + 1, graph, memo2, end_node, acc + cnt)
+        let r = paths_to(str_at(outs, i), graph, memo, end_node)
+        sum_children(outs, i + 1, graph, r.1, end_node, acc + r.0)
     }
 }
 
 fn paths_to_uncached(node, graph, memo, end_node) {
     match get(graph, node) {
-        Some(outs) -> do {
-            let r = sum_children(outs, 0, graph, memo, end_node, 0)
-            let total = result_count(r)
-            let memo2 = result_memo(r)
-            result(total, put(memo2, node, total))
-        },
-        _ -> do {
-            let memo2 = put(memo, node, 0)
-            result(0, memo2)
-        },
+        Some(outs) -> add_to_cache(sum_children(outs, 0, graph, memo, end_node, 0), node),
+        _ -> (0, put(memo, node, 0)),
     }
 }
 
 fn paths_to(node, graph, memo, end_node) {
     if node == end_node {
-        result(1, memo)
+        (1, memo)
     } else {
         match get(memo, node) {
-            Some(v) -> result(v, memo),
+            Some(v) -> (v, memo),
             _ -> paths_to_uncached(node, graph, memo, end_node)
         }
     }
 }
 
 fn day11a(graph) {
-    let ans = paths_to("you", graph, {}, "out")
-    result_count(ans)
+    paths_to("you", graph, {}, "out").0
 }
 
 fn bool_i(v) {
@@ -128,50 +97,37 @@ fn state_key(node, mask) {
 
 fn sum_children2(outs, i, seen_dac, seen_fft, graph, memo, acc) {
     if i >= len(outs) {
-        result(acc, memo)
+        (acc, memo)
     } else {
-        let nxt = str_at(outs, i)
-        let r = paths_to2(nxt, seen_dac, seen_fft, graph, memo)
-        let cnt = result_count(r)
-        let memo2 = result_memo(r)
-        sum_children2(outs, i + 1, seen_dac, seen_fft, graph, memo2, acc + cnt)
+        let r = paths_to2(str_at(outs, i), seen_dac, seen_fft, graph, memo)
+        sum_children2(outs, i + 1, seen_dac, seen_fft, graph, r.1, acc + r.0)
     }
 }
 
 fn paths2_uncached(node, key, seen_dac, seen_fft, graph, memo) {
     match get(graph, node) {
-        Some(outs) -> do {
-            let r = sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0)
-            let total = result_count(r)
-            let memo2 = result_memo(r)
-            result(total, put(memo2, key, total))
-        },
-        _ -> do {
-            let memo2 = put(memo, key, 0)
-            result(0, memo2)
-        },
+        Some(outs) -> add_to_cache(sum_children2(outs, 0, seen_dac, seen_fft, graph, memo, 0), key),
+        _ -> (0, put(memo, key, 0)),
     }
 }
 
 fn paths_to2(node, seen_dac0, seen_fft0, graph, memo) {
-    let seen_dac = if seen_dac0 || node == "dac" { true } else { false }
-    let seen_fft = if seen_fft0 || node == "fft" { true } else { false }
-
+    let sd   = seen_dac0 || node == "dac"
+    let sf   = seen_fft0 || node == "fft"
+    let mask = state_mask(sd, sf)
+    let key  = state_key(node, mask)
     if node == "out" {
-        result(if seen_dac && seen_fft { 1 } else { 0 }, memo)
+        (if sd && sf { 1 } else { 0 }, memo)
     } else {
-        let mask = state_mask(seen_dac, seen_fft)
-        let key = state_key(node, mask)
         match get(memo, key) {
-            Some(v) -> result(v, memo),
-            _ -> paths2_uncached(node, key, seen_dac, seen_fft, graph, memo)
+            Some(v) -> (v, memo),
+            _ -> paths2_uncached(node, key, sd, sf, graph, memo)
         }
     }
 }
 
 fn day11b(graph) {
-    let ans = paths_to2("svr", false, false, graph, {})
-    result_count(ans)
+    paths_to2("svr", false, false, graph, {}).0
 }
 
 let lines = read_lines("examples/io/aoc_day11.txt")

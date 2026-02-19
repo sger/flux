@@ -788,10 +788,26 @@ impl Parser {
         let alternative = if self.is_peek_token(TokenType::Else) {
             self.next_token();
 
-            if !self.expect_peek(TokenType::LBrace) {
-                return None;
-            };
-            Some(self.parse_block())
+            if self.is_peek_token(TokenType::If) {
+                // `else if`: consume `if`, recurse, wrap in a synthetic block
+                self.next_token();
+                let span_start = self.current_token.position;
+                let nested_if = self.parse_if_expression()?;
+                let span = Span::new(span_start, self.current_token.end_position);
+                Some(Block {
+                    statements: vec![Statement::Expression {
+                        expression: nested_if,
+                        has_semicolon: false,
+                        span,
+                    }],
+                    span,
+                })
+            } else {
+                if !self.expect_peek(TokenType::LBrace) {
+                    return None;
+                };
+                Some(self.parse_block())
+            }
         } else {
             None
         };

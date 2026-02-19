@@ -283,7 +283,7 @@ fn run_file(
             let roots_hash = roots_cache_hash(&roots);
             let cache_key = hash_cache_key(&source_hash, &roots_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
-            if !no_cache {
+            if !no_cache && !use_jit {
                 if let Some(bytecode) =
                     cache.load(Path::new(path), &cache_key, env!("CARGO_PKG_VERSION"))
                 {
@@ -538,7 +538,7 @@ fn run_file(
                     deps.push((dep, hash));
                 }
             }
-            if !no_cache {
+            if !no_cache && !use_jit {
                 let stored = cache
                     .store(
                         Path::new(path),

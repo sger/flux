@@ -7,7 +7,7 @@ use crate::{
     },
     syntax::{
         Identifier, block::Block, expression::Expression, precedence::Precedence,
-        token_type::TokenType,
+        statement::Statement, token_type::TokenType,
     },
 };
 
@@ -337,11 +337,31 @@ impl Parser {
         let mut statements = Vec::new();
         self.next_token();
 
-        while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
+        while !self.is_current_token(TokenType::RBrace)
+            && !self.is_current_token(TokenType::Eof)
+            && !self.is_current_token(TokenType::Where)
+        {
             if let Some(statement) = self.parse_statement() {
                 statements.push(statement);
             }
             self.next_token();
+        }
+
+        // `where x = val ...` — collect bindings and reorder before the body expression
+        if self.is_current_token(TokenType::Where) {
+            let where_bindings = self.parse_where_clauses();
+            // The body expression is the last statement; inject bindings before it
+            if let Some(body) = statements.pop() {
+                statements.extend(where_bindings);
+                statements.push(body);
+            } else {
+                // `where` without a preceding expression — emit an error, still collect bindings
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "`where` must follow an expression",
+                ));
+                statements.extend(where_bindings);
+            }
         }
 
         // Detect unclosed block: reached EOF without finding closing `}`
@@ -355,6 +375,56 @@ impl Parser {
             statements,
             span: Span::new(start, self.current_token.end_position),
         }
+    }
+
+    /// Parse one or more `where ident = expr` clauses, returning them as `Let` statements.
+    /// Called when `current_token` is `Where`. Leaves `current_token` at `}` or `EOF`.
+    fn parse_where_clauses(&mut self) -> Vec<Statement> {
+        let mut bindings = Vec::new();
+
+        while self.is_current_token(TokenType::Where) {
+            let clause_start = self.current_token.position;
+            self.next_token(); // consume `where`
+
+            if !self.is_current_token(TokenType::Ident) {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "expected identifier after `where`",
+                ));
+                break;
+            }
+
+            let name: Identifier = self
+                .current_token
+                .symbol
+                .expect("ident token must have symbol");
+            self.next_token(); // consume identifier
+
+            if !self.is_current_token(TokenType::Assign) {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    "expected `=` after where binding name",
+                ));
+                break;
+            }
+            self.next_token(); // consume `=`
+
+            let value = match self.parse_expression(Precedence::Lowest) {
+                Some(v) => v,
+                None => break,
+            };
+
+            let clause_end = self.current_token.end_position;
+            bindings.push(Statement::Let {
+                name,
+                value,
+                span: Span::new(clause_start, clause_end),
+            });
+
+            self.next_token(); // advance to next `where` or `}`
+        }
+
+        bindings
     }
 
     pub(super) fn parse_expression_list(
