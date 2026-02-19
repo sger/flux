@@ -50,3 +50,9 @@ impl ValueArena {
         v.into_boxed_slice()
     }
 }
+
+impl Default for ValueArena {
+    fn default() -> Self {
+        Self::new()
+    }
+}

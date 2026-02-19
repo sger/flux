@@ -755,7 +755,7 @@ pub(super) fn builtin_flat_map(
                         return Err(format!(
                             "flat_map: callback must return an Array when input is Array, got {}",
                             other.type_name()
-                        ))
+                        ));
                     }
                 }
             }
@@ -781,7 +781,7 @@ pub(super) fn builtin_flat_map(
                             return Err(format!(
                                 "flat_map: callback must return a List when input is List, got {}",
                                 other.type_name()
-                            ))
+                            ));
                         }
                     }
                 }
