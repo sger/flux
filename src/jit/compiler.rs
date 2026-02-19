@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 //! AST → Cranelift IR compiler (Phase 1: expressions, let bindings, calls).
 
 use std::collections::{HashMap, HashSet};
@@ -1122,7 +1124,9 @@ fn compile_statement(
                 interner,
             )?;
             if top_level {
-                bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+                bind_top_level_pattern_value(
+                    module, helpers, builder, scope, ctx_val, pattern, val,
+                )?;
             } else {
                 bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
             }
@@ -2324,7 +2328,9 @@ fn bind_top_level_pattern_value(
                 let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
                 let call = builder.ins().call(tuple_get, &[ctx_val, value, index_val]);
                 let item = builder.inst_results(call)[0];
-                bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, element, item)?;
+                bind_top_level_pattern_value(
+                    module, helpers, builder, scope, ctx_val, element, item,
+                )?;
             }
             Ok(())
         }

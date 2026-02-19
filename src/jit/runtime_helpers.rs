@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 //! Runtime helper functions callable from JIT-compiled code.
 //!
 //! All functions use `extern "C"` ABI and operate on `*mut Value` pointers.

@@ -409,12 +409,12 @@ impl Parser {
                 self.peek_error(TokenType::RParen);
                 // Recover missing `)` so following code can continue parsing with
                 // minimal cascades.
-                if !self.recover_to_matching_delimiter(
+                if !(self.recover_to_matching_delimiter(
                     TokenType::RParen,
                     &[TokenType::Comma, TokenType::LBrace],
-                ) && !self.is_peek_token(TokenType::LBrace)
-                    && !(self.peek_token.position.line > self.current_token.end_position.line
-                        && self.token_starts_statement(self.peek_token.token_type))
+                ) || self.is_peek_token(TokenType::LBrace)
+                    || (self.peek_token.position.line > self.current_token.end_position.line
+                        && self.token_starts_statement(self.peek_token.token_type)))
                 {
                     return None;
                 }
@@ -432,12 +432,12 @@ impl Parser {
             self.peek_error(TokenType::RParen);
             // Same recovery as tuple literals: report missing `)` and try to
             // resynchronize locally before giving up.
-            if !self.recover_to_matching_delimiter(
+            if !(self.recover_to_matching_delimiter(
                 TokenType::RParen,
                 &[TokenType::Comma, TokenType::LBrace],
-            ) && !self.is_peek_token(TokenType::LBrace)
-                && !(self.peek_token.position.line > self.current_token.end_position.line
-                    && self.token_starts_statement(self.peek_token.token_type))
+            ) || self.is_peek_token(TokenType::LBrace)
+                || (self.peek_token.position.line > self.current_token.end_position.line
+                    && self.token_starts_statement(self.peek_token.token_type)))
             {
                 return None;
             }
@@ -473,8 +473,7 @@ impl Parser {
 
             self.next_token();
             let first = self.parse_expression(Precedence::Lowest)?;
-            let elements =
-                self.parse_expression_list_with_first(first, TokenType::Bar, start)?;
+            let elements = self.parse_expression_list_with_first(first, TokenType::Bar, start)?;
             if !self.expect_peek(TokenType::RBracket) {
                 return None;
             }
@@ -541,8 +540,7 @@ impl Parser {
         // Otherwise, parse remaining elements as list literal.
         // `first` is already parsed; delegate to the "with_first" variant
         // which provides the same missing-comma recovery as parse_expression_list.
-        let elements =
-            self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ListLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
@@ -576,7 +574,10 @@ impl Parser {
             if !self.expect_peek(TokenType::Ident) {
                 return None;
             }
-            let var = self.lexer.interner_mut().intern(&self.current_token.literal);
+            let var = self
+                .lexer
+                .interner_mut()
+                .intern(&self.current_token.literal);
 
             // Expect <-
             if !self.expect_peek(TokenType::LeftArrow) {
@@ -703,12 +704,7 @@ impl Parser {
     }
 
     /// Build a function call: `name(args...)`
-    fn make_call(
-        &mut self,
-        name: &str,
-        arguments: Vec<Expression>,
-        span: Span,
-    ) -> Expression {
+    fn make_call(&mut self, name: &str, arguments: Vec<Expression>, span: Span) -> Expression {
         Expression::Call {
             function: Box::new(self.make_ident(name, span)),
             arguments,
@@ -732,8 +728,7 @@ impl Parser {
 
         self.next_token();
         let first = self.parse_expression(Precedence::Lowest)?;
-        let elements =
-            self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
+        let elements = self.parse_expression_list_with_first(first, TokenType::RBracket, start)?;
         Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),

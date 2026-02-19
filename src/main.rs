@@ -476,13 +476,14 @@ fn run_file(
                 };
 
                 let jit_compile_start = Instant::now();
-                let compiled = match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options) {
-                    Ok(c) => c,
-                    Err(err) => {
-                        eprintln!("{}", err);
-                        std::process::exit(1);
-                    }
-                };
+                let compiled =
+                    match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options) {
+                        Ok(c) => c,
+                        Err(err) => {
+                            eprintln!("{}", err);
+                            std::process::exit(1);
+                        }
+                    };
                 let jit_compile_ms = jit_compile_start.elapsed().as_secs_f64() * 1000.0;
 
                 let jit_exec_start = Instant::now();
@@ -623,9 +624,8 @@ fn count_bytecode_functions(constants: &[flux::runtime::value::Value]) -> usize 
 }
 
 fn print_stats(stats: &RunStats) {
-    let total_ms = stats.parse_ms.unwrap_or(0.0)
-        + stats.compile_ms.unwrap_or(0.0)
-        + stats.execute_ms;
+    let total_ms =
+        stats.parse_ms.unwrap_or(0.0) + stats.compile_ms.unwrap_or(0.0) + stats.execute_ms;
 
     let w = 46usize;
     eprintln!();
