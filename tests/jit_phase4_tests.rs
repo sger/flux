@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use flux::diagnostics::render_diagnostics;
-use flux::jit::jit_compile_and_run;
+use flux::jit::{JitOptions, jit_compile_and_run};
 use flux::runtime::value::Value;
 use flux::syntax::{lexer::Lexer, parser::Parser};
 
@@ -17,7 +17,8 @@ fn run_jit(input: &str) -> Value {
         "{}",
         render_diagnostics(&parser.errors, Some(input), None)
     );
-    jit_compile_and_run(&program, &interner).unwrap()
+    let opts = JitOptions::default();
+    jit_compile_and_run(&program, &interner, &opts).unwrap().0
 }
 
 // ---------------------------------------------------------------------------

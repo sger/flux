@@ -51,6 +51,12 @@ impl JitContext {
     }
 }
 
+impl Default for JitContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuntimeContext for JitContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         use crate::runtime::builtins::get_builtin_by_index;
