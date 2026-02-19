@@ -134,5 +134,6 @@ define_tokens! {
         Match  => "match",
         Left   => "Left",
         Right  => "Right",
+        Where  => "where",
     }
 }
