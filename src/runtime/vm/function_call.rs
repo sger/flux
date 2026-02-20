@@ -9,6 +9,14 @@ use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 use super::VM;
 
 impl VM {
+    fn unwind_invoke_error(&mut self, start_sp: usize, start_frame_index: usize) {
+        while self.frame_index > start_frame_index {
+            let bp = self.pop_frame_bp();
+            let _ = self.reset_sp(bp.saturating_sub(1));
+        }
+        let _ = self.reset_sp(start_sp);
+    }
+
     #[inline]
     fn builtin_fixed_arity(name: &str) -> Option<usize> {
         match name {
@@ -19,9 +27,10 @@ impl VM {
             | "parse_int" | "now_ms" | "time" | "sum" | "product" | "parse_ints" => Some(1),
             "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with" | "has_key"
             | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put" | "get" | "range"
-            | "split_ints" => Some(2),
+            | "split_ints" | "assert_eq" | "assert_neq" => Some(2),
             "replace" | "substring" | "fold" => Some(3),
             "read_stdin" => Some(0),
+            "assert_true" | "assert_false" => Some(1),
             // Variadic / optional arity builtins remain on generic path.
             "print" | "sort" | "concat" | "list" => None,
             _ => None,
@@ -184,6 +193,8 @@ impl VM {
                 (builtin.func)(self, args)
             }
             Value::Closure(closure) => {
+                let start_sp = self.sp;
+                let start_frame_index = self.frame_index;
                 let num_args = args.len();
                 if num_args != closure.function.num_parameters {
                     return Err(format!(
@@ -219,9 +230,13 @@ impl VM {
                     if self.frame_index == target_frame_index
                         && self.current_frame().ip >= self.current_frame().instructions().len()
                     {
+                        self.unwind_invoke_error(start_sp, start_frame_index);
                         return Err("callable exited without return".to_string());
                     }
-                    self.execute_current_instruction(Some(target_frame_index))?;
+                    if let Err(err) = self.execute_current_instruction(Some(target_frame_index)) {
+                        self.unwind_invoke_error(start_sp, start_frame_index);
+                        return Err(err);
+                    }
                 }
 
                 // The return value is on the stack (pushed by OpReturnValue/OpReturn)

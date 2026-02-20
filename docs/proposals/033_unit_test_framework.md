@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Date:** 2026-02-19
-**Scope:** CLI, runtime builtins, stdlib module, VM test runner
+**Scope:** CLI, runtime builtins, Flow stdlib module, VM/JIT test runner
 
 ---
 
@@ -215,16 +215,25 @@ cargo run -- --test examples/math_test.flx --root examples/
 
 1. Parse and compile the file normally (same pipeline as `--trace`, `--stats`, etc.).
 2. Execute all top-level `let` bindings (shared setup/fixtures).
-3. Collect all globally-defined functions whose name starts with `test_`.
+3. Collect test functions by discovery rules (below).
 4. Run each in order via `invoke_value(fn_value, vec![])`.
 5. Catch `Ok(_)` as pass, `Err(msg)` as fail.
 6. Print a summary and exit with code `0` (all pass) or `1` (any fail).
 
+Edge cases:
+- No tests found: print "No test functions found..." and exit `0`.
+- Setup failure before tests (compile/runtime): print error and exit `1`.
+- Non-zero arity discovered test function: invocation fails with arity error and is reported as
+  `FAIL` (runner continues).
+
 ### Discovery
 
-Test functions are identified at the symbol-table level — any `Global` scope function
-whose interned name resolves to a string starting with `"test_"`. No reflection or
-metadata needed; the compiler already tracks all global definitions.
+Test functions are identified at the symbol-table level — no reflection or metadata.
+
+Canonical discovery rules:
+- Top-level globals named `test_*`
+- Module-scoped tests named `Tests.test_*` (module name must be exactly `Tests`)
+- Private helpers (`_prefixed`) are not discovered unless they match one of the two rules above
 
 ### Test Ordering
 
@@ -257,27 +266,28 @@ This means:
 
 ---
 
-## `Test` Standard Library Module
+## `Flow.FTest` Standard Library Module
 
 A thin stdlib module wrapping the builtins, providing grouped tests and richer output:
 
 ```flux
-// stdlib/Test.flx
-module Test {
+// lib/Flow/FTest.flx
+module Flow.FTest {
 
-    fn assert_eq(actual, expected) {
+    // Use non-shadowing wrapper names so forwarding is unambiguous.
+    fn eq(actual, expected) {
         assert_eq(actual, expected)
     }
 
-    fn assert_neq(actual, expected) {
+    fn neq(actual, expected) {
         assert_neq(actual, expected)
     }
 
-    fn assert_true(cond) {
+    fn is_true(cond) {
         assert_true(cond)
     }
 
-    fn assert_false(cond) {
+    fn is_false(cond) {
         assert_false(cond)
     }
 
@@ -294,15 +304,15 @@ module Test {
 }
 ```
 
-Usage with `Test` module:
+Usage with `Flow.FTest` module:
 
 ```flux
-import Test
+import Flow.FTest as Test
 
 fn test_collections() {
-    Test.assert_eq(len([1, 2, 3]), 3)
-    Test.assert_eq(reverse([1, 2, 3]), [3, 2, 1])
-    Test.assert_true(contains([1, 2, 3], 2))
+    Test.eq(len([1, 2, 3]), 3)
+    Test.eq(reverse([1, 2, 3]), [3, 2, 1])
+    Test.is_true(contains([1, 2, 3], 2))
 }
 ```
 
@@ -352,11 +362,11 @@ Changes:
 **Result:** Users can write `test_*` functions with `assert_eq` etc. and run them with
 `cargo run -- --test file.flx`.
 
-### Phase 2 — `Test` Stdlib Module
+### Phase 2 — `Flow.FTest` Stdlib Module
 
 **Effort:** Low. Pure Flux code.
 
-- `stdlib/Test.flx` — wraps assert builtins, provides `describe`
+- `lib/Flow/FTest.flx` — wraps assert builtins, provides `describe`
 - Documentation and examples
 
 ### Phase 3 — Property-Based Testing
@@ -382,6 +392,22 @@ Requires:
 - Built-in generators: `Property.int`, `Property.string`, `Property.bool`,
   `Property.array(gen)`, `Property.option(gen)`
 - Shrinking: on failure, find the minimal failing input
+
+### Phase Acceptance Criteria
+
+Phase 1 is complete only when:
+- `cargo run -- --test <file.flx>` returns exit `0` on all-pass and exit `1` on any failure
+- `cargo run --features jit -- --test <file.flx> --jit` matches VM pass/fail behavior
+- assertion failures and runtime failures are both isolated per-test
+- `no tests found` behavior is covered by integration tests
+
+Phase 2 is complete only when:
+- `Flow.FTest` wrappers are documented and examples compile
+- wrapper names do not shadow builtin assertion names
+
+Phase 3 is complete only when:
+- failing property output includes counterexample + shrunk value
+- deterministic seed support exists for reproducible CI runs
 
 ---
 
@@ -447,8 +473,7 @@ Running tests in math_test.flx
 
 ## JIT Compatibility
 
-The test framework is **fully compatible with JIT mode** (`--jit`). No extra work
-required.
+The test framework supports JIT mode (`--jit`) using the same discovery and reporting.
 
 **Why it works:**
 
@@ -503,7 +528,7 @@ practice this is not an issue because the JIT compiles all user-defined function
 | `src/bytecode/compiler/mod.rs` | 1 | `define_builtin` for 4 new names |
 | `src/main.rs` | 1 | `--test` flag, invoke test runner |
 | `src/runtime/vm/test_runner.rs` | 1 | New: collect + run `test_*` functions |
-| `stdlib/Test.flx` | 2 | New: stdlib Test module |
+| `lib/Flow/FTest.flx` | 2 | New: `Flow.FTest` module |
 | `src/runtime/builtins/property_ops.rs` | 3 | Property-based testing |
 | `examples/tests/` | All | Example test files |
 
@@ -520,14 +545,6 @@ fn test_len_empty() {
 
 fn test_len_nonempty() {
     assert_eq(len([1, 2, 3]), 3)
-}
-
-fn test_push_appends() {
-    assert_eq(push([1, 2], 3), [1, 2, 3])
-}
-
-fn test_reverse_empty() {
-    assert_eq(reverse([]), [])
 }
 
 fn test_reverse_single() {
@@ -553,6 +570,14 @@ fn test_sum() {
 fn test_filter_keeps_matching() {
     assert_eq(filter([1, 2, 3, 4], \x -> x > 2), [3, 4])
 }
+
+fn test_map_doubles() {
+    assert_eq(map([1, 2, 3], \x -> x * 2), [2, 4, 6])
+}
+
+fn test_range_length() {
+    assert_eq(len(range(1, 5)), 4)
+}
 ```
 
 Running:
@@ -564,14 +589,14 @@ Running tests in array_test.flx
 
   PASS  test_len_empty              (0ms)
   PASS  test_len_nonempty           (0ms)
-  PASS  test_push_appends           (0ms)
-  PASS  test_reverse_empty          (0ms)
   PASS  test_reverse_single         (0ms)
   PASS  test_reverse_multiple       (0ms)
   PASS  test_contains_found         (0ms)
   PASS  test_contains_not_found     (0ms)
   PASS  test_sum                    (0ms)
   PASS  test_filter_keeps_matching  (0ms)
+  PASS  test_map_doubles            (0ms)
+  PASS  test_range_length           (0ms)
 
 10 tests: 10 passed, 0 failed
 

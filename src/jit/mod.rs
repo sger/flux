@@ -48,6 +48,7 @@ pub fn jit_compile(
 
     let mut ctx = JitContext::new();
     ctx.set_jit_functions(compiler.jit_function_entries());
+    ctx.set_named_functions(compiler.named_functions());
 
     if options.no_gc {
         ctx.gc_heap.set_enabled(false);

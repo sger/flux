@@ -147,6 +147,7 @@ pub struct JitCompiler {
     builder_ctx: FunctionBuilderContext,
     helpers: HelperFuncs,
     jit_functions: Vec<(FuncId, usize)>,
+    named_functions: HashMap<String, usize>,
 }
 
 impl JitCompiler {
@@ -182,6 +183,7 @@ impl JitCompiler {
                 ids: HashMap::new(),
             },
             jit_functions: Vec::new(),
+            named_functions: HashMap::new(),
         };
 
         compiler.declare_helpers()?;
@@ -241,6 +243,7 @@ impl JitCompiler {
         self.predeclare_literal_functions(&literal_specs, &mut scope)?;
         self.compile_functions(program, &scope, interner)?;
         self.compile_literal_functions(&literal_specs, &scope, interner)?;
+        self.record_named_functions(&scope, interner);
 
         {
             // Destructure self to avoid borrow conflicts: builder_ctx is
@@ -304,6 +307,26 @@ impl JitCompiler {
             .map_err(|e| format!("define flux_main: {}", e))?;
 
         Ok(main_id)
+    }
+
+    pub fn named_functions(&self) -> HashMap<String, usize> {
+        self.named_functions.clone()
+    }
+
+    fn record_named_functions(&mut self, scope: &Scope, interner: &Interner) {
+        self.named_functions.clear();
+        for (name, meta) in &scope.functions {
+            self.named_functions
+                .insert(interner.resolve(*name).to_string(), meta.function_index);
+        }
+        for ((module_name, member_name), meta) in &scope.module_functions {
+            let full_name = format!(
+                "{}.{}",
+                interner.resolve(*module_name),
+                interner.resolve(*member_name)
+            );
+            self.named_functions.insert(full_name, meta.function_index);
+        }
     }
 
     fn user_function_signature(&mut self) -> cranelift_codegen::ir::Signature {
