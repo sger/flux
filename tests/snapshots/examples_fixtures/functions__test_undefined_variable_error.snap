@@ -19,6 +19,6 @@ Hint:
 
 
 Help:
-  Did you mean one of: `chars`, `concat`, `contains`?
+  Did you mean one of: `chars`, `count`, `concat`?
 == stdout ==
 <not executed>

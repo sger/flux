@@ -3,8 +3,67 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/list_map_filter.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `flatten` is already defined.
+
+  --> examples/advanced/list_map_filter.flx:106:1
+    |
+106 | fn flatten(lst) {
+    | ^^^^^^^^^^^^^^^^^
+107 |     match lst {
+    | ^^^^^^^^^^^^^^^
+108 |         [h | t] -> list_append(h, flatten(t)),
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+109 |         _ -> None,
+    | ^^^^^^^^^^^^^^^^^^
+110 |     }
+    | ^^^^^
+111 | }
+    | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/advanced/list_map_filter.flx:0:1
+  |
+
+
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `zip` is already defined.
+
+  --> examples/advanced/list_map_filter.flx:126:1
+    |
+126 | fn zip(a, b) {
+    | ^^^^^^^^^^^^^^
+127 |     match a {
+    | ^^^^^^^^^^^^^
+128 |         [ha | ta] -> match b {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+129 |             [hb | tb] -> [[ha, hb] | zip(ta, tb)],
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+130 |             _ -> None,
+    | ^^^^^^^^^^^^^^^^^^^^^^
+131 |         },
+    | ^^^^^^^^^^
+132 |         _ -> None,
+    | ^^^^^^^^^^^^^^^^^^
+133 |     }
+    | ^^^^^
+134 | }
+    | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/advanced/list_map_filter.flx:0:1
+  |
+
+Found 2 errors.
 == stdout ==
 <not executed>
