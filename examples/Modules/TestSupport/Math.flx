@@ -1,0 +1,29 @@
+module Math {
+    fn add(a, b) {
+        a + b
+    }
+
+    fn subtract(a, b) {
+        a - b
+    }
+
+    fn multiply(a, b) {
+        a * b
+    }
+
+    fn square(x) {
+        x * x
+    }
+
+    fn abs_val(x) {
+        if x < 0 { 0 - x } else { x }
+    }
+
+    fn factorial(n) {
+        if n <= 1 { 1 } else { n * factorial(n - 1) }
+    }
+
+    fn clamp(x, lo, hi) {
+        if x < lo { lo } else if x > hi { hi } else { x }
+    }
+}

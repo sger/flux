@@ -1,4 +1,5 @@
 use crate::runtime::{RuntimeContext, gc::GcHeap, value::Value};
+use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
 
@@ -13,6 +14,7 @@ pub struct JitContext {
     pub constants: Vec<Value>,
     pub gc_heap: GcHeap,
     pub jit_functions: Vec<JitFunctionEntry>,
+    pub named_functions: HashMap<String, usize>,
     /// When a runtime helper encounters an error, it stores the message here
     /// and returns NULL to the JIT code.
     pub error: Option<String>,
@@ -32,6 +34,7 @@ impl JitContext {
             constants: Vec::new(),
             gc_heap: GcHeap::new(),
             jit_functions: Vec::new(),
+            named_functions: HashMap::new(),
             error: None,
         }
     }
@@ -48,6 +51,10 @@ impl JitContext {
 
     pub fn set_jit_functions(&mut self, functions: Vec<JitFunctionEntry>) {
         self.jit_functions = functions;
+    }
+
+    pub fn set_named_functions(&mut self, functions: HashMap<String, usize>) {
+        self.named_functions = functions;
     }
 }
 
@@ -112,6 +119,9 @@ impl RuntimeContext for JitContext {
                     return Err(self
                         .take_error()
                         .unwrap_or_else(|| "unknown JIT call error".to_string()));
+                }
+                if let Some(err) = self.take_error() {
+                    return Err(err);
                 }
                 Ok(unsafe { (*result_ptr).clone() })
             }
