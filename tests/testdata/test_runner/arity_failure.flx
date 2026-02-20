@@ -1,0 +1,7 @@
+fn test_ok() {
+    assert_true(true)
+}
+
+fn test_needs_arg(x) {
+    assert_true(x > 0)
+}

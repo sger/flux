@@ -1,0 +1,5 @@
+import Tests
+
+fn test_top() {
+    assert_true(true)
+}
