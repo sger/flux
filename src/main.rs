@@ -1,3 +1,5 @@
+#[cfg(feature = "jit")]
+use std::rc::Rc;
 use std::{
     collections::HashSet,
     env, fs, io,
@@ -15,11 +17,24 @@ use flux::{
         op_code::disassemble,
     },
     diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span},
-    runtime::{gc::GcHeap, value::Value, vm::VM},
+    runtime::{
+        gc::GcHeap,
+        value::Value,
+        vm::{
+            VM,
+            test_runner::{collect_test_functions, print_test_report, run_tests},
+        },
+    },
     syntax::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
         module_graph::ModuleGraph, parser::Parser,
     },
+};
+#[cfg(feature = "jit")]
+use flux::{
+    ast::{constant_fold, desugar, rename},
+    runtime::jit_closure::JitClosure,
+    runtime::vm::test_runner::run_test_fns,
 };
 
 fn main() {
@@ -34,6 +49,7 @@ fn main() {
     let no_gc = args.iter().any(|arg| arg == "--no-gc");
     let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
     let show_stats = args.iter().any(|arg| arg == "--stats");
+    let test_mode = args.iter().any(|arg| arg == "--test");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -72,11 +88,18 @@ fn main() {
     if use_jit {
         args.retain(|arg| arg != "--jit");
     }
+    if test_mode {
+        args.retain(|arg| arg != "--test");
+    }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
         None => return,
     };
     let max_errors = match extract_max_errors(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
+    let test_filter = match extract_test_filter(&mut args) {
         Some(value) => value,
         None => return,
     };
@@ -90,23 +113,38 @@ fn main() {
     }
 
     if is_flx_file(&args[1]) {
-        run_file(
-            &args[1],
-            verbose,
-            leak_detector,
-            trace,
-            no_cache,
-            roots_only,
-            enable_optimize,
-            enable_analyze,
-            max_errors,
-            &roots,
-            no_gc,
-            gc_threshold,
-            gc_telemetry,
-            use_jit,
-            show_stats,
-        );
+        if test_mode {
+            run_test_file(
+                &args[1],
+                roots_only,
+                enable_optimize,
+                enable_analyze,
+                max_errors,
+                &roots,
+                no_gc,
+                gc_threshold,
+                use_jit,
+                test_filter.as_deref(),
+            );
+        } else {
+            run_file(
+                &args[1],
+                verbose,
+                leak_detector,
+                trace,
+                no_cache,
+                roots_only,
+                enable_optimize,
+                enable_analyze,
+                max_errors,
+                &roots,
+                no_gc,
+                gc_threshold,
+                gc_telemetry,
+                use_jit,
+                show_stats,
+            );
+        }
         return;
     }
 
@@ -124,23 +162,38 @@ fn main() {
                 eprintln!("Error: file must have .flx extension: {}", args[2]);
                 return;
             }
-            run_file(
-                &args[2],
-                verbose,
-                leak_detector,
-                trace,
-                no_cache,
-                roots_only,
-                enable_optimize,
-                enable_analyze,
-                max_errors,
-                &roots,
-                no_gc,
-                gc_threshold,
-                gc_telemetry,
-                use_jit,
-                show_stats,
-            )
+            if test_mode {
+                run_test_file(
+                    &args[2],
+                    roots_only,
+                    enable_optimize,
+                    enable_analyze,
+                    max_errors,
+                    &roots,
+                    no_gc,
+                    gc_threshold,
+                    use_jit,
+                    test_filter.as_deref(),
+                );
+            } else {
+                run_file(
+                    &args[2],
+                    verbose,
+                    leak_detector,
+                    trace,
+                    no_cache,
+                    roots_only,
+                    enable_optimize,
+                    enable_analyze,
+                    max_errors,
+                    &roots,
+                    no_gc,
+                    gc_threshold,
+                    gc_telemetry,
+                    use_jit,
+                    show_stats,
+                );
+            }
         }
         "tokens" => {
             if args.len() < 3 {
@@ -238,6 +291,8 @@ Usage:
 Flags:
   --verbose          Show cache status (hit/miss/store)
   --trace            Print VM instruction trace
+  --test             Run test_* functions and report results
+  --test-filter <s>  Only run tests whose names contain <s>
   --leak-detector    Print approximate allocation stats after run
   --no-cache         Disable bytecode cache for this run
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
@@ -600,6 +655,229 @@ fn run_file(
     }
 }
 
+// ─── Test Runner ─────────────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn run_test_file(
+    path: &str,
+    roots_only: bool,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    max_errors: usize,
+    extra_roots: &[std::path::PathBuf],
+    no_gc: bool,
+    gc_threshold: Option<usize>,
+    #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
+    test_filter: Option<&str>,
+) {
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {}: {}", path, e);
+            std::process::exit(1);
+        }
+    };
+
+    let entry_path = Path::new(path);
+    let roots = collect_roots(entry_path, extra_roots, roots_only);
+
+    // --- Parse ---
+    let lexer = Lexer::new(&source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+
+    let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
+    let mut parse_warnings = parser.take_warnings();
+    for diag in &mut parse_warnings {
+        if diag.file().is_none() {
+            diag.set_file(path.to_string());
+        }
+    }
+    all_diagnostics.append(&mut parse_warnings);
+
+    if !parser.errors.is_empty() {
+        for diag in &mut parser.errors {
+            if diag.file().is_none() {
+                diag.set_file(path.to_string());
+            }
+        }
+        let report = DiagnosticsAggregator::new(&parser.errors)
+            .with_default_source(path, source.as_str())
+            .with_file_headers(false)
+            .with_max_errors(Some(max_errors))
+            .report();
+        eprintln!("{}", report.rendered);
+        std::process::exit(1);
+    }
+
+    let interner = parser.take_interner();
+
+    // --- Build module graph ---
+    let graph_result =
+        ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
+    all_diagnostics.extend(graph_result.diagnostics);
+
+    let failed = graph_result.failed_modules;
+    let module_count = graph_result.graph.module_count();
+    let is_multimodule = module_count > 1;
+    let graph = graph_result.graph;
+
+    // --- Compile ---
+    let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+    for node in graph.topo_order() {
+        if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
+            continue;
+        }
+        compiler.set_file_path(node.path.to_string_lossy().to_string());
+        if let Err(mut diags) =
+            compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
+        {
+            for diag in &mut diags {
+                if diag.file().is_none() {
+                    diag.set_file(node.path.to_string_lossy().to_string());
+                }
+            }
+            all_diagnostics.append(&mut diags);
+        }
+    }
+
+    if !all_diagnostics.is_empty() {
+        let report = DiagnosticsAggregator::new(&all_diagnostics)
+            .with_default_source(path, source.as_str())
+            .with_file_headers(is_multimodule)
+            .with_max_errors(Some(max_errors))
+            .report();
+        if report.counts.errors > 0 {
+            eprintln!("{}", report.rendered);
+            std::process::exit(1);
+        }
+        eprintln!("{}", report.rendered);
+    }
+
+    // --- Collect test functions ---
+    let mut tests = collect_test_functions(&compiler.symbol_table, &compiler.interner);
+    if let Some(filter) = test_filter {
+        tests.retain(|(name, _)| name.contains(filter));
+    }
+
+    if tests.is_empty() {
+        let file_name = entry_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path);
+        println!("Running tests in {}\n", file_name);
+        if let Some(filter) = test_filter {
+            println!("No test functions found matching filter `{}`.", filter);
+        } else {
+            println!("No test functions found (define functions named `test_*`).");
+        }
+        return;
+    }
+
+    // --- Run tests ---
+    let file_name = entry_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(path);
+
+    #[cfg(feature = "jit")]
+    let all_passed = if use_jit {
+        let mut jit_program = Program::new();
+        for node in graph.topo_order() {
+            jit_program
+                .statements
+                .extend(node.program.statements.clone());
+        }
+
+        if enable_optimize {
+            let desugared = desugar(jit_program);
+            let optimized = constant_fold(desugared);
+            jit_program = rename(optimized, std::collections::HashMap::new());
+        }
+
+        let jit_options = flux::jit::JitOptions {
+            no_gc,
+            gc_threshold,
+        };
+
+        let compiled = match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
+        {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("Error during test setup: {}", err);
+                std::process::exit(1);
+            }
+        };
+
+        let mut ctx = match flux::jit::jit_execute(compiled) {
+            Ok((_result, ctx)) => ctx,
+            Err(err) => {
+                eprintln!("Error during test setup: {}", err);
+                std::process::exit(1);
+            }
+        };
+
+        let named_functions = ctx.named_functions.clone();
+        let fns: Vec<(String, Value)> = tests
+            .into_iter()
+            .map(|(name, _)| {
+                let function_index = *named_functions.get(&name).unwrap_or_else(|| {
+                    eprintln!(
+                        "Error during test setup: JIT function not found for `{}`",
+                        name
+                    );
+                    std::process::exit(1);
+                });
+                (
+                    name,
+                    Value::JitClosure(Rc::new(JitClosure::new(function_index, vec![]))),
+                )
+            })
+            .collect();
+        let results = run_test_fns(&mut ctx, fns);
+        print_test_report(file_name, &results)
+    } else {
+        let bytecode = compiler.bytecode();
+        let mut vm = VM::new(bytecode);
+        if no_gc {
+            vm.set_gc_enabled(false);
+        }
+        if let Some(threshold) = gc_threshold {
+            vm.set_gc_threshold(threshold);
+        }
+        if let Err(err) = vm.run() {
+            eprintln!("Error during test setup: {}", err);
+            std::process::exit(1);
+        }
+
+        let results = run_tests(&mut vm, tests);
+        print_test_report(file_name, &results)
+    };
+
+    #[cfg(not(feature = "jit"))]
+    let all_passed = {
+        let bytecode = compiler.bytecode();
+        let mut vm = VM::new(bytecode);
+        if no_gc {
+            vm.set_gc_enabled(false);
+        }
+        if let Some(threshold) = gc_threshold {
+            vm.set_gc_threshold(threshold);
+        }
+        if let Err(err) = vm.run() {
+            eprintln!("Error during test setup: {}", err);
+            std::process::exit(1);
+        }
+
+        let results = run_tests(&mut vm, tests);
+        print_test_report(file_name, &results)
+    };
+
+    if !all_passed {
+        std::process::exit(1);
+    }
+}
+
 // ─── Analytics ───────────────────────────────────────────────────────────────
 
 struct RunStats {
@@ -737,6 +1015,27 @@ fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
         }
     }
     Some(max_errors)
+}
+
+fn extract_test_filter(args: &mut Vec<String>) -> Option<Option<String>> {
+    let mut test_filter: Option<String> = None;
+    let mut i = 1usize;
+    while i < args.len() {
+        if args[i] == "--test-filter" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --test --test-filter <pattern>");
+                return None;
+            }
+            test_filter = Some(args.remove(i + 1));
+            args.remove(i);
+        } else if let Some(v) = args[i].strip_prefix("--test-filter=") {
+            test_filter = Some(v.to_string());
+            args.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+    Some(test_filter)
 }
 
 fn extract_roots(args: &mut Vec<String>, roots: &mut Vec<std::path::PathBuf>) -> bool {

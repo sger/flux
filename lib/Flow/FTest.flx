@@ -1,0 +1,55 @@
+module Flow.FTest {
+    // Exact equality assertions
+    fn eq(actual, expected) {
+        assert_eq(actual, expected)
+    }
+
+    fn neq(actual, expected) {
+        assert_neq(actual, expected)
+    }
+
+    // Boolean assertions
+    fn is_true(cond) {
+        assert_true(cond)
+    }
+
+    fn is_false(cond) {
+        assert_false(cond)
+    }
+
+    // Error-path assertion
+    fn throws(test_fn, expected_message) {
+        assert_throws(test_fn, expected_message)
+    }
+
+    // Float/int approximate equality
+    fn approx_eq(actual, expected, epsilon) {
+        assert_true(abs(actual - expected) <= epsilon)
+    }
+
+    // Build a named test tuple for describe()
+    fn it(name, test_fn) {
+        (name, test_fn)
+    }
+
+    // Run a list of cases with a test function
+    fn for_each(cases, test_fn) {
+        map(cases, \c -> test_fn(c))
+    }
+
+    // Build fixture once and pass it to the provided test function
+    fn with_fixture(setup_fn, test_fn) {
+        let fixture = setup_fn()
+        test_fn(fixture)
+    }
+
+    fn describe(name, tests) {
+        print("  " + name)
+        map(tests, \t -> {
+            let test_name = t.0
+            let test_fn = t.1
+            print("    " + test_name)
+            test_fn()
+        })
+    }
+}

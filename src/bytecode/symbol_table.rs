@@ -150,6 +150,16 @@ impl SymbolTable {
         names
     }
 
+    /// Returns all Global-scoped bindings as (Symbol, global_index) pairs.
+    /// Used by the test runner to discover `test_*` functions after compilation.
+    pub fn global_definitions(&self) -> Vec<(Symbol, usize)> {
+        self.store
+            .iter()
+            .filter(|(_, b)| b.symbol_scope == crate::bytecode::symbol_scope::SymbolScope::Global)
+            .map(|(sym, b)| (*sym, b.index))
+            .collect()
+    }
+
     pub fn define_free(&mut self, original: Binding) -> Binding {
         self.free_symbols.push(original.clone());
         let symbol = Binding::new(

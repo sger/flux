@@ -1,0 +1,54 @@
+import Day03Solver as Day03
+
+fn test_day03_part1_single_valid_mul() {
+    assert_eq(Day03.day03a_from_memory("mul(44,46)"), 2024)
+}
+
+fn test_day03_part1_prompt_sample_is_161() {
+    assert_eq(
+        Day03.day03a_from_memory("xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))"),
+        161,
+    )
+}
+
+fn test_day03_part1_ignores_malformed_sequences() {
+    assert_eq(
+        Day03.day03a_from_memory("mul(4*, mul(6,9!, ?(12,34), or mul ( 2 , 4 )"),
+        0,
+    )
+}
+
+fn test_day03_part1_limits_numbers_to_three_digits() {
+    assert_eq(
+        Day03.day03a_from_memory("mul(1234,5)mul(12,3456)mul(99,99)"),
+        9801,
+    )
+}
+
+fn test_day03_part1_multiple_valid_instructions_sum() {
+    assert_eq(Day03.day03a_from_memory("mul(123,4)mul(1,1)"), 493)
+}
+
+fn test_day03_part1_hof_matches_recursive() {
+    let input = "xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))"
+    assert_eq(Day03.day03a_from_memory_hof(input), Day03.day03a_from_memory(input))
+}
+
+fn test_day03_part2_prompt_sample_is_48() {
+    assert_eq(
+        Day03.day03b_from_memory("xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))"),
+        48,
+    )
+}
+
+fn test_day03_part2_do_reenables_mul() {
+    assert_eq(
+        Day03.day03b_from_memory("mul(1,2)don't()mul(9,9)do()mul(3,4)"),
+        14,
+    )
+}
+
+fn test_day03_part2_hof_matches_recursive() {
+    let input = "xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))"
+    assert_eq(Day03.day03b_from_memory_hof(input), Day03.day03b_from_memory(input))
+}
