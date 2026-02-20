@@ -5,6 +5,23 @@ Fixture: examples/error_messages/immutable_binding.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `count` is already defined.
+
+  --> examples/error_messages/immutable_binding.flx:5:1
+  |
+5 | let count = 0;
+  | ^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/error_messages/immutable_binding.flx:0:1
+  |
+
+
 --> compiler error[E002]: IMMUTABLE BINDING
 
 Cannot reassign to immutable variable `count`.
@@ -16,5 +33,7 @@ Cannot reassign to immutable variable `count`.
 
 Hint:
   In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_count = ...`).
+
+Found 2 errors.
 == stdout ==
 <not executed>
