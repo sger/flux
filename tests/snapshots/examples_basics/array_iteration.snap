@@ -3,8 +3,34 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_iteration.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `count` is already defined.
+
+  --> examples/basics/array_iteration.flx:36:1
+   |
+36 | fn count(arr) {
+   | ^^^^^^^^^^^^^^^
+37 |     if len(arr) == 0 {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+38 |         0
+   | ^^^^^^^^^
+39 |     } else {
+   | ^^^^^^^^^^^^
+40 |         1 + count(rest(arr))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+41 |     }
+   | ^^^^^
+42 | }
+   | ^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/basics/array_iteration.flx:0:1
+  |
 == stdout ==
 <not executed>

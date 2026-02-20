@@ -1,0 +1,111 @@
+// Higher-order builtin functions: any, all, find, sort_by, zip, flatten, count
+
+let nums    = [|1, 2, 3, 4, 5|]
+let words   = [|"banana", "fig", "apple", "kiwi"|]
+let mixed   = [|1, "hello", true, 42|]
+
+// =============================================================================
+// any — true if at least one element satisfies the predicate (short-circuits)
+// =============================================================================
+
+print(any(nums, \x -> x > 3))          // true  (4 and 5 qualify)
+print(any(nums, \x -> x > 10))         // false (none qualify)
+print(any([||], \x -> true))           // false (empty)
+
+// =============================================================================
+// all — true if every element satisfies the predicate (short-circuits)
+// =============================================================================
+
+print(all(nums, \x -> x > 0))          // true  (all positive)
+print(all(nums, \x -> x > 3))          // false (1, 2, 3 fail)
+print(all([||], \x -> false))          // true  (vacuous truth)
+
+// =============================================================================
+// find — first matching element wrapped in Some, or None
+// =============================================================================
+
+print(find(nums, \x -> x > 3))         // Some(4)
+print(find(words, \w -> len(w) == 3))  // Some(fig)
+print(find(nums, \x -> x > 100))       // None
+
+// Unwrap with match
+let result = find(words, \w -> starts_with(w, "a"))
+let greeting = match result {
+  Some(w) -> "Found: #{w}",
+  _       -> "Not found"
+}
+print(greeting)                         // Found: apple
+
+// =============================================================================
+// sort_by — stable sort using a key function (Integer, Float, or String key)
+// =============================================================================
+
+// Sort strings by length
+print(sort_by(words, \w -> len(w)))    // [|fig, kiwi, apple, banana|]
+
+// Sort numbers descending (negate key)
+print(sort_by(nums, \x -> 0 - x))     // [|5, 4, 3, 2, 1|]
+
+// Sort records by a field (tuples use .0, .1 for direct access)
+let people = [|("Alice", 30), ("Bob", 25), ("Carol", 35)|]
+let by_age = sort_by(people, \p -> p.1)
+print(map(by_age, \p -> p.0))          // [|Bob, Alice, Carol|]
+
+// =============================================================================
+// zip — pair elements from two collections into an array of tuples
+// =============================================================================
+
+let zk = [|"a", "b", "c"|]
+let zv = [|1, 2, 3|]
+
+print(zip(zk, zv))                     // [|(a, 1), (b, 2), (c, 3)|]
+
+// Stops at the shorter collection
+print(zip([|1, 2, 3|], [|"x", "y"|])) // [|(1, x), (2, y)|]
+
+// Practical: pair each word with its length
+let lengths = zip(words, map(words, \w -> len(w)))
+print(lengths)                         // [|(banana, 6), (fig, 3), (apple, 5), (kiwi, 4)|]
+
+// =============================================================================
+// flatten — collapse one level of nesting (no intermediate allocation)
+// =============================================================================
+
+let nested = [|[|1, 2|], [|3, 4|], [|5|]|]
+print(flatten(nested))                 // [|1, 2, 3, 4, 5|]
+
+// Flatten after a map that produces sub-arrays
+let sentences = [|"hello world", "foo bar baz"|]
+let all_words = flatten(map(sentences, \s -> split(s, " ")))
+print(all_words)                       // [|hello, world, foo, bar, baz|]
+
+// Empty inner arrays are harmlessly skipped
+print(flatten([|[|1|], [||], [|2|]|])) // [|1, 2|]
+
+// =============================================================================
+// count — count matching elements (no intermediate allocation)
+// =============================================================================
+
+print(count(nums, \x -> x % 2 == 0))  // 2  (2 and 4)
+print(count(mixed, is_int))            // 2  (1 and 42)
+print(count([||], \x -> true))         // 0  (empty)
+
+// Practical: how many words are longer than 4 characters?
+print(count(words, \w -> len(w) > 4)) // 2  (banana, apple)
+
+// =============================================================================
+// Combining the new builtins
+// =============================================================================
+
+// Find the longest word
+let longest = find(sort_by(words, \w -> 0 - len(w)), \_ -> true)
+print(longest)                         // Some(banana)
+
+// Count even numbers among the first matches of a predicate
+let evens_gt2 = count(filter(nums, \x -> x > 2), \x -> x % 2 == 0)
+print(evens_gt2)                       // 1  (only 4)
+
+// Zip then filter pairs where the number is even (.1 for second tuple element)
+let pairs = zip([|"a", "b", "c", "d"|], [|1, 2, 3, 4|])
+let even_pairs = filter(pairs, \p -> p.1 % 2 == 0)
+print(even_pairs)                      // [|(b, 2), (d, 4)|]

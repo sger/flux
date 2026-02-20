@@ -10,9 +10,10 @@ mod string_ops;
 mod type_check;
 
 use array_ops::{
-    builtin_concat, builtin_contains, builtin_filter, builtin_first, builtin_flat_map,
-    builtin_fold, builtin_last, builtin_len, builtin_map, builtin_product, builtin_push,
-    builtin_range, builtin_rest, builtin_reverse, builtin_slice, builtin_sort, builtin_sum,
+    builtin_all, builtin_any, builtin_concat, builtin_contains, builtin_count, builtin_filter,
+    builtin_find, builtin_first, builtin_flat_map, builtin_flatten, builtin_fold, builtin_last,
+    builtin_len, builtin_map, builtin_product, builtin_push, builtin_range, builtin_rest,
+    builtin_reverse, builtin_slice, builtin_sort, builtin_sort_by, builtin_sum, builtin_zip,
 };
 use hash_ops::{
     builtin_delete, builtin_get, builtin_has_key, builtin_is_map, builtin_keys, builtin_merge,
@@ -307,6 +308,35 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     BuiltinFunction {
         name: "flat_map",
         func: builtin_flat_map,
+    },
+    // Higher-order search and sort builtins
+    BuiltinFunction {
+        name: "any",
+        func: builtin_any,
+    },
+    BuiltinFunction {
+        name: "all",
+        func: builtin_all,
+    },
+    BuiltinFunction {
+        name: "find",
+        func: builtin_find,
+    },
+    BuiltinFunction {
+        name: "sort_by",
+        func: builtin_sort_by,
+    },
+    BuiltinFunction {
+        name: "zip",
+        func: builtin_zip,
+    },
+    BuiltinFunction {
+        name: "flatten",
+        func: builtin_flatten,
+    },
+    BuiltinFunction {
+        name: "count",
+        func: builtin_count,
     },
 ];
 

@@ -1,0 +1,10 @@
+module Aoc2024Shared {
+    // Safe indexing helper:
+    // indexing returns Some(value) or None; default to 0 for AoC numeric paths.
+    fn int_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0,
+        }
+    }
+}

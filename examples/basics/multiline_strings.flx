@@ -1,0 +1,79 @@
+// Multi-line string literals using triple quotes """..."""
+
+// Basic multi-line string
+let poem = """
+Roses are red,
+Violets are blue,
+Flux is functional,
+And so are you.
+"""
+
+print(poem)
+
+// Multi-line string assigned inline — content starts right after """
+let greeting = """Hello,
+World!
+"""
+print(greeting)
+
+// Use split + filter to parse lines from a multi-line string
+let csv = """
+name,age,city
+Alice,30,London
+Bob,25,Paris
+Charlie,35,Berlin
+"""
+
+let rows =
+    split(trim(csv), "\n")
+    |> filter(\line -> trim(line) != "")
+
+print(len(rows))
+print(rows)
+
+// Parse structured data (space-separated integers)
+let grid = """
+7 6 4 2 1
+1 2 7 8 9
+9 7 6 2 1
+1 3 2 4 5
+8 6 4 4 1
+1 3 6 7 9
+"""
+
+fn parse_row(line) {
+    split(trim(line), " ")
+    |> filter(\t -> trim(t) != "")
+    |> map(\t -> parse_int(t))
+}
+
+fn parse_grid(raw) {
+    split(trim(raw), "\n")
+    |> filter(\line -> trim(line) != "")
+    |> map(parse_row)
+}
+
+let data = parse_grid(grid)
+print(len(data))
+print(map(data, sum))
+
+// Interpolation inside multi-line strings
+let rows_count = len(data)
+let cols_count = len(first(data))
+
+let summary = """
+Grid: #{rows_count} rows x #{cols_count} cols
+Row sums: #{map(data, sum)}
+Total: #{sum(map(data, sum))}
+"""
+
+print(summary)
+
+// Escape sequences still work inside multi-line strings
+let escaped = """
+Tab:	here
+Quote: "quoted"
+Backslash: \\ done
+"""
+
+print(escaped)

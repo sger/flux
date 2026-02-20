@@ -1,0 +1,62 @@
+// Advent of Code 2024 - Day 1 (compact FP + tuples, new HO builtins)
+// Uses input file: examples/aoc/2024/day01.txt
+
+import Aoc2024Shared as Shared
+
+// Parse one line like "3   4" into a tuple (3, 4).
+// Steps:
+// 1) trim
+// 2) split by spaces
+// 3) drop empty tokens
+// 4) parse ints
+// 5) return first two numbers as a tuple
+fn parse_pair(line) {
+    (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
+    where nums =
+        split(trim(line), " ")
+        |> filter(\t -> trim(t) != "")
+        |> map(\t -> parse_int(t))
+}
+
+// Parse whole input into an array of tuples: [(left, right), ...].
+fn parse_pairs(lines) {
+    lines
+    |> map(\s -> trim(s))
+    |> filter(\s -> s != "")
+    |> map(\s -> parse_pair(s))
+}
+
+// Part A:
+// - split tuples into two columns
+// - sort both columns
+// - sum absolute pairwise differences
+fn day01a(day_pairs_a) {
+    zip(left, right)
+    |> fold(0, \(acc, p) -> acc + abs(p.0 - p.1))
+    where left  = day_pairs_a |> map(\p -> p.0) |> sort_by(\x -> x)
+    where right = day_pairs_a |> map(\p -> p.1) |> sort_by(\x -> x)
+}
+
+// Part B:
+// - keep left column
+// - build a frequency map for right column in one pass
+// - sum x * frequency(right == x) for each x in left
+// Note: this avoids O(n^2) repeated `count(right, \y -> y == x)` scans.
+fn day01b(day_pairs_b) {
+    left
+    |> fold(0, \(acc, x) -> {
+        acc + x * match get(right_freqs, x) { Some(c) -> c, _ -> 0 }
+    })
+    where left  = day_pairs_b |> map(\p -> p.0)
+    where right_freqs = day_pairs_b
+        |> map(\p -> p.1)
+        |> fold({}, \(m, x) -> match get(m, x) {
+            Some(c) -> put(m, x, c + 1),
+            _ -> put(m, x, 1),
+        })
+}
+
+// Program entry: parse once, then print both answers.
+let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
+print(day01a(all_pairs_data))
+print(day01b(all_pairs_data))

@@ -144,7 +144,11 @@ impl Lexer {
         };
 
         // String literals are delegated; reader state advances internally.
+        // Triple-quote `"""` opens a multi-line string.
         if b0 == b'"' {
+            if b1 == Some(b'"') && b2 == Some(b'"') {
+                return self.read_multiline_string_start();
+            }
             return self.read_string_start();
         }
 
