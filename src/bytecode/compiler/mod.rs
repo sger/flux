@@ -147,6 +147,12 @@ impl Compiler {
         symbol_table.define_builtin(67, interner.intern("zip"));
         symbol_table.define_builtin(68, interner.intern("flatten"));
         symbol_table.define_builtin(69, interner.intern("count"));
+        // Assert builtins (test framework)
+        symbol_table.define_builtin(70, interner.intern("assert_eq"));
+        symbol_table.define_builtin(71, interner.intern("assert_neq"));
+        symbol_table.define_builtin(72, interner.intern("assert_true"));
+        symbol_table.define_builtin(73, interner.intern("assert_false"));
+        symbol_table.define_builtin(74, interner.intern("assert_throws"));
 
         Self {
             constants: Vec::new(),

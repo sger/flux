@@ -1,0 +1,26 @@
+import Flow.FTest as Test
+
+fn test_flow_wrappers() {
+    Test.eq(1 + 1, 2)
+    Test.neq(1, 2)
+    Test.is_true(true)
+    Test.is_false(false)
+    Test.approx_eq(3.14159, 3.1416, 0.001)
+    Test.throws(\x -> x, "wrong number of arguments")
+}
+
+fn test_flow_helpers() {
+    let cases = [1, 2, 3]
+
+    Test.for_each(cases, \x -> Test.is_true(x > 0))
+
+    Test.with_fixture(
+        \() -> [10, 20, 30],
+        \xs -> Test.eq(len(xs), 3)
+    )
+
+    Test.describe("basic helpers", [
+        Test.it("eq works", \() -> Test.eq(2 + 2, 4)),
+        Test.it("neq works", \() -> Test.neq(5, 6))
+    ])
+}

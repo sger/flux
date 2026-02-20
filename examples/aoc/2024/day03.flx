@@ -1,0 +1,8 @@
+// Advent of Code 2024 - Day 3
+// Uses input file: examples/aoc/2024/day03.txt
+
+import Day03Solver as Day03
+
+let memory = read_file("examples/aoc/2024/day03.txt")
+print(Day03.day03a_from_memory(memory))
+print(Day03.day03b_from_memory(memory))

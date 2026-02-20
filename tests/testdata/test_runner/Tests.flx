@@ -1,0 +1,9 @@
+module Tests {
+    fn test_inside() {
+        assert_eq(2 * 2, 4)
+    }
+
+    fn _helper() {
+        1
+    }
+}
