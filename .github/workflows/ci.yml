@@ -38,3 +38,8 @@ jobs:
 
       - name: Build (debug)
         run: cargo build --all --all-features
+
+      - name: Smoke test (VM/JIT --test)
+        run: |
+          cargo run -- --test examples/tests/array_test.flx
+          cargo run --features jit -- --test examples/tests/array_test.flx --jit

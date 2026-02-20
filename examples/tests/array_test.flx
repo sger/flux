@@ -1,0 +1,39 @@
+fn test_len_empty() {
+    assert_eq(len([]), 0)
+}
+
+fn test_len_nonempty() {
+    assert_eq(len([1, 2, 3]), 3)
+}
+
+fn test_reverse_single() {
+    assert_eq(reverse([42]), [42])
+}
+
+fn test_reverse_multiple() {
+    assert_eq(reverse([1, 2, 3]), [3, 2, 1])
+}
+
+fn test_contains_found() {
+    assert_true(contains([1, 2, 3], 2))
+}
+
+fn test_contains_not_found() {
+    assert_false(contains([1, 2, 3], 99))
+}
+
+fn test_sum() {
+    assert_eq(sum([1, 2, 3, 4, 5]), 15)
+}
+
+fn test_filter_keeps_matching() {
+    assert_eq(filter([1, 2, 3, 4], \x -> x > 2), [3, 4])
+}
+
+fn test_map_doubles() {
+    assert_eq(map([1, 2, 3], \x -> x * 2), [2, 4, 6])
+}
+
+fn test_range_length() {
+    assert_eq(len(range(1, 5)), 4)
+}
