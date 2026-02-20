@@ -139,6 +139,14 @@ impl Compiler {
         symbol_table.define_builtin(60, interner.intern("parse_ints"));
         symbol_table.define_builtin(61, interner.intern("split_ints"));
         symbol_table.define_builtin(62, interner.intern("flat_map"));
+        // Higher-order search and sort builtins
+        symbol_table.define_builtin(63, interner.intern("any"));
+        symbol_table.define_builtin(64, interner.intern("all"));
+        symbol_table.define_builtin(65, interner.intern("find"));
+        symbol_table.define_builtin(66, interner.intern("sort_by"));
+        symbol_table.define_builtin(67, interner.intern("zip"));
+        symbol_table.define_builtin(68, interner.intern("flatten"));
+        symbol_table.define_builtin(69, interner.intern("count"));
 
         Self {
             constants: Vec::new(),

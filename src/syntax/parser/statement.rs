@@ -1,5 +1,5 @@
 use crate::{
-    diagnostics::{DiagnosticBuilder, unknown_keyword},
+    diagnostics::{DiagnosticBuilder, unknown_keyword, unexpected_token},
     syntax::{precedence::Precedence, statement::Statement, token_type::TokenType},
 };
 
@@ -59,6 +59,57 @@ impl Parser {
                 return None;
             }
         };
+
+        // Detect juxtaposed identifiers on the same line: `foo bar` with no operator.
+        // In Flux, function calls require parentheses, so two bare identifiers on the
+        // same line without a separator is always a parse error. Emitting the error here
+        // (at the expression start) rather than at the downstream failure token prevents
+        // cascade errors — e.g. "Expected expression, found ," several tokens later.
+        if self.peek_token.token_type == TokenType::Ident
+            && self.peek_token.position.line == self.current_token.end_position.line
+        {
+            let ident_name = self.peek_token.literal.to_string();
+            let error_span = self.span_from(start);
+            self.errors.push(unexpected_token(
+                error_span,
+                format!(
+                    "Unexpected identifier `{ident_name}` after expression — \
+                     in Flux, function calls require parentheses: `f(x)`."
+                ),
+            ));
+            // Skip the current line AND any subsequent lines that also consist of
+            // bare identifier sequences (e.g. lines of prose inside a `""` that should
+            // have been `"""`). This emits a single error for the whole group instead
+            // of one per line.
+            let mut skip_line = self.current_token.end_position.line;
+            loop {
+                // Advance past everything remaining on `skip_line`.
+                while !self.is_peek_token(TokenType::Eof)
+                    && self.peek_token.position.line == skip_line
+                {
+                    self.next_token();
+                }
+                // If the next line also opens with two consecutive identifiers on the
+                // same line, it is part of the same erroneous block — skip it silently.
+                if !self.is_peek_token(TokenType::Eof)
+                    && self.peek_token.token_type == TokenType::Ident
+                    && self.peek2_token.token_type == TokenType::Ident
+                    && self.peek2_token.position.line == self.peek_token.position.line
+                {
+                    skip_line = self.peek_token.position.line;
+                    self.next_token(); // step onto the next line
+                } else {
+                    break;
+                }
+            }
+            // Return Some so parse_statement does not call synchronize() and consume
+            // valid code on subsequent lines.
+            return Some(Statement::Expression {
+                expression,
+                has_semicolon: false,
+                span: self.span_from(start),
+            });
+        }
 
         let has_semicolon = if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();

@@ -1,0 +1,65 @@
+// Advent of Code 2024 - Day 2
+// Flux port of the Haskell module AOC2024.Day02.
+// Uses input file: examples/aoc/2024/day02.txt
+
+import Aoc2024Shared as Shared
+
+fn parse_report(line) {
+    split(trim(line), " ")
+    |> filter(\t -> trim(t) != "")
+    |> map(\t -> parse_int(t))
+}
+
+fn parse_reports(lines) {
+    lines
+    |> map(\line -> trim(line))
+    |> filter(\line -> line != "")
+    |> map(\line -> parse_report(line))
+}
+
+fn diffs_from(xs, idx, acc) {
+    if idx + 1 >= len(xs) {
+        acc
+    } else {
+        diffs_from(
+            xs,
+            idx + 1,
+            push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
+        )
+    }
+}
+
+fn predicate(xs) {
+    let ds = diffs_from(xs, 0, [||])
+    all(ds, \d -> d >= 1 && d <= 3) || all(ds, \d -> d >= -3 && d <= -1)
+}
+
+fn prepend_to_all(x, arrs) {
+    map(arrs, \arr -> concat([|x|], arr))
+}
+
+// Haskell-equivalent tryDrops:
+// []      -> [[]]
+// x : xs  -> xs : ((x :) <$> tryDrops xs)
+fn try_drops(xs) {
+    if len(xs) == 0 {
+        [|[||]|]
+    } else {
+        let tail = slice(xs, 1, len(xs))
+        let drop_head = [|tail|]
+        let keep_head = prepend_to_all(Shared.int_at(xs, 0), try_drops(tail))
+        concat(drop_head, keep_head)
+    }
+}
+
+fn day02a(reports) {
+    count(reports, \r -> predicate(r))
+}
+
+fn day02b(reports) {
+    count(reports, \r -> any(try_drops(r), \candidate -> predicate(candidate)))
+}
+
+let reports = read_lines("examples/aoc/2024/day02.txt") |> parse_reports
+print(day02a(reports))
+print(day02b(reports))

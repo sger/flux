@@ -5,6 +5,23 @@ Fixture: examples/suggestions/test_suggestions.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `count` is already defined.
+
+  --> examples/suggestions/test_suggestions.flx:3:1
+  |
+3 | let count = 10;
+  | ^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/suggestions/test_suggestions.flx:0:1
+  |
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `coun`.
@@ -20,5 +37,7 @@ Hint:
 
 Help:
   Did you mean one of: `count`, `counter`, `join`?
+
+Found 2 errors.
 == stdout ==
 <not executed>
