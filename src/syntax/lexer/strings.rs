@@ -194,11 +194,12 @@ impl Lexer {
         let line = cursor.line;
         let column = cursor.column;
 
-        let (content_start, content_end, ended, has_interpolation) = if self.is_in_multiline_string() {
-            self.read_multiline_string_content()
-        } else {
-            self.read_string_content()
-        };
+        let (content_start, content_end, ended, has_interpolation) =
+            if self.is_in_multiline_string() {
+                self.read_multiline_string_content()
+            } else {
+                self.read_string_content()
+            };
 
         if has_interpolation {
             // More interpolations to come - reset depth since we consumed the '{' of '#{'

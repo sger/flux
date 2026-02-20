@@ -1,5 +1,5 @@
 use crate::{
-    diagnostics::{DiagnosticBuilder, unknown_keyword, unexpected_token},
+    diagnostics::{DiagnosticBuilder, unexpected_token, unknown_keyword},
     syntax::{precedence::Precedence, statement::Statement, token_type::TokenType},
 };
 
