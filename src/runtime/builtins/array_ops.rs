@@ -1085,10 +1085,7 @@ pub(super) fn builtin_sort_by(
 ///
 /// Stops at the shorter collection. Returns an empty array if either input is empty.
 /// Works on Arrays and Lists (any combination); always returns Array of Tuples.
-pub(super) fn builtin_zip(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn builtin_zip(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "zip", "zip(xs, ys)")?;
 
     let xs = match &args[0] {
@@ -1105,7 +1102,7 @@ pub(super) fn builtin_zip(
                     "Array or List",
                     "Map",
                     "zip(xs, ys)",
-                ))
+                ));
             }
         },
         other => {
@@ -1115,7 +1112,7 @@ pub(super) fn builtin_zip(
                 "Array or List",
                 other.type_name(),
                 "zip(xs, ys)",
-            ))
+            ));
         }
     };
 
@@ -1133,7 +1130,7 @@ pub(super) fn builtin_zip(
                     "Array or List",
                     "Map",
                     "zip(xs, ys)",
-                ))
+                ));
             }
         },
         other => {
@@ -1143,7 +1140,7 @@ pub(super) fn builtin_zip(
                 "Array or List",
                 other.type_name(),
                 "zip(xs, ys)",
-            ))
+            ));
         }
     };
 
@@ -1184,7 +1181,7 @@ pub(super) fn builtin_flatten(
                             return Err(format!(
                                 "flatten: element at index {} must be Array or List, got Map",
                                 idx
-                            ))
+                            ));
                         }
                     },
                     other => {
@@ -1192,7 +1189,7 @@ pub(super) fn builtin_flatten(
                             "flatten: element at index {} must be Array or List, got {}",
                             idx,
                             other.type_name()
-                        ))
+                        ));
                     }
                 }
             }
@@ -1220,7 +1217,7 @@ pub(super) fn builtin_flatten(
                                 return Err(format!(
                                     "flatten: element at index {} must be Array or List, got Map",
                                     idx
-                                ))
+                                ));
                             }
                         },
                         other => {
@@ -1228,7 +1225,7 @@ pub(super) fn builtin_flatten(
                                 "flatten: element at index {} must be Array or List, got {}",
                                 idx,
                                 other.type_name()
-                            ))
+                            ));
                         }
                     }
                 }

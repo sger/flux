@@ -253,9 +253,7 @@ fn map_filter_fold_reject_non_callable_callback() {
 
 #[test]
 fn any_short_circuits_and_empty() {
-    let arr = Value::Array(
-        vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into(),
-    );
+    let arr = Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into());
 
     // any with is_int — all are ints, so true
     let result = builtin_any(&mut test_vm(), vec![arr.clone(), builtin("is_int")]).unwrap();
@@ -280,11 +278,15 @@ fn any_short_circuits_and_empty() {
 
 #[test]
 fn all_short_circuits_and_empty() {
-    let all_ints = Value::Array(
-        vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into(),
-    );
+    let all_ints =
+        Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into());
     let mixed = Value::Array(
-        vec![Value::Integer(1), Value::String("x".into()), Value::Integer(3)].into(),
+        vec![
+            Value::Integer(1),
+            Value::String("x".into()),
+            Value::Integer(3),
+        ]
+        .into(),
     );
 
     // all with is_int on all-int array — true
@@ -350,9 +352,7 @@ fn find_returns_some_or_none() {
 #[test]
 fn sort_by_integers_strings_and_empty() {
     // Sort integers by negative value (descending via key)
-    let arr = Value::Array(
-        vec![Value::Integer(3), Value::Integer(1), Value::Integer(2)].into(),
-    );
+    let arr = Value::Array(vec![Value::Integer(3), Value::Integer(1), Value::Integer(2)].into());
     let sorted = builtin_sort_by(&mut test_vm(), vec![arr, builtin("abs")]).unwrap();
     assert_eq!(
         sorted,
@@ -450,8 +450,11 @@ fn zip_pairs_and_stops_at_shorter() {
     };
 
     // empty input returns empty
-    let result =
-        builtin_zip(&mut test_vm(), vec![Value::Array(vec![].into()), xs.clone()]).unwrap();
+    let result = builtin_zip(
+        &mut test_vm(),
+        vec![Value::Array(vec![].into()), xs.clone()],
+    )
+    .unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
 
@@ -497,8 +500,7 @@ fn flatten_one_level() {
     );
 
     // flatten empty outer returns empty
-    let result =
-        builtin_flatten(&mut test_vm(), vec![Value::Array(vec![].into())]).unwrap();
+    let result = builtin_flatten(&mut test_vm(), vec![Value::Array(vec![].into())]).unwrap();
     assert_eq!(result, Value::Array(vec![].into()));
 }
 
@@ -535,8 +537,7 @@ fn count_matches_and_empty() {
     assert_eq!(result, Value::Integer(0));
 
     // count rejects non-callable
-    let err =
-        builtin_count(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
+    let err = builtin_count(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
     assert!(err.contains("to be Function"));
 }
 
