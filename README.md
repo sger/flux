@@ -476,3 +476,4 @@ Tagging behavior:
 Recommended:
 - Keep using `docs/versions/release_regression_v0.0.3.md` as a manual release checklist for extra parity/perf checks.
 - Changelog fragment format/details: `changes/README.md`
+- Release operations playbook: `docs/versions/release_playbook.md`
