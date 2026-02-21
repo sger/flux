@@ -87,8 +87,14 @@ fn run() -> Result<(), String> {
     }
 
     let report_path = PathBuf::from(
-        env::var("PERF_REPORT_PATH").unwrap_or_else(|_| "PERF_REPORT.md".to_string()),
+        env::var("PERF_REPORT_PATH").unwrap_or_else(|_| "reports/PERF_REPORT.md".to_string()),
     );
+    if let Some(parent) = report_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        }
+    }
     let report = build_perf_report(&rows, &baseline_root, &current_root);
     fs::write(&report_path, report)
         .map_err(|e| format!("failed to write {}: {e}", report_path.display()))?;
