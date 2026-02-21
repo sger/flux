@@ -9,23 +9,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Docs
+
+---
+
+## [v0.0.3] - 2026-02-21
+
+### Added
 - `scripts/check_changelog_fragment.sh` to enforce changelog fragments in PR CI.
 - `scripts/changelog_from_fragments.sh` to rebuild `CHANGELOG.md` `[Unreleased]` from `changes/*.md`.
 - `scripts/release_cut.sh` to cut a new version section from `[Unreleased]` and update compare links.
 - `scripts/release_check.sh` local preflight command documented in `README.md`.
-
-### Changed
-- CI now runs changelog fragment validation on pull requests.
-- Release docs now use a fragment-first changelog workflow.
-
-### Docs
-- Added `changes/README.md` and `changes/_template.md` for contributor guidance.
-
----
-
-## [v0.0.3] - 2026-02-14
-
-### Added
 - **Cranelift JIT backend** — compiles Flux programs to native machine code (`--features jit`, `--jit` flag)
 - **Persistent cons lists** — GC-managed immutable linked lists with O(1) prepend; `[h | t]` literal and pattern syntax
 - **HAMT hash maps** — Hash Array Mapped Trie with structural sharing on update; original maps are never mutated
@@ -53,6 +50,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Array syntax: `[| 1, 2, 3 |]` for arrays (Rc-backed); `[1, 2, 3]` now creates cons lists
 - Arrays and cons lists are distinct types with separate builtins
+- CI now runs changelog fragment validation on pull requests.
+- Release docs now use a fragment-first changelog workflow.
+
+### Docs
+- Added `changes/README.md` and `changes/_template.md` for contributor guidance.
 
 ---
 
