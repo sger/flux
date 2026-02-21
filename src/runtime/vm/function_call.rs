@@ -39,57 +39,87 @@ impl VM {
 
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
         let callee_idx = self.sp - 1 - num_args;
-        match &self.stack[callee_idx] {
-            Value::Closure(closure) => self.call_closure(closure.clone(), num_args),
+
+        match self.stack[callee_idx].clone() {
+            Value::Closure(closure) => self.call_closure(closure, num_args),
             Value::Builtin(builtin_idx) => {
-                let builtin = get_builtin_by_index(*builtin_idx as usize)
-                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
-                let callee_idx = self.sp - 1 - num_args;
-                self.stack[callee_idx] = Value::Uninit;
-                let fixed_arity = Self::builtin_fixed_arity(builtin.name);
-
-                let args = if fixed_arity == Some(num_args) {
-                    match num_args {
-                        0 => Vec::new(),
-                        1 => {
-                            let a0 = std::mem::replace(&mut self.stack[self.sp - 1], Value::Uninit);
-                            vec![a0]
-                        }
-                        2 => {
-                            let a0 = std::mem::replace(&mut self.stack[self.sp - 2], Value::Uninit);
-                            let a1 = std::mem::replace(&mut self.stack[self.sp - 1], Value::Uninit);
-                            vec![a0, a1]
-                        }
-                        3 => {
-                            let a0 = std::mem::replace(&mut self.stack[self.sp - 3], Value::Uninit);
-                            let a1 = std::mem::replace(&mut self.stack[self.sp - 2], Value::Uninit);
-                            let a2 = std::mem::replace(&mut self.stack[self.sp - 1], Value::Uninit);
-                            vec![a0, a1, a2]
-                        }
-                        _ => {
-                            let mut args = Vec::with_capacity(num_args);
-                            for i in self.sp - num_args..self.sp {
-                                args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
-                            }
-                            args
-                        }
-                    }
-                } else {
-                    // Keep generic path to preserve existing builtin-level arity errors.
-                    let mut args = Vec::with_capacity(num_args);
-                    for i in self.sp - num_args..self.sp {
-                        args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
-                    }
-                    args
-                };
-
-                self.reset_sp(callee_idx)?;
-                let result = (builtin.func)(self, args)?;
-                self.push(result)?;
-                Ok(())
+                self.execute_builtin_call_common(builtin_idx as usize, num_args, Some(callee_idx))
             }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
+    }
+
+    pub(super) fn execute_call_builtin_direct(
+        &mut self,
+        builtin_idx: usize,
+        num_args: usize,
+    ) -> Result<(), String> {
+        // OpCallBuiltin places only args on stack; there is no callee slot to clear.
+        self.execute_builtin_call_common(builtin_idx, num_args, None)
+    }
+
+    fn execute_builtin_call_common(
+        &mut self,
+        builtin_idx: usize,
+        num_args: usize,
+        callee_idx: Option<usize>,
+    ) -> Result<(), String> {
+        let builtin = get_builtin_by_index(builtin_idx)
+            .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
+
+        if let Some(callee_idx) = callee_idx {
+            // Normal OpCall layout is [callee, arg0..argN]; clear callee before shrinking SP.
+            self.stack[callee_idx] = Value::Uninit;
+        }
+
+        let fixed_arity = Self::builtin_fixed_arity(builtin.name);
+        let args_start = self.sp - num_args;
+
+        let args = if fixed_arity == Some(num_args) {
+            match num_args {
+                0 => Vec::new(),
+                1 => {
+                    // Fast path avoids loop overhead for common fixed arities.
+                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
+                    vec![a0]
+                }
+                2 => {
+                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
+                    let a1 = std::mem::replace(&mut self.stack[args_start + 1], Value::Uninit);
+                    vec![a0, a1]
+                }
+                3 => {
+                    let a0 = std::mem::replace(&mut self.stack[args_start], Value::Uninit);
+                    let a1 = std::mem::replace(&mut self.stack[args_start + 1], Value::Uninit);
+                    let a2 = std::mem::replace(&mut self.stack[args_start + 2], Value::Uninit);
+                    vec![a0, a1, a2]
+                }
+                _ => {
+                    let mut args = Vec::with_capacity(num_args);
+
+                    for i in args_start..self.sp {
+                        args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+                    }
+
+                    args
+                }
+            }
+        } else {
+            // Keep generic path to preserve existing builtin-level arity errors.
+            let mut args = Vec::with_capacity(num_args);
+
+            for i in args_start..self.sp {
+                args.push(std::mem::replace(&mut self.stack[i], Value::Uninit));
+            }
+
+            args
+        };
+
+        self.reset_sp(callee_idx.unwrap_or(args_start))?;
+        let result = (builtin.func)(self, args)?;
+        self.push(result)?;
+
+        Ok(())
     }
 
     fn call_closure(&mut self, closure: Rc<Closure>, num_args: usize) -> Result<(), String> {
