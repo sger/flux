@@ -71,6 +71,13 @@ pub enum OpCode {
     OpTupleIndex = 60,
     /// Pushes whether top-of-stack value is a tuple.
     OpIsTuple = 61,
+    /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
+    /// Consumes `arity` arguments from the stack and pushes one result.
+    OpPrimOp = 62,
+    /// Direct builtin call: operands are `[builtin_index: u8, arity: u8]`.
+    /// Unlike `OpCall`, no callee value is read from the stack.
+    /// Consumes `arity` arguments from the stack and pushes one result.
+    OpCallBuiltin = 63,
 }
 
 impl From<u8> for OpCode {
@@ -138,6 +145,8 @@ impl From<u8> for OpCode {
             59 => OpCode::OpTupleLong,
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
+            62 => OpCode::OpPrimOp,
+            63 => OpCode::OpCallBuiltin,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -172,6 +181,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpGetBuiltin
         | OpCode::OpReturnLocal
         | OpCode::OpTupleIndex => vec![1],
+        OpCode::OpPrimOp | OpCode::OpCallBuiltin => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         _ => vec![],

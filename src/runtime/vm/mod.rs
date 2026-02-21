@@ -22,6 +22,7 @@ mod function_call;
 mod index_ops;
 pub mod test_runner;
 mod trace;
+mod primop;
 
 const INITIAL_STACK_SIZE: usize = 2048;
 const MAX_STACK_SIZE: usize = 1 << 20; // 1,048,576 slots
