@@ -9,3 +9,4 @@
 ## Release Prep
 
 - [v0.0.3 Regression Checklist](release_regression_v0.0.3.md)
+- [Release Playbook](release_playbook.md)
