@@ -5,3 +5,4 @@ pub mod diagnostics;
 pub mod jit;
 pub mod runtime;
 pub mod syntax;
+pub mod primop;
