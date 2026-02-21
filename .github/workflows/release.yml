@@ -47,10 +47,20 @@ jobs:
 
           ls -la "${OUTDIR}"
 
+      - name: Extract release notes from CHANGELOG
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          awk "/^## \[${TAG}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md \
+            | sed -e '/^[[:space:]]*---[[:space:]]*$/d' \
+            > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "See [CHANGELOG.md](CHANGELOG.md) for details." > release_notes.md
+          fi
+
       - name: Create GitHub Release + Upload assets
         uses: softprops/action-gh-release@v2
         with:
+          body_file: release_notes.md
           files: |
             dist/*.tar.gz
             dist/*.sha256
-          generate_release_notes: true

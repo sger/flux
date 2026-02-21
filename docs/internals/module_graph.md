@@ -50,19 +50,7 @@ This document outlines the module graph design for Flux: how imports are modeled
 
 ## Cycle Detection
 
-Preferred: DFS with color marks.
-
-- `White`: unvisited
-- `Gray`: visiting (on recursion stack)
-- `Black`: done
-
-If a `Gray` node is encountered, a cycle exists. Report the cycle path from the stack.
-
-Alternative: Tarjan SCC (if we later need component output).
-
-## Cycle Detection
-
-Preferred: DFS with color marks.
+DFS with color marks:
 
 - `White`: unvisited
 - `Gray`: visiting (on recursion stack)
