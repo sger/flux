@@ -27,6 +27,10 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Changelog fragment check (PRs)
+        if: github.event_name == 'pull_request'
+        run: scripts/check_changelog_fragment.sh "${{ github.base_ref }}"
+
       - name: Format (rustfmt)
         run: cargo fmt --all -- --check
 

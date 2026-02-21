@@ -59,6 +59,47 @@ scripts/run_examples.sh --all --jit    # run all using JIT backend
 
 ---
 
+## Backend Parity
+
+| Capability | VM | JIT | Notes |
+|---|---|---|---|
+| Run Flux programs | Yes | Yes | JIT requires `cargo build/run --features jit` and `--jit` flag |
+| Builtins | Yes | Yes | Shared builtin table/runtime behavior |
+| Unit test runner (`--test`) | Yes | Yes | Same `test_*` discovery and assertions |
+| AST optimizations (`-O`) | Yes | Yes | Shared optimization pipeline |
+| Analysis passes (`-A`) | Yes | Yes | Shared analysis pipeline |
+| GC / persistent collections | Yes | Yes | Shared runtime heap/collection model |
+| Bytecode cache | Yes | Partial | `--jit` bypasses VM cache-hit execution path |
+| VM instruction trace (`--trace`) | Yes | No | VM-only debugging feature |
+
+---
+
+## Version Feature Matrix
+
+| Feature | v0.0.1 | v0.0.2 | v0.0.3 |
+|---|---|---|---|
+| Bytecode VM backend | Yes | Yes | Yes |
+| Cranelift JIT backend | No | No | Yes |
+| Pattern matching (core) | Yes | Yes | Yes |
+| Pattern guards | No | Yes | Yes |
+| Cons list + tuple patterns | No | Partial | Yes |
+| Persistent cons lists | No | No | Yes |
+| HAMT hash maps | No | No | Yes |
+| Tuples | No | No | Yes |
+| Do-blocks | No | No | Yes |
+| Where clauses | No | No | Yes |
+| List comprehensions | No | No | Yes |
+| Builtin count (approx) | 20+ | 35 | 75+ |
+| Built-in test runner (`--test`) | No | No | Yes |
+| Bytecode cache | Yes | Yes | Yes |
+
+Release notes:
+- `v0.0.1`: `docs/versions/whats_new_v0.0.1.md`
+- `v0.0.2`: `docs/versions/whats_new_v0.0.2.md`
+- `v0.0.3`: `docs/versions/whats_new_v0.0.3.md`
+
+---
+
 ## Language Tour
 
 A quick taste. The full [Manual](#documentation) has chapter-by-chapter coverage.
@@ -392,20 +433,46 @@ scripts/run_examples.sh --all --no-cache   # bypass bytecode cache
 
 ### Releasing
 
-1. Add entries to the `[Unreleased]` section of `CHANGELOG.md` as you develop.
-2. When ready to release, move `[Unreleased]` entries to a new versioned section:
-   ```markdown
-   ## [v0.0.4] - YYYY-MM-DD
-   ```
-3. Update the diff links at the bottom of `CHANGELOG.md`:
-   ```markdown
-   [Unreleased]: https://github.com/sger/flux/compare/v0.0.4...HEAD
-   [v0.0.4]: https://github.com/sger/flux/compare/v0.0.3...v0.0.4
-   ```
-4. Commit the changelog, then push the tag:
+1. For each feature/fix PR, add a changelog fragment:
    ```bash
-   git tag v0.0.4
-   git push origin v0.0.4
+   cp changes/_template.md changes/$(date +%Y-%m-%d)-short-topic.md
+   ```
+   Fill only relevant sections (`Added`, `Changed`, `Fixed`, `Performance`, `Docs`).
+
+2. Run local release preflight:
+   ```bash
+   scripts/release_check.sh
+   ```
+   This runs the same core gates used in CI release checks:
+   - `cargo fmt --all -- --check`
+   - `cargo clippy --all-targets --all-features -- -D warnings`
+   - `cargo test --all --all-features`
+   - VM + JIT smoke tests with `--test`
+
+3. Rebuild `[Unreleased]` from fragments:
+   ```bash
+   scripts/changelog_from_fragments.sh
    ```
 
-The CI release workflow (`.github/workflows/release.yml`) picks up `v*` tags automatically — it builds the Linux binary, packages it as a `.tar.gz` with a SHA-256 checksum, and creates a GitHub release using the matching `CHANGELOG.md` section as the release body.
+4. Cut the release section + links automatically:
+   ```bash
+   scripts/release_cut.sh v0.0.3
+   ```
+
+5. Commit release docs/changelog, then create and push the tag:
+   ```bash
+   git checkout main
+   git pull --ff-only
+   git tag v0.0.3
+   git push origin v0.0.3
+   ```
+
+Tagging behavior:
+- Pushing a tag matching `v*` triggers `.github/workflows/release.yml`.
+- The workflow first runs release gates (fmt, clippy, tests, VM/JIT smoke).
+- If gates pass, it builds the Linux release binary, creates `.tar.gz` + `.sha256`, and publishes a GitHub Release.
+- Release notes are extracted from the matching `## [vX.Y.Z]` section in `CHANGELOG.md`.
+
+Recommended:
+- Keep using `docs/versions/release_regression_v0.0.3.md` as a manual release checklist for extra parity/perf checks.
+- Changelog fragment format/details: `changes/README.md`
