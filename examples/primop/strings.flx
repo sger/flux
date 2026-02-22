@@ -1,0 +1,13 @@
+print("== PrimOps: strings ==");
+let s = "  hello flux  ";
+print(string_len(s));
+print(string_concat("hello", " world"));
+print(string_slice("hello flux", 0, 5));
+print(trim(s));
+print(upper("flux"));
+print(lower("FLUX"));
+print(starts_with("flux-lang", "flux"));
+print(ends_with("flux-lang", "lang"));
+print(replace("flux flux", "flux", "vm"));
+print(chars("abc"));
+print(substring("abcdef", 1, 4));

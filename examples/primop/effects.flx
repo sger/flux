@@ -1,0 +1,10 @@
+print("== PrimOps: effects ==");
+println("hello from println");
+let t0 = now_ms();
+let t1 = clock_now();
+print(t1 >= t0);
+let content = read_file("examples/io/input.txt");
+print(string_len(content) > 0);
+
+// Uncomment to test control effect:
+// panic("intentional panic");

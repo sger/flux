@@ -8,8 +8,7 @@ fn workspace_root() -> &'static Path {
 fn fixture_path(name: &str) -> PathBuf {
     workspace_root()
         .join("tests")
-        .join("testdata")
-        .join("test_runner")
+        .join("flux")
         .join(name)
 }
 
@@ -221,5 +220,53 @@ fn test_mode_jit_matches_vm_summary() {
         jit_filtered_text.contains("1 tests: 1 passed, 0 failed"),
         "unexpected jit filtered summary:\n{}",
         jit_filtered_text
+    );
+}
+
+#[test]
+fn test_mode_primops_fixture_passes_on_vm() {
+    let file = fixture_path("primops_all.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
+    );
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn test_mode_primops_fixture_passes_on_jit() {
+    let file = fixture_path("primops_all.flx");
+    let output = run_flux(&[
+        "--test",
+        file.to_str().unwrap(),
+        "--root",
+        workspace_root().join("lib").to_str().unwrap(),
+        "--jit",
+    ]);
+    let text = combined_output(&output);
+
+    assert!(
+        output.status.success(),
+        "expected success, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("8 tests: 8 passed, 0 failed"),
+        "unexpected summary, output:\n{}",
+        text
     );
 }
