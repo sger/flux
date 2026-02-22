@@ -416,14 +416,16 @@ impl Compiler {
     }
 
     pub fn bytecode(&self) -> Bytecode {
+        let main_scope = &self.scopes[self.scope_index];
         Bytecode {
-            instructions: self.scopes[self.scope_index].instructions.clone(),
+            instructions: main_scope.instructions.clone(),
             constants: self.constants.clone(),
             debug_info: Some(FunctionDebugInfo::new(
                 Some("<main>".to_string()),
-                self.scopes[self.scope_index].files.clone(),
-                self.scopes[self.scope_index].locations.clone(),
-            )),
+                main_scope.files.clone(),
+                main_scope.locations.clone(),
+            )
+            .with_effect_summary(main_scope.effect_summary)),
         }
     }
 
