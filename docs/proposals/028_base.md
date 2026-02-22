@@ -9,6 +9,7 @@
 > Related docs:
 > - Flow stdlib track: `docs/proposals/030_flow.md`
 > - Runtime routing internals: `docs/internals/primops_vs_builtins.md`
+> - Base API classification: `docs/internals/base_api.md`
 
 ## Summary
 
@@ -207,45 +208,54 @@ Responsibilities:
 - Replace duplicated compiler/runtime registration paths.
 - Keep behavior unchanged.
 
-## Phase 2 — Base module layering (no behavior change)
+## Phase 2 — Base module layering (no behavior change) (Completed)
 
-- Introduce `runtime/base` as the architectural Base layer (registry/policy surface).
-- Keep `runtime/builtins/*` as implementation modules during migration.
-- Route Base-facing compiler/runtime registration through the Base layer.
-- Defer mechanical renaming/moves of `builtins` modules until directive semantics are stable.
+- Introduced `runtime/base` as the architectural Base layer (registry/policy surface).
+- Kept `runtime/builtins/*` as implementation modules during migration.
+- Routed Base-facing compiler/runtime registration through the Base layer.
+- Deferred mechanical renaming/moves of `builtins` modules until directive semantics were stable.
 
 Rationale:
 - Reduces large rename churn during semantic changes.
 - Preserves import/test stability while Base behavior is being validated.
 
-## Phase 3 — Base directives and qualification
+Note: The temporary `runtime/builtins/*` migration state was retired in Phase 6.
+
+## Phase 3 — Base directives and qualification (Completed)
 
 - Support `import Base except [...]` behavior.
 - Reject `import Base as X`.
 - Add synthetic `Base.name(...)` resolution.
-- Add optional shadowing lint (`W011`) plumbing.
+- Keep Base-shadowing lint plumbing as optional/follow-up work.
 
-## Phase 4 — Compatibility hardening
+## Phase 4 — Compatibility hardening (Completed)
 
-- Verify deterministic index assignment.
-- Bump bytecode/cache version at migration cutover.
-- Ensure VM/JIT parity for representative Base calls.
+- Deterministic index assignment is covered by registry/compiler tests.
+- Bytecode cache format version was bumped at cutover (`FORMAT_VERSION = 6`).
+- VM/JIT parity coverage includes representative Base directive/qualification calls.
 
-## Phase 5 — Documentation and stabilization
+## Phase 5 — Documentation and stabilization (Completed)
 
-- Publish Base API classification (`stable-core` vs `provisional-review`).
-- Track periodic review criteria for provisional items.
+- Base API classification is published in `docs/internals/base_api.md`.
+- Periodic review cadence and criteria for provisional items are documented in `docs/internals/base_api.md`.
 
-## Phase 6 — Builtins module retirement (mechanical follow-up)
+## Phase 6 — Builtins module retirement (mechanical follow-up) (Completed)
 
-- Move implementation modules from `runtime/builtins/*` to `runtime/base/*` (or equivalent final Base-owned layout).
-- Remove `runtime/builtins` public surface after all call sites/imports/tests are migrated.
-- Keep function behavior and diagnostics unchanged during the move.
+- Implementation modules were moved from `runtime/builtins/*` to `runtime/base/*`.
+- `runtime/builtins` public surface was removed after call sites/imports/tests migrated.
+- Function behavior and diagnostics remained unchanged through the move.
 
 Entry criteria:
 - Phase 3 semantics are complete and stable.
 - Phase 4 compatibility/parity checks are green.
 - No unresolved Base directive semantics remain.
+
+## Phase 7 — Base-only terminology transition (follow-up) (Completed)
+
+- Runtime/value/symbol/opcode terminology migrated to Base-first naming (`BaseFunction`, `SymbolScope::Base`, `OpGetBase`, `OpCallBase`).
+- Compatibility aliases were removed (`BuiltinFunction`, `BUILTINS`, `get_base_builtin*`).
+- Bytecode cache format was bumped for the terminology cutover (`FORMAT_VERSION = 7`).
+- Compiler/VM/JIT/tests/docs callsites were updated to Base-first APIs.
 
 ## Test Cases and Acceptance Criteria
 
@@ -271,9 +281,12 @@ Entry criteria:
 | Name-resolution precedence table finalized | Done |
 | Alias rejection + synthetic qualification semantics documented | Done |
 | Base classification (`stable-core`/`provisional-review`) documented | Done |
+| Periodic review cadence/criteria documented | Done |
+| Builtins ownership retired into `runtime/base` | Done |
 | Migration/compat contract documented | Done |
 | Acceptance matrix documented | Done |
 | Builtins retirement phase and entry criteria documented | Done |
+| Base-only terminology transition completed (aliases removed + cache bump) | Done |
 
 ## Open Questions
 

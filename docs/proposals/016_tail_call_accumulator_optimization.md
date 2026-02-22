@@ -186,7 +186,7 @@ Same treatment applies to `builtin_concat`, `builtin_reverse`, `builtin_sort`.
 
 Before:
 ```
-OpGetBuiltin 5         # load push
+OpGetBase 5         # load push
 OpGetLocal 1           # load acc (CLONE — slot keeps a copy)
 OpGetLocal 0           # load n
 OpCall 2               # push(acc, n) — clones again inside builtin
@@ -196,7 +196,7 @@ OpReturnValue
 
 After:
 ```
-OpGetBuiltin 5         # load push
+OpGetBase 5         # load push
 OpConsumeLocal 1       # MOVE acc (slot zeroed, no clone)
 OpGetLocal 0           # load n
 OpCall 2               # push(acc, n) — mutates in-place

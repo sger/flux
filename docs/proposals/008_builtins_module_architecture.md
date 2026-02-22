@@ -51,7 +51,7 @@ builtins.rs (757 lines)
 5. **Self-documenting** - Function signatures and docs in one place
 
 ### Non-Goals
-- Changing the VM interface (`OpGetBuiltin`)
+- Changing the VM interface (`OpGetBase`)
 - Modifying function behavior
 - Adding new built-in functions (that's a separate task)
 
@@ -143,7 +143,7 @@ pub mod util_ops;
 
 use crate::runtime::builtin_function::BuiltinFunction;
 
-/// All built-in functions in order (index matters for OpGetBuiltin)
+/// All built-in functions in order (index matters for OpGetBase)
 pub static BUILTINS: &[BuiltinFunction] = &[
     // Utility
     util_ops::PRINT,

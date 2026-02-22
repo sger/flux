@@ -1,88 +1,66 @@
-# Builtin Functions
+# Base Functions
 
-> Source: `src/runtime/builtins/`
+> Source: `src/runtime/base/`
 > Proposal context:
 > - Base prelude architecture: `docs/proposals/028_base.md`
+> - Base API classification and review policy: `docs/internals/base_api.md`
 > - Flow stdlib architecture: `docs/proposals/030_flow.md`
 
-Flux has 75 builtin functions available without any import. This document covers how they are registered internally and how to add a new one.
+Flux currently exposes 75 runtime Base function implementations. After Proposal 028 Phase 7, Base naming is canonical.
 
-## Registration — Three Locations
+## Current Architecture (Phase 6)
 
-Builtins must be registered in **three places** with a matching array index. The index is the builtin's runtime ID.
+### 1. Implementation modules (`runtime/base/*`)
 
-### 1. Implementation (`runtime/builtins/<module>.rs`)
+Base function implementations live under `src/runtime/base/*`:
+- `array_ops.rs`
+- `string_ops.rs`
+- `hash_ops.rs`
+- `list_ops.rs`
+- `numeric_ops.rs`
+- `io_ops.rs`
+- `type_check.rs`
+- `assert_ops.rs`
 
-```rust
-// src/runtime/builtins/array_ops.rs
-pub fn builtin_len(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    match args.as_slice() {
-        [Value::Array(arr)] => Ok(Value::Integer(arr.len() as i64)),
-        [Value::Tuple(t)]   => Ok(Value::Integer(t.len() as i64)),
-        [Value::Gc(_)]      => { /* cons list: traverse and count */ }
-        [v] => Err(format!("len: expected Array or List, got {}", v.type_name())),
-        _   => Err(format!("len: expected 1 argument, got {}", args.len())),
-    }
-}
-```
-
-Signature: `fn(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String>`
-
-- `ctx` gives access to the GC heap, interner, and other runtime state.
-- Return `Ok(Value)` on success, `Err(String)` on type/arity error.
-
-### 2. BUILTINS Array (`runtime/builtins/mod.rs`)
+Each Base function uses the same signature:
 
 ```rust
-pub static BUILTINS: &[BuiltinFunction] = &[
-    BuiltinFunction { name: "len",     func: array_ops::builtin_len },      // index 0
-    BuiltinFunction { name: "push",    func: array_ops::builtin_push },     // index 1
-    BuiltinFunction { name: "reverse", func: array_ops::builtin_reverse },  // index 2
-    // ...
-];
+fn(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String>
 ```
 
-The **array index is the builtin's ID**. `OpGetBuiltin` emits this index at compile time.
+### 2. Canonical registry order
 
-### 3. Symbol Table (`bytecode/compiler/mod.rs`)
+`src/runtime/base/mod.rs` defines `BASE_FUNCTIONS`, a deterministic ordered array of `BaseFunction` entries.
 
-```rust
-// Must use the same index as the BUILTINS array
-symbol_table.define_builtin(0, interner.intern("len"));
-symbol_table.define_builtin(1, interner.intern("push"));
-symbol_table.define_builtin(2, interner.intern("reverse"));
-```
+`src/runtime/base/registry.rs` exposes that same ordering via `BaseModule::names()` and lookup helpers.
 
-This tells the compiler to emit `OpGetBuiltin(index)` when it sees the name in source code.
+### 3. Compiler registration
 
-## How Dispatch Works
+`src/bytecode/compiler/mod.rs` derives Base symbol indices from `BaseModule::new().names().enumerate()` and registers each name with the matching index.
 
-At compile time, the compiler emits `OpGetBuiltin(N)` where `N` is the symbol table index.
+This keeps compiler/runtime mapping deterministic without manual duplicated index tables.
 
-At runtime, the VM executes:
-```rust
-OpGetBuiltin(index) => {
-    let func = get_builtin_by_index(index);
-    stack.push(Value::Builtin(index));
-}
-OpCall(arity) if top == Value::Builtin(index) => {
-    let args = stack.pop_n(arity);
-    let result = BUILTINS[index].func(ctx, args)?;
-    stack.push(result);
-}
-```
+## Dispatch Paths
 
-The JIT backend calls `rt_call_builtin(ctx, index, args)` in `jit/runtime_helpers.rs`, which resolves the same `BUILTINS[index]` entry — so every new builtin is automatically available in JIT mode.
+### VM path
 
-## Lookup Functions
+- Compiler emits `OpGetBase(index)` using Base-derived index registration.
+- VM resolves index to `Value::BaseFunction(index)`.
+- `OpCall` dispatches to `BASE_FUNCTIONS[index].func(...)`.
 
-```rust
-get_builtin(name: &str) -> Option<&BuiltinFunction>      // linear scan by name
-get_builtin_index(name: &str) -> Option<usize>            // index by name
-get_builtin_by_index(index: usize) -> &BuiltinFunction    // direct lookup by ID
-```
+### JIT path
 
-## Full Builtin Catalog
+JIT helpers and context dispatch Base functions by the same Base index, so VM/JIT share one canonical registry.
+
+## Lookup helpers
+
+Base lookup helpers:
+
+- `get_base_function(name)`
+- `get_base_function_index(name)`
+- `get_base_function_by_index(index)`
+
+## Full Base Function Catalog
 
 ### array_ops (24 builtins)
 `len` `push` `reverse` `contains` `slice` `sort` `sort_by` `map` `filter` `fold` `flat_map` `any` `all` `find` `zip` `flatten` `count` `concat` `range` `sum` `product` `first` `last` `rest`
@@ -108,27 +86,13 @@ get_builtin_by_index(index: usize) -> &BuiltinFunction    // direct lookup by ID
 ### assert_ops (5 builtins)
 `assert_eq` `assert_neq` `assert_true` `assert_false` `assert_throws`
 
-## Adding a New Builtin
+## Adding a New Base Function (Phase 7)
 
-1. **Write the function** in the appropriate `runtime/builtins/<module>.rs`:
-   ```rust
-   pub fn builtin_clamp(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-       match args.as_slice() {
-           [Value::Integer(n), Value::Integer(lo), Value::Integer(hi)] =>
-               Ok(Value::Integer((*n).clamp(*lo, *hi))),
-           _ => Err(format!("clamp: expected (Int, Int, Int), got {} args", args.len())),
-       }
-   }
-   ```
+1. Implement the function in `src/runtime/base/<module>.rs`.
+2. Add it to `BASE_FUNCTIONS` in `src/runtime/base/mod.rs` in deterministic order.
+3. Do not add manual compiler `define_base_function(...)` wiring; compiler registration is derived from `BaseModule` ordering.
+4. Run deterministic index and VM/JIT parity tests.
 
-2. **Append to BUILTINS** in `runtime/builtins/mod.rs` — note the index (e.g., 75):
-   ```rust
-   BuiltinFunction { name: "clamp", func: numeric_ops::builtin_clamp }, // index 75
-   ```
-
-3. **Register in the symbol table** in `bytecode/compiler/mod.rs`:
-   ```rust
-   symbol_table.define_builtin(75, interner.intern("clamp"));
-   ```
-
-The index must match across all three. The JIT backend picks it up automatically.
+Notes:
+- Index order is ABI-sensitive for bytecode/JIT dispatch.
+- Any index-affecting change must be coordinated with cache/versioning policy from `docs/proposals/028_base.md`.

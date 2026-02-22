@@ -1,6 +1,6 @@
-# Proposal 028: Base + Flow — Auto-Imported Prelude and Standard Library
+# Proposal 029: Base + Flow — Auto-Imported Prelude and Standard Library
 
-**Status:** Proposed
+**Status:** Historical (superseded by split proposals 028 Base + 030 Flow)
 **Priority:** High
 **Created:** 2026-02-12
 **Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Builtins Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
@@ -20,7 +20,7 @@ This follows the Elixir `Kernel` / Haskell `Prelude` pattern: a curated set of e
 
 ### Problem 1: Builtins Bypass the Module System
 
-Current builtins are a parallel universe. They're registered by index in the compiler, dispatched via `OpGetBuiltin`, and completely invisible to the module system:
+Current builtins are a parallel universe. They're registered by index in the compiler, dispatched via `OpGetBase`, and completely invisible to the module system:
 
 ```rust
 // Compiler::new_with_interner() — hard-coded indices
@@ -377,18 +377,18 @@ for (index, name) in base.names().enumerate() {
 }
 ```
 
-The index-based OpGetBuiltin dispatch stays unchanged. The improvement is that the single source of truth is now `BaseModule` — no more dual registration, and index assignment is deterministic.
+The index-based OpGetBase dispatch stays unchanged. The improvement is that the single source of truth is now `BaseModule` — no more dual registration, and index assignment is deterministic.
 
 #### 1.3 Bytecode-Level Change (Optional, Phase 1)
 
-Replace index-based `OpGetBuiltin` with name-based lookup:
+Replace index-based `OpGetBase` with name-based lookup:
 
 ```rust
-// Current: OpGetBuiltin takes a u8 index
-OpGetBuiltin, [idx]  // idx must match BUILTINS array position
+// Current: OpGetBase takes a u8 index
+OpGetBase, [idx]  // idx must match BUILTINS array position
 
-// New: OpGetBuiltin takes a constant index pointing to the function name
-OpGetBuiltin, [const_idx]  // const_idx points to interned name in constants
+// New: OpGetBase takes a constant index pointing to the function name
+OpGetBase, [const_idx]  // const_idx points to interned name in constants
 ```
 
 The VM resolves the name against the Base module at execution time. This eliminates index coupling entirely.
@@ -447,7 +447,7 @@ Enable `Base.function_name(...)` syntax. Base is resolved **at compile time with
 // 1. Module resolver recognizes "Base" as a reserved synthetic module path
 //    (not a file path — no filesystem lookup)
 // 2. Member lookup uses BaseModule registry: base.index_of("print") → Some(0)
-// 3. Emit OpGetBuiltin with the resolved index
+// 3. Emit OpGetBase with the resolved index
 ```
 
 Implementation in the compiler's `Expression::MemberAccess` handling:
@@ -459,7 +459,7 @@ Expression::MemberAccess { object, member, .. } => {
             // Synthetic module — resolve from Base registry, not module graph
             let member_name = interner.resolve(*member);
             if let Some(idx) = base_module.index_of(member_name) {
-                self.emit(OpGetBuiltin, &[idx as u8]);
+                self.emit(OpGetBase, &[idx as u8]);
                 return Ok(());
             }
             return Err(/* E0xx: unknown Base function */);
@@ -820,7 +820,7 @@ Mechanical migration:
 1. Remove `define_builtin()` calls from `Compiler::new_with_interner()`
 2. Replace with `inject_core_bindings()` that reads from `BaseModule`
 3. Keep all existing Rust implementations in `src/runtime/builtins/` unchanged
-4. Keep `OpGetBuiltin` opcode unchanged
+4. Keep `OpGetBase` opcode unchanged
 5. Update bytecode cache version
 
 **Zero behavioral change.** The only difference is how the compiler discovers builtins — from a `BaseModule` struct instead of hard-coded calls.
@@ -851,7 +851,7 @@ Mechanical migration:
 │                  │   │                  │
 │  auto-imported   │   │  explicit import │
 │  ~42 functions   │   │  grows unbounded │
-│  OpGetBuiltin    │   │  regular modules │
+│  OpGetBase    │   │  regular modules │
 │                  │   │                  │
 │  print, len,     │   │  Flow.List       │
 │  map, filter,    │   │  Flow.Option     │
