@@ -1,4 +1,4 @@
-# Flux Grammar Improvements Proposal
+# Proposal 037: Flux Grammar Improvements
 
 This document analyzes the current Flux grammar and proposes targeted improvements for consistency, expressiveness, and maintainability.
 

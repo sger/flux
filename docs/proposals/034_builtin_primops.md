@@ -1,4 +1,4 @@
-# Proposal 032: Builtin PrimOps — Structured PrimOp Layer
+# Proposal 034: Builtin PrimOps — Structured PrimOp Layer
 
 **Status:** In Progress (Phases 0, 1, 3, 4 implemented)  
 **Date:** 2026-02-19 (updated 2026-02-20)  
