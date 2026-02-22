@@ -8,7 +8,7 @@ use crate::runtime::{RuntimeContext, value::Value};
 
 use super::helpers::{arg_array, arg_string, check_arity, format_hint, type_error};
 
-pub(super) fn builtin_read_file(
+pub(super) fn base_read_file(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -24,7 +24,7 @@ pub(super) fn builtin_read_file(
     Ok(Value::String(content.into()))
 }
 
-pub(super) fn builtin_read_lines(
+pub(super) fn base_read_lines(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -45,7 +45,7 @@ pub(super) fn builtin_read_lines(
     Ok(Value::Array(lines.into()))
 }
 
-pub(super) fn builtin_read_stdin(
+pub(super) fn base_read_stdin(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -61,7 +61,7 @@ pub(super) fn builtin_read_stdin(
     Ok(Value::String(input.into()))
 }
 
-pub(super) fn builtin_parse_int(
+pub(super) fn base_parse_int(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -77,7 +77,7 @@ pub(super) fn builtin_parse_int(
     Ok(Value::Integer(parsed))
 }
 
-pub(super) fn builtin_parse_ints(
+pub(super) fn base_parse_ints(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -112,7 +112,7 @@ pub(super) fn builtin_parse_ints(
     Ok(Value::Array(out.into()))
 }
 
-pub(super) fn builtin_split_ints(
+pub(super) fn base_split_ints(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -162,7 +162,7 @@ pub(super) fn builtin_split_ints(
     Ok(Value::Array(out.into()))
 }
 
-pub(super) fn builtin_now_ms(
+pub(super) fn base_now_ms(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -180,10 +180,7 @@ pub(super) fn builtin_now_ms(
     Ok(Value::Integer(millis.min(i64::MAX as u128) as i64))
 }
 
-pub(super) fn builtin_time(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_time(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "time", "time(fn)")?;
     match &args[0] {
         Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}

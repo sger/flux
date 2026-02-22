@@ -4,8 +4,8 @@ use crate::{
 };
 
 use super::string_ops::{
-    builtin_chars, builtin_ends_with, builtin_join, builtin_lower, builtin_replace, builtin_split,
-    builtin_starts_with, builtin_substring, builtin_to_string, builtin_trim, builtin_upper,
+    base_chars, base_ends_with, base_join, base_lower, base_replace, base_split, base_starts_with,
+    base_substring, base_to_string, base_trim, base_upper,
 };
 
 fn test_vm() -> VM {
@@ -18,13 +18,13 @@ fn test_vm() -> VM {
 
 #[test]
 fn to_string_converts_values() {
-    let result = builtin_to_string(&mut test_vm(), vec![Value::Integer(42)]).unwrap();
+    let result = base_to_string(&mut test_vm(), vec![Value::Integer(42)]).unwrap();
     assert_eq!(result, Value::String("42".to_string().into()));
 }
 
 #[test]
 fn split_empty_delim_splits_chars() {
-    let result = builtin_split(
+    let result = base_split(
         &mut test_vm(),
         vec![
             Value::String("ab".to_string().into()),
@@ -47,7 +47,7 @@ fn split_empty_delim_splits_chars() {
 
 #[test]
 fn join_rejects_non_string_elements() {
-    let err = builtin_join(
+    let err = base_join(
         &mut test_vm(),
         vec![
             Value::Array(vec![Value::Integer(1)].into()),
@@ -60,23 +60,20 @@ fn join_rejects_non_string_elements() {
 
 #[test]
 fn trim_upper_lower_chars() {
-    let trimmed = builtin_trim(
+    let trimmed = base_trim(
         &mut test_vm(),
         vec![Value::String("  hi ".to_string().into())],
     )
     .unwrap();
     assert_eq!(trimmed, Value::String("hi".to_string().into()));
 
-    let upper =
-        builtin_upper(&mut test_vm(), vec![Value::String("hi".to_string().into())]).unwrap();
+    let upper = base_upper(&mut test_vm(), vec![Value::String("hi".to_string().into())]).unwrap();
     assert_eq!(upper, Value::String("HI".to_string().into()));
 
-    let lower =
-        builtin_lower(&mut test_vm(), vec![Value::String("HI".to_string().into())]).unwrap();
+    let lower = base_lower(&mut test_vm(), vec![Value::String("HI".to_string().into())]).unwrap();
     assert_eq!(lower, Value::String("hi".to_string().into()));
 
-    let chars =
-        builtin_chars(&mut test_vm(), vec![Value::String("ab".to_string().into())]).unwrap();
+    let chars = base_chars(&mut test_vm(), vec![Value::String("ab".to_string().into())]).unwrap();
     assert_eq!(
         chars,
         Value::Array(
@@ -91,7 +88,7 @@ fn trim_upper_lower_chars() {
 
 #[test]
 fn substring_extracts_range() {
-    let result = builtin_substring(
+    let result = base_substring(
         &mut test_vm(),
         vec![
             Value::String("hello".to_string().into()),
@@ -106,7 +103,7 @@ fn substring_extracts_range() {
 
 #[test]
 fn starts_ends_and_replace_work() {
-    let starts = builtin_starts_with(
+    let starts = base_starts_with(
         &mut test_vm(),
         vec![
             Value::String("hello".to_string().into()),
@@ -116,7 +113,7 @@ fn starts_ends_and_replace_work() {
     .unwrap();
     assert_eq!(starts, Value::Boolean(true));
 
-    let ends = builtin_ends_with(
+    let ends = base_ends_with(
         &mut test_vm(),
         vec![
             Value::String("hello".to_string().into()),
@@ -126,7 +123,7 @@ fn starts_ends_and_replace_work() {
     .unwrap();
     assert_eq!(ends, Value::Boolean(true));
 
-    let replaced = builtin_replace(
+    let replaced = base_replace(
         &mut test_vm(),
         vec![
             Value::String("banana".to_string().into()),

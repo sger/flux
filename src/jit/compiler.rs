@@ -1515,7 +1515,8 @@ fn compile_expression(
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                 Ok(builder.inst_results(call)[0])
             } else if let Some(&builtin_idx) = scope.base_functions.get(name) {
-                let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
+                let make_builtin =
+                    get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                 let idx = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
                 let call = builder.ins().call(make_builtin, &[ctx_val, idx]);
                 Ok(builder.inst_results(call)[0])
@@ -2954,7 +2955,8 @@ fn compile_function_literal(
             continue;
         }
         if let Some(&builtin_idx) = scope.base_functions.get(&sym) {
-            let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
+            let make_builtin =
+                get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
             let idx_val = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
             let call = builder.ins().call(make_builtin, &[ctx_val, idx_val]);
             capture_vals.push(builder.inst_results(call)[0]);
@@ -3012,7 +3014,9 @@ fn register_base_functions(scope: &mut Scope, interner: &Interner) {
 }
 
 fn is_base_symbol(name: Identifier, interner: &Interner) -> bool {
-    interner.try_resolve(name).is_some_and(|name| name == "Base")
+    interner
+        .try_resolve(name)
+        .is_some_and(|name| name == "Base")
 }
 
 fn apply_base_directives(

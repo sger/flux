@@ -14,8 +14,8 @@ use crate::{
         CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
-    runtime::value::Value,
     runtime::base::BaseModule,
+    runtime::value::Value,
     syntax::{
         interner::Interner, pattern_validate::validate_program_patterns, program::Program,
         statement::Statement, symbol::Symbol,
@@ -591,15 +591,15 @@ impl Compiler {
 
             if let Some(alias) = alias {
                 let alias_name = self.sym(*alias);
-                self.errors.push(self.make_base_alias_error(alias_name, *span));
+                self.errors
+                    .push(self.make_base_alias_error(alias_name, *span));
             }
 
             for excluded in except {
                 let excluded_name = self.sym(*excluded);
                 if !seen.insert(*excluded) {
-                    self.errors.push(
-                        self.make_duplicate_base_exclusion_error(excluded_name, *span),
-                    );
+                    self.errors
+                        .push(self.make_duplicate_base_exclusion_error(excluded_name, *span));
                     continue;
                 }
 

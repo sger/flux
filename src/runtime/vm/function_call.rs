@@ -42,9 +42,11 @@ impl VM {
 
         match self.stack[callee_idx].clone() {
             Value::Closure(closure) => self.call_closure(closure, num_args),
-            Value::BaseFunction(base_fn_idx) => {
-                self.execute_base_function_call_common(base_fn_idx as usize, num_args, Some(callee_idx))
-            }
+            Value::BaseFunction(base_fn_idx) => self.execute_base_function_call_common(
+                base_fn_idx as usize,
+                num_args,
+                Some(callee_idx),
+            ),
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
     }

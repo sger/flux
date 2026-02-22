@@ -41,7 +41,7 @@ fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     }
 }
 
-pub(super) fn builtin_assert_eq(
+pub(super) fn base_assert_eq(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -57,7 +57,7 @@ pub(super) fn builtin_assert_eq(
     }
 }
 
-pub(super) fn builtin_assert_neq(
+pub(super) fn base_assert_neq(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -72,7 +72,7 @@ pub(super) fn builtin_assert_neq(
     }
 }
 
-pub(super) fn builtin_assert_true(
+pub(super) fn base_assert_true(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -87,7 +87,7 @@ pub(super) fn builtin_assert_true(
     }
 }
 
-pub(super) fn builtin_assert_false(
+pub(super) fn base_assert_false(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -102,7 +102,7 @@ pub(super) fn builtin_assert_false(
     }
 }
 
-pub(super) fn builtin_assert_throws(
+pub(super) fn base_assert_throws(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
