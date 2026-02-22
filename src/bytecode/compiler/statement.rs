@@ -471,11 +471,19 @@ impl Compiler {
         &mut self,
         name: Symbol,
         alias: Option<Symbol>,
-        _except: &[Symbol],
+        except: &[Symbol],
     ) -> CompileResult<()> {
         if self.is_base_module_symbol(name) {
             return Ok(());
         }
+
+        if !except.is_empty() {
+            let binding_name = alias.unwrap_or(name);
+            let excluded: std::collections::HashSet<Symbol> = except.iter().copied().collect();
+            self.imported_module_exclusions
+                .insert(binding_name, excluded);
+        }
+
         if let Some(alias) = alias {
             self.import_aliases.insert(alias, name);
         } else {
