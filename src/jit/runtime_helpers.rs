@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::{
-    builtins::get_builtin_by_index,
+    base::get_base_function_by_index,
     gc::{
         hamt::{hamt_empty, hamt_insert, hamt_lookup},
         heap_object::HeapObject,
@@ -72,8 +72,11 @@ pub extern "C" fn rt_make_string(ctx: *mut JitContext, ptr: *const u8, len: i64)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_builtin(ctx: *mut JitContext, builtin_index: i64) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::Builtin(builtin_index as u8))
+pub extern "C" fn rt_make_base_function(
+    ctx: *mut JitContext,
+    base_fn_index: i64,
+) -> *mut Value {
+    unsafe { ctx_ref(ctx) }.alloc(Value::BaseFunction(base_fn_index as u8))
 }
 
 #[unsafe(no_mangle)]
@@ -432,23 +435,23 @@ pub extern "C" fn rt_greater_than_or_equal(
 }
 
 // ---------------------------------------------------------------------------
-// Builtin calls
+// Base function calls
 // ---------------------------------------------------------------------------
 
-/// Call a builtin function by index. Arguments are passed as an array of
+/// Call a Base function by index. Arguments are passed as an array of
 /// `*mut Value` pointers.
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_call_builtin(
+pub extern "C" fn rt_call_base_function(
     ctx: *mut JitContext,
-    builtin_index: i64,
+    base_fn_index: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let builtin = match get_builtin_by_index(builtin_index as usize) {
+    let base_fn = match get_base_function_by_index(base_fn_index as usize) {
         Some(b) => b,
         None => {
-            ctx.error = Some(format!("unknown builtin index: {}", builtin_index));
+            ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
             return ptr::null_mut();
         }
     };
@@ -458,13 +461,13 @@ pub extern "C" fn rt_call_builtin(
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
-            ctx.error = Some(format!("builtin arg {} evaluated to null", i));
+            ctx.error = Some(format!("base function arg {} evaluated to null", i));
             return ptr::null_mut();
         }
         args.push(unsafe { (*arg_ptr).clone() });
     }
 
-    match (builtin.func)(ctx, args) {
+    match (base_fn.func)(ctx, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
             ctx.error = Some(msg);
@@ -905,7 +908,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_none", rt_make_none as *const u8),
         ("rt_make_empty_list", rt_make_empty_list as *const u8),
         ("rt_make_string", rt_make_string as *const u8),
-        ("rt_make_builtin", rt_make_builtin as *const u8),
+        ("rt_make_base_function", rt_make_base_function as *const u8),
         ("rt_make_jit_closure", rt_make_jit_closure as *const u8),
         ("rt_make_cons", rt_make_cons as *const u8),
         ("rt_is_cons", rt_is_cons as *const u8),
@@ -927,7 +930,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             "rt_greater_than_or_equal",
             rt_greater_than_or_equal as *const u8,
         ),
-        ("rt_call_builtin", rt_call_builtin as *const u8),
+        ("rt_call_base_function", rt_call_base_function as *const u8),
         ("rt_call_primop", rt_call_primop as *const u8),
         ("rt_call_value", rt_call_value as *const u8),
         ("rt_get_global", rt_get_global as *const u8),

@@ -16,6 +16,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
+use crate::runtime::base::BaseModule;
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement,
@@ -113,7 +114,9 @@ struct Scope {
     /// Maps interned identifier → global slot index
     globals: HashMap<Identifier, usize>,
     /// Maps interned identifier → builtin index
-    builtins: HashMap<Identifier, usize>,
+    base_functions: HashMap<Identifier, usize>,
+    /// Base names excluded from unqualified lookup via `import Base except [...]`.
+    excluded_base_symbols: HashSet<Identifier>,
     /// Maps interned identifier → JIT function metadata.
     functions: HashMap<Identifier, JitFunctionMeta>,
     /// Maps (module name, member name) -> JIT function metadata.
@@ -133,7 +136,8 @@ impl Scope {
         Self {
             locals: HashMap::new(),
             globals: HashMap::new(),
-            builtins: HashMap::new(),
+            base_functions: HashMap::new(),
+            excluded_base_symbols: HashSet::new(),
             functions: HashMap::new(),
             module_functions: HashMap::new(),
             imported_modules: HashSet::new(),
@@ -235,9 +239,10 @@ impl JitCompiler {
 
         let mut scope = Scope::new();
 
-        // Register builtins
-        register_builtins(&mut scope, interner);
-        self.predeclare_imports(program, &mut scope);
+        // Register base_functions
+        register_base_functions(&mut scope, interner);
+        apply_base_directives(program, &mut scope, interner)?;
+        self.predeclare_imports(program, &mut scope, interner);
         self.predeclare_globals(program, &mut scope);
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
@@ -423,9 +428,18 @@ impl JitCompiler {
         Ok(())
     }
 
-    fn predeclare_imports(&self, program: &Program, scope: &mut Scope) {
+    fn predeclare_imports(&self, program: &Program, scope: &mut Scope, interner: &Interner) {
         for stmt in &program.statements {
-            if let Statement::Import { name, alias, .. } = stmt {
+            if let Statement::Import {
+                name,
+                alias,
+                except: _,
+                ..
+            } = stmt
+            {
+                if is_base_symbol(*name, interner) {
+                    continue;
+                }
                 scope.imported_modules.insert(*name);
                 if let Some(alias) = alias {
                     scope.import_aliases.insert(*alias, *name);
@@ -1286,10 +1300,17 @@ fn compile_statement(
             scope.locals.insert(*name, var);
             Ok(StmtOutcome::None)
         }
-        Statement::Import { name, alias, .. } => {
-            scope.imported_modules.insert(*name);
-            if let Some(alias) = alias {
-                scope.import_aliases.insert(*alias, *name);
+        Statement::Import {
+            name,
+            alias,
+            except: _,
+            ..
+        } => {
+            if !is_base_symbol(*name, interner) {
+                scope.imported_modules.insert(*name);
+                if let Some(alias) = alias {
+                    scope.import_aliases.insert(*alias, *name);
+                }
             }
             Ok(StmtOutcome::None)
         }
@@ -1493,8 +1514,8 @@ fn compile_expression(
                     .ins()
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                 Ok(builder.inst_results(call)[0])
-            } else if let Some(&builtin_idx) = scope.builtins.get(name) {
-                let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_builtin");
+            } else if let Some(&builtin_idx) = scope.base_functions.get(name) {
+                let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                 let idx = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
                 let call = builder.ins().call(make_builtin, &[ctx_val, idx]);
                 Ok(builder.inst_results(call)[0])
@@ -1509,6 +1530,18 @@ fn compile_expression(
         }
         Expression::MemberAccess { object, member, .. } => {
             if let Expression::Identifier { name, .. } = object.as_ref() {
+                if is_base_symbol(*name, interner) {
+                    let member_name = interner.resolve(*member);
+                    let Some(index) = BaseModule::new().index_of(member_name) else {
+                        return Err(format!("unknown Base member: {}", member_name));
+                    };
+                    let make_builtin =
+                        get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
+                    let idx = builder.ins().iconst(PTR_TYPE, index as i64);
+                    let call = builder.ins().call(make_builtin, &[ctx_val, idx]);
+                    return Ok(builder.inst_results(call)[0]);
+                }
+
                 let module_name = scope.import_aliases.get(name).copied().or_else(|| {
                     if scope.imported_modules.contains(name)
                         || scope
@@ -1719,9 +1752,9 @@ fn compile_expression(
                     );
                 }
                 if should_use_builtin_fastcall(scope, *name, interner)
-                    && let Some(&builtin_idx) = scope.builtins.get(name)
+                    && let Some(&builtin_idx) = scope.base_functions.get(name)
                 {
-                    return compile_builtin_call(
+                    return compile_base_function_call(
                         module,
                         helpers,
                         builder,
@@ -2609,7 +2642,7 @@ fn compile_short_circuit_expression(
     Ok(builder.block_params(merge_block)[0])
 }
 
-fn compile_builtin_call(
+fn compile_base_function_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
@@ -2654,7 +2687,7 @@ fn compile_builtin_call(
     let idx_val = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
 
-    let call_builtin = get_helper_func_ref(module, helpers, builder, "rt_call_builtin");
+    let call_builtin = get_helper_func_ref(module, helpers, builder, "rt_call_base_function");
     let call = builder
         .ins()
         .call(call_builtin, &[ctx_val, idx_val, args_ptr, nargs_val]);
@@ -2720,6 +2753,9 @@ fn resolve_call_primop(
     let Expression::Identifier { name, .. } = function else {
         return None;
     };
+    if scope.excluded_base_symbols.contains(name) {
+        return None;
+    }
 
     // Shadowed names must resolve through the regular call path.
     if scope.locals.contains_key(name)
@@ -2741,6 +2777,9 @@ fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
 }
 
 fn should_use_builtin_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
+    if scope.excluded_base_symbols.contains(&name) {
+        return false;
+    }
     if scope.locals.contains_key(&name)
         || scope.functions.contains_key(&name)
         || scope.globals.contains_key(&name)
@@ -2914,8 +2953,8 @@ fn compile_function_literal(
             capture_vals.push(builder.inst_results(call)[0]);
             continue;
         }
-        if let Some(&builtin_idx) = scope.builtins.get(&sym) {
-            let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_builtin");
+        if let Some(&builtin_idx) = scope.base_functions.get(&sym) {
+            let make_builtin = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
             let idx_val = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
             let call = builder.ins().call(make_builtin, &[ctx_val, idx_val]);
             capture_vals.push(builder.inst_results(call)[0]);
@@ -2953,16 +2992,16 @@ fn get_helper_func_ref(
     module.declare_func_in_func(func_id, builder.func)
 }
 
-fn register_builtins(scope: &mut Scope, interner: &Interner) {
-    use crate::runtime::builtins::BUILTINS;
+fn register_base_functions(scope: &mut Scope, interner: &Interner) {
+    use crate::runtime::base::BASE_FUNCTIONS;
     use crate::syntax::symbol::Symbol;
     // Scan the interner to find Symbols matching each builtin name.
-    for (idx, builtin) in BUILTINS.iter().enumerate() {
+    for (idx, base_fn) in BASE_FUNCTIONS.iter().enumerate() {
         for sym_idx in 0u32.. {
             let sym = Symbol::new(sym_idx);
             match interner.try_resolve(sym) {
-                Some(name) if name == builtin.name => {
-                    scope.builtins.insert(sym, idx);
+                Some(name) if name == base_fn.name => {
+                    scope.base_functions.insert(sym, idx);
                     break;
                 }
                 Some(_) => continue,
@@ -2970,6 +3009,53 @@ fn register_builtins(scope: &mut Scope, interner: &Interner) {
             }
         }
     }
+}
+
+fn is_base_symbol(name: Identifier, interner: &Interner) -> bool {
+    interner.try_resolve(name).is_some_and(|name| name == "Base")
+}
+
+fn apply_base_directives(
+    program: &Program,
+    scope: &mut Scope,
+    interner: &Interner,
+) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for stmt in &program.statements {
+        let Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } = stmt
+        else {
+            continue;
+        };
+        if !is_base_symbol(*name, interner) {
+            continue;
+        }
+        if let Some(alias) = alias {
+            return Err(format!(
+                "`import Base as {}` is not allowed",
+                interner.resolve(*alias)
+            ));
+        }
+        for excluded in except {
+            if !seen.insert(*excluded) {
+                return Err(format!(
+                    "duplicate Base exclusion `{}`",
+                    interner.resolve(*excluded)
+                ));
+            }
+            let excluded_name = interner.resolve(*excluded);
+            if BaseModule::new().index_of(excluded_name).is_none() {
+                return Err(format!("unknown Base member: {}", excluded_name));
+            }
+            scope.excluded_base_symbols.insert(*excluded);
+            scope.base_functions.remove(excluded);
+        }
+    }
+    Ok(())
 }
 
 fn collect_literal_function_specs(program: &Program) -> Vec<LiteralFunctionSpec> {
@@ -3315,7 +3401,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             },
         ),
         (
-            "rt_make_builtin",
+            "rt_make_base_function",
             HelperSig {
                 num_params: 2,
                 has_return: true,
@@ -3450,9 +3536,9 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
                 has_return: true,
             },
         ),
-        // Builtins & globals
+        // BaseFunctions & globals
         (
-            "rt_call_builtin",
+            "rt_call_base_function",
             HelperSig {
                 num_params: 4,
                 has_return: true,

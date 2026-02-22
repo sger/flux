@@ -66,12 +66,12 @@ impl Default for JitContext {
 
 impl RuntimeContext for JitContext {
     fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
-        use crate::runtime::builtins::get_builtin_by_index;
+        use crate::runtime::base::get_base_function_by_index;
 
         match callee {
-            Value::Builtin(idx) => {
-                let builtin = get_builtin_by_index(idx as usize)
-                    .ok_or_else(|| format!("unknown builtin index: {}", idx))?;
+            Value::BaseFunction(idx) => {
+                let builtin = get_base_function_by_index(idx as usize)
+                    .ok_or_else(|| format!("unknown Base function index: {}", idx))?;
                 (builtin.func)(self, args)
             }
             Value::JitClosure(closure) => {
