@@ -15,15 +15,20 @@ impl VM {
     /// - encoded arity does not match the primop arity,
     /// - the stack does not contain enough arguments, or
     /// - primop execution fails.
-    pub(super) fn execute_primop_opcode(&mut self, primop_id: usize, arity: usize) -> Result<(), String> {
-        let op = PrimOp::from_id(primop_id as u8).ok_or_else(|| format!("invalid primop id {}", primop_id))?;
+    pub(super) fn execute_primop_opcode(
+        &mut self,
+        primop_id: usize,
+        arity: usize,
+    ) -> Result<(), String> {
+        let op = PrimOp::from_id(primop_id as u8)
+            .ok_or_else(|| format!("invalid primop id {}", primop_id))?;
 
         // Keep VM-side arity checks strict so malformed bytecode fails fast.
         if arity != op.arity() {
             return Err(format!(
-                "primop {} expects {} args, got {}", 
-                op.display_name(), 
-                op.arity(), 
+                "primop {} expects {} args, got {}",
+                op.display_name(),
+                op.arity(),
                 arity
             ));
         }
