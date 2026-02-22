@@ -219,7 +219,7 @@ Goal:
 ## Phase 2: Medium Complexity Primitive Builtins
 
 Target builtins:
-- Collections: `first`, `last`, `rest`, `contains`, `slice`
+- Collections: `first`, `last`, go ahea`rest`, `contains`, `slice`
 - Strings: `concat`, `trim`, `upper`, `lower`, `starts_with`, `ends_with`, `replace`, `chars`, `substring`
 - Maps: `get`, `put`, `has_key`, `is_map`, `keys`, `values`, `delete`, `merge`
 - Numeric parsing: `parse_int`, `parse_ints`, `split_ints`
