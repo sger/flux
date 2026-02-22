@@ -13,7 +13,7 @@ use crate::{
         UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
-    primop::PrimOp,
+    primop::resolve_primop_call,
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
@@ -1079,61 +1079,14 @@ impl Compiler {
             return Ok(false);
         };
 
-        let name = self.sym(*name);
+        // Shadowed names must resolve through the regular call path.
+        if let Some(symbol) = self.symbol_table.resolve(*name)
+            && symbol.symbol_scope != SymbolScope::Builtin
+        {
+            return Ok(false);
+        }
 
-        let primop = match (name, arguments.len()) {
-            ("array_len", 1) => Some(PrimOp::ArrayLen),
-            ("array_get", 2) => Some(PrimOp::ArrayGet),
-            ("array_set", 3) => Some(PrimOp::ArraySet),
-            ("get", 2) | ("map_get", 2) => Some(PrimOp::MapGet),
-            ("put", 3) | ("map_set", 3) => Some(PrimOp::MapSet),
-            ("has_key", 2) | ("map_has", 2) => Some(PrimOp::MapHas),
-            ("string_len", 1) => Some(PrimOp::StringLen),
-            ("string_concat", 2) => Some(PrimOp::StringConcat),
-            ("substring", 3) | ("string_slice", 3) => Some(PrimOp::StringSlice),
-            ("print", 1) | ("println", 1) => Some(PrimOp::Println),
-            ("read_file", 1) => Some(PrimOp::ReadFile),
-            ("now_ms", 0) | ("clock_now", 0) => Some(PrimOp::ClockNow),
-            ("panic", 1) => Some(PrimOp::Panic),
-            ("len", 1) => Some(PrimOp::Len),
-            ("abs", 1) => Some(PrimOp::Abs),
-            ("min", 2) => Some(PrimOp::Min),
-            ("max", 2) => Some(PrimOp::Max),
-            ("type_of", 1) => Some(PrimOp::TypeOf),
-            ("is_int", 1) => Some(PrimOp::IsInt),
-            ("is_float", 1) => Some(PrimOp::IsFloat),
-            ("is_string", 1) => Some(PrimOp::IsString),
-            ("is_bool", 1) => Some(PrimOp::IsBool),
-            ("is_array", 1) => Some(PrimOp::IsArray),
-            ("is_hash", 1) => Some(PrimOp::IsHash),
-            ("is_none", 1) => Some(PrimOp::IsNone),
-            ("is_some", 1) => Some(PrimOp::IsSome),
-            ("to_string", 1) => Some(PrimOp::ToString),
-            ("iadd", 2) => Some(PrimOp::IAdd),
-            ("isub", 2) => Some(PrimOp::ISub),
-            ("imul", 2) => Some(PrimOp::IMul),
-            ("idiv", 2) => Some(PrimOp::IDiv),
-            ("imod", 2) => Some(PrimOp::IMod),
-            ("fadd", 2) => Some(PrimOp::FAdd),
-            ("fsub", 2) => Some(PrimOp::FSub),
-            ("fmul", 2) => Some(PrimOp::FMul),
-            ("fdiv", 2) => Some(PrimOp::FDiv),
-            ("icmp_eq", 2) => Some(PrimOp::ICmpEq),
-            ("icmp_ne", 2) => Some(PrimOp::ICmpNe),
-            ("icmp_lt", 2) => Some(PrimOp::ICmpLt),
-            ("icmp_le", 2) => Some(PrimOp::ICmpLe),
-            ("icmp_gt", 2) => Some(PrimOp::ICmpGt),
-            ("icmp_ge", 2) => Some(PrimOp::ICmpGe),
-            ("fcmp_eq", 2) => Some(PrimOp::FCmpEq),
-            ("fcmp_ne", 2) => Some(PrimOp::FCmpNe),
-            ("fcmp_lt", 2) => Some(PrimOp::FCmpLt),
-            ("fcmp_le", 2) => Some(PrimOp::FCmpLe),
-            ("fcmp_gt", 2) => Some(PrimOp::FCmpGt),
-            ("fcmp_ge", 2) => Some(PrimOp::FCmpGe),
-            ("cmp_eq", 2) => Some(PrimOp::CmpEq),
-            ("cmp_ne", 2) => Some(PrimOp::CmpNe),
-            _ => None,
-        };
+        let primop = resolve_primop_call(self.sym(*name), arguments.len());
 
         let Some(primop) = primop else {
             return Ok(false);

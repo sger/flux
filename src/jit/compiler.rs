@@ -15,7 +15,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
-use crate::primop::PrimOp;
+use crate::primop::{PrimOp, resolve_primop_call};
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement,
@@ -1688,7 +1688,7 @@ fn compile_expression(
             arguments,
             ..
         } => {
-            if let Some(primop) = resolve_call_primop(function, arguments, interner) {
+            if let Some(primop) = resolve_call_primop(scope, function, arguments, interner) {
                 return compile_primop_call(
                     module,
                     helpers,
@@ -2712,6 +2712,7 @@ fn compile_primop_call(
 }
 
 fn resolve_call_primop(
+    scope: &Scope,
     function: &Expression,
     arguments: &[Expression],
     interner: &Interner,
@@ -2720,60 +2721,16 @@ fn resolve_call_primop(
         return None;
     };
 
-    let name = interner.try_resolve(*name)?;
-    match (name, arguments.len()) {
-        ("array_len", 1) => Some(PrimOp::ArrayLen),
-        ("array_get", 2) => Some(PrimOp::ArrayGet),
-        ("array_set", 3) => Some(PrimOp::ArraySet),
-        ("get", 2) | ("map_get", 2) => Some(PrimOp::MapGet),
-        ("put", 3) | ("map_set", 3) => Some(PrimOp::MapSet),
-        ("has_key", 2) | ("map_has", 2) => Some(PrimOp::MapHas),
-        ("string_len", 1) => Some(PrimOp::StringLen),
-        ("string_concat", 2) => Some(PrimOp::StringConcat),
-        ("substring", 3) | ("string_slice", 3) => Some(PrimOp::StringSlice),
-        ("print", 1) | ("println", 1) => Some(PrimOp::Println),
-        ("read_file", 1) => Some(PrimOp::ReadFile),
-        ("now_ms", 0) | ("clock_now", 0) => Some(PrimOp::ClockNow),
-        ("panic", 1) => Some(PrimOp::Panic),
-        ("len", 1) => Some(PrimOp::Len),
-        ("abs", 1) => Some(PrimOp::Abs),
-        ("min", 2) => Some(PrimOp::Min),
-        ("max", 2) => Some(PrimOp::Max),
-        ("type_of", 1) => Some(PrimOp::TypeOf),
-        ("is_int", 1) => Some(PrimOp::IsInt),
-        ("is_float", 1) => Some(PrimOp::IsFloat),
-        ("is_string", 1) => Some(PrimOp::IsString),
-        ("is_bool", 1) => Some(PrimOp::IsBool),
-        ("is_array", 1) => Some(PrimOp::IsArray),
-        ("is_hash", 1) => Some(PrimOp::IsHash),
-        ("is_none", 1) => Some(PrimOp::IsNone),
-        ("is_some", 1) => Some(PrimOp::IsSome),
-        ("to_string", 1) => Some(PrimOp::ToString),
-        ("iadd", 2) => Some(PrimOp::IAdd),
-        ("isub", 2) => Some(PrimOp::ISub),
-        ("imul", 2) => Some(PrimOp::IMul),
-        ("idiv", 2) => Some(PrimOp::IDiv),
-        ("imod", 2) => Some(PrimOp::IMod),
-        ("fadd", 2) => Some(PrimOp::FAdd),
-        ("fsub", 2) => Some(PrimOp::FSub),
-        ("fmul", 2) => Some(PrimOp::FMul),
-        ("fdiv", 2) => Some(PrimOp::FDiv),
-        ("icmp_eq", 2) => Some(PrimOp::ICmpEq),
-        ("icmp_ne", 2) => Some(PrimOp::ICmpNe),
-        ("icmp_lt", 2) => Some(PrimOp::ICmpLt),
-        ("icmp_le", 2) => Some(PrimOp::ICmpLe),
-        ("icmp_gt", 2) => Some(PrimOp::ICmpGt),
-        ("icmp_ge", 2) => Some(PrimOp::ICmpGe),
-        ("fcmp_eq", 2) => Some(PrimOp::FCmpEq),
-        ("fcmp_ne", 2) => Some(PrimOp::FCmpNe),
-        ("fcmp_lt", 2) => Some(PrimOp::FCmpLt),
-        ("fcmp_le", 2) => Some(PrimOp::FCmpLe),
-        ("fcmp_gt", 2) => Some(PrimOp::FCmpGt),
-        ("fcmp_ge", 2) => Some(PrimOp::FCmpGe),
-        ("cmp_eq", 2) => Some(PrimOp::CmpEq),
-        ("cmp_ne", 2) => Some(PrimOp::CmpNe),
-        _ => None,
+    // Shadowed names must resolve through the regular call path.
+    if scope.locals.contains_key(name)
+        || scope.functions.contains_key(name)
+        || scope.globals.contains_key(name)
+    {
+        return None;
     }
+
+    let name = interner.try_resolve(*name)?;
+    resolve_primop_call(name, arguments.len())
 }
 
 fn is_builtin_fastcall_allowlisted(name: &str) -> bool {

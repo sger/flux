@@ -49,7 +49,11 @@ fn run_jit(input: &str) -> Result<Value, String> {
 fn assert_vm_jit_value(input: &str) {
     let vm_value = run_vm(input).unwrap_or_else(|err| panic!("VM failed unexpectedly: {}", err));
     let jit_value = run_jit(input).unwrap_or_else(|err| panic!("JIT failed unexpectedly: {}", err));
-    assert_eq!(vm_value, jit_value, "VM/JIT value mismatch for input:\n{}", input);
+    assert_eq!(
+        vm_value, jit_value,
+        "VM/JIT value mismatch for input:\n{}",
+        input
+    );
 }
 
 fn assert_vm_jit_error_contains(input: &str, needle: &str) {
@@ -95,6 +99,52 @@ fn vm_and_jit_match_string_primop_value() {
 }
 
 #[test]
+fn vm_and_jit_match_phase2_collection_primop_values() {
+    assert_vm_jit_value("first(#[1, 2, 3])");
+    assert_vm_jit_value("last(#[1, 2, 3])");
+    assert_vm_jit_value("rest(#[1, 2, 3])");
+    assert_vm_jit_value("contains(#[1, 2, 3], 2)");
+    assert_vm_jit_value("slice(#[1, 2, 3], 0, 2)");
+    assert_vm_jit_value("concat(#[1, 2], #[3, 4])");
+}
+
+#[test]
+fn vm_and_jit_match_phase2_string_primop_values() {
+    assert_vm_jit_value(r#"trim("  hi  ")"#);
+    assert_vm_jit_value(r#"upper("hi")"#);
+    assert_vm_jit_value(r#"lower("HI")"#);
+    assert_vm_jit_value(r#"starts_with("hello", "he")"#);
+    assert_vm_jit_value(r#"ends_with("hello", "lo")"#);
+    assert_vm_jit_value(r#"replace("banana", "na", "X")"#);
+    assert_vm_jit_value(r#"chars("ab")"#);
+}
+
+#[test]
+fn vm_and_jit_match_phase2_map_primop_values() {
+    assert_vm_jit_value(r#"len(keys(put({}, "a", 1)))"#);
+    assert_vm_jit_value(r#"len(values(put({}, "a", 1)))"#);
+    assert_vm_jit_value(r#"is_map(merge({}, put({}, "a", 1)))"#);
+    assert_vm_jit_value(r#"get(delete(put({}, "a", 1), "a"), "a")"#);
+}
+
+#[test]
+fn vm_and_jit_match_phase2_parse_primop_values() {
+    assert_vm_jit_value(r#"parse_int(" 123 ")"#);
+    assert_vm_jit_value(r#"parse_ints(#["1", "2", "3"])"#);
+    assert_vm_jit_value(r#"split_ints("1,2,3", ",")"#);
+}
+
+#[test]
+fn vm_and_jit_match_phase2_primop_errors() {
+    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected first argument");
+    assert_vm_jit_error_contains("concat(1, #[2])", "concat expected first argument");
+    assert_vm_jit_error_contains("concat(#[1], 2)", "concat expected second argument");
+    assert_vm_jit_error_contains(r#"parse_int("12x")"#, "could not parse");
+    assert_vm_jit_error_contains(r#"split_ints("1,a,3", ",")"#, "could not parse");
+    assert_vm_jit_error_contains(r#"delete({}, [])"#, "must be hashable");
+}
+
+#[test]
 fn vm_and_jit_match_effectful_read_file_primop_value() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -103,7 +153,10 @@ fn vm_and_jit_match_effectful_read_file_primop_value() {
     let path: PathBuf = std::env::temp_dir().join(format!("flux_primop_parity_{}.txt", unique));
     fs::write(&path, "primop parity file").expect("should write temp file");
 
-    let escaped = path.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
     let program = format!(r#"read_file("{}")"#, escaped);
     assert_vm_jit_value(&program);
 
@@ -112,5 +165,8 @@ fn vm_and_jit_match_effectful_read_file_primop_value() {
 
 #[test]
 fn vm_and_jit_match_control_primop_error() {
-    assert_vm_jit_error_contains(r#"panic("primop parity panic")"#, "panic: primop parity panic");
+    assert_vm_jit_error_contains(
+        r#"panic("primop parity panic")"#,
+        "panic: primop parity panic",
+    );
 }
