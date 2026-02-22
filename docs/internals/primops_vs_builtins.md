@@ -3,15 +3,18 @@
 > Scope: current runtime/compiler behavior.
 > Proposal context:
 > - Base prelude semantics: `docs/proposals/028_base.md`
+> - Base API classification and review policy: `docs/internals/base_api.md`
 > - Flow stdlib modules: `docs/proposals/030_flow.md`
 
 This document defines the two concepts and the current lowering matrix.
+
+Note: Base API classification (`stable-core` vs `provisional-review`) is a surface-governance policy and is tracked separately in `docs/internals/base_api.md`.
 
 Source anchors:
 - PrimOp resolver and execution: `src/primop/mod.rs`
 - Bytecode call lowering: `src/bytecode/compiler/expression.rs`
 - JIT call lowering: `src/jit/compiler.rs`
-- Builtin registry: `src/runtime/builtins/mod.rs`
+- Builtin registry: `src/runtime/base/mod.rs`
 
 ## What Is A PrimOp?
 
@@ -24,16 +27,16 @@ When a direct call is recognized as a primop, the compiler/JIT emits a primop pa
 
 ## What Is A Builtin?
 
-A builtin is a regular function from the global builtin table (`BUILTINS`), callable by name and as a value.
+A Base-surface builtin is a regular function from the global Base function table (`BASE_FUNCTIONS`), callable by name and as a value.
 
 Builtins can execute through:
-- Generic call path (`OpGetBuiltin` + `OpCall`).
-- Builtin fastcall superinstruction (`OpCallBuiltin`) for allowlisted higher-order builtins.
+- Generic call path (`OpGetBase` + `OpCall`).
+- Builtin fastcall superinstruction (`OpCallBase`) for allowlisted higher-order builtins.
 
 ## Routing Rules For `foo(args...)`
 
 1. If `foo/arity` matches `resolve_primop_call`, lower to primop.
-2. Else if `foo` is in builtin fastcall allowlist, lower to `OpCallBuiltin`.
+2. Else if `foo` is in builtin fastcall allowlist, lower to `OpCallBase`.
 3. Else use generic builtin/function call path.
 
 Shadowing rule (bytecode + JIT): if a local/function/global shadows a builtin name, primop and builtin-fastcall lowering are skipped.
@@ -49,7 +52,7 @@ The other terms are routing details for builtins:
 
 - `Allowlisted builtin`:
   “Hot” means frequently used builtins where call overhead matters.
-  For those names, the compiler emits `OpCallBuiltin` (fastcall) instead of `OpGetBuiltin + OpCall`.
+  For those names, the compiler emits `OpCallBase` (fastcall) instead of `OpGetBase + OpCall`.
   This removes part of call overhead (no builtin value materialization first), so it is faster.
   It is still a builtin, not a primop.
   Terminology: “allowlisted” means this builtin is explicitly in the approved optimization set; names not on the list are excluded by default.
@@ -106,7 +109,7 @@ Shadowing check
                     │
                     ├── yes
                     │       ▼
-                    │   OpCallBuiltin lowering
+                    │   OpCallBase lowering
                     │       │
                     │       ▼
                     │   Builtin implementation
@@ -131,13 +134,13 @@ Builtin fastcall branch (unshadowed + no primop + allowlisted):
   map([|1, 2, 3|], \x -> x + 1)
   -> not a primop
   -> allowlisted builtin
-  -> OpCallBuiltin
+  -> OpCallBase
 
 Builtin generic branch (unshadowed + no primop + not allowlisted):
   reverse([|1, 2, 3|])
   -> not a primop
   -> not allowlisted
-  -> OpGetBuiltin + OpCall
+  -> OpGetBase + OpCall
 
 Shadowed branch (skip primop + fastcall):
   let print = \x -> x
@@ -150,7 +153,7 @@ Shadowed branch (skip primop + fastcall):
 
 Path legend:
 - `True PrimOp`: lowered to primop and executed in `execute_primop`.
-- `Builtin fastcall`: lowered to `OpCallBuiltin`, still builtin implementation.
+- `Builtin fastcall`: lowered to `OpCallBase`, still builtin implementation.
 - `Builtin generic`: normal builtin call path.
 
 ## Examples
@@ -169,7 +172,7 @@ print("hello")
 map([|1, 2, 3|], \x -> x + 1)
 ```
 
-`map` is not a primop, but it is in the builtin fastcall allowlist, so this lowers to `OpCallBuiltin`.
+`map` is not a primop, but it is in the builtin fastcall allowlist, so this lowers to `OpCallBase`.
 
 ### Builtin generic example
 
@@ -257,11 +260,11 @@ Here `print` is a local symbol, so primop lowering is skipped and normal call re
 | `string_len`, `string_concat`, `string_slice` | Canonical string primop names |
 | `println`, `clock_now`, `panic` | Effect/control primop names |
 
-### Builtins Using Builtin Fastcall (`OpCallBuiltin`)
+### Builtins Using Builtin Fastcall (`OpCallBase`)
 
 This path is a middle ground between true primops and generic builtin calls:
 - The compiler/JIT still treats the callee as a builtin function (not a `PrimOp` ID).
-- Call lowering uses `OpCallBuiltin` to skip some generic call overhead.
+- Call lowering uses `OpCallBase` to skip some generic call overhead.
 - Runtime behavior remains the builtin implementation, which is important for callback-heavy/higher-order functions.
 
 Use this category when:
@@ -280,7 +283,7 @@ Use this category when:
 
 ### Builtin Generic Path Only
 
-These builtins stay on the normal call path (`OpGetBuiltin` + `OpCall`).
+These builtins stay on the normal call path (`OpGetBase` + `OpCall`).
 
 Reasons a builtin stays here:
 - It is not in the primop resolver and not in the fastcall allowlist.

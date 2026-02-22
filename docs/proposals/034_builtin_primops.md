@@ -16,7 +16,7 @@ Implemented in this branch:
 - Compiler call lowering for supported direct calls in `src/bytecode/compiler/expression.rs`
 - VM primop dispatch in `src/runtime/vm/dispatch.rs` and `src/runtime/vm/primop.rs`
 - JIT primop path via `rt_call_primop` in `src/jit/runtime_helpers.rs` and lowering in `src/jit/compiler.rs`
-- Builtin superinstruction path `OpCallBuiltin(idx, arity)` for selected higher-order builtins
+- Builtin superinstruction path `OpCallBase(idx, arity)` for selected higher-order builtins
 - Function-level effect boundary metadata (`EffectSummary`) in debug info
 - Example programs in `examples/prims/`
 
@@ -32,7 +32,7 @@ The current strategy is:
 Before PrimOps, direct builtin calls typically used:
 
 ```text
-OpGetBuiltin(idx) + OpCall(arity)
+OpGetBase(idx) + OpCall(arity)
 ```
 
 That path adds avoidable overhead:
@@ -230,7 +230,7 @@ Goal:
 ## Phase 3 (Completed): Superinstruction for Remaining Builtin Calls
 
 Add:
-- `OpCallBuiltin(idx, arity)` as a fused superinstruction for complex builtins
+- `OpCallBase(idx, arity)` as a fused superinstruction for complex builtins
 
 Likely candidates:
 - higher-order and callback-heavy builtins (`map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`)
@@ -240,9 +240,9 @@ Goal:
 - Reduce generic builtin call overhead without rewriting all complex logic as primops
 
 Implemented details:
-- Compiler emits `OpCallBuiltin` only for builtin-scoped, direct-call allowlisted names:
+- Compiler emits `OpCallBase` only for builtin-scoped, direct-call allowlisted names:
   - `map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`
-- VM executes `OpCallBuiltin` through direct builtin invocation path (no `Value::Builtin` callee materialization)
+- VM executes `OpCallBase` through direct builtin invocation path (no `Value::Builtin` callee materialization)
 - JIT parity is policy-based (same allowlist/shadowing semantics), while runtime call remains `rt_call_builtin`
 
 ## Phase 4 (Completed): Effect Boundary + Future Effects Integration

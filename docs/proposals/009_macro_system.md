@@ -848,7 +848,7 @@ OpGreaterThan
 OpBang            // !
 OpJumpIfFalse 10
 OpConstant 2      // "x is not greater than 10"
-OpGetBuiltin 0    // print
+OpGetBase 0    // print
 OpCall 1
 ```
 

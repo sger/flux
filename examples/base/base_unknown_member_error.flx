@@ -1,0 +1,3 @@
+// Expected compile error E080: unknown Base member
+
+Base.not_real();
