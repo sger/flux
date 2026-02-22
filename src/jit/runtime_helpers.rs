@@ -72,10 +72,7 @@ pub extern "C" fn rt_make_string(ctx: *mut JitContext, ptr: *const u8, len: i64)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_base_function(
-    ctx: *mut JitContext,
-    base_fn_index: i64,
-) -> *mut Value {
+pub extern "C" fn rt_make_base_function(ctx: *mut JitContext, base_fn_index: i64) -> *mut Value {
     unsafe { ctx_ref(ctx) }.alloc(Value::BaseFunction(base_fn_index as u8))
 }
 

@@ -1,6 +1,6 @@
 use crate::{
-    bytecode::symbol_scope::SymbolScope,
     bytecode::compiler::Compiler,
+    bytecode::symbol_scope::SymbolScope,
     runtime::base::BaseModule,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},

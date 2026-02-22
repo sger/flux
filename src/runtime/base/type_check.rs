@@ -6,7 +6,7 @@ use crate::runtime::{
 
 use super::helpers::check_arity;
 
-pub(super) fn builtin_type_of(
+pub(super) fn base_type_of(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -22,7 +22,7 @@ pub(super) fn builtin_type_of(
     Ok(Value::String(name.to_string().into()))
 }
 
-pub(super) fn builtin_is_int(
+pub(super) fn base_is_int(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -30,7 +30,7 @@ pub(super) fn builtin_is_int(
     Ok(Value::Boolean(matches!(args[0], Value::Integer(_))))
 }
 
-pub(super) fn builtin_is_float(
+pub(super) fn base_is_float(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -38,7 +38,7 @@ pub(super) fn builtin_is_float(
     Ok(Value::Boolean(matches!(args[0], Value::Float(_))))
 }
 
-pub(super) fn builtin_is_string(
+pub(super) fn base_is_string(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -46,7 +46,7 @@ pub(super) fn builtin_is_string(
     Ok(Value::Boolean(matches!(args[0], Value::String(_))))
 }
 
-pub(super) fn builtin_is_bool(
+pub(super) fn base_is_bool(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -54,7 +54,7 @@ pub(super) fn builtin_is_bool(
     Ok(Value::Boolean(matches!(args[0], Value::Boolean(_))))
 }
 
-pub(super) fn builtin_is_array(
+pub(super) fn base_is_array(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -62,7 +62,7 @@ pub(super) fn builtin_is_array(
     Ok(Value::Boolean(matches!(args[0], Value::Array(_))))
 }
 
-pub(super) fn builtin_is_hash(
+pub(super) fn base_is_hash(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -74,7 +74,7 @@ pub(super) fn builtin_is_hash(
     Ok(Value::Boolean(result))
 }
 
-pub(super) fn builtin_is_none(
+pub(super) fn base_is_none(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -82,7 +82,7 @@ pub(super) fn builtin_is_none(
     Ok(Value::Boolean(matches!(args[0], Value::None)))
 }
 
-pub(super) fn builtin_is_some(
+pub(super) fn base_is_some(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
