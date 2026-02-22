@@ -1,4 +1,4 @@
-# Proposal: Hygienic Macro System for Flux
+# Proposal 040: Hygienic Macro System for Flux
 
 **Status:** Draft  
 **Date:** 2026-02-20
