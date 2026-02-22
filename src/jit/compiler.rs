@@ -113,7 +113,7 @@ struct Scope {
     locals: HashMap<Identifier, Variable>,
     /// Maps interned identifier → global slot index
     globals: HashMap<Identifier, usize>,
-    /// Maps interned identifier → builtin index
+    /// Maps interned identifier → base index
     base_functions: HashMap<Identifier, usize>,
     /// Base names excluded from unqualified lookup via `import Base except [...]`.
     excluded_base_symbols: HashSet<Identifier>,
@@ -1514,11 +1514,11 @@ fn compile_expression(
                     .ins()
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
                 Ok(builder.inst_results(call)[0])
-            } else if let Some(&builtin_idx) = scope.base_functions.get(name) {
-                let make_builtin =
+            } else if let Some(&base_idx) = scope.base_functions.get(name) {
+                let make_base =
                     get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
-                let idx = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
-                let call = builder.ins().call(make_builtin, &[ctx_val, idx]);
+                let idx = builder.ins().iconst(PTR_TYPE, base_idx as i64);
+                let call = builder.ins().call(make_base, &[ctx_val, idx]);
                 Ok(builder.inst_results(call)[0])
             } else if let Some(&idx) = scope.globals.get(name) {
                 let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
@@ -1536,10 +1536,10 @@ fn compile_expression(
                     let Some(index) = BaseModule::new().index_of(member_name) else {
                         return Err(format!("unknown Base member: {}", member_name));
                     };
-                    let make_builtin =
+                    let make_base =
                         get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                     let idx = builder.ins().iconst(PTR_TYPE, index as i64);
-                    let call = builder.ins().call(make_builtin, &[ctx_val, idx]);
+                    let call = builder.ins().call(make_base, &[ctx_val, idx]);
                     return Ok(builder.inst_results(call)[0]);
                 }
 
@@ -1736,7 +1736,7 @@ fn compile_expression(
                     interner,
                 );
             }
-            // Check if calling a builtin directly
+            // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
                 if let Some(meta) = scope.functions.get(name).copied() {
                     return compile_user_function_call(
@@ -1752,8 +1752,8 @@ fn compile_expression(
                         interner,
                     );
                 }
-                if should_use_builtin_fastcall(scope, *name, interner)
-                    && let Some(&builtin_idx) = scope.base_functions.get(name)
+                if should_use_base_fastcall(scope, *name, interner)
+                    && let Some(&base_idx) = scope.base_functions.get(name)
                 {
                     return compile_base_function_call(
                         module,
@@ -1763,7 +1763,7 @@ fn compile_expression(
                         ctx_val,
                         return_block,
                         tail_call,
-                        builtin_idx,
+                        base_idx,
                         arguments,
                         interner,
                     );
@@ -2651,7 +2651,7 @@ fn compile_base_function_call(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
-    builtin_idx: usize,
+    base_idx: usize,
     arguments: &[Expression],
     interner: &Interner,
 ) -> Result<CraneliftValue, String> {
@@ -2685,13 +2685,13 @@ fn compile_base_function_call(
     }
 
     let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
-    let idx_val = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
+    let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
 
-    let call_builtin = get_helper_func_ref(module, helpers, builder, "rt_call_base_function");
+    let call_base = get_helper_func_ref(module, helpers, builder, "rt_call_base_function");
     let call = builder
         .ins()
-        .call(call_builtin, &[ctx_val, idx_val, args_ptr, nargs_val]);
+        .call(call_base, &[ctx_val, idx_val, args_ptr, nargs_val]);
     Ok(builder.inst_results(call)[0])
 }
 
@@ -2770,14 +2770,14 @@ fn resolve_call_primop(
     resolve_primop_call(name, arguments.len())
 }
 
-fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
+fn is_base_fastcall_allowlisted(name: &str) -> bool {
     matches!(
         name,
         "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
     )
 }
 
-fn should_use_builtin_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
+fn should_use_base_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
     if scope.excluded_base_symbols.contains(&name) {
         return false;
     }
@@ -2790,7 +2790,7 @@ fn should_use_builtin_fastcall(scope: &Scope, name: Identifier, interner: &Inter
     let Some(name_str) = interner.try_resolve(name) else {
         return false;
     };
-    is_builtin_fastcall_allowlisted(name_str)
+    is_base_fastcall_allowlisted(name_str)
 }
 
 fn compile_user_function_call(
@@ -2954,11 +2954,10 @@ fn compile_function_literal(
             capture_vals.push(builder.inst_results(call)[0]);
             continue;
         }
-        if let Some(&builtin_idx) = scope.base_functions.get(&sym) {
-            let make_builtin =
-                get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
-            let idx_val = builder.ins().iconst(PTR_TYPE, builtin_idx as i64);
-            let call = builder.ins().call(make_builtin, &[ctx_val, idx_val]);
+        if let Some(&base_idx) = scope.base_functions.get(&sym) {
+            let make_base = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
+            let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
+            let call = builder.ins().call(make_base, &[ctx_val, idx_val]);
             capture_vals.push(builder.inst_results(call)[0]);
             continue;
         }
@@ -2997,7 +2996,7 @@ fn get_helper_func_ref(
 fn register_base_functions(scope: &mut Scope, interner: &Interner) {
     use crate::runtime::base::BASE_FUNCTIONS;
     use crate::syntax::symbol::Symbol;
-    // Scan the interner to find Symbols matching each builtin name.
+    // Scan the interner to find Symbols matching each base name.
     for (idx, base_fn) in BASE_FUNCTIONS.iter().enumerate() {
         for sym_idx in 0u32.. {
             let sym = Symbol::new(sym_idx);

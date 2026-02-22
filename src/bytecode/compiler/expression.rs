@@ -180,13 +180,13 @@ impl Compiler {
                 self.compile_function_literal(parameters, body)?;
             }
             Expression::ListLiteral { elements, .. } => {
-                // Lower list literals through builtin `list(...)` to avoid deep
+                // Lower list literals through base `list(...)` to avoid deep
                 // recursive lowering for large literals.
                 let list_sym = self.interner.intern("list");
                 let symbol = self
                     .symbol_table
                     .resolve(list_sym)
-                    .expect("builtin list must be defined");
+                    .expect("base list must be defined");
                 self.load_symbol(&symbol);
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
@@ -210,7 +210,7 @@ impl Compiler {
                 let symbol = self
                     .symbol_table
                     .resolve(list_sym)
-                    .expect("builtin list must be defined");
+                    .expect("base list must be defined");
                 self.load_symbol(&symbol);
                 self.emit(OpCode::OpCall, &[0]);
             }
@@ -241,7 +241,7 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
-                if self.try_emit_call_builtin(function, arguments)? {
+                if self.try_emit_call_base(function, arguments)? {
                     self.current_span = previous_span;
                     return Ok(());
                 }
@@ -1136,14 +1136,14 @@ impl Compiler {
         Ok(true)
     }
 
-    fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
+    fn is_base_fastcall_allowlisted(name: &str) -> bool {
         matches!(
             name,
             "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
         )
     }
 
-    fn try_emit_call_builtin(
+    fn try_emit_call_base(
         &mut self,
         function: &Expression,
         arguments: &[Expression],
@@ -1152,8 +1152,8 @@ impl Compiler {
             return Ok(false);
         };
 
-        let builtin_name = self.sym(*name);
-        if !Self::is_builtin_fastcall_allowlisted(builtin_name) {
+        let base_name = self.sym(*name);
+        if !Self::is_base_fastcall_allowlisted(base_name) {
             return Ok(false);
         }
 

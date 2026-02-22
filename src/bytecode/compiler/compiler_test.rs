@@ -105,7 +105,7 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
 }
 
 #[test]
-fn compiler_registers_base_builtins_in_registry_order() {
+fn compiler_registers_base_functions_in_registry_order() {
     let (_, interner) = parse_program("");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let base = BaseModule::new();
@@ -115,16 +115,16 @@ fn compiler_registers_base_builtins_in_registry_order() {
         let binding = compiler
             .symbol_table
             .resolve(symbol)
-            .expect("base builtin should be pre-registered");
+            .expect("base base should be pre-registered");
         assert_eq!(binding.symbol_scope, SymbolScope::Base);
         assert_eq!(binding.index, expected_index);
     }
 }
 
 #[test]
-fn builtin_indices_are_deterministic_across_interner_state() {
+fn base_indices_are_deterministic_across_interner_state() {
     let mut seeded_interner = Interner::new();
-    // Pre-seed unrelated symbols to prove builtin indices do not depend on interner history.
+    // Pre-seed unrelated symbols to prove base indices do not depend on interner history.
     seeded_interner.intern("zzz");
     seeded_interner.intern("another_symbol");
 
@@ -137,17 +137,17 @@ fn builtin_indices_are_deterministic_across_interner_state() {
         let binding_a = compiler_a
             .symbol_table
             .resolve(sym_a)
-            .expect("builtin must exist in compiler A");
+            .expect("base must exist in compiler A");
         let binding_b = compiler_b
             .symbol_table
             .resolve(sym_b)
-            .expect("builtin must exist in compiler B");
+            .expect("base must exist in compiler B");
 
         assert_eq!(binding_a.symbol_scope, SymbolScope::Base);
         assert_eq!(binding_b.symbol_scope, SymbolScope::Base);
         assert_eq!(
             binding_a.index, binding_b.index,
-            "builtin index mismatch for `{}`",
+            "base index mismatch for `{}`",
             name
         );
     }

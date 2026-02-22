@@ -70,9 +70,9 @@ impl RuntimeContext for JitContext {
 
         match callee {
             Value::BaseFunction(idx) => {
-                let builtin = get_base_function_by_index(idx as usize)
+                let base = get_base_function_by_index(idx as usize)
                     .ok_or_else(|| format!("unknown Base function index: {}", idx))?;
-                (builtin.func)(self, args)
+                (base.func)(self, args)
             }
             Value::JitClosure(closure) => {
                 let entry = self
