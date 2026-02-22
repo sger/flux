@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use cranelift_codegen::ir::StackSlotData;
 use cranelift_codegen::ir::{
     AbiParam, BlockArg, Function, InstBuilder, MemFlags, UserFuncName, Value as CraneliftValue,
     condcodes::IntCC, types,
@@ -14,6 +15,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
+use crate::primop::PrimOp;
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement,
@@ -1665,22 +1667,22 @@ fn compile_expression(
             arguments,
             ..
         } => {
+            if let Some(primop) = resolve_call_primop(function, arguments, interner) {
+                return compile_primop_call(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    primop,
+                    arguments,
+                    interner,
+                );
+            }
             // Check if calling a builtin directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
-                if let Some(&builtin_idx) = scope.builtins.get(name) {
-                    return compile_builtin_call(
-                        module,
-                        helpers,
-                        builder,
-                        scope,
-                        ctx_val,
-                        return_block,
-                        tail_call,
-                        builtin_idx,
-                        arguments,
-                        interner,
-                    );
-                }
                 if let Some(meta) = scope.functions.get(name).copied() {
                     return compile_user_function_call(
                         module,
@@ -1691,6 +1693,22 @@ fn compile_expression(
                         return_block,
                         tail_call,
                         meta,
+                        arguments,
+                        interner,
+                    );
+                }
+                if should_use_builtin_fastcall(scope, *name, interner)
+                    && let Some(&builtin_idx) = scope.builtins.get(name)
+                {
+                    return compile_builtin_call(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        builtin_idx,
                         arguments,
                         interner,
                     );
@@ -2622,6 +2640,141 @@ fn compile_builtin_call(
     Ok(builder.inst_results(call)[0])
 }
 
+fn compile_primop_call(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    primop: PrimOp,
+    arguments: &[Expression],
+    interner: &Interner,
+) -> Result<CraneliftValue, String> {
+    let mut arg_vals = Vec::with_capacity(arguments.len());
+
+    for arg in arguments {
+        let val = compile_expression(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            arg,
+            interner,
+        )?;
+        arg_vals.push(val);
+    }
+
+    let nargs = arg_vals.len();
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (nargs as u32) * 8,
+        3,
+    ));
+
+    for (i, val) in arg_vals.iter().enumerate() {
+        builder.ins().stack_store(*val, slot, (i * 8) as i32);
+    }
+
+    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let primop_val = builder.ins().iconst(PTR_TYPE, primop.id() as i64);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let call_primop = get_helper_func_ref(module, helpers, builder, "rt_call_primop");
+    let call = builder
+        .ins()
+        .call(call_primop, &[ctx_val, primop_val, args_ptr, nargs_val]);
+    Ok(builder.inst_results(call)[0])
+}
+
+fn resolve_call_primop(
+    function: &Expression,
+    arguments: &[Expression],
+    interner: &Interner,
+) -> Option<PrimOp> {
+    let Expression::Identifier { name, .. } = function else {
+        return None;
+    };
+
+    let name = interner.try_resolve(*name)?;
+    match (name, arguments.len()) {
+        ("array_len", 1) => Some(PrimOp::ArrayLen),
+        ("array_get", 2) => Some(PrimOp::ArrayGet),
+        ("array_set", 3) => Some(PrimOp::ArraySet),
+        ("get", 2) | ("map_get", 2) => Some(PrimOp::MapGet),
+        ("put", 3) | ("map_set", 3) => Some(PrimOp::MapSet),
+        ("has_key", 2) | ("map_has", 2) => Some(PrimOp::MapHas),
+        ("string_len", 1) => Some(PrimOp::StringLen),
+        ("string_concat", 2) => Some(PrimOp::StringConcat),
+        ("substring", 3) | ("string_slice", 3) => Some(PrimOp::StringSlice),
+        ("print", 1) | ("println", 1) => Some(PrimOp::Println),
+        ("read_file", 1) => Some(PrimOp::ReadFile),
+        ("now_ms", 0) | ("clock_now", 0) => Some(PrimOp::ClockNow),
+        ("panic", 1) => Some(PrimOp::Panic),
+        ("len", 1) => Some(PrimOp::Len),
+        ("abs", 1) => Some(PrimOp::Abs),
+        ("min", 2) => Some(PrimOp::Min),
+        ("max", 2) => Some(PrimOp::Max),
+        ("type_of", 1) => Some(PrimOp::TypeOf),
+        ("is_int", 1) => Some(PrimOp::IsInt),
+        ("is_float", 1) => Some(PrimOp::IsFloat),
+        ("is_string", 1) => Some(PrimOp::IsString),
+        ("is_bool", 1) => Some(PrimOp::IsBool),
+        ("is_array", 1) => Some(PrimOp::IsArray),
+        ("is_hash", 1) => Some(PrimOp::IsHash),
+        ("is_none", 1) => Some(PrimOp::IsNone),
+        ("is_some", 1) => Some(PrimOp::IsSome),
+        ("to_string", 1) => Some(PrimOp::ToString),
+        ("iadd", 2) => Some(PrimOp::IAdd),
+        ("isub", 2) => Some(PrimOp::ISub),
+        ("imul", 2) => Some(PrimOp::IMul),
+        ("idiv", 2) => Some(PrimOp::IDiv),
+        ("imod", 2) => Some(PrimOp::IMod),
+        ("fadd", 2) => Some(PrimOp::FAdd),
+        ("fsub", 2) => Some(PrimOp::FSub),
+        ("fmul", 2) => Some(PrimOp::FMul),
+        ("fdiv", 2) => Some(PrimOp::FDiv),
+        ("icmp_eq", 2) => Some(PrimOp::ICmpEq),
+        ("icmp_ne", 2) => Some(PrimOp::ICmpNe),
+        ("icmp_lt", 2) => Some(PrimOp::ICmpLt),
+        ("icmp_le", 2) => Some(PrimOp::ICmpLe),
+        ("icmp_gt", 2) => Some(PrimOp::ICmpGt),
+        ("icmp_ge", 2) => Some(PrimOp::ICmpGe),
+        ("fcmp_eq", 2) => Some(PrimOp::FCmpEq),
+        ("fcmp_ne", 2) => Some(PrimOp::FCmpNe),
+        ("fcmp_lt", 2) => Some(PrimOp::FCmpLt),
+        ("fcmp_le", 2) => Some(PrimOp::FCmpLe),
+        ("fcmp_gt", 2) => Some(PrimOp::FCmpGt),
+        ("fcmp_ge", 2) => Some(PrimOp::FCmpGe),
+        ("cmp_eq", 2) => Some(PrimOp::CmpEq),
+        ("cmp_ne", 2) => Some(PrimOp::CmpNe),
+        _ => None,
+    }
+}
+
+fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
+    matches!(
+        name,
+        "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
+    )
+}
+
+fn should_use_builtin_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
+    if scope.locals.contains_key(&name)
+        || scope.functions.contains_key(&name)
+        || scope.globals.contains_key(&name)
+    {
+        return false;
+    }
+    let Some(name_str) = interner.try_resolve(name) else {
+        return false;
+    };
+    is_builtin_fastcall_allowlisted(name_str)
+}
+
 fn compile_user_function_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -3322,6 +3475,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         // Builtins & globals
         (
             "rt_call_builtin",
+            HelperSig {
+                num_params: 4,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_call_primop",
             HelperSig {
                 num_params: 4,
                 has_return: true,
