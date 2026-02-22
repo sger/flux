@@ -98,7 +98,7 @@ Add a new compiler stage:
 
 Expansion must complete before:
 
-- PrimOp/Builtin lowering
+- PrimOp/Base lowering
 - type/effect checking phases
 - optimization passes
 
@@ -147,7 +147,7 @@ Diagnostic requirements:
 For Phase 3 `comptime`:
 
 - compile-time evaluation restricted to pure/effect-free operations
-- effectful primops/builtins are rejected in `comptime` context
+- effectful primops/base functions are rejected in `comptime` context
 
 ---
 

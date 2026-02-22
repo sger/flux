@@ -4,11 +4,11 @@
 **Priority:** High  
 **Created:** 2026-02-12  
 **Canonical scope:** Base only (prelude/core module architecture)  
-**Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Builtins Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
+**Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Base Functions Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
 
 > Related docs:
 > - Flow stdlib track: `docs/proposals/030_flow.md`
-> - Runtime routing internals: `docs/internals/primops_vs_builtins.md`
+> - Runtime routing internals: `docs/internals/primops_vs_base_functions.md`
 > - Base API classification: `docs/internals/base_api.md`
 
 ## Summary
@@ -16,8 +16,8 @@
 This proposal defines `Base` as Flux's synthetic, auto-injected prelude module and makes `Base` the single architectural boundary for language-level core functions.
 
 Goals:
-- Replace brittle hard-coded builtin registration with a canonical Base registry.
-- Keep source behavior compatible for existing builtin calls.
+- Replace brittle hard-coded base registration with a canonical Base registry.
+- Keep source behavior compatible for existing base calls.
 - Formalize name resolution, exclusions, qualification, and shadowing semantics.
 - Keep runtime execution strategy (primop/fastcall/generic) as an internal concern.
 
@@ -28,10 +28,10 @@ Non-goals in this phase:
 
 ## Problem Statement
 
-Current core builtins have three structural issues:
+Current core base functions have three structural issues:
 
 1. **Index coupling risk**
-   Builtin IDs are coupled across compiler and runtime registration points. This creates synchronization risk and hard-to-debug mismatches.
+   Base IDs are coupled across compiler and runtime registration points. This creates synchronization risk and hard-to-debug mismatches.
 
 2. **Weak module-level control**
    Core names are globally injected by implementation convention, with no first-class prelude control in the language model.
@@ -132,7 +132,7 @@ Notes:
 
 ## Source compatibility
 
-- Existing programs using current core builtin names continue to compile and run.
+- Existing programs using current core base names continue to compile and run.
 - This phase changes architecture and registration model, not user-facing function semantics.
 
 ## Runtime/bytecode compatibility requirements
@@ -155,10 +155,10 @@ At migration cutover:
 
 A Base call may execute through:
 - primop lowering,
-- builtin fastcall,
-- generic builtin call path.
+- base fastcall,
+- generic base call path.
 
-This proposal does not require users to reason about those paths. Runtime routing specifics are documented in `docs/internals/primops_vs_builtins.md`.
+This proposal does not require users to reason about those paths. Runtime routing specifics are documented in `docs/internals/primops_vs_base_functions.md`.
 
 ## Important API / Interface / Type Changes
 
@@ -211,15 +211,15 @@ Responsibilities:
 ## Phase 2 — Base module layering (no behavior change) (Completed)
 
 - Introduced `runtime/base` as the architectural Base layer (registry/policy surface).
-- Kept `runtime/builtins/*` as implementation modules during migration.
+- Kept `runtime/base functions/*` as implementation modules during migration.
 - Routed Base-facing compiler/runtime registration through the Base layer.
-- Deferred mechanical renaming/moves of `builtins` modules until directive semantics were stable.
+- Deferred mechanical renaming/moves of `base functions` modules until directive semantics were stable.
 
 Rationale:
 - Reduces large rename churn during semantic changes.
 - Preserves import/test stability while Base behavior is being validated.
 
-Note: The temporary `runtime/builtins/*` migration state was retired in Phase 6.
+Note: The temporary `runtime/base functions/*` migration state was retired in Phase 6.
 
 ## Phase 3 — Base directives and qualification (Completed)
 
@@ -239,10 +239,10 @@ Note: The temporary `runtime/builtins/*` migration state was retired in Phase 6.
 - Base API classification is published in `docs/internals/base_api.md`.
 - Periodic review cadence and criteria for provisional items are documented in `docs/internals/base_api.md`.
 
-## Phase 6 — Builtins module retirement (mechanical follow-up) (Completed)
+## Phase 6 — Base Functions module retirement (mechanical follow-up) (Completed)
 
-- Implementation modules were moved from `runtime/builtins/*` to `runtime/base/*`.
-- `runtime/builtins` public surface was removed after call sites/imports/tests migrated.
+- Implementation modules were moved from `runtime/base functions/*` to `runtime/base/*`.
+- `runtime/base functions` public surface was removed after call sites/imports/tests migrated.
 - Function behavior and diagnostics remained unchanged through the move.
 
 Entry criteria:
@@ -253,7 +253,7 @@ Entry criteria:
 ## Phase 7 — Base-only terminology transition (follow-up) (Completed)
 
 - Runtime/value/symbol/opcode terminology migrated to Base-first naming (`BaseFunction`, `SymbolScope::Base`, `OpGetBase`, `OpCallBase`).
-- Compatibility aliases were removed (`BuiltinFunction`, `BUILTINS`, `get_base_builtin*`).
+- Compatibility aliases were removed (`BuiltinFunction`, `BASE_FUNCTIONS`, `get_base_base*`).
 - Bytecode cache format was bumped for the terminology cutover (`FORMAT_VERSION = 7`).
 - Compiler/VM/JIT/tests/docs callsites were updated to Base-first APIs.
 
@@ -268,10 +268,10 @@ Entry criteria:
 | Directive semantics | duplicate/invalid names in `except` | Deterministic diagnostics/handling |
 | Synthetic qualification | `Base.name(...)` without file module | Resolves via synthetic registry |
 | Synthetic qualification | `Base.unknown(...)` | Deterministic compile error |
-| Compatibility | Existing builtin-based programs | Compile/run unchanged |
+| Compatibility | Existing base-based programs | Compile/run unchanged |
 | Runtime parity | Representative Base calls in VM and JIT | Same outputs/errors |
 | Index/cache safety | Registry/order changes across versions | Cache invalidation on version bump |
-| Module retirement safety | `runtime/builtins` removed after migration | No behavior or diagnostic regressions |
+| Module retirement safety | `runtime/base functions` removed after migration | No behavior or diagnostic regressions |
 
 ## Acceptance Checklist
 
@@ -282,10 +282,10 @@ Entry criteria:
 | Alias rejection + synthetic qualification semantics documented | Done |
 | Base classification (`stable-core`/`provisional-review`) documented | Done |
 | Periodic review cadence/criteria documented | Done |
-| Builtins ownership retired into `runtime/base` | Done |
+| Base Functions ownership retired into `runtime/base` | Done |
 | Migration/compat contract documented | Done |
 | Acceptance matrix documented | Done |
-| Builtins retirement phase and entry criteria documented | Done |
+| Base Functions retirement phase and entry criteria documented | Done |
 | Base-only terminology transition completed (aliases removed + cache bump) | Done |
 
 ## Open Questions
@@ -299,4 +299,4 @@ Entry criteria:
 
 - Elixir Kernel (`import ... except` pattern)
 - Haskell Prelude (implicit prelude with explicit hiding)
-- Flux internals: `docs/internals/primops_vs_builtins.md`
+- Flux internals: `docs/internals/primops_vs_base_functions.md`

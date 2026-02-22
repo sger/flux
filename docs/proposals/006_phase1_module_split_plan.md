@@ -294,7 +294,7 @@ src/runtime/
 
 **Estimated Effort:** 1-2 days
 
-### 5. Builtins.rs Split
+### 5. Base Functions.rs Split
 
 **Current:** 757 lines
 **Target:** 6 modules + registry
@@ -373,7 +373,7 @@ Before marking a split complete:
 ### Week 4: Secondary Splits (Optional)
 **Days 9-12:** Medium-priority splits
 - Day 9: module_graph.rs split
-- Day 10-11: builtins.rs split
+- Day 10-11: base functions.rs split
 - Day 12: bytecode_cache.rs split
 
 **Deliverable:** Fully modularized codebase

@@ -13,7 +13,7 @@ This roadmap focuses on completing the core language features needed for practic
 2. **Pipe operator** - Idiomatic functional data transformation
 3. **Either type** - Proper error handling with `Left`/`Right`
 4. **Lambda shorthand** - Concise anonymous functions
-5. **Essential builtins** - Array and string operations
+5. **Essential base functions** - Array and string operations
 
 ---
 
@@ -25,7 +25,7 @@ This roadmap focuses on completing the core language features needed for practic
 │  M2: Pipe Operator           ████████████████████████████████  │ 100% ✅
 │  M3: Either Type             ████████████████████████████████  │ 100% ✅
 │  M4: Lambda Shorthand        ████████████████████████████████  │ 100% ✅
-│  M5: Essential Builtins      ████████████████████████████████  │ 100% (5/5) ✅
+│  M5: Essential Base Functions      ████████████████████████████████  │ 100% (5/5) ✅
 │  M6: Polish & Release        ████████████████████████████████  │ 100% ✅
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -438,15 +438,15 @@ print(applyTwice(\x -> x * 2, 3));  // 12
 
 ---
 
-## Milestone 5: Essential Builtins
+## Milestone 5: Essential Base Functions
 
 **Priority:** High
 **Status:** In Progress (5.1 Complete)
 **Dependencies:** M1 (for `%` in some implementations)
 
-### 5.1 Array Builtins ✅ COMPLETE
+### 5.1 Array Base Functions ✅ COMPLETE
 
-| Builtin | Signature | Status |
+| Base | Signature | Status |
 |---------|-----------|--------|
 | `concat(a, b)` | `Array, Array -> Array` | ✅ Done |
 | `reverse(arr)` | `Array -> Array` | ✅ Done |
@@ -455,15 +455,15 @@ print(applyTwice(\x -> x * 2, 3));  // 12
 | `sort(arr)` or `sort(arr, "asc"/"desc")` | `Array -> Array` | ✅ Done |
 
 **Implementation Notes:**
-- All array builtins registered in compiler (indices 7-11)
+- All array base functions registered in compiler (indices 7-11)
 - `sort` supports optional second parameter: `"asc"` (default) or `"desc"`
 - Smart comparison in sort: avoids f64 conversion when comparing same types
-- Unit tests: 17 tests for array builtins
-- Example file: `examples/basics/array_builtins.flx`
+- Unit tests: 17 tests for array base functions
+- Example file: `examples/basics/array_base_functions.flx`
 
-### 5.2 String Builtins ✅ COMPLETE
+### 5.2 String Base Functions ✅ COMPLETE
 
-| Builtin | Signature | Priority |
+| Base | Signature | Priority |
 |---------|-----------|----------|
 | `split(s, delim)` | `String, String -> Array` | ✅ Done |
 | `join(arr, delim)` | `Array, String -> String` | ✅ Done |
@@ -473,9 +473,9 @@ print(applyTwice(\x -> x * 2, 3));  // 12
 | `chars(s)` | `String -> Array` | ✅ Done |
 | `substring(s, start, end)` | `String, Int, Int -> String` | ✅ Done |
 
-### 5.3 Hash Builtins ✅ COMPLETE
+### 5.3 Hash Base Functions ✅ COMPLETE
 
-| Builtin | Signature | Status |
+| Base | Signature | Status |
 |---------|-----------|--------|
 | `keys(h)` | `Hash -> Array` | ✅ Done |
 | `values(h)` | `Hash -> Array` | ✅ Done |
@@ -500,9 +500,9 @@ let settings = {"lang": "fr", "notifications": true };
 print(merge(defaults, settings));  // {"theme": "dark", "lang": "fr", "notifications": true }
 ```
 
-### 5.4 Math Builtins ✅ COMPLETE
+### 5.4 Math Base Functions ✅ COMPLETE
 
-| Builtin | Signature | Status |
+| Base | Signature | Status |
 |---------|-----------|--------|
 | `abs(n)` | `Number -> Number` | ✅ Done |
 | `min(a, b)` | `Number, Number -> Number` | ✅ Done |
@@ -533,9 +533,9 @@ print(clamp(-5, 0, 10));   // 0
 print(clamp(5, 0, 10));    // 5
 ```
 
-### 5.5 Type Checking Builtins ✅
+### 5.5 Type Checking Base Functions ✅
 
-| Builtin | Signature | Status |
+| Base | Signature | Status |
 |---------|-----------|--------|
 | `type_of(x)` | `Any -> String` | ✅ |
 | `is_int(x)` | `Any -> Bool` | ✅ |
@@ -598,12 +598,12 @@ print(safeAdd(1, "hello"));   // None
 
 ### 5.7 Milestone 5 Deliverables
 
-- [x] 10+ new builtins (must have list) - 35 total builtins implemented
-  Builtins: `print`, `len`, `first`, `last`, `rest`, `push`, `to_string`, `concat`, `reverse`,
+- [x] 10+ new base functions (must have list) - 35 total base functions implemented
+  Base Functions: `print`, `len`, `first`, `last`, `rest`, `push`, `to_string`, `concat`, `reverse`,
   `contains`, `slice`, `sort`, `split`, `join`, `trim`, `upper`, `lower`, `chars`, `substring`,
   `keys`, `values`, `has_key`, `merge`, `abs`, `min`, `max`, `type_of`, `is_int`, `is_float`,
   `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
-- [x] Unit tests for each builtin - 89 unit tests
+- [x] Unit tests for each base - 89 unit tests
 - [ ] Documentation (planned)
 - [x] Example files demonstrating usage
 
@@ -632,7 +632,7 @@ print(safeAdd(1, "hello"));   // None
 | `examples/pipe_operator.flx` | Pipe usage patterns |
 | `examples/either_type.flx` | Error handling with Either |
 | `examples/lambda.flx` | Lambda shorthand |
-| `examples/builtins_demo.flx` | New builtins |
+| `examples/builtins_demo.flx` | New base functions |
 
 ### 6.3 Testing
 
@@ -664,9 +664,9 @@ print(safeAdd(1, "hello"));   // None
 | Pipe | No | Yes (`\|>`) |
 | Either Type | No | Yes (`Left`/`Right`) |
 | Lambda | `fn(x) { x * 2 }` | `\x -> x * 2` |
-| Array Builtins | 5 | 10+ |
-| String Builtins | 2 | 8+ |
-| Hash Builtins | 0 | 4+ |
+| Array Base Functions | 5 | 10+ |
+| String Base Functions | 2 | 8+ |
+| Hash Base Functions | 0 | 4+ |
 | Forward References | Yes | Yes |
 | Modules | Yes | Yes |
 
@@ -706,7 +706,7 @@ The current Flux compiler is well-architected for these additions. The existing 
 | M2: Pipe Operator | 95% | High | Pure syntactic sugar |
 | M3: Either Type | 92% | High | Some/None template exists |
 | M4: Lambda Shorthand | 75% | Medium | New token needed |
-| M5: Essential Builtins | 95% | High | Builtin pattern established |
+| M5: Essential Base Functions | 95% | High | Base pattern established |
 | M6: Polish & Release | 100% | High | No compiler changes |
 
 ### Architecture Analysis
@@ -810,13 +810,13 @@ end:
 **Current State:**
 - Jump instructions implemented
 - `Some`/`None` handling exists
-- Builtin function infrastructure
+- Base function infrastructure
 
 **Required Changes:**
 - Add `OpJumpTruthy` instruction
 - Add `OpLessEqual`, `OpGreaterEqual`, `OpMod`
 - Add `OpLeft`, `OpRight`, `OpIsLeft`, `OpIsRight`
-- Add new builtins
+- Add new base functions
 
 **Compatibility:** 92% - All changes follow existing patterns
 
@@ -882,7 +882,7 @@ pub enum Pattern {
 | M2: Pipe Operator | 3-4 hours | Low |
 | M3: Either Type | 4-6 hours | Low |
 | M4: Lambda Shorthand | 4-6 hours | Medium |
-| M5: Essential Builtins | 6-8 hours | Low |
+| M5: Essential Base Functions | 6-8 hours | Low |
 | M6: Polish & Release | 3-4 hours | Low |
 | **Total** | **26-36 hours** | **Low-Medium** |
 
@@ -928,9 +928,9 @@ Week 1: M1 (Operators) + M2 (Pipe) in parallel
 Week 2: M3 (Either Type)
         └─ Follows Some/None pattern closely
 
-Week 3: M4 (Lambda) + M5 (Builtins)
+Week 3: M4 (Lambda) + M5 (Base Functions)
         └─ Lambda is independent
-        └─ Builtins enhance usability
+        └─ Base Functions enhance usability
 
 Week 4: M6 (Polish & Release)
         └─ Integration testing
@@ -944,7 +944,7 @@ The v0.0.2 roadmap is **highly compatible** with the current compiler architectu
 - Jump instructions (enables short-circuit operators)
 - `Some`/`None` types (template for `Left`/`Right`)
 - Infix operator parsing (supports new operators)
-- Builtin functions (easy to extend)
+- Base functions (easy to extend)
 
 ...provides a solid foundation. The main areas requiring careful attention are:
 
@@ -964,7 +964,7 @@ With proper testing, all v0.0.2 features can be implemented without architectura
 New Operators:  <= >= % && ||
 New Syntax:     |> (pipe), \ -> (lambda)
 New Types:      Left/Right (Either)
-New Builtins:   ~15 new functions
+New Base Functions:   ~15 new functions
 ```
 
 ### Impact

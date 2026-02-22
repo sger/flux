@@ -1,4 +1,4 @@
-// Test: Math builtin functions
+// Test: Math base functions
 // Expected output:
 // 5
 // 5
@@ -18,7 +18,7 @@
 // 5
 
 // =============================================================================
-// Math Builtins (Milestone 5.4)
+// Math Base Functions (Milestone 5.4)
 // =============================================================================
 
 // abs - absolute value

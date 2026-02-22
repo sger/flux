@@ -1,4 +1,4 @@
-# Builtins Doc Moved
+# Base Functions Doc Moved
 
 This document moved to `docs/internals/base_functions.md`.
 
