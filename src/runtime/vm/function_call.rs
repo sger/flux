@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
-use crate::runtime::builtins::get_builtin_by_index;
+use crate::runtime::base::get_base_function_by_index;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
@@ -18,7 +18,7 @@ impl VM {
     }
 
     #[inline]
-    fn builtin_fixed_arity(name: &str) -> Option<usize> {
+    fn base_function_fixed_arity(name: &str) -> Option<usize> {
         match name {
             "len" | "first" | "last" | "rest" | "to_string" | "reverse" | "trim" | "upper"
             | "lower" | "chars" | "keys" | "values" | "abs" | "type_of" | "is_int" | "is_float"
@@ -31,7 +31,7 @@ impl VM {
             "replace" | "substring" | "fold" => Some(3),
             "read_stdin" => Some(0),
             "assert_true" | "assert_false" => Some(1),
-            // Variadic / optional arity builtins remain on generic path.
+            // Variadic / optional arity Base functions remain on generic path.
             "print" | "sort" | "concat" | "list" => None,
             _ => None,
         }
@@ -42,37 +42,37 @@ impl VM {
 
         match self.stack[callee_idx].clone() {
             Value::Closure(closure) => self.call_closure(closure, num_args),
-            Value::Builtin(builtin_idx) => {
-                self.execute_builtin_call_common(builtin_idx as usize, num_args, Some(callee_idx))
+            Value::BaseFunction(base_fn_idx) => {
+                self.execute_base_function_call_common(base_fn_idx as usize, num_args, Some(callee_idx))
             }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
         }
     }
 
-    pub(super) fn execute_call_builtin_direct(
+    pub(super) fn execute_call_base_direct(
         &mut self,
-        builtin_idx: usize,
+        base_fn_idx: usize,
         num_args: usize,
     ) -> Result<(), String> {
-        // OpCallBuiltin places only args on stack; there is no callee slot to clear.
-        self.execute_builtin_call_common(builtin_idx, num_args, None)
+        // OpCallBase places only args on stack; there is no callee slot to clear.
+        self.execute_base_function_call_common(base_fn_idx, num_args, None)
     }
 
-    fn execute_builtin_call_common(
+    fn execute_base_function_call_common(
         &mut self,
-        builtin_idx: usize,
+        base_fn_idx: usize,
         num_args: usize,
         callee_idx: Option<usize>,
     ) -> Result<(), String> {
-        let builtin = get_builtin_by_index(builtin_idx)
-            .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
+        let base_fn = get_base_function_by_index(base_fn_idx)
+            .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
 
         if let Some(callee_idx) = callee_idx {
             // Normal OpCall layout is [callee, arg0..argN]; clear callee before shrinking SP.
             self.stack[callee_idx] = Value::Uninit;
         }
 
-        let fixed_arity = Self::builtin_fixed_arity(builtin.name);
+        let fixed_arity = Self::base_function_fixed_arity(base_fn.name);
         let args_start = self.sp - num_args;
 
         let args = if fixed_arity == Some(num_args) {
@@ -105,7 +105,7 @@ impl VM {
                 }
             }
         } else {
-            // Keep generic path to preserve existing builtin-level arity errors.
+            // Keep generic path to preserve existing Base-function-level arity errors.
             let mut args = Vec::with_capacity(num_args);
 
             for i in args_start..self.sp {
@@ -116,7 +116,7 @@ impl VM {
         };
 
         self.reset_sp(callee_idx.unwrap_or(args_start))?;
-        let result = (builtin.func)(self, args)?;
+        let result = (base_fn.func)(self, args)?;
         self.push(result)?;
 
         Ok(())
@@ -145,8 +145,8 @@ impl VM {
         let callee_idx = self.sp - 1 - num_args;
         match &self.stack[callee_idx] {
             Value::Closure(closure) => self.tail_call_closure(closure.clone(), num_args),
-            Value::Builtin(_) => {
-                // Builtins don't push frames, so treat as normal call
+            Value::BaseFunction(_) => {
+                // BaseFunctions don't push frames, so treat as normal call
                 self.execute_call(num_args)
             }
             other => Err(self.runtime_error_enhanced(&NOT_A_FUNCTION, &[other.type_name()])),
@@ -210,17 +210,17 @@ impl VM {
         }
     }
 
-    /// Invokes a callable Value (closure or builtin) with the given arguments
+    /// Invokes a callable Value (closure or Base function) with the given arguments
     /// and returns the result synchronously.
     ///
-    /// Used by higher-order builtins (map, filter, fold) to call user-provided
-    /// functions from within the builtin implementation.
+    /// Used by higher-order Base functions (map, filter, fold) to call user-provided
+    /// functions from within the Base function implementation.
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
-            Value::Builtin(builtin_idx) => {
-                let builtin = get_builtin_by_index(builtin_idx as usize)
-                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
-                (builtin.func)(self, args)
+            Value::BaseFunction(base_fn_idx) => {
+                let base_fn = get_base_function_by_index(base_fn_idx as usize)
+                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
+                (base_fn.func)(self, args)
             }
             Value::Closure(closure) => {
                 let start_sp = self.sp;
@@ -361,10 +361,10 @@ impl RuntimeContext for VM {
     #[inline]
     fn invoke_unary_value(&mut self, callee: &Value, arg: Value) -> Result<Value, String> {
         match callee {
-            Value::Builtin(builtin_idx) => {
-                let builtin = get_builtin_by_index(*builtin_idx as usize)
-                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
-                (builtin.func)(self, vec![arg])
+            Value::BaseFunction(base_fn_idx) => {
+                let base_fn = get_base_function_by_index(*base_fn_idx as usize)
+                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
+                (base_fn.func)(self, vec![arg])
             }
             Value::Closure(closure) => self.invoke_closure_arity1(closure.clone(), arg),
             other => Err(format!("not callable: {}", other.type_name())),
@@ -379,10 +379,10 @@ impl RuntimeContext for VM {
         right: Value,
     ) -> Result<Value, String> {
         match callee {
-            Value::Builtin(builtin_idx) => {
-                let builtin = get_builtin_by_index(*builtin_idx as usize)
-                    .ok_or_else(|| format!("invalid builtin index {}", builtin_idx))?;
-                (builtin.func)(self, vec![left, right])
+            Value::BaseFunction(base_fn_idx) => {
+                let base_fn = get_base_function_by_index(*base_fn_idx as usize)
+                    .ok_or_else(|| format!("invalid Base function index {}", base_fn_idx))?;
+                (base_fn.func)(self, vec![left, right])
             }
             Value::Closure(closure) => self.invoke_closure_arity2(closure.clone(), left, right),
             other => Err(format!("not callable: {}", other.type_name())),

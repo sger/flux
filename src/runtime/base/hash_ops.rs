@@ -1,6 +1,5 @@
 use crate::runtime::{
     RuntimeContext,
-    builtins::helpers::type_error,
     gc::{
         gc_handle::GcHandle,
         hamt::{hamt_delete, hamt_insert, hamt_iter, hamt_lookup, is_hamt},
@@ -9,7 +8,7 @@ use crate::runtime::{
     value::Value,
 };
 
-use super::helpers::{check_arity, format_hint};
+use super::helpers::{check_arity, format_hint, type_error};
 
 fn hash_key_to_object(key: &HashKey) -> Value {
     match key {

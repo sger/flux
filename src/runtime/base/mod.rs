@@ -1,4 +1,9 @@
-use crate::runtime::{RuntimeContext, builtin_function::BuiltinFunction, value::Value};
+use crate::runtime::{RuntimeContext, base_function::BaseFunction, value::Value};
+
+mod registry;
+pub use registry::{
+    BaseModule, get_base_function, get_base_function_by_index, get_base_function_index,
+};
 
 mod array_ops;
 mod assert_ops;
@@ -58,325 +63,313 @@ fn builtin_print(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value
     Ok(Value::None)
 }
 
-/// All built-in functions in order (index matters for OpGetBuiltin)
-pub static BUILTINS: &[BuiltinFunction] = &[
-    BuiltinFunction {
+/// All Base functions in deterministic index order.
+pub static BASE_FUNCTIONS: &[BaseFunction] = &[
+    BaseFunction {
         name: "print",
         func: builtin_print,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "len",
         func: builtin_len,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "first",
         func: builtin_first,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "last",
         func: builtin_last,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "rest",
         func: builtin_rest,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "push",
         func: builtin_push,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "to_string",
         func: builtin_to_string,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "concat",
         func: builtin_concat,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "reverse",
         func: builtin_reverse,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "contains",
         func: builtin_contains,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "slice",
         func: builtin_slice,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "sort",
         func: builtin_sort,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "split",
         func: builtin_split,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "join",
         func: builtin_join,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "trim",
         func: builtin_trim,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "upper",
         func: builtin_upper,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "lower",
         func: builtin_lower,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "starts_with",
         func: builtin_starts_with,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "ends_with",
         func: builtin_ends_with,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "replace",
         func: builtin_replace,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "chars",
         func: builtin_chars,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "substring",
         func: builtin_substring,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "keys",
         func: builtin_keys,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "values",
         func: builtin_values,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "has_key",
         func: builtin_has_key,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "merge",
         func: builtin_merge,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "delete",
         func: builtin_delete,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "abs",
         func: builtin_abs,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "min",
         func: builtin_min,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "max",
         func: builtin_max,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "type_of",
         func: builtin_type_of,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_int",
         func: builtin_is_int,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_float",
         func: builtin_is_float,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_string",
         func: builtin_is_string,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_bool",
         func: builtin_is_bool,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_array",
         func: builtin_is_array,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_hash",
         func: builtin_is_hash,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_none",
         func: builtin_is_none,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_some",
         func: builtin_is_some,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "map",
         func: builtin_map,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "filter",
         func: builtin_filter,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "fold",
         func: builtin_fold,
     },
-    // List builtins (persistent cons-cell lists)
-    BuiltinFunction {
+    // List base_functions (persistent cons-cell lists)
+    BaseFunction {
         name: "hd",
         func: builtin_hd,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "tl",
         func: builtin_tl,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_list",
         func: builtin_is_list,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "to_list",
         func: builtin_to_list,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "to_array",
         func: builtin_to_array,
     },
-    // Map builtins (persistent HAMT maps)
-    BuiltinFunction {
+    // Map base_functions (persistent HAMT maps)
+    BaseFunction {
         name: "put",
         func: builtin_put,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "get",
         func: builtin_get,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "is_map",
         func: builtin_is_map,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "list",
         func: builtin_list,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "read_file",
         func: builtin_read_file,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "read_lines",
         func: builtin_read_lines,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "read_stdin",
         func: builtin_read_stdin,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "parse_int",
         func: builtin_parse_int,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "now_ms",
         func: builtin_now_ms,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "time",
         func: builtin_time,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "range",
         func: builtin_range,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "sum",
         func: builtin_sum,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "product",
         func: builtin_product,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "parse_ints",
         func: builtin_parse_ints,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "split_ints",
         func: builtin_split_ints,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "flat_map",
         func: builtin_flat_map,
     },
-    // Higher-order search and sort builtins
-    BuiltinFunction {
+    // Higher-order search and sort base_functions
+    BaseFunction {
         name: "any",
         func: builtin_any,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "all",
         func: builtin_all,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "find",
         func: builtin_find,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "sort_by",
         func: builtin_sort_by,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "zip",
         func: builtin_zip,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "flatten",
         func: builtin_flatten,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "count",
         func: builtin_count,
     },
-    // Assert builtins (test framework)
-    BuiltinFunction {
+    // Assert base_functions (test framework)
+    BaseFunction {
         name: "assert_eq",
         func: builtin_assert_eq,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "assert_neq",
         func: builtin_assert_neq,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "assert_true",
         func: builtin_assert_true,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "assert_false",
         func: builtin_assert_false,
     },
-    BuiltinFunction {
+    BaseFunction {
         name: "assert_throws",
         func: builtin_assert_throws,
     },
 ];
-
-pub fn get_builtin(name: &str) -> Option<&'static BuiltinFunction> {
-    BUILTINS.iter().find(|b| b.name == name)
-}
-
-pub fn get_builtin_index(name: &str) -> Option<usize> {
-    BUILTINS.iter().position(|b| b.name == name)
-}
-
-pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
-    BUILTINS.get(index)
-}
 
 #[cfg(test)]
 mod array_ops_test;

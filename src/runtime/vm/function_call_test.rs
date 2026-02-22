@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     bytecode::bytecode::Bytecode,
     runtime::{
-        builtins::get_builtin_index, closure::Closure, compiled_function::CompiledFunction,
+        base::get_base_function_index, closure::Closure, compiled_function::CompiledFunction,
         value::Value, vm::VM,
     },
 };
@@ -19,8 +19,8 @@ fn new_vm() -> VM {
 #[test]
 fn call_builtin_len() {
     let mut vm = new_vm();
-    let builtin_idx = get_builtin_index("len").expect("len builtin") as u8;
-    vm.push(Value::Builtin(builtin_idx)).unwrap();
+    let builtin_idx = get_base_function_index("len").expect("len builtin") as u8;
+    vm.push(Value::BaseFunction(builtin_idx)).unwrap();
     vm.push(Value::Array(
         vec![Value::Integer(1), Value::Integer(2)].into(),
     ))

@@ -166,7 +166,7 @@ pub(super) fn builtin_list(
     Ok(list)
 }
 
-/// Helper: collects a cons list into a Vec for internal use by builtins.
+/// Helper: collects a cons list into a Vec for internal use by base_functions.
 pub(super) fn collect_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Vec<Value>> {
     let mut elements = Vec::new();
     let mut current = value.clone();

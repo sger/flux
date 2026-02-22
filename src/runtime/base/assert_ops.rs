@@ -124,7 +124,7 @@ pub(super) fn builtin_assert_throws(
     };
 
     match &args[0] {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(format!(
                 "assert_throws expected callable as first argument, got {}",

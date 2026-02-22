@@ -292,7 +292,7 @@ impl GcHeap {
                     | Value::None
                     | Value::EmptyList
                     | Value::Function(_)
-                    | Value::Builtin(_) => {}
+                    | Value::BaseFunction(_) => {}
                 },
             }
         }
