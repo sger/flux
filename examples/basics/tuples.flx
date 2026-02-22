@@ -37,7 +37,7 @@ print(x)
 print(point[0])
 print(point[99])
 
-// Builtins
+// Base Functions
 print(len(point))
 print(type_of(point))
 

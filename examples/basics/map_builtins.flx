@@ -1,4 +1,4 @@
-// Test: Persistent map builtins (HAMT)
+// Test: Persistent map base functions (HAMT)
 // Expected output:
 // Some("Alice")
 // None

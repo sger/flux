@@ -48,7 +48,7 @@ This call is in tail position — the current frame is not needed after the call
 
 ### Problem 2: O(n^2) Array Accumulation
 
-`builtin_push` always clones the entire array:
+`base_push` always clones the entire array:
 
 ```rust
 let mut new_arr = arr.clone();  // O(n) clone
@@ -159,12 +159,12 @@ For self-recursive tail calls, emit `OpConsumeLocal` instead of `OpGetLocal` whe
 
 This is a conservative analysis that handles the common accumulator pattern.
 
-#### Builtin Ownership Refactor
+#### Base Ownership Refactor
 
-Modify `builtin_push` to take ownership instead of cloning:
+Modify `base_push` to take ownership instead of cloning:
 
 ```rust
-pub(super) fn builtin_push(mut args: Vec<Object>) -> Result<Object, String> {
+pub(super) fn base_push(mut args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 2, "push", "push(arr, elem)")?;
     let elem = args.swap_remove(1);
     let arr_obj = args.swap_remove(0);
@@ -180,7 +180,7 @@ pub(super) fn builtin_push(mut args: Vec<Object>) -> Result<Object, String> {
 
 Since `args: Vec<Object>` is already owned, `swap_remove` moves the value out without cloning. Combined with `OpConsumeLocal` (which zeroed the local slot), the array `Vec` has exactly one owner — mutation is safe.
 
-Same treatment applies to `builtin_concat`, `builtin_reverse`, `builtin_sort`.
+Same treatment applies to `base_concat`, `base_reverse`, `base_sort`.
 
 #### Bytecode Comparison
 
@@ -189,7 +189,7 @@ Before:
 OpGetBase 5         # load push
 OpGetLocal 1           # load acc (CLONE — slot keeps a copy)
 OpGetLocal 0           # load n
-OpCall 2               # push(acc, n) — clones again inside builtin
+OpCall 2               # push(acc, n) — clones again inside base
 OpCall 2               # build(n-1, result)
 OpReturnValue
 ```
@@ -242,7 +242,7 @@ fn build_closure(n, acc) {
 
 1. `build(100_000, [])` completes in O(n) time (benchmarked).
 2. `OpConsumeLocal` emitted for dead locals; `OpGetLocal` for captured locals.
-3. `builtin_push`/`concat` take ownership instead of cloning.
+3. `base_push`/`concat` take ownership instead of cloning.
 4. Closure-captured accumulators are NOT mutated (correctness test).
 5. All snapshot tests pass unchanged.
 
@@ -268,7 +268,7 @@ fn build_closure(n, acc) {
 2. Add `OpConsumeLocal` handler to `dispatch_instruction()` using `std::mem::replace`
 3. Add liveness check: local not in `free_symbols` and dead after tail-call
 4. Emit `OpConsumeLocal` for dead locals in tail-call argument expressions
-5. Refactor `builtin_push`, `builtin_concat`, `builtin_reverse`, `builtin_sort` to use `swap_remove`
+5. Refactor `base_push`, `base_concat`, `base_reverse`, `base_sort` to use `swap_remove`
 6. Add compiler test: `OpConsumeLocal` emitted / not emitted appropriately
 7. Add benchmark: `build(n, [])` linear vs quadratic scaling
 
@@ -281,7 +281,7 @@ fn build_closure(n, acc) {
 | Incorrect tail-position detection | Start with self-calls only; extensive test coverage |
 | Frame reuse corrupts arguments | Copy all new args before overwriting old locals |
 | Liveness marks a live variable as dead | Conservative: only parameters, check `free_symbols` |
-| `builtin_push` ownership change breaks callers | Signature `fn(Vec<Object>)` already transfers ownership |
+| `base_push` ownership change breaks callers | Signature `fn(Vec<Object>)` already transfers ownership |
 | Bytecode cache incompatibility | Bump cache version number |
 
 ---

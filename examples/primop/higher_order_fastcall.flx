@@ -1,4 +1,4 @@
-print("== OpCallBuiltin fastcall candidates ==");
+print("== OpCallBase fastcall candidates ==");
 
 let xs = list(1, 2, 3, 4, 5);
 

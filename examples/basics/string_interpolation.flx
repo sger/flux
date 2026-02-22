@@ -31,7 +31,7 @@ print("Quote:\"here\"");
 // Escaped interpolation (literal #{)
 print("Escaped: \#{not interpolated}");
 
-// to_string builtin
+// to_string base
 print(to_string(42));
 print(to_string(3.14));
 print(to_string(true));

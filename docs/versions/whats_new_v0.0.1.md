@@ -94,7 +94,7 @@ print(M.square(4))   // 16
 - Forward references within a module are allowed
 - Import cycles are detected at compile time
 
-## Builtins
+## Base Functions
 
 | Category | Functions |
 |----------|-----------|

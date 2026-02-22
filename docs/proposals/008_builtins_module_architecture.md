@@ -1,4 +1,4 @@
-# Proposal 008: Builtins Module Architecture
+# Proposal 008: Base Functions Module Architecture
 
 **Status:** Planning
 **Priority:** Medium (Developer Experience)
@@ -6,11 +6,11 @@
 
 ## Overview
 
-This proposal outlines a modular architecture for Flux's built-in functions to improve maintainability and make updates easier. The goal is to split the monolithic `builtins.rs` (757 lines, 35 functions) into focused, category-based modules with reduced boilerplate.
+This proposal outlines a modular architecture for Flux's built-in functions to improve maintainability and make updates easier. The goal is to split the monolithic `base functions.rs` (757 lines, 35 functions) into focused, category-based modules with reduced boilerplate.
 
 ## Problem Statement
 
-The current `builtins.rs` has several issues:
+The current `base functions.rs` has several issues:
 
 1. **Monolithic structure** - All 35 built-in functions in one file
 2. **Repetitive boilerplate** - Every function manually handles:
@@ -20,17 +20,17 @@ The current `builtins.rs` has several issues:
    - Signature hints
 3. **Poor discoverability** - Hard to find functions by category
 4. **Difficult to test** - All functions tightly coupled
-5. **Manual registration** - Must add to both function definition and `BUILTINS` array
+5. **Manual registration** - Must add to both function definition and `BASE_FUNCTIONS` array
 6. **Update friction** - Small changes require navigating large file
 
 **Current structure:**
 ```
-builtins.rs (757 lines)
+base functions.rs (757 lines)
 ├── Helper functions (120 lines)
 │   ├── format_hint, arity_error, type_error
 │   ├── check_arity, check_arity_range
 │   └── arg_string, arg_array, arg_int, arg_hash, arg_number
-├── 35 builtin functions (550 lines)
+├── 35 base functions (550 lines)
 │   ├── Array: first, last, rest, push, reverse, slice, sort, concat
 │   ├── String: chars, contains, join, lower, split, substring, trim, upper
 │   ├── Hash: keys, values, has_key, merge
@@ -38,7 +38,7 @@ builtins.rs (757 lines)
 │   ├── Numeric: abs, min, max
 │   └── Utility: print, len, to_string
 └── Registration (87 lines)
-    └── BUILTINS array + lookup functions
+    └── BASE_FUNCTIONS array + lookup functions
 ```
 
 ## Goals
@@ -61,7 +61,7 @@ builtins.rs (757 lines)
 
 ```
 src/runtime/
-├── builtins/
+├── base functions/
 │   ├── mod.rs              # Public exports, registry, lookup functions
 │   ├── macros.rs           # Declarative built-in definition macros
 │   ├── helpers.rs          # Validation and error helpers
@@ -71,7 +71,7 @@ src/runtime/
 │   ├── type_ops.rs         # Type introspection (9 functions)
 │   ├── numeric_ops.rs      # Numeric operations (3 functions)
 │   └── util_ops.rs         # Utility functions (3 functions)
-└── builtins.rs             # DEPRECATED - re-exports for compatibility
+└── base functions.rs             # DEPRECATED - re-exports for compatibility
 ```
 
 ### 2. Declarative Built-in Definition
@@ -80,7 +80,7 @@ src/runtime/
 
 #### Current (verbose):
 ```rust
-fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
+fn base_first(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "first", "first(arr)")?;
     let arr = arg_array(&args, 0, "first", "argument", "first(arr)")?;
     if arr.is_empty() {
@@ -93,13 +93,13 @@ fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
 // Later in file...
 BuiltinFunction {
     name: "first",
-    func: builtin_first,
+    func: base_first,
 },
 ```
 
 #### Proposed (declarative):
 ```rust
-builtin! {
+base! {
     /// Returns the first element of an array, or None if empty.
     fn first(arr: Array) -> Object {
         arr.first().cloned().unwrap_or(Object::None)
@@ -109,7 +109,7 @@ builtin! {
 
 **The macro expands to:**
 ```rust
-fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
+fn base_first(args: Vec<Object>) -> Result<Object, String> {
     // Auto-generated arity check
     if args.len() != 1 {
         return Err(arity_error("first", "1", args.len(), "first(arr)"));
@@ -128,7 +128,7 @@ fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
 
 ### 3. Module Breakdown
 
-#### 3a. `builtins/mod.rs` (150 lines)
+#### 3a. `base functions/mod.rs` (150 lines)
 ```rust
 //! Built-in function registry and lookup
 
@@ -141,10 +141,10 @@ pub mod type_ops;
 pub mod numeric_ops;
 pub mod util_ops;
 
-use crate::runtime::builtin_function::BuiltinFunction;
+use crate::runtime::base_function::BuiltinFunction;
 
 /// All built-in functions in order (index matters for OpGetBase)
-pub static BUILTINS: &[BuiltinFunction] = &[
+pub static BASE_FUNCTIONS: &[BuiltinFunction] = &[
     // Utility
     util_ops::PRINT,
     util_ops::LEN,
@@ -193,16 +193,16 @@ pub static BUILTINS: &[BuiltinFunction] = &[
     numeric_ops::MAX,
 ];
 
-pub fn get_builtin(name: &str) -> Option<&'static BuiltinFunction> {
-    BUILTINS.iter().find(|b| b.name == name)
+pub fn get_base(name: &str) -> Option<&'static BuiltinFunction> {
+    BASE_FUNCTIONS.iter().find(|b| b.name == name)
 }
 
-pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
-    BUILTINS.get(index)
+pub fn get_base_by_index(index: usize) -> Option<&'static BuiltinFunction> {
+    BASE_FUNCTIONS.get(index)
 }
 ```
 
-#### 3b. `builtins/macros.rs` (200 lines)
+#### 3b. `base functions/macros.rs` (200 lines)
 ```rust
 //! Declarative macros for defining built-in functions
 
@@ -211,7 +211,7 @@ pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
 /// # Examples
 ///
 /// ```
-/// builtin! {
+/// base! {
 ///     /// Get first element of array
 ///     fn first(arr: Array) -> Object {
 ///         arr.first().cloned().unwrap_or(Object::None)
@@ -219,7 +219,7 @@ pub fn get_builtin_by_index(index: usize) -> Option<&'static BuiltinFunction> {
 /// }
 /// ```
 #[macro_export]
-macro_rules! builtin {
+macro_rules! base {
     (
         $(#[$meta:meta])*
         fn $name:ident( $($arg:ident: $typ:ty),* ) -> $ret:ty {
@@ -229,7 +229,7 @@ macro_rules! builtin {
         $(#[$meta])*
         fn $name(args: Vec<Object>) -> Result<Object, String> {
             // Expand to validation + body
-            builtin_impl!($name, args, [$(($arg, $typ)),*], { $($body)* })
+            base_impl!($name, args, [$(($arg, $typ)),*], { $($body)* })
         }
 
         pub static [<$name:upper>]: BuiltinFunction = BuiltinFunction {
@@ -271,7 +271,7 @@ macro_rules! validate_arg {
 
 **Alternative (simpler):** Skip macros initially, just use helper functions with better abstractions.
 
-#### 3c. `builtins/helpers.rs` (120 lines)
+#### 3c. `base functions/helpers.rs` (120 lines)
 ```rust
 //! Validation and error formatting helpers
 
@@ -351,15 +351,15 @@ pub fn arg_number(
 ) -> Result<f64, String> { /* ... */ }
 ```
 
-#### 3d. `builtins/array_ops.rs` (200 lines)
+#### 3d. `base functions/array_ops.rs` (200 lines)
 ```rust
 //! Array manipulation built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{base_function::BuiltinFunction, object::Object};
 use super::helpers::*;
 
 /// first(arr) - Return first element of array, or None if empty
-fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
+fn base_first(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "first", "first(arr)")?;
     let arr = arg_array(&args, 0, "first", "argument", "first(arr)")?;
     Ok(arr.first().cloned().unwrap_or(Object::None))
@@ -367,11 +367,11 @@ fn builtin_first(args: Vec<Object>) -> Result<Object, String> {
 
 pub static FIRST: BuiltinFunction = BuiltinFunction {
     name: "first",
-    func: builtin_first,
+    func: base_first,
 };
 
 /// last(arr) - Return last element of array, or None if empty
-fn builtin_last(args: Vec<Object>) -> Result<Object, String> {
+fn base_last(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "last", "last(arr)")?;
     let arr = arg_array(&args, 0, "last", "argument", "last(arr)")?;
     Ok(arr.last().cloned().unwrap_or(Object::None))
@@ -379,11 +379,11 @@ fn builtin_last(args: Vec<Object>) -> Result<Object, String> {
 
 pub static LAST: BuiltinFunction = BuiltinFunction {
     name: "last",
-    func: builtin_last,
+    func: base_last,
 };
 
 /// rest(arr) - Return array without first element
-fn builtin_rest(args: Vec<Object>) -> Result<Object, String> {
+fn base_rest(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "rest", "rest(arr)")?;
     let arr = arg_array(&args, 0, "rest", "argument", "rest(arr)")?;
     if arr.is_empty() {
@@ -395,21 +395,21 @@ fn builtin_rest(args: Vec<Object>) -> Result<Object, String> {
 
 pub static REST: BuiltinFunction = BuiltinFunction {
     name: "rest",
-    func: builtin_rest,
+    func: base_rest,
 };
 
 // ... similar for push, concat, reverse, slice, sort
 ```
 
-#### 3e. `builtins/string_ops.rs` (200 lines)
+#### 3e. `base functions/string_ops.rs` (200 lines)
 ```rust
 //! String manipulation built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{base_function::BuiltinFunction, object::Object};
 use super::helpers::*;
 
 /// chars(s) - Convert string to array of single-character strings
-fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
+fn base_chars(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "chars", "chars(s)")?;
     let s = arg_string(&args, 0, "chars", "argument", "chars(s)")?;
     let chars: Vec<Object> = s.chars().map(|c| Object::String(c.to_string())).collect();
@@ -418,11 +418,11 @@ fn builtin_chars(args: Vec<Object>) -> Result<Object, String> {
 
 pub static CHARS: BuiltinFunction = BuiltinFunction {
     name: "chars",
-    func: builtin_chars,
+    func: base_chars,
 };
 
 /// lower(s) - Convert string to lowercase
-fn builtin_lower(args: Vec<Object>) -> Result<Object, String> {
+fn base_lower(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "lower", "lower(s)")?;
     let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;
     Ok(Object::String(s.to_lowercase()))
@@ -430,17 +430,17 @@ fn builtin_lower(args: Vec<Object>) -> Result<Object, String> {
 
 pub static LOWER: BuiltinFunction = BuiltinFunction {
     name: "lower",
-    func: builtin_lower,
+    func: base_lower,
 };
 
 // ... similar for upper, trim, split, join, substring, contains
 ```
 
-#### 3f. `builtins/hash_ops.rs` (120 lines)
+#### 3f. `base functions/hash_ops.rs` (120 lines)
 ```rust
 //! Hash manipulation built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object, hash_key::HashKey};
+use crate::runtime::{base_function::BuiltinFunction, object::Object, hash_key::HashKey};
 use super::helpers::*;
 
 /// Convert a HashKey back to an Object
@@ -453,7 +453,7 @@ fn hash_key_to_object(key: &HashKey) -> Object {
 }
 
 /// keys(h) - Return array of all keys in hash
-fn builtin_keys(args: Vec<Object>) -> Result<Object, String> {
+fn base_keys(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "keys", "keys(h)")?;
     let hash = arg_hash(&args, 0, "keys", "argument", "keys(h)")?;
     let keys: Vec<Object> = hash.keys().map(hash_key_to_object).collect();
@@ -462,53 +462,53 @@ fn builtin_keys(args: Vec<Object>) -> Result<Object, String> {
 
 pub static KEYS: BuiltinFunction = BuiltinFunction {
     name: "keys",
-    func: builtin_keys,
+    func: base_keys,
 };
 
 // ... similar for values, has_key, merge
 ```
 
-#### 3g. `builtins/type_ops.rs` (150 lines)
+#### 3g. `base functions/type_ops.rs` (150 lines)
 ```rust
 //! Type introspection built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{base_function::BuiltinFunction, object::Object};
 use super::helpers::*;
 
 /// type_of(x) - Return type name as string
-fn builtin_type_of(args: Vec<Object>) -> Result<Object, String> {
+fn base_type_of(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "type_of", "type_of(x)")?;
     Ok(Object::String(args[0].type_name().to_string()))
 }
 
 pub static TYPE_OF: BuiltinFunction = BuiltinFunction {
     name: "type_of",
-    func: builtin_type_of,
+    func: base_type_of,
 };
 
 /// is_int(x) - Check if value is an integer
-fn builtin_is_int(args: Vec<Object>) -> Result<Object, String> {
+fn base_is_int(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "is_int", "is_int(x)")?;
     Ok(Object::Boolean(matches!(args[0], Object::Integer(_))))
 }
 
 pub static IS_INT: BuiltinFunction = BuiltinFunction {
     name: "is_int",
-    func: builtin_is_int,
+    func: base_is_int,
 };
 
 // ... similar for is_float, is_string, is_bool, is_array, is_hash, is_none, is_some
 ```
 
-#### 3h. `builtins/numeric_ops.rs` (80 lines)
+#### 3h. `base functions/numeric_ops.rs` (80 lines)
 ```rust
 //! Numeric operation built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{base_function::BuiltinFunction, object::Object};
 use super::helpers::*;
 
 /// abs(n) - Return absolute value
-fn builtin_abs(args: Vec<Object>) -> Result<Object, String> {
+fn base_abs(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "abs", "abs(n)")?;
     let n = arg_number(&args, 0, "abs", "argument", "abs(n)")?;
     Ok(if n.fract() == 0.0 && n.abs() <= i64::MAX as f64 {
@@ -520,21 +520,21 @@ fn builtin_abs(args: Vec<Object>) -> Result<Object, String> {
 
 pub static ABS: BuiltinFunction = BuiltinFunction {
     name: "abs",
-    func: builtin_abs,
+    func: base_abs,
 };
 
 // ... similar for min, max
 ```
 
-#### 3i. `builtins/util_ops.rs` (100 lines)
+#### 3i. `base functions/util_ops.rs` (100 lines)
 ```rust
 //! Utility built-in functions
 
-use crate::runtime::{builtin_function::BuiltinFunction, object::Object};
+use crate::runtime::{base_function::BuiltinFunction, object::Object};
 use super::helpers::*;
 
 /// print(...) - Print values to stdout
-fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
+fn base_print(args: Vec<Object>) -> Result<Object, String> {
     for arg in &args {
         print!("{}", arg);
     }
@@ -544,11 +544,11 @@ fn builtin_print(args: Vec<Object>) -> Result<Object, String> {
 
 pub static PRINT: BuiltinFunction = BuiltinFunction {
     name: "print",
-    func: builtin_print,
+    func: base_print,
 };
 
 /// len(x) - Return length of array/string/hash
-fn builtin_len(args: Vec<Object>) -> Result<Object, String> {
+fn base_len(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "len", "len(x)")?;
     match &args[0] {
         Object::String(s) => Ok(Object::Integer(s.chars().count() as i64)),
@@ -564,7 +564,7 @@ fn builtin_len(args: Vec<Object>) -> Result<Object, String> {
 
 pub static LEN: BuiltinFunction = BuiltinFunction {
     name: "len",
-    func: builtin_len,
+    func: base_len,
 };
 
 // ... similar for to_string
@@ -573,7 +573,7 @@ pub static LEN: BuiltinFunction = BuiltinFunction {
 ### 4. Migration Strategy
 
 **Phase 1: Setup (30 minutes)**
-1. Create `src/runtime/builtins/` directory
+1. Create `src/runtime/base functions/` directory
 2. Create `mod.rs` with module declarations
 3. Move helpers to `helpers.rs`
 
@@ -588,7 +588,7 @@ pub static LEN: BuiltinFunction = BuiltinFunction {
 **Phase 3: Update Registry (30 minutes)**
 10. Update `mod.rs` to reference all module constants
 11. Run full test suite
-12. Update `builtins.rs` to re-export from `builtins/mod.rs`
+12. Update `base functions.rs` to re-export from `base functions/mod.rs`
 
 **Phase 4: Verify (30 minutes)**
 13. Run all tests
@@ -616,26 +616,26 @@ pub static LEN: BuiltinFunction = BuiltinFunction {
 **Before (monolithic):**
 ```rust
 // 1. Scroll through 757-line file to find right spot
-// 2. Add function (lines 550-570 in builtins.rs)
-fn builtin_capitalize(args: Vec<Object>) -> Result<Object, String> {
+// 2. Add function (lines 550-570 in base functions.rs)
+fn base_capitalize(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "capitalize", "capitalize(s)")?;
     let s = arg_string(&args, 0, "capitalize", "argument", "capitalize(s)")?;
     // implementation
 }
 
-// 3. Scroll to BUILTINS array (line 608)
+// 3. Scroll to BASE_FUNCTIONS array (line 608)
 // 4. Add entry in correct position
 BuiltinFunction {
     name: "capitalize",
-    func: builtin_capitalize,
+    func: base_capitalize,
 },
 ```
 
 **After (modular):**
 ```rust
-// 1. Open builtins/string_ops.rs
+// 1. Open base functions/string_ops.rs
 // 2. Add function and constant in one place
-fn builtin_capitalize(args: Vec<Object>) -> Result<Object, String> {
+fn base_capitalize(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "capitalize", "capitalize(s)")?;
     let s = arg_string(&args, 0, "capitalize", "argument", "capitalize(s)")?;
     // implementation
@@ -643,10 +643,10 @@ fn builtin_capitalize(args: Vec<Object>) -> Result<Object, String> {
 
 pub static CAPITALIZE: BuiltinFunction = BuiltinFunction {
     name: "capitalize",
-    func: builtin_capitalize,
+    func: base_capitalize,
 };
 
-// 3. Add to builtins/mod.rs registry
+// 3. Add to base functions/mod.rs registry
 string_ops::CAPITALIZE,
 ```
 
@@ -658,20 +658,20 @@ string_ops::CAPITALIZE,
 Each module gets its own test suite:
 
 ```rust
-// builtins/array_ops.rs
+// base functions/array_ops.rs
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_first_with_empty_array() {
-        let result = builtin_first(vec![Object::Array(vec![])]);
+        let result = base_first(vec![Object::Array(vec![])]);
         assert_eq!(result, Ok(Object::None));
     }
 
     #[test]
     fn test_first_with_elements() {
-        let result = builtin_first(vec![Object::Array(vec![
+        let result = base_first(vec![Object::Array(vec![
             Object::Integer(1),
             Object::Integer(2),
         ])]);
@@ -688,16 +688,16 @@ Ensure registry works correctly:
 ```rust
 #[test]
 fn test_all_builtins_registered() {
-    assert_eq!(BUILTINS.len(), 35);
-    assert!(get_builtin("first").is_some());
-    assert!(get_builtin("last").is_some());
+    assert_eq!(BASE_FUNCTIONS.len(), 35);
+    assert!(get_base("first").is_some());
+    assert!(get_base("last").is_some());
     // ... test all names
 }
 
 #[test]
-fn test_builtin_index_order() {
-    assert_eq!(BUILTINS[0].name, "print");
-    assert_eq!(BUILTINS[1].name, "len");
+fn test_base_index_order() {
+    assert_eq!(BASE_FUNCTIONS[0].name, "print");
+    assert_eq!(BASE_FUNCTIONS[1].name, "len");
     // Critical: VM relies on this order
 }
 ```
@@ -725,8 +725,8 @@ fn test_builtin_index_order() {
 **Likelihood:** Low
 **Impact:** High
 **Mitigation:**
-- Keep `BUILTINS` array order identical
-- Test `get_builtin_by_index` thoroughly
+- Keep `BASE_FUNCTIONS` array order identical
+- Test `get_base_by_index` thoroughly
 - Run full integration tests
 
 ### Risk 2: Performance Regression
@@ -751,7 +751,7 @@ fn test_builtin_index_order() {
 After initial split, consider adding macros:
 
 ```rust
-builtin! {
+base! {
     /// first(arr) - Return first element
     fn first(arr: Array) -> Object {
         arr.first().cloned().unwrap_or(Object::None)
@@ -765,15 +765,15 @@ Reduces boilerplate by ~30%.
 Generate docs from built-in definitions:
 
 ```bash
-cargo run --bin generate-builtins-docs
-# Outputs: docs/builtins.md
+cargo run --bin generate-base functions-docs
+# Outputs: docs/base functions.md
 ```
 
 ### 3. Plugin System (Future)
 Allow users to register custom built-ins:
 
 ```rust
-register_builtin! {
+register_base! {
     fn my_custom_function(args: Vec<Object>) -> Result<Object, String> {
         // custom logic
     }
@@ -782,7 +782,7 @@ register_builtin! {
 
 ## Implementation Checklist
 
-- [ ] Create `src/runtime/builtins/` directory
+- [ ] Create `src/runtime/base functions/` directory
 - [ ] Extract helpers to `helpers.rs`
 - [ ] Split array operations to `array_ops.rs`
 - [ ] Split string operations to `string_ops.rs`
@@ -791,7 +791,7 @@ register_builtin! {
 - [ ] Split numeric operations to `numeric_ops.rs`
 - [ ] Split utility operations to `util_ops.rs`
 - [ ] Create `mod.rs` with registry
-- [ ] Update `builtins.rs` to re-export
+- [ ] Update `base functions.rs` to re-export
 - [ ] Add per-module tests
 - [ ] Run full test suite
 - [ ] Run all examples
@@ -801,7 +801,7 @@ register_builtin! {
 
 - [Phase 1 Module Split Plan](006_phase1_module_split_plan.md)
 - [Rust API Guidelines: Module Organization](https://rust-lang.github.io/api-guidelines/organization.html)
-- Current implementation: `src/runtime/builtins.rs`
+- Current implementation: `src/runtime/base functions.rs`
 
 ## Conclusion
 
