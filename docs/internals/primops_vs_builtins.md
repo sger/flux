@@ -1,6 +1,9 @@
 # PrimOps vs Builtins
 
 > Scope: current runtime/compiler behavior.
+> Proposal context:
+> - Base prelude semantics: `docs/proposals/028_base.md`
+> - Flow stdlib modules: `docs/proposals/030_flow.md`
 
 This document defines the two concepts and the current lowering matrix.
 
