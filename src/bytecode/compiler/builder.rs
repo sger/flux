@@ -1,12 +1,13 @@
 use crate::{
     bytecode::{
         binding::Binding,
-        debug_info::{InstructionLocation, Location},
+        debug_info::{EffectSummary, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
         op_code::{Instructions, OpCode, make},
         symbol_scope::SymbolScope,
     },
     diagnostics::position::Span,
+    primop::PrimOp,
     runtime::value::Value,
 };
 
@@ -18,6 +19,30 @@ impl Compiler {
         let pos = self.add_instruction(&instruction, self.current_span);
         self.set_last_instruction(op_code, pos);
         pos
+    }
+
+    fn record_effect_summary(&mut self, op_code: OpCode, operands: &[usize]) {
+        let observed = match op_code {
+            OpCode::OpPrimOp => {
+                let primop_id = operands.first().copied();
+                match primop_id.and_then(|id| PrimOp::from_id(id as u8)) {
+                    Some(op) if !op.is_pure() => EffectSummary::HasEffects,
+                    Some(_) => EffectSummary::Pure,
+                    None => EffectSummary::HasEffects,
+                }
+            }
+            OpCode::OpCall | OpCode::OpTailCall | OpCode::OpCallBuiltin => EffectSummary::Unknown,
+            _ => EffectSummary::Pure,
+        };
+
+        let current = self.scopes[self.scope_index].effect_summary;
+        self.scopes[self.scope_index].effect_summary = match (current, observed) {
+            (EffectSummary::HasEffects, _) | (_, EffectSummary::HasEffects) => {
+                EffectSummary::HasEffects
+            }
+            (EffectSummary::Unknown, _) | (_, EffectSummary::Unknown) => EffectSummary::Unknown,
+            _ => EffectSummary::Pure,
+        };
     }
 
     fn add_instruction(&mut self, instruction: &[u8], span: Option<Span>) -> usize {
