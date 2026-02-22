@@ -294,23 +294,39 @@ impl Compiler {
                     )));
                 }
 
-                let module_name = match object.as_ref() {
+                let (module_binding_name, module_name) = match object.as_ref() {
                     Expression::Identifier { name, .. } => {
                         let name = *name;
                         if let Some(target) = self.import_aliases.get(&name) {
-                            Some(*target)
+                            (Some(name), Some(*target))
                         } else if self.imported_modules.contains(&name)
                             || self.current_module_prefix == Some(name)
                         {
-                            Some(name)
+                            (Some(name), Some(name))
                         } else {
-                            None
+                            (Some(name), None)
                         }
                     }
-                    _ => None,
+                    _ => (None, None),
                 };
 
                 if let Some(module_name) = module_name {
+                    if let Some(binding_name) = module_binding_name
+                        && self
+                            .imported_module_exclusions
+                            .get(&binding_name)
+                            .is_some_and(|excluded| excluded.contains(&member))
+                    {
+                        let module_name_str = self.sym(module_name);
+                        let member_str = self.sym(member);
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &UNKNOWN_MODULE_MEMBER,
+                            &[module_name_str, member_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
+                    }
+
                     let member_str = self.sym(member);
                     self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
 
@@ -338,10 +354,9 @@ impl Compiler {
                     )));
                 }
 
-                if let Expression::Identifier { name, .. } = object.as_ref()
+                if let Some(name) = module_binding_name
                     && module_name.is_none()
                 {
-                    let name = *name;
                     if is_valid_module_name(self.sym(name)) {
                         let has_symbol = self.resolve_visible_symbol(name).is_some();
                         if !has_symbol {

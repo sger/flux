@@ -95,15 +95,24 @@ fn parses_import_base_with_except() {
 }
 
 #[test]
-fn rejects_except_on_non_base_import() {
-    let lexer = Lexer::new("import Foo except [bar]");
-    let mut parser = Parser::new(lexer);
-    let _ = parser.parse_program();
-    assert!(!parser.errors.is_empty(), "expected parser error");
-    assert!(parser.errors.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("only supported for `import Base except [...]`"))
-    }));
+fn parses_import_non_base_with_except() {
+    let (program, interner) = parse_ok("import Foo except [bar]");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Foo");
+            assert!(alias.is_none());
+            let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
+            assert_eq!(names, vec!["bar"]);
+        }
+        _ => panic!("expected import statement"),
+    }
 }
 
 #[test]

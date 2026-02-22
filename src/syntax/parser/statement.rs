@@ -340,7 +340,6 @@ impl Parser {
         let name = self.parse_qualified_name()?;
         let mut alias = None;
         let mut except = Vec::new();
-        let is_base_import = self.current_token.literal == "Base";
 
         if self.is_peek_token(TokenType::As) {
             self.next_token(); // consume 'as'
@@ -355,21 +354,6 @@ impl Parser {
         }
 
         if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "except" {
-            if !is_base_import {
-                self.next_token(); // consume `except`
-                self.errors.push(unexpected_token(
-                    self.current_token.span(),
-                    "`except` is only supported for `import Base except [...]`.",
-                ));
-                // Best-effort consume the list to avoid cascading parse errors.
-                let _ = self.parse_import_except_list();
-                return Some(Statement::Import {
-                    name,
-                    alias,
-                    except,
-                    span: self.span_from(start),
-                });
-            }
             self.next_token(); // consume `except`
             except = self.parse_import_except_list()?;
         }

@@ -41,6 +41,7 @@ pub struct Compiler {
     pub(super) file_scope_symbols: HashSet<Symbol>,
     pub(super) imported_modules: HashSet<Symbol>,
     pub(super) import_aliases: HashMap<Symbol, Symbol>,
+    pub(super) imported_module_exclusions: HashMap<Symbol, HashSet<Symbol>>,
     pub(super) current_module_prefix: Option<Symbol>,
     pub(super) current_span: Option<Span>,
     // Module Constants - stores compile-time evaluated module constants
@@ -89,6 +90,7 @@ impl Compiler {
             file_scope_symbols: HashSet::new(),
             imported_modules: HashSet::new(),
             import_aliases: HashMap::new(),
+            imported_module_exclusions: HashMap::new(),
             current_module_prefix: None,
             current_span: None,
             // Module Constants
@@ -128,6 +130,7 @@ impl Compiler {
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
         self.current_module_prefix = None;
         self.current_span = None;
         self.excluded_base_symbols.clear();
@@ -196,6 +199,7 @@ impl Compiler {
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
         self.current_module_prefix = None;
         self.excluded_base_symbols.clear();
         self.process_base_directives(program);
