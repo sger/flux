@@ -19,7 +19,8 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = 5;
+// Bumped for Proposal 028 Phase 7 (Base-only terminology cutover).
+const FORMAT_VERSION: u16 = 7;
 
 pub struct BytecodeCache {
     dir: PathBuf,
