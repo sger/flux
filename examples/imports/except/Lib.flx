@@ -1,0 +1,9 @@
+module Lib {
+  fn keep() {
+    42;
+  }
+
+  fn drop() {
+    7;
+  }
+}
