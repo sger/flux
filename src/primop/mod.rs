@@ -496,7 +496,7 @@ pub fn execute_primop(
         | PrimOp::IsHash
         | PrimOp::IsNone
         | PrimOp::IsSome
-        | PrimOp::ToString => execute_builtin_compat_primop(ctx, op, args),
+        | PrimOp::ToString => execute_base_compat_primop(ctx, op, args),
         PrimOp::First
         | PrimOp::Last
         | PrimOp::Rest
@@ -1031,8 +1031,8 @@ fn execute_effect_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> 
     }
 }
 
-/// Executes compatibility primops that mirror existing builtin behavior.
-fn execute_builtin_compat_primop(
+/// Executes compatibility primops that mirror existing base behavior.
+fn execute_base_compat_primop(
     ctx: &mut dyn RuntimeContext,
     op: PrimOp,
     args: Vec<Value>,
@@ -1076,7 +1076,7 @@ fn execute_builtin_compat_primop(
         PrimOp::IsNone => Ok(Value::Boolean(matches!(args[0], Value::None))),
         PrimOp::IsSome => Ok(Value::Boolean(matches!(args[0], Value::Some(_)))),
         PrimOp::ToString => Ok(Value::String(args[0].to_string_value().into())),
-        _ => dispatch_error("builtin-compat", op),
+        _ => dispatch_error("base-compat", op),
     }
 }
 
@@ -1625,7 +1625,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_string_primop_ops_match_builtin_behavior() {
+    fn execute_string_primop_ops_match_base_behavior() {
         let mut ctx = TestRuntimeContext::new();
         let trimmed = execute_primop(&mut ctx, PrimOp::Trim, vec![Value::String("  hi  ".into())])
             .expect("trim should work");
@@ -1673,7 +1673,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_parse_primop_errors_preserve_builtin_wording() {
+    fn execute_parse_primop_errors_preserve_base_wording() {
         let mut ctx = TestRuntimeContext::new();
         let err = execute_primop(
             &mut ctx,

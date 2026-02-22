@@ -17,10 +17,10 @@ fn new_vm() -> VM {
 }
 
 #[test]
-fn call_builtin_len() {
+fn call_base_len() {
     let mut vm = new_vm();
-    let builtin_idx = get_base_function_index("len").expect("len builtin") as u8;
-    vm.push(Value::BaseFunction(builtin_idx)).unwrap();
+    let base_idx = get_base_function_index("len").expect("len base") as u8;
+    vm.push(Value::BaseFunction(base_idx)).unwrap();
     vm.push(Value::Array(
         vec![Value::Integer(1), Value::Integer(2)].into(),
     ))
