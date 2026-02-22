@@ -192,7 +192,7 @@ fn test_hash_literals() {
     match result {
         Value::Gc(_) => {
             // Hash literal with 1 key-value pair produces a Gc value
-            // The actual content is verified via index/builtin tests
+            // The actual content is verified via index/base tests
         }
         _ => panic!("expected Gc (HAMT map), got {:?}", result),
     }
@@ -235,13 +235,13 @@ fn test_block_tail_semantics_and_do_block() {
 }
 
 #[test]
-fn test_builtin_len() {
+fn test_base_len() {
     assert_eq!(run(r#"len("hello");"#), Value::Integer(5));
     assert_eq!(run("len(#[1, 2, 3]);"), Value::Integer(3));
 }
 
 #[test]
-fn test_builtin_array_functions() {
+fn test_base_array_functions() {
     assert_eq!(run("first(#[1, 2, 3]);"), Value::Integer(1));
     assert_eq!(run("last(#[1, 2, 3]);"), Value::Integer(3));
     assert_eq!(
@@ -735,7 +735,7 @@ fn test_either_in_hash() {
 }
 
 #[test]
-fn test_builtin_map() {
+fn test_base_map() {
     assert_eq!(
         run("map(#[1, 2, 3], fn(x) { x * 2 });"),
         Value::Array(vec![Value::Integer(2), Value::Integer(4), Value::Integer(6)].into())
@@ -743,7 +743,7 @@ fn test_builtin_map() {
 }
 
 #[test]
-fn test_builtin_map_with_closure() {
+fn test_base_map_with_closure() {
     assert_eq!(
         run("let factor = 3; map(#[1, 2, 3], fn(x) { x * factor });"),
         Value::Array(vec![Value::Integer(3), Value::Integer(6), Value::Integer(9)].into())
@@ -751,12 +751,12 @@ fn test_builtin_map_with_closure() {
 }
 
 #[test]
-fn test_builtin_map_empty() {
+fn test_base_map_empty() {
     assert_eq!(run("map(#[], fn(x) { x });"), Value::Array(vec![].into()));
 }
 
 #[test]
-fn test_builtin_map_with_builtin_callback() {
+fn test_base_map_with_base_callback() {
     assert_eq!(
         run("map(#[1, 2, 3], to_string);"),
         Value::Array(
@@ -771,7 +771,7 @@ fn test_builtin_map_with_builtin_callback() {
 }
 
 #[test]
-fn test_builtin_filter() {
+fn test_base_filter() {
     assert_eq!(
         run("filter(#[1, 2, 3, 4, 5], fn(x) { x > 2 });"),
         Value::Array(vec![Value::Integer(3), Value::Integer(4), Value::Integer(5)].into())
@@ -779,7 +779,7 @@ fn test_builtin_filter() {
 }
 
 #[test]
-fn test_builtin_filter_none_pass() {
+fn test_base_filter_none_pass() {
     assert_eq!(
         run("filter(#[1, 2, 3], fn(x) { x > 10 });"),
         Value::Array(vec![].into())
@@ -787,7 +787,7 @@ fn test_builtin_filter_none_pass() {
 }
 
 #[test]
-fn test_builtin_filter_all_pass() {
+fn test_base_filter_all_pass() {
     assert_eq!(
         run("filter(#[1, 2, 3], fn(x) { x > 0 });"),
         Value::Array(vec![Value::Integer(1), Value::Integer(2), Value::Integer(3)].into())
@@ -795,7 +795,7 @@ fn test_builtin_filter_all_pass() {
 }
 
 #[test]
-fn test_builtin_fold_sum() {
+fn test_base_fold_sum() {
     assert_eq!(
         run("fold(#[1, 2, 3, 4], 0, fn(acc, x) { acc + x });"),
         Value::Integer(10)
@@ -803,7 +803,7 @@ fn test_builtin_fold_sum() {
 }
 
 #[test]
-fn test_builtin_fold_string_concat() {
+fn test_base_fold_string_concat() {
     assert_eq!(
         run(r#"fold(#["a", "b", "c"], "", fn(acc, x) { acc + x });"#),
         Value::String("abc".into())
@@ -811,7 +811,7 @@ fn test_builtin_fold_string_concat() {
 }
 
 #[test]
-fn test_builtin_fold_empty() {
+fn test_base_fold_empty() {
     assert_eq!(
         run("fold(#[], 42, fn(acc, x) { acc + x });"),
         Value::Integer(42)
@@ -1309,7 +1309,7 @@ fn test_tuple_access_and_indexing() {
 }
 
 #[test]
-fn test_tuple_match_and_builtins() {
+fn test_tuple_match_and_base_functions() {
     assert_eq!(
         run("let pair = (1, 2); match pair { (a, b) -> a + b, _ -> 0 };"),
         Value::Integer(3)
@@ -1398,7 +1398,7 @@ fn test_list_comprehension_identity() {
 }
 
 #[test]
-fn test_flat_map_builtin() {
+fn test_flat_map_base() {
     assert_eq!(
         run(r#"flat_map([|1, 2, 3|], \x -> [|x, x * 10|]);"#),
         Value::Array(

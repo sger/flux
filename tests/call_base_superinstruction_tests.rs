@@ -59,27 +59,27 @@ fn run_vm_err(input: &str) -> String {
 }
 
 #[test]
-fn compiler_emits_op_call_builtin_for_allowlisted_builtin() {
+fn compiler_emits_op_call_base_for_allowlisted_base_function() {
     let asm = compile_disassembly("map(list(1, 2), fn(x) { x + 1 })");
     assert!(
-        asm.contains("OpCallBuiltin"),
-        "expected OpCallBuiltin in disassembly:\n{}",
+        asm.contains("OpCallBase"),
+        "expected OpCallBase in disassembly:\n{}",
         asm
     );
 }
 
 #[test]
-fn compiler_does_not_emit_op_call_builtin_for_non_allowlisted_builtin() {
+fn compiler_does_not_emit_op_call_base_for_non_allowlisted_base_function() {
     let asm = compile_disassembly("zip(list(1), list(2))");
     assert!(
-        !asm.contains("OpCallBuiltin"),
-        "did not expect OpCallBuiltin in disassembly:\n{}",
+        !asm.contains("OpCallBase"),
+        "did not expect OpCallBase in disassembly:\n{}",
         asm
     );
 }
 
 #[test]
-fn compiler_does_not_emit_op_call_builtin_for_shadowed_name() {
+fn compiler_does_not_emit_op_call_base_for_shadowed_name() {
     let asm = compile_disassembly(
         r#"
 fn apply(map) { map(list(1, 2), fn(x) { x + 1 }) }
@@ -87,14 +87,14 @@ apply(fn(xs, f) { xs })
 "#,
     );
     assert!(
-        !asm.contains("OpCallBuiltin"),
-        "did not expect OpCallBuiltin for shadowed name:\n{}",
+        !asm.contains("OpCallBase"),
+        "did not expect OpCallBase for shadowed name:\n{}",
         asm
     );
 }
 
 #[test]
-fn vm_allowlisted_builtin_behavior_is_preserved() {
+fn vm_allowlisted_base_function_behavior_is_preserved() {
     let value = run_vm("to_array(map(list(1, 2, 3), fn(x) { x + 1 }))");
     assert_eq!(
         value,
@@ -107,7 +107,7 @@ fn vm_allowlisted_builtin_behavior_is_preserved() {
 }
 
 #[test]
-fn vm_allowlisted_builtin_wrong_arity_error_is_preserved() {
+fn vm_allowlisted_base_function_wrong_arity_error_is_preserved() {
     let err = run_vm_err("map(list(1, 2, 3))");
     assert!(
         err.contains("wrong number of arguments"),
@@ -118,7 +118,7 @@ fn vm_allowlisted_builtin_wrong_arity_error_is_preserved() {
 
 #[cfg(feature = "jit")]
 #[test]
-fn vm_and_jit_match_on_allowlisted_builtin_program() {
+fn vm_and_jit_match_on_allowlisted_base_function_program() {
     use flux::jit::{JitOptions, jit_compile_and_run};
 
     let input = "to_array(map(list(1, 2, 3), fn(x) { x + 1 }))";

@@ -55,9 +55,9 @@ mod tests {
     }
 
     #[test]
-    fn make_op_call_builtin_operands() {
-        let ins = make(OpCode::OpCallBuiltin, &[9, 2]);
-        assert_eq!(ins, vec![OpCode::OpCallBuiltin as u8, 9, 2]);
+    fn make_op_call_base_operands() {
+        let ins = make(OpCode::OpCallBase, &[9, 2]);
+        assert_eq!(ins, vec![OpCode::OpCallBase as u8, 9, 2]);
     }
 
     #[test]

@@ -170,3 +170,37 @@ fn vm_and_jit_match_control_primop_error() {
         "panic: primop parity panic",
     );
 }
+
+#[test]
+fn vm_and_jit_match_base_except_with_qualified_access() {
+    assert_vm_jit_value(
+        r#"
+import Base except [print]
+[len([1, 2, 3]), Base.len([1, 2, 3]), to_string(7), Base.to_string(7)]
+"#,
+    );
+}
+
+#[test]
+fn vm_and_jit_match_base_qualified_call_under_shadowing() {
+    assert_vm_jit_value(
+        r#"
+import Base except [print]
+fn demo() {
+  let len = fn(x) { 123 };
+  [len([1, 2, 3]), Base.len([1, 2, 3])]
+}
+demo()
+"#,
+    );
+}
+
+#[test]
+fn vm_and_jit_match_base_qualified_allowlisted_base_call() {
+    assert_vm_jit_value(
+        r#"
+import Base except [print]
+Base.map([1, 2, 3], fn(x) { x + 1 })
+"#,
+    );
+}

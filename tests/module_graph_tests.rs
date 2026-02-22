@@ -143,6 +143,62 @@ fn alias_import_compiles() {
 }
 
 #[test]
+fn import_except_on_module_hides_excluded_member() {
+    let root = temp_root("import_except_module");
+    let module_path = root.join("Data").join("MyFile.flx");
+    write_file(
+        &module_path,
+        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+    );
+
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Data.MyFile except [drop]\nData.MyFile.keep();\nData.MyFile.drop();";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    let result = compile_with_graph(&entry_path, &program, interner, &[root]);
+    let diags = result.expect_err("expected excluded member access to fail");
+    assert_eq!(first_code(&diags), "E012");
+}
+
+#[test]
+fn import_except_on_module_keeps_other_members() {
+    let root = temp_root("import_except_module_ok");
+    let module_path = root.join("Data").join("MyFile.flx");
+    write_file(
+        &module_path,
+        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+    );
+
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Data.MyFile except [drop]\nData.MyFile.keep();";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    compile_with_graph(&entry_path, &program, interner, &[root])
+        .expect("expected non-excluded member access to compile");
+}
+
+#[test]
+fn import_except_with_alias_hides_excluded_member() {
+    let root = temp_root("import_except_alias");
+    let module_path = root.join("Data").join("MyFile.flx");
+    write_file(
+        &module_path,
+        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+    );
+
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Data.MyFile as M except [drop]\nM.drop();";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    let result = compile_with_graph(&entry_path, &program, interner, &[root]);
+    let diags = result.expect_err("expected excluded alias member access to fail");
+    assert_eq!(first_code(&diags), "E012");
+}
+
+#[test]
 fn duplicate_module_across_roots_is_error() {
     let root_a = temp_root("dupe_root_a");
     let root_b = temp_root("dupe_root_b");
@@ -183,4 +239,16 @@ fn import_cycle_is_error() {
     let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E021");
+}
+
+#[test]
+fn synthetic_base_import_with_except_does_not_require_file_module() {
+    let root = temp_root("base_import");
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Base except [print]\nBase.len([1, 2, 3]);";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    compile_with_graph(&entry_path, &program, interner, &[root])
+        .expect("expected synthetic Base import to compile without filesystem module");
 }
