@@ -69,8 +69,8 @@ pub enum Value {
     Closure(Rc<Closure>),
     /// JIT-compiled closure object.
     JitClosure(Rc<JitClosure>),
-    /// Builtin function handle (index into builtins table).
-    Builtin(u8),
+    /// Base function handle (index into base function table).
+    BaseFunction(u8),
     /// Ordered collection of values.
     Array(Rc<Vec<Value>>),
     /// Fixed-size heterogeneous ordered collection.
@@ -96,7 +96,7 @@ impl fmt::Display for Value {
             Value::Function(_) => write!(f, "<function>"),
             Value::Closure(_) => write!(f, "<closure>"),
             Value::JitClosure(_) => write!(f, "<jit-closure>"),
-            Value::Builtin(_) => write!(f, "<builtin>"),
+            Value::BaseFunction(_) => write!(f, "<base-fn>"),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 write!(f, "[|{}|]", items.join(", "))
@@ -115,7 +115,7 @@ impl fmt::Display for Value {
 }
 
 impl Value {
-    /// Returns the canonical runtime type label used in diagnostics and builtins.
+    /// Returns the canonical runtime type label used in diagnostics and base_functions.
     ///
     /// These labels are user-visible and are expected to remain stable.
     pub fn type_name(&self) -> &'static str {
@@ -134,7 +134,7 @@ impl Value {
             Value::Function(_) => "Function",
             Value::Closure(_) => "Closure",
             Value::JitClosure(_) => "JitClosure",
-            Value::Builtin(_) => "Builtin",
+            Value::BaseFunction(_) => "BaseFunction",
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
@@ -171,7 +171,7 @@ impl Value {
     /// Converts a value to interpolation-friendly string text.
     ///
     /// Unlike [`std::fmt::Display`], strings are returned without quotes.
-    /// This helper is used by interpolation and string conversion builtins.
+    /// This helper is used by interpolation and string conversion base_functions.
     pub fn to_string_value(&self) -> String {
         match self {
             Value::Uninit => "<uninit>".to_string(),
@@ -188,7 +188,7 @@ impl Value {
             Value::Function(_) => "<function>".to_string(),
             Value::Closure(_) => "<closure>".to_string(),
             Value::JitClosure(_) => "<jit-closure>".to_string(),
-            Value::Builtin(_) => "<builtin>".to_string(),
+            Value::BaseFunction(_) => "<base-fn>".to_string(),
             Value::Array(elements) => {
                 let items: Vec<String> = elements.iter().map(|e| e.to_string()).collect();
                 format!("[|{}|]", items.join(", "))

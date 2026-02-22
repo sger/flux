@@ -1482,7 +1482,7 @@ fn repl(trace: bool) {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
 
-    // Bootstrap compiler to register builtins in the symbol table.
+    // Bootstrap compiler to register Base functions in the symbol table.
     let bootstrap = Compiler::new_with_interner("<repl>", Interner::new());
     let (mut symbol_table, mut constants, mut interner) = bootstrap.take_state();
     let mut globals: Vec<Value> = vec![Value::None; 65536];

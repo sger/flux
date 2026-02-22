@@ -113,6 +113,7 @@ fn resolve_imports_invalid_name() {
         statements: vec![Statement::Import {
             name: foo_sym,
             alias: None,
+            except: vec![],
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -135,6 +136,7 @@ fn resolve_imports_invalid_alias() {
         statements: vec![Statement::Import {
             name: foo_sym,
             alias: Some(bar_sym),
+            except: vec![],
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -156,6 +158,7 @@ fn resolve_imports_missing_module() {
         statements: vec![Statement::Import {
             name: foo_bar_sym,
             alias: None,
+            except: vec![],
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -180,6 +183,29 @@ fn resolve_imports_no_imports_returns_empty() {
                 span: span(1, 0),
             },
             has_semicolon: false,
+            span: span(1, 0),
+        }],
+        span: Span::default(),
+    };
+
+    let roots: Vec<PathBuf> = Vec::new();
+    let path = Path::new("/tmp/main.flx");
+
+    let imports = resolve_imports(path, &program, &roots, &interner).unwrap();
+    assert!(imports.is_empty());
+}
+
+#[test]
+fn resolve_imports_ignores_synthetic_base_import() {
+    let mut interner = Interner::new();
+    let base_sym = interner.intern("Base");
+    let print_sym = interner.intern("print");
+
+    let program = Program {
+        statements: vec![Statement::Import {
+            name: base_sym,
+            alias: None,
+            except: vec![print_sym],
             span: span(1, 0),
         }],
         span: Span::default(),
