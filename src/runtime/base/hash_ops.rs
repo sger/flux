@@ -39,10 +39,7 @@ fn arg_hamt(
     }
 }
 
-pub(super) fn builtin_keys(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_keys(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "keys", "keys(h)")?;
     let handle = arg_hamt(ctx, &args, 0, "keys", "argument", "keys(h)")?;
     let pairs = hamt_iter(ctx.gc_heap(), handle);
@@ -50,10 +47,7 @@ pub(super) fn builtin_keys(
     Ok(Value::Array(keys.into()))
 }
 
-pub(super) fn builtin_values(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_values(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "values", "values(h)")?;
     let handle = arg_hamt(ctx, &args, 0, "values", "argument", "values(h)")?;
     let pairs = hamt_iter(ctx.gc_heap(), handle);
@@ -61,7 +55,7 @@ pub(super) fn builtin_values(
     Ok(Value::Array(values.into()))
 }
 
-pub(super) fn builtin_has_key(
+pub(super) fn base_has_key(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -78,10 +72,7 @@ pub(super) fn builtin_has_key(
     Ok(Value::Boolean(found))
 }
 
-pub(super) fn builtin_merge(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_merge(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "merge", "merge(h1, h2)")?;
     let h1 = arg_hamt(ctx, &args, 0, "merge", "first argument", "merge(h1, h2)")?;
     let h2 = arg_hamt(ctx, &args, 1, "merge", "second argument", "merge(h1, h2)")?;
@@ -94,10 +85,7 @@ pub(super) fn builtin_merge(
     Ok(Value::Gc(result))
 }
 
-pub(super) fn builtin_delete(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_delete(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "delete", "delete(h, k)")?;
     let handle = arg_hamt(ctx, &args, 0, "delete", "first argument", "delete(h, k)")?;
     let key = args[1].to_hash_key().ok_or_else(|| {
@@ -112,7 +100,7 @@ pub(super) fn builtin_delete(
 }
 
 /// put(map, key, value) - Returns a new map with the key-value pair added/updated.
-pub(super) fn builtin_put(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_put(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 3, "put", "put(map, key, value)")?;
     let handle = arg_hamt(
         ctx,
@@ -134,7 +122,7 @@ pub(super) fn builtin_put(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 }
 
 /// get(map, key) - Returns Some(value) if key exists, None otherwise.
-pub(super) fn builtin_get(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_get(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 2, "get", "get(map, key)")?;
     let handle = arg_hamt(ctx, &args, 0, "get", "first argument", "get(map, key)")?;
     let key = args[1].to_hash_key().ok_or_else(|| {
@@ -152,10 +140,7 @@ pub(super) fn builtin_get(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 }
 
 /// is_map(x) - Returns true if x is a HAMT map.
-pub(super) fn builtin_is_map(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_is_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "is_map", "is_map(x)")?;
     let result = match &args[0] {
         Value::Gc(h) => is_hamt(ctx.gc_heap(), *h),

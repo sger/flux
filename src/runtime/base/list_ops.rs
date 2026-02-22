@@ -12,7 +12,7 @@ use crate::runtime::{
 use super::helpers::{check_arity, format_hint, type_error};
 
 /// hd(list) - Returns the head (first element) of a cons list.
-pub(super) fn builtin_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "hd", "hd(list)")?;
     match &args[0] {
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
@@ -40,7 +40,7 @@ pub(super) fn builtin_hd(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 /// tl(list) - Returns the tail of a cons list.
-pub(super) fn builtin_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     check_arity(&args, 1, "tl", "tl(list)")?;
     match &args[0] {
         Value::Gc(h) => match ctx.gc_heap().get(*h) {
@@ -68,7 +68,7 @@ pub(super) fn builtin_tl(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 /// is_list(x) - Returns true if x is a cons list or empty list.
-pub(super) fn builtin_is_list(
+pub(super) fn base_is_list(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -82,7 +82,7 @@ pub(super) fn builtin_is_list(
 }
 
 /// to_list(arr) - Converts an array to a cons list.
-pub(super) fn builtin_to_list(
+pub(super) fn base_to_list(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -110,7 +110,7 @@ pub(super) fn builtin_to_list(
 }
 
 /// to_array(list) - Converts a cons list to an array.
-pub(super) fn builtin_to_array(
+pub(super) fn base_to_array(
     ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -151,10 +151,7 @@ pub(super) fn builtin_to_array(
 
 /// list(...) - Varargs constructor that builds a cons list from arguments.
 /// list(1, 2, 3) → [1 | [2 | [3 | []]]]
-pub(super) fn builtin_list(
-    ctx: &mut dyn RuntimeContext,
-    args: Vec<Value>,
-) -> Result<Value, String> {
+pub(super) fn base_list(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     let mut list = Value::EmptyList;
     for elem in args.into_iter().rev() {
         let handle = ctx.gc_heap_mut().alloc(HeapObject::Cons {

@@ -8,9 +8,7 @@ use crate::{
     },
 };
 
-use super::hash_ops::{
-    builtin_delete, builtin_has_key, builtin_keys, builtin_merge, builtin_values,
-};
+use super::hash_ops::{base_delete, base_has_key, base_keys, base_merge, base_values};
 
 fn test_vm() -> VM {
     VM::new(Bytecode {
@@ -38,8 +36,8 @@ fn keys_and_values_return_arrays() {
     );
     let map_value = Value::Gc(root);
 
-    let keys = builtin_keys(&mut vm, vec![map_value.clone()]).unwrap();
-    let values = builtin_values(&mut vm, vec![map_value]).unwrap();
+    let keys = base_keys(&mut vm, vec![map_value.clone()]).unwrap();
+    let values = base_values(&mut vm, vec![map_value]).unwrap();
 
     match keys {
         Value::Array(items) => {
@@ -70,7 +68,7 @@ fn has_key_and_merge_work() {
     );
     let map_value = Value::Gc(root);
 
-    let has = builtin_has_key(
+    let has = base_has_key(
         &mut vm,
         vec![map_value.clone(), Value::String("k".to_string().into())],
     )
@@ -86,7 +84,7 @@ fn has_key_and_merge_work() {
     );
     let map_value2 = Value::Gc(root2);
 
-    let merged = builtin_merge(&mut vm, vec![map_value, map_value2]).unwrap();
+    let merged = base_merge(&mut vm, vec![map_value, map_value2]).unwrap();
     match merged {
         Value::Gc(handle) => {
             assert_eq!(
@@ -116,7 +114,7 @@ fn delete_removes_existing_key_and_keeps_missing() {
     );
     let map_value = Value::Gc(root);
 
-    let deleted = builtin_delete(
+    let deleted = base_delete(
         &mut vm,
         vec![map_value.clone(), Value::String("k".to_string().into())],
     )
@@ -136,7 +134,7 @@ fn delete_removes_existing_key_and_keeps_missing() {
         _ => panic!("expected Gc hash"),
     }
 
-    let deleted_missing = builtin_delete(
+    let deleted_missing = base_delete(
         &mut vm,
         vec![map_value, Value::String("missing".to_string().into())],
     )
