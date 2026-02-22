@@ -33,7 +33,7 @@ pub enum OpCode {
     OpArray = 27,
     OpHash = 28,
     OpIndex = 29,
-    OpGetBuiltin = 30,
+    OpGetBase = 30,
     OpCurrentClosure = 31,
     OpNone = 32,
     OpSome = 33,
@@ -74,10 +74,10 @@ pub enum OpCode {
     /// Generic primop dispatch: operands are `[primop_id: u8, arity: u8]`.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpPrimOp = 62,
-    /// Direct builtin call: operands are `[builtin_index: u8, arity: u8]`.
+    /// Direct Base function call: operands are `[base_fn_index: u8, arity: u8]`.
     /// Unlike `OpCall`, no callee value is read from the stack.
     /// Consumes `arity` arguments from the stack and pushes one result.
-    OpCallBuiltin = 63,
+    OpCallBase = 63,
 }
 
 impl From<u8> for OpCode {
@@ -113,7 +113,7 @@ impl From<u8> for OpCode {
             27 => OpCode::OpArray,
             28 => OpCode::OpHash,
             29 => OpCode::OpIndex,
-            30 => OpCode::OpGetBuiltin,
+            30 => OpCode::OpGetBase,
             31 => OpCode::OpCurrentClosure,
             32 => OpCode::OpNone,
             33 => OpCode::OpSome,
@@ -146,7 +146,7 @@ impl From<u8> for OpCode {
             60 => OpCode::OpTupleIndex,
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
-            63 => OpCode::OpCallBuiltin,
+            63 => OpCode::OpCallBase,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -178,10 +178,10 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpCall
         | OpCode::OpTailCall
         | OpCode::OpGetFree
-        | OpCode::OpGetBuiltin
+        | OpCode::OpGetBase
         | OpCode::OpReturnLocal
         | OpCode::OpTupleIndex => vec![1],
-        OpCode::OpPrimOp | OpCode::OpCallBuiltin => vec![1, 1],
+        OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
         _ => vec![],

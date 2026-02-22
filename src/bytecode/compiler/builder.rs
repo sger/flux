@@ -32,7 +32,7 @@ impl Compiler {
                     None => EffectSummary::HasEffects,
                 }
             }
-            OpCode::OpCall | OpCode::OpTailCall | OpCode::OpCallBuiltin => EffectSummary::Unknown,
+            OpCode::OpCall | OpCode::OpTailCall | OpCode::OpCallBase => EffectSummary::Unknown,
             _ => EffectSummary::Pure,
         };
 
@@ -106,8 +106,8 @@ impl Compiler {
                     self.emit(OpCode::OpGetLocal, &[symbol.index]);
                 }
             },
-            SymbolScope::Builtin => {
-                self.emit(OpCode::OpGetBuiltin, &[symbol.index]);
+            SymbolScope::Base => {
+                self.emit(OpCode::OpGetBase, &[symbol.index]);
             }
             SymbolScope::Free => {
                 self.emit(OpCode::OpGetFree, &[symbol.index]);

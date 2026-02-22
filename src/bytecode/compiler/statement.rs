@@ -42,6 +42,7 @@ impl Compiler {
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
+                        && existing.symbol_scope != SymbolScope::Base
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -105,7 +106,7 @@ impl Compiler {
                     let name = *name;
                     // Check if variable exists
                     let name_str = self.sym(name).to_string();
-                    let symbol = self.symbol_table.resolve(name).ok_or_else(|| {
+                    let symbol = self.resolve_visible_symbol(name).ok_or_else(|| {
                         Self::boxed(self.make_undefined_variable_error(&name_str, *span))
                     })?;
 
@@ -147,6 +148,7 @@ impl Compiler {
                     if self.scope_index > 0
                         && let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
+                        && existing.symbol_scope != SymbolScope::Base
                     {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(self.make_redeclaration_error(
@@ -200,7 +202,12 @@ impl Compiler {
                         self.file_scope_symbols.insert(binding_name);
                     }
                 }
-                Statement::Import { name, alias, span } => {
+                Statement::Import {
+                    name,
+                    alias,
+                    except,
+                    span,
+                } => {
                     let name = *name;
                     if self.scope_index > 0 {
                         let name_str = self.sym(name);
@@ -210,6 +217,10 @@ impl Compiler {
                             self.file_path.clone(),
                             *span,
                         )));
+                    }
+                    if self.is_base_module_symbol(name) {
+                        self.compile_import_statement(name, *alias, except)?;
+                        return Ok(());
                     }
                     let name_str = self.sym(name).to_string();
                     let alias_str = alias.map(|a| self.sym(a).to_string());
@@ -225,7 +236,7 @@ impl Compiler {
                     }
                     // Reserve the name for this file so later declarations can't collide.
                     self.file_scope_symbols.insert(binding_name);
-                    self.compile_import_statement(name, *alias)?;
+                    self.compile_import_statement(name, *alias, except)?;
                 }
             }
             Ok(())
@@ -460,7 +471,11 @@ impl Compiler {
         &mut self,
         name: Symbol,
         alias: Option<Symbol>,
+        _except: &[Symbol],
     ) -> CompileResult<()> {
+        if self.is_base_module_symbol(name) {
+            return Ok(());
+        }
         if let Some(alias) = alias {
             self.import_aliases.insert(alias, name);
         } else {
