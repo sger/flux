@@ -43,7 +43,7 @@ Translates each Flux AST function to Cranelift IR. Key points:
 - Literal deduplication: function literals at the same source span (tracked by `LiteralKey`) are compiled once.
 - Closures capture free variables as extra pointer arguments injected at call sites.
 
-The compiler emits calls to runtime helper functions for anything that requires heap allocation or builtin dispatch.
+The compiler emits calls to runtime helper functions for anything that requires heap allocation or Base function dispatch.
 
 ## Runtime Helpers (`runtime_helpers.rs`)
 
