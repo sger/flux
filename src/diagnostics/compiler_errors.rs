@@ -664,6 +664,30 @@ pub const LEGACY_LIST_TAIL_NONE: ErrorCode = ErrorCode {
     hint: Some("Replace `None` with `[]` in cons expressions, for example: `[1 | []]`."),
 };
 
+pub const BASE_ALIAS_FORBIDDEN: ErrorCode = ErrorCode {
+    code: "E078",
+    title: "INVALID BASE DIRECTIVE",
+    error_type: ErrorType::Compiler,
+    message: "`import Base as {}` is not allowed.",
+    hint: Some("Use `import Base` or `import Base except [...]`."),
+};
+
+pub const DUPLICATE_BASE_EXCLUSION: ErrorCode = ErrorCode {
+    code: "E079",
+    title: "INVALID BASE DIRECTIVE",
+    error_type: ErrorType::Compiler,
+    message: "Duplicate Base exclusion `{}`.",
+    hint: Some("Each name in `import Base except [...]` must appear only once."),
+};
+
+pub const UNKNOWN_BASE_MEMBER: ErrorCode = ErrorCode {
+    code: "E080",
+    title: "UNKNOWN BASE MEMBER",
+    error_type: ErrorType::Compiler,
+    message: "Base has no member named `{}`.",
+    hint: Some("Check the Base surface or remove this name from `except`."),
+};
+
 // ============================================================================
 // Error Constructor Functions
 // ============================================================================
