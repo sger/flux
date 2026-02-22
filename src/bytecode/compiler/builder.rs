@@ -17,6 +17,7 @@ impl Compiler {
     pub(super) fn emit(&mut self, op_code: OpCode, operands: &[usize]) -> usize {
         let instruction = make(op_code, operands);
         let pos = self.add_instruction(&instruction, self.current_span);
+        self.record_effect_summary(op_code, operands);
         self.set_last_instruction(op_code, pos);
         pos
     }

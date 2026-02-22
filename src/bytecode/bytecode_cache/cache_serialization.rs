@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
+    bytecode::debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
     diagnostics::position::{Position, Span},
     runtime::{compiled_function::CompiledFunction, value::Value},
 };
@@ -147,6 +147,12 @@ pub(super) fn write_function_debug_info(
                     }
                 }
             }
+            let effect_tag = match info.effect_summary {
+                EffectSummary::Pure => 0u8,
+                EffectSummary::Unknown => 1u8,
+                EffectSummary::HasEffects => 2u8,
+            };
+            writer.write_all(&[effect_tag])?;
             Ok(())
         }
     }
@@ -189,7 +195,16 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
         locations.push(InstructionLocation { offset, location });
     }
 
-    Some(FunctionDebugInfo::new(name, files, locations))
+    let mut effect_tag = [0u8; 1];
+    reader.read_exact(&mut effect_tag).ok()?;
+    let effect_summary = match effect_tag[0] {
+        0 => EffectSummary::Pure,
+        1 => EffectSummary::Unknown,
+        2 => EffectSummary::HasEffects,
+        _ => EffectSummary::Unknown,
+    };
+
+    Some(FunctionDebugInfo::new(name, files, locations).with_effect_summary(effect_summary))
 }
 
 fn write_position(writer: &mut File, position: &Position) -> std::io::Result<()> {

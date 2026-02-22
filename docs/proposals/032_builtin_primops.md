@@ -1,337 +1,312 @@
-# Proposal 032: Builtin Primops — Specialized Opcode Dispatch for Builtins
+# Proposal 032: Builtin PrimOps — Structured PrimOp Layer
 
-**Status:** Draft
-**Date:** 2026-02-19
-**Scope:** VM bytecode compiler, VM dispatch loop
-**JIT impact:** None (separate pipeline, separate effort)
+**Status:** In Progress (Phases 0, 1, 3, 4 implemented)  
+**Date:** 2026-02-19 (updated 2026-02-20)  
+**Scope:** Compiler lowering, bytecode VM, Cranelift JIT, runtime primop execution  
+
+---
+
+## Summary
+
+Flux now has a first-class PrimOp layer that coexists with builtins.
+
+Implemented in this branch:
+- Shared `PrimOp` enum and execution logic in `src/primop/mod.rs`
+- Generic primop bytecode opcode `OpPrimOp(id, arity)` in `src/bytecode/op_code.rs`
+- Compiler call lowering for supported direct calls in `src/bytecode/compiler/expression.rs`
+- VM primop dispatch in `src/runtime/vm/dispatch.rs` and `src/runtime/vm/primop.rs`
+- JIT primop path via `rt_call_primop` in `src/jit/runtime_helpers.rs` and lowering in `src/jit/compiler.rs`
+- Builtin superinstruction path `OpCallBuiltin(idx, arity)` for selected higher-order builtins
+- Function-level effect boundary metadata (`EffectSummary`) in debug info
+- Example programs in `examples/prims/`
+
+The current strategy is:
+- Use PrimOps as a fast execution path.
+- Keep existing builtins as compatibility fallback.
+- Preserve VM/JIT semantic parity through shared runtime primop execution.
 
 ---
 
 ## Motivation
 
-Flux has 63 registered builtin functions. Every direct call to any of them — regardless of
-simplicity — goes through the same two-instruction generic path:
+Before PrimOps, direct builtin calls typically used:
 
-```
-OpGetBuiltin(idx)   ; push Value::Builtin(idx) onto stack
-OpCall(n)           ; generic call dispatch
+```text
+OpGetBuiltin(idx) + OpCall(arity)
 ```
 
-At runtime, `OpCall` inspects the top of the stack, matches on `Value::Builtin`, calls
-`get_builtin_by_index()` a second time, then invokes the function through a `Vec<Value>`
-calling convention.
+That path adds avoidable overhead:
+- Builtin value materialization on stack
+- Generic call dispatch
+- Repeated runtime lookup and argument packing
 
-The compiler already knows at compile time which builtin is being called — it resolves
-identifiers to `SymbolScope::Builtin` bindings via the symbol table. That knowledge is
-discarded when it emits a generic `OpGetBuiltin + OpCall` sequence, forcing the VM to
-re-discover it at runtime on every execution.
+PrimOps encode compiler-known primitive operations directly as runtime operations:
 
-Additionally, several opcodes already exist that perform operations equivalent to builtins
-(`OpConsHead` ≡ `hd`, `OpConsTail` ≡ `tl`, `OpToString` ≡ `to_string`, `OpIsSome` ≡
-`is_some`) — but these opcodes are only emitted for language constructs (pattern matching,
-string interpolation), never for direct builtin function calls.
-
-This proposal defines three phases to address this, inspired by how GHC handles primops:
-encode compiler-known operations directly into bytecode rather than deferring dispatch to
-runtime.
-
----
-
-## Background: GHC Primops vs BEAM BIFs vs Current Flux
-
-| Approach | Description |
-|---|---|
-| GHC primops | Compiler inlines operation as machine instructions. No function call. |
-| BEAM BIFs | C function, but bypasses Erlang dispatch. Still a call. |
-| Flux (current) | Rust function via generic dispatch. Double lookup + stack push/pop. |
-
-The goal is to move Flux closer to the GHC end of this spectrum for simple, pure-value
-operations, while keeping the existing path for complex operations that require
-`RuntimeContext` or GC interaction.
-
----
-
-## Current Call Path (Detailed)
-
-For `len(arr)` the compiler emits:
-
-```
-OpGetBuiltin(1)   ; 2 bytes
-OpGetLocal(0)     ; 2 bytes  (arr)
-OpCall(1)         ; 2 bytes
+```text
+OpPrimOp(id, arity)
 ```
 
-At runtime:
-
-1. **`OpGetBuiltin`**: read 1-byte index → `get_builtin_by_index(idx)` (bounds check +
-   array index) → push `Value::Builtin(idx)` onto stack
-2. **`OpCall`**: read 1-byte arity → compute `callee_idx = sp - 1 - n` → read
-   `stack[callee_idx]` → `match` on `Value` enum → `Value::Builtin` arm →
-   `get_builtin_by_index(idx)` again → `builtin_fixed_arity(name)` (string comparisons) →
-   collect args into `Vec<Value>` → call `(builtin.func)(self, args)`
-
-Overhead per call:
-- 2 array lookups (`get_builtin_by_index` called twice)
-- 1 stack push + 1 stack pop of `Value::Builtin`
-- 1 type-dispatch branch in `OpCall`
-- `builtin_fixed_arity` string comparison
-- `Vec<Value>` heap allocation for arguments
+This keeps the surface minimal while reducing dispatch overhead in both VM and JIT backends.
 
 ---
 
-## Current State: What Already Uses Primop-Style Opcodes
+## Current Implemented PrimOp Surface
 
-These specialized opcodes exist and fire correctly — but only from language constructs,
-never from direct builtin function calls:
+Implemented PrimOps (36):
 
-| Opcode | Fires from | Equivalent builtin | Direct call behavior |
-|---|---|---|---|
-| `OpConsHead` | Pattern `[h \| t]` → bind `h` | `hd` | `OpGetBuiltin + OpCall` |
-| `OpConsTail` | Pattern `[h \| t]` → bind `t` | `tl` | `OpGetBuiltin + OpCall` |
-| `OpIsCons` | Pattern `[h \| t]` → check | `is_list` (partial) | `OpGetBuiltin + OpCall` |
-| `OpIsEmptyList` | Pattern `[]` → check | — | n/a |
-| `OpIsSome` | Pattern `Some(x)` → check | `is_some` | `OpGetBuiltin + OpCall` |
-| `OpUnwrapSome` | Pattern `Some(x)` → unwrap | — | n/a |
-| `OpToString` | String interpolation `"${x}"` | `to_string` | `OpGetBuiltin + OpCall` |
-| `OpIsLeft/Right` | Left/Right pattern matching | — | n/a |
+- Integer arithmetic: `IAdd`, `ISub`, `IMul`, `IDiv`, `IMod`
+- Float arithmetic: `FAdd`, `FSub`, `FMul`, `FDiv`
+- Comparisons: `ICmpEq`, `ICmpNe`, `ICmpLt`, `ICmpLe`, `ICmpGt`, `ICmpGe`, `FCmpEq`, `FCmpNe`, `FCmpLt`, `FCmpLe`, `FCmpGt`, `FCmpGe`, `CmpEq`, `CmpNe`
+- Array: `ArrayLen`, `ArrayGet`, `ArraySet`
+- Map: `MapGet`, `MapSet`, `MapHas`
+- String: `StringLen`, `StringConcat`, `StringSlice`
+- Effectful: `Println`, `ReadFile`, `ClockNow`, `Panic`
 
-All 63 builtins use the generic path when called directly as functions.
+Effect classification is explicit through `PrimEffect`:
+- `Pure`
+- `Io`
+- `Time`
+- `Control`
 
 ---
 
-## Proposal
+## Implemented Architecture
 
-### Phase 1 — Wire Existing Opcodes to Direct Calls
+## PrimOps Architecture
 
-**Effort:** Low. Compiler only. No new opcodes. No VM changes.
-
-The 4 builtins that have matching opcodes should emit those opcodes when called directly:
-
-| Direct call | Currently emits | Should emit |
-|---|---|---|
-| `hd(x)` | `OpGetBuiltin(idx) + OpCall(1)` | `OpConsHead` |
-| `tl(x)` | `OpGetBuiltin(idx) + OpCall(1)` | `OpConsTail` |
-| `to_string(x)` | `OpGetBuiltin(idx) + OpCall(1)` | `OpToString` |
-| `is_some(x)` | `OpGetBuiltin(idx) + OpCall(1)` | `OpIsSome` |
-
-**Implementation:**
-
-In `src/bytecode/compiler/expression.rs`, inside the `Expression::Call` arm, before the
-generic path, add a check:
-
-```rust
-Expression::Call { function, arguments, .. } => {
-    // --- Phase 1: wire existing opcodes ---
-    if let Some(opcode) = self.try_emit_as_existing_primop(function, arguments) {
-        return opcode;
-    }
-    // ... existing generic path unchanged ...
-}
+```text
+Flux Source
+   |
+   v
+AST (Expression::Call)
+   |
+   +--> PrimOp Resolver (name + arity match)
+   |        |
+   |        +--> match => emit OpPrimOp(id, arity)
+   |        |
+   |        +--> no match => existing builtin/function call lowering
+   |
+   v
+Bytecode / JIT Lowering
+   |
+   +--> VM path:
+   |      OpPrimOp -> VM dispatch -> execute_primop(op, args)
+   |
+   +--> JIT path:
+          compile_primop_call -> rt_call_primop -> execute_primop(op, args)
 ```
 
-Where `try_emit_as_existing_primop` resolves the callee identifier, checks if it maps to
-a known `SymbolScope::Builtin` with a pre-existing opcode, compiles the arguments, and
-emits the opcode.
+Core architectural principle:
+- `execute_primop` is the semantic single source of truth.
+- VM and JIT both call into that shared layer, so behavior stays aligned.
 
-**What does NOT change:**
+Layer responsibilities:
+- `src/bytecode/compiler/expression.rs`
+  PrimOp detection and bytecode emission.
+- `src/bytecode/op_code.rs`
+  Bytecode encoding contract (`OpPrimOp` + operand widths).
+- `src/runtime/vm/dispatch.rs` + `src/runtime/vm/primop.rs`
+  VM decoding and stack argument plumbing.
+- `src/jit/compiler.rs`
+  PrimOp call lowering in native backend.
+- `src/jit/runtime_helpers.rs`
+  ABI bridge for JIT-to-runtime primop invocation.
+- `src/primop/mod.rs`
+  PrimOp enum, metadata, and semantic execution.
 
-- Higher-order use (`map(xs, hd)`) still emits `OpGetBuiltin` since the value must be
-  representable as `Value::Builtin`.
-- All other builtins are unaffected.
-- The VM dispatch for these opcodes is unchanged.
+Invariants:
+- Every `PrimOp` has stable `id`, fixed `arity`, and explicit effect classification.
+- VM and JIT must produce identical results/errors for the same PrimOp inputs.
+- Compiler PrimOp lowering is opportunistic; fallback always preserves old behavior.
 
-**Risk:** Very low. These opcodes are already tested via pattern matching paths.
+Fallback architecture:
+- Fast path: `OpPrimOp`.
+- Compatibility path: builtins/functions via existing call infrastructure.
+- This avoids a flag day migration and keeps higher-order builtin behavior intact.
 
----
+## 1. Compiler Lowering
 
-### Phase 2 — True Primops for Simple Builtins
+In `Expression::Call`, compiler attempts primop lowering first:
+- `src/bytecode/compiler/expression.rs` (`try_emit_primop_call`)
 
-**Effort:** Medium. New opcodes + compiler detection + VM inline handlers.
+If a call matches a supported name and arity, it emits:
+- `OpPrimOp(primop_id, arity)`
 
-Add specialized opcodes for the most frequently called, pure-value builtins. These
-eliminate the Rust function call and the `Vec<Value>` allocation entirely.
+If it does not match, compiler falls back to existing call lowering:
+- builtin path
+- closure/function call path
 
-**Candidate builtins** — selected because they:
-- Take no `RuntimeContext` (or trivially use it)
-- Operate on value types without GC interaction
-- Are called frequently in hot paths
+This keeps compatibility and enables incremental migration.
 
-| Builtin | New opcode | Operands | VM inline implementation |
-|---|---|---|---|
-| `len(x)` | `OpLen` | none | `match Array(a)→a.len(), String(s)→s.chars().count()` |
-| `abs(x)` | `OpAbs` | none | `match Integer(n)→n.abs(), Float(f)→f.abs()` |
-| `min(a,b)` | `OpMin` | none | inline comparison, pop 2, push smaller |
-| `max(a,b)` | `OpMax` | none | inline comparison, pop 2, push larger |
-| `is_none(x)` | `OpIsNone` | none | `matches!(val, Value::None)` → bool |
-| `is_array(x)` | `OpIsArray` | none | `matches!(val, Value::Array(_))` → bool |
-| `is_int(x)` | `OpIsInt` | none | `matches!(val, Value::Integer(_))` → bool |
-| `is_float(x)` | `OpIsFloat` | none | `matches!(val, Value::Float(_))` → bool |
-| `is_string(x)` | `OpIsString` | none | `matches!(val, Value::String(_))` → bool |
-| `is_bool(x)` | `OpIsBool` | none | `matches!(val, Value::Boolean(_))` → bool |
+## 2. Bytecode Encoding
 
-**Implementation — three touch points:**
+`src/bytecode/op_code.rs`:
+- Added `OpPrimOp`
+- Operand widths: `[u8 primop_id, u8 arity]`
 
-1. **`src/bytecode/op_code.rs`** — add enum variants, `operand_widths` entries (all
-   zero-operand), `From<u8>` arms, `disassemble` display.
+This is a hybrid model:
+- Generic primop opcode now
+- Option to add dedicated hot opcodes later without changing `PrimOp` semantic layer
 
-2. **`src/bytecode/compiler/expression.rs`** — detect direct calls to these builtins and
-   emit the specialized opcode instead of `OpGetBuiltin + OpCall`. The compiler already
-   has `SymbolScope::Builtin` with the index; a static mapping from builtin name to opcode
-   is sufficient.
+## 3. VM Execution
 
-3. **`src/runtime/vm/dispatch.rs`** — add inline VM handlers:
+`src/runtime/vm/dispatch.rs`:
+- New `OpPrimOp` dispatch arm
 
-```rust
-OpCode::OpLen => {
-    let val = self.pop();
-    let n = match &val {
-        Value::Array(a)  => a.len() as i64,
-        Value::String(s) => s.chars().count() as i64,
-        _ => return Err(format!("len: expected Array or String, got {}", val.type_name())),
-    };
-    self.push(Value::Integer(n))?;
-    Ok(1)
-}
-```
+`src/runtime/vm/primop.rs`:
+- Decodes `primop_id`
+- Validates arity
+- Pops arguments
+- Calls shared `execute_primop(...)`
+- Pushes result
 
-**What does NOT change:**
+Core runtime semantics live in:
+- `src/primop/mod.rs`
 
-- Higher-order use of these builtins (`map(xs, len)`) still uses `OpGetBuiltin`.
-- Builtins requiring GC or `RuntimeContext` are unaffected.
+## 4. JIT Execution
 
-**Risk:** Low-medium. New opcodes require updating disassembler, snapshot tests, and any
-tooling that inspects bytecode.
+`src/jit/compiler.rs`:
+- Direct call primop resolution mirrors compiler mapping
+- Emits helper call to `rt_call_primop`
 
----
+`src/jit/runtime_helpers.rs`:
+- Adds `rt_call_primop(ctx, primop_id, args_ptr, nargs)`
+- Calls shared `execute_primop(...)`
 
-### Phase 3 — `OpCallBuiltin` Superinstruction (Catch-All)
-
-**Effort:** Medium. New opcode + compiler + VM.
-
-For all remaining builtins that cannot be true primops (need `RuntimeContext`, GC
-interaction, complex logic), add a superinstruction that fuses `OpGetBuiltin + OpCall`
-into a single dispatch.
-
-```
-OpCallBuiltin(idx, arity)   ; 3 bytes total
-```
-
-This is the BEAM BIF level — still a Rust function call, but eliminates:
-- The second `get_builtin_by_index` lookup
-- The `Value::Builtin` stack push/pop
-- The type-dispatch branch in `OpCall`
-- The `builtin_fixed_arity` string comparison
-
-**Candidates:** `map`, `filter`, `fold`, `flat_map`, `push`, `range`, `sum`, `product`,
-`sort`, `reverse`, `contains`, `slice`, `put`, `get`, `has_key`, `keys`, `values`,
-`merge`, `delete`, `list`, `to_list`, `to_array`, `hd`, `tl`, `concat`, `split`, `join`,
-`trim`, `upper`, `lower`, `starts_with`, `ends_with`, `replace`, `chars`, `substring`,
-`print`, `parse_int`, `parse_ints`, `split_ints`, `read_file`, `read_lines`, `read_stdin`,
-`now_ms`, `time`, `zip`, `flatten`, `any`, `all`, `find`, `sort_by`, `count`, `type_of`,
-`is_list`, `is_hash`, `is_map`.
-
-**Implementation — `src/bytecode/op_code.rs`:**
-
-```rust
-OpCallBuiltin = N,   // operands: [u8 idx, u8 arity]
-```
-```rust
-OpCode::OpCallBuiltin => vec![1, 1],
-```
-
-**Implementation — `src/runtime/vm/dispatch.rs`:**
-
-```rust
-OpCode::OpCallBuiltin => {
-    let idx      = Self::read_u8_fast(instructions, ip + 1) as usize;
-    let num_args = Self::read_u8_fast(instructions, ip + 2) as usize;
-    let builtin  = &BUILTINS[idx];
-    let args: Vec<Value> = (0..num_args)
-        .map(|_| self.pop())
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    let result = (builtin.func)(self, args)?;
-    self.push(result)?;
-    Ok(3)
-}
-```
-
-**Risk:** Low. The existing `OpGetBuiltin + OpCall` path remains intact as fallback for
-higher-order use.
+Result:
+- VM and JIT share the same primop semantics and error behavior
 
 ---
 
-## What NOT to Primop
+## Builtins Relationship
 
-These builtins should remain on the generic path regardless of phase:
+Builtins are not removed in this phase.
 
-| Category | Builtins | Reason |
-|---|---|---|
-| I/O bound | `print`, `read_file`, `read_lines`, `read_stdin` | I/O latency dominates; dispatch overhead is noise |
-| GC-heavy | `list`, `put`, `get`, `merge`, `to_list` | Complexity is in GC allocation, not dispatch |
-| Higher-order callbacks | `map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by` | The callback invocation is the bottleneck |
+Current model:
+- PrimOps for supported direct-call fast paths
+- Builtins remain as:
+  - public compatibility surface
+  - fallback for unsupported calls
+  - primary path for complex and higher-order builtins
 
-Note: even for higher-order builtins, `OpCallBuiltin` (Phase 3) still saves the outer
-dispatch overhead — just not the inner callback overhead.
-
----
-
-## JIT Backend
-
-The three phases described here are **VM-only**. The JIT compiles AST directly to
-Cranelift IR and does not use opcodes.
-
-The JIT already detects direct builtin calls at the AST level
-(`src/jit/compiler.rs:1646`) and dispatches via `rt_call_builtin` — a native C extern.
-The JIT equivalent of this proposal would be inlining simple operations as Cranelift IR
-(struct field loads, arithmetic), avoiding the `rt_call_builtin` call entirely. That is a
-separate, more complex effort and is out of scope here.
+This preserves stability while enabling measurable optimization.
 
 ---
 
-## Impact Summary
+## Updated Phase Plan
 
-| Phase | Builtins affected | Overhead eliminated | Effort |
-|---|---|---|---|
-| 1 — Wire existing opcodes | `hd`, `tl`, `to_string`, `is_some` | Double lookup, stack push/pop, type dispatch | Low |
-| 2 — True primops | `len`, `abs`, `min`, `max`, type checks (10 builtins) | Rust fn call + `Vec<Value>` alloc + all dispatch | Medium |
-| 3 — `OpCallBuiltin` | ~49 remaining builtins | Double lookup, stack push/pop, type dispatch | Medium |
+## Phase 0 (Completed in this branch): PrimOp Foundation
+
+Delivered:
+- Shared PrimOp runtime layer
+- `OpPrimOp` bytecode
+- Compiler + VM + JIT integration
+- PrimOp examples and validation
+
+## Phase 1 (Completed): Highest ROI Builtin Migration to True PrimOps
+
+Target builtins:
+- `len`
+- `abs`, `min`, `max`
+- `type_of`
+- `is_int`, `is_float`, `is_string`, `is_bool`, `is_array`, `is_hash`, `is_none`, `is_some`
+- `to_string`
+
+Goal:
+- Route hot simple builtins through direct PrimOp lowering
+- Keep builtin fallback in place
+
+## Phase 2: Medium Complexity Primitive Builtins
+
+Target builtins:
+- Collections: `first`, `last`, `rest`, `contains`, `slice`
+- Strings: `concat`, `trim`, `upper`, `lower`, `starts_with`, `ends_with`, `replace`, `chars`, `substring`
+- Maps: `get`, `put`, `has_key`, `is_map`, `keys`, `values`, `delete`, `merge`
+- Numeric parsing: `parse_int`, `parse_ints`, `split_ints`
+
+Goal:
+- Broaden primop coverage while preserving behavior
+
+## Phase 3 (Completed): Superinstruction for Remaining Builtin Calls
+
+Add:
+- `OpCallBuiltin(idx, arity)` as a fused superinstruction for complex builtins
+
+Likely candidates:
+- higher-order and callback-heavy builtins (`map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`)
+- other non-true-primop candidates where call overhead still matters
+
+Goal:
+- Reduce generic builtin call overhead without rewriting all complex logic as primops
+
+Implemented details:
+- Compiler emits `OpCallBuiltin` only for builtin-scoped, direct-call allowlisted names:
+  - `map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`
+- VM executes `OpCallBuiltin` through direct builtin invocation path (no `Value::Builtin` callee materialization)
+- JIT parity is policy-based (same allowlist/shadowing semantics), while runtime call remains `rt_call_builtin`
+
+## Phase 4 (Completed): Effect Boundary + Future Effects Integration
+
+Focus:
+- Keep effectful ops (`print*`, file/time reads, panic-like control) explicit in metadata
+- Prepare lowering path for future algebraic effects
+
+Goal:
+- Smooth migration from implicit runtime ordering to effect-aware IR in future work
+
+Implemented details:
+- PrimOp effect kinds remain explicit in `PrimOp::effect_kind()`:
+  - `Pure`, `Io`, `Time`, `Control`
+- Compiler records per-function `EffectSummary` in debug info:
+  - `Pure`, `Unknown`, `HasEffects`
+- Summary is computed during instruction emission:
+  - effectful primops => `HasEffects`
+  - generic calls / fused builtin calls => `Unknown` (conservative boundary)
+  - otherwise `Pure`
+- Metadata is preserved through bytecode cache serialization.
 
 ---
 
-## Files to Change
+## Non-Goals (Current)
 
-| File | Phases |
-|---|---|
-| `src/bytecode/op_code.rs` | 2, 3 |
-| `src/bytecode/compiler/expression.rs` | 1, 2, 3 |
-| `src/runtime/vm/dispatch.rs` | 2, 3 |
-| `src/runtime/builtins/mod.rs` | No change required |
-| `src/bytecode/symbol_table.rs` | No change required |
-| Snapshot tests | 2, 3 (new opcodes change disassembly output) |
+- Immediate deprecation/removal of builtins
+- Full world-token effect threading in bytecode/runtime
+- Complete rewrite of all higher-order builtins as true primops
 
 ---
 
-## Recommended Order
+## Validation Status
 
-Start with **Phase 1**. It is a pure compiler change, touches one file, carries zero VM
-risk, requires no new opcodes, and immediately corrects the inconsistency where `hd(x)`
-does not use `OpConsHead` despite the opcode existing for that purpose.
+Implemented codepath validates with:
+- `cargo fmt --all`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test -q`
 
-Benchmark after Phase 1, then decide whether Phase 2 or Phase 3 yields better returns for
-the programs in `examples/`.
+Examples:
+- `examples/prims/arith_and_compare.flx`
+- `examples/prims/collections.flx`
+- `examples/prims/string_and_effects.flx`
+- `examples/prims/panic_demo.flx`
 
 ---
 
-## References
+## Files Added/Updated (Implemented)
 
-- `src/bytecode/op_code.rs` — opcode definitions
-- `src/bytecode/compiler/expression.rs` — call compilation
-- `src/bytecode/compiler/builder.rs` — `load_symbol` / `SymbolScope::Builtin`
-- `src/runtime/vm/dispatch.rs` — VM dispatch loop
-- `src/runtime/vm/function_call.rs` — builtin call handling
-- `src/runtime/builtins/mod.rs` — BUILTINS array
-- `src/jit/compiler.rs` — JIT builtin detection
-- `src/jit/runtime_helpers.rs` — `rt_call_builtin`
+- `src/primop/mod.rs`
+- `src/bytecode/op_code.rs`
+- `src/bytecode/compiler/expression.rs`
+- `src/runtime/vm/primop.rs`
+- `src/runtime/vm/dispatch.rs`
+- `src/jit/compiler.rs`
+- `src/jit/runtime_helpers.rs`
+- `src/lib.rs`
+- `examples/prims/*`
+
+---
+
+## Next Recommended Actions
+
+1. Add explicit compiler tests that assert `OpPrimOp` emission for mapped names.
+2. Add VM/JIT parity tests per primop category.
+3. Benchmark pre/post for `len` and type checks before Phase 1 expansion.
+4. Land Phase 1 builtin migrations with snapshot and perf guardrails.

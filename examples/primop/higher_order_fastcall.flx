@@ -18,5 +18,5 @@ print(all(xs, fn(x) { x > 0 }));       // true
 print(find(xs, fn(x) { x == 3 }));     // Some(3)
 print(count(xs, fn(x) { x % 2 == 0 })); // 2
 
-let sorted = sort_by(list(5, 2, 4, 1, 3), fn(a, b) { a < b });
-print(to_array(sorted)); // [|1, 2, 3, 4, 5|]
+let sorted = sort_by([|5, 2, 4, 1, 3|], fn(x) { x });
+print(sorted); // [|1, 2, 3, 4, 5|]
