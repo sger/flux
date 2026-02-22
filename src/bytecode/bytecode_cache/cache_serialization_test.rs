@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    bytecode::debug_info::{FunctionDebugInfo, InstructionLocation, Location},
+    bytecode::debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation, Location},
     diagnostics::position::{Position, Span},
     runtime::{compiled_function::CompiledFunction, value::Value},
 };
@@ -69,7 +69,8 @@ fn object_roundtrip_includes_function_debug_info() {
                 span: Span::new(Position::new(1, 0), Position::new(1, 3)),
             }),
         }],
-    );
+    )
+    .with_effect_summary(EffectSummary::HasEffects);
 
     let function = CompiledFunction::new(vec![1, 2, 3], 2, 1, Some(debug_info.clone()));
 
@@ -111,7 +112,8 @@ fn function_debug_info_roundtrip() {
                 span: Span::new(Position::new(2, 4), Position::new(2, 8)),
             }),
         }],
-    );
+    )
+    .with_effect_summary(EffectSummary::Unknown);
 
     write_function_debug_info(&mut file, Some(&debug_info)).unwrap();
     file.seek(SeekFrom::Start(0)).unwrap();

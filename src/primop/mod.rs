@@ -380,7 +380,7 @@ fn execute_numeric_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String>
         },
         PrimOp::Min => numeric_mix_max(args, op, true),
         PrimOp::Max => numeric_mix_max(args, op, false),
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("numeric", op),
     }
 }
 
@@ -411,7 +411,7 @@ fn execute_compare_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String>
             let left = args.pop().expect("arity checked");
             Ok(Value::Boolean(left != right))
         }
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("compare", op),
     }
 }
 
@@ -458,7 +458,7 @@ fn execute_array_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> {
                 other => Err(type_error(op, "Array", &other)),
             }
         }
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("array", op),
     }
 }
 
@@ -518,7 +518,7 @@ fn execute_map_primop(
                 hamt_lookup(ctx.gc_heap(), handle, &hash).is_some(),
             ))
         }
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("map", op),
     }
 }
 
@@ -568,7 +568,7 @@ fn execute_string_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> 
                 Ok(Value::String(sliced.into()))
             }
         }
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("string", op),
     }
 }
 
@@ -592,7 +592,7 @@ fn execute_effect_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> 
             Ok(Value::Integer(now.as_millis() as i64))
         }
         PrimOp::Panic => Err(format!("panic: {}", args[0].to_string_value())),
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("effect", op),
     }
 }
 
@@ -641,7 +641,7 @@ fn execute_builtin_compat_primop(
         PrimOp::IsNone => Ok(Value::Boolean(matches!(args[0], Value::None))),
         PrimOp::IsSome => Ok(Value::Boolean(matches!(args[0], Value::Some(_)))),
         PrimOp::ToString => Ok(Value::String(args[0].to_string_value().into())),
-        _ => Err("Error".to_string()),
+        _ => dispatch_error("builtin-compat", op),
     }
 }
 
@@ -808,6 +808,14 @@ fn type_error(op: PrimOp, expected: &str, got: &Value) -> String {
         expected,
         got.type_name()
     )
+}
+
+fn dispatch_error(group: &str, op: PrimOp) -> Result<Value, String> {
+    Err(format!(
+        "internal primop dispatch error in {} group for {}",
+        group,
+        op.display_name()
+    ))
 }
 
 #[cfg(test)]
