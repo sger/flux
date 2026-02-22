@@ -1,4 +1,4 @@
-# Proposal 034: Builtin PrimOps — Structured PrimOp Layer
+# Proposal 034: Base PrimOps — Structured PrimOp Layer
 
 **Status:** In Progress (Phases 0, 1, 3, 4 implemented)  
 **Date:** 2026-02-19 (updated 2026-02-20)  
@@ -8,7 +8,7 @@
 
 ## Summary
 
-Flux now has a first-class PrimOp layer that coexists with builtins.
+Flux now has a first-class PrimOp layer that coexists with base functions.
 
 Implemented in this branch:
 - Shared `PrimOp` enum and execution logic in `src/primop/mod.rs`
@@ -16,27 +16,27 @@ Implemented in this branch:
 - Compiler call lowering for supported direct calls in `src/bytecode/compiler/expression.rs`
 - VM primop dispatch in `src/runtime/vm/dispatch.rs` and `src/runtime/vm/primop.rs`
 - JIT primop path via `rt_call_primop` in `src/jit/runtime_helpers.rs` and lowering in `src/jit/compiler.rs`
-- Builtin superinstruction path `OpCallBase(idx, arity)` for selected higher-order builtins
+- Base superinstruction path `OpCallBase(idx, arity)` for selected higher-order base functions
 - Function-level effect boundary metadata (`EffectSummary`) in debug info
 - Example programs in `examples/prims/`
 
 The current strategy is:
 - Use PrimOps as a fast execution path.
-- Keep existing builtins as compatibility fallback.
+- Keep existing base functions as compatibility fallback.
 - Preserve VM/JIT semantic parity through shared runtime primop execution.
 
 ---
 
 ## Motivation
 
-Before PrimOps, direct builtin calls typically used:
+Before PrimOps, direct base calls typically used:
 
 ```text
 OpGetBase(idx) + OpCall(arity)
 ```
 
 That path adds avoidable overhead:
-- Builtin value materialization on stack
+- Base value materialization on stack
 - Generic call dispatch
 - Repeated runtime lookup and argument packing
 
@@ -84,7 +84,7 @@ AST (Expression::Call)
    |        |
    |        +--> match => emit OpPrimOp(id, arity)
    |        |
-   |        +--> no match => existing builtin/function call lowering
+   |        +--> no match => existing base/function call lowering
    |
    v
 Bytecode / JIT Lowering
@@ -121,8 +121,8 @@ Invariants:
 
 Fallback architecture:
 - Fast path: `OpPrimOp`.
-- Compatibility path: builtins/functions via existing call infrastructure.
-- This avoids a flag day migration and keeps higher-order builtin behavior intact.
+- Compatibility path: base functions/functions via existing call infrastructure.
+- This avoids a flag day migration and keeps higher-order base behavior intact.
 
 ## 1. Compiler Lowering
 
@@ -133,7 +133,7 @@ If a call matches a supported name and arity, it emits:
 - `OpPrimOp(primop_id, arity)`
 
 If it does not match, compiler falls back to existing call lowering:
-- builtin path
+- base path
 - closure/function call path
 
 This keeps compatibility and enables incremental migration.
@@ -178,16 +178,16 @@ Result:
 
 ---
 
-## Builtins Relationship
+## Base Functions Relationship
 
-Builtins are not removed in this phase.
+Base Functions are not removed in this phase.
 
 Current model:
 - PrimOps for supported direct-call fast paths
-- Builtins remain as:
+- Base Functions remain as:
   - public compatibility surface
   - fallback for unsupported calls
-  - primary path for complex and higher-order builtins
+  - primary path for complex and higher-order base functions
 
 This preserves stability while enabling measurable optimization.
 
@@ -203,9 +203,9 @@ Delivered:
 - Compiler + VM + JIT integration
 - PrimOp examples and validation
 
-## Phase 1 (Completed): Highest ROI Builtin Migration to True PrimOps
+## Phase 1 (Completed): Highest ROI Base Migration to True PrimOps
 
-Target builtins:
+Target base functions:
 - `len`
 - `abs`, `min`, `max`
 - `type_of`
@@ -213,12 +213,12 @@ Target builtins:
 - `to_string`
 
 Goal:
-- Route hot simple builtins through direct PrimOp lowering
-- Keep builtin fallback in place
+- Route hot simple base functions through direct PrimOp lowering
+- Keep base fallback in place
 
-## Phase 2: Medium Complexity Primitive Builtins
+## Phase 2: Medium Complexity Primitive Base Functions
 
-Target builtins:
+Target base functions:
 - Collections: `first`, `last`, go ahea`rest`, `contains`, `slice`
 - Strings: `concat`, `trim`, `upper`, `lower`, `starts_with`, `ends_with`, `replace`, `chars`, `substring`
 - Maps: `get`, `put`, `has_key`, `is_map`, `keys`, `values`, `delete`, `merge`
@@ -227,23 +227,23 @@ Target builtins:
 Goal:
 - Broaden primop coverage while preserving behavior
 
-## Phase 3 (Completed): Superinstruction for Remaining Builtin Calls
+## Phase 3 (Completed): Superinstruction for Remaining Base Calls
 
 Add:
-- `OpCallBase(idx, arity)` as a fused superinstruction for complex builtins
+- `OpCallBase(idx, arity)` as a fused superinstruction for complex base functions
 
 Likely candidates:
-- higher-order and callback-heavy builtins (`map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`)
+- higher-order and callback-heavy base functions (`map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`)
 - other non-true-primop candidates where call overhead still matters
 
 Goal:
-- Reduce generic builtin call overhead without rewriting all complex logic as primops
+- Reduce generic base call overhead without rewriting all complex logic as primops
 
 Implemented details:
-- Compiler emits `OpCallBase` only for builtin-scoped, direct-call allowlisted names:
+- Compiler emits `OpCallBase` only for base-scoped, direct-call allowlisted names:
   - `map`, `filter`, `fold`, `flat_map`, `any`, `all`, `find`, `sort_by`, `count`
-- VM executes `OpCallBase` through direct builtin invocation path (no `Value::Builtin` callee materialization)
-- JIT parity is policy-based (same allowlist/shadowing semantics), while runtime call remains `rt_call_builtin`
+- VM executes `OpCallBase` through direct base invocation path (no `Value::Base` callee materialization)
+- JIT parity is policy-based (same allowlist/shadowing semantics), while runtime call remains `rt_call_base`
 
 ## Phase 4 (Completed): Effect Boundary + Future Effects Integration
 
@@ -261,7 +261,7 @@ Implemented details:
   - `Pure`, `Unknown`, `HasEffects`
 - Summary is computed during instruction emission:
   - effectful primops => `HasEffects`
-  - generic calls / fused builtin calls => `Unknown` (conservative boundary)
+  - generic calls / fused base calls => `Unknown` (conservative boundary)
   - otherwise `Pure`
 - Metadata is preserved through bytecode cache serialization.
 
@@ -269,9 +269,9 @@ Implemented details:
 
 ## Non-Goals (Current)
 
-- Immediate deprecation/removal of builtins
+- Immediate deprecation/removal of base functions
 - Full world-token effect threading in bytecode/runtime
-- Complete rewrite of all higher-order builtins as true primops
+- Complete rewrite of all higher-order base functions as true primops
 
 ---
 
@@ -309,4 +309,4 @@ Examples:
 1. Add explicit compiler tests that assert `OpPrimOp` emission for mapped names.
 2. Add VM/JIT parity tests per primop category.
 3. Benchmark pre/post for `len` and type checks before Phase 1 expansion.
-4. Land Phase 1 builtin migrations with snapshot and perf guardrails.
+4. Land Phase 1 base migrations with snapshot and perf guardrails.

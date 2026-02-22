@@ -247,7 +247,7 @@ For each scope:
 
 ```
 Scope 1 (global):
-  print -> Builtin(0)
+  print -> Base(0)
 
 Scope 2 (function f):
   x -> Local(0)

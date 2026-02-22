@@ -31,7 +31,7 @@ let result = 2
 print(result)  // 28
 ```
 
-### Pipe with builtin functions
+### Pipe with base functions
 
 ```flux
 let greeting = "  HELLO WORLD  "

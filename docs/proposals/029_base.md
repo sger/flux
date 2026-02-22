@@ -3,7 +3,7 @@
 **Status:** Historical (superseded by split proposals 028 Base + 030 Flow)
 **Priority:** High
 **Created:** 2026-02-12
-**Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Builtins Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
+**Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Base Functions Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
 
 > Historical combined context document.
 > Canonical current split:
@@ -12,41 +12,41 @@
 
 ## Summary
 
-Replace the hard-coded builtin system with a **`Base` module** — a privileged module that is auto-imported into every Flux module and script. Functions in `Base` look and feel like language primitives but participate in the module system. Users can exclude specific `Base` functions. The standard library grows as **`Flow`** modules — data flows through Flux.
+Replace the hard-coded base system with a **`Base` module** — a privileged module that is auto-imported into every Flux module and script. Functions in `Base` look and feel like language primitives but participate in the module system. Users can exclude specific `Base` functions. The standard library grows as **`Flow`** modules — data flows through Flux.
 
 This follows the Elixir `Kernel` / Haskell `Prelude` pattern: a curated set of essential functions available everywhere, with everything else one import away.
 
 ## Motivation
 
-### Problem 1: Builtins Bypass the Module System
+### Problem 1: Base Functions Bypass the Module System
 
-Current builtins are a parallel universe. They're registered by index in the compiler, dispatched via `OpGetBase`, and completely invisible to the module system:
+Current base functions are a parallel universe. They're registered by index in the compiler, dispatched via `OpGetBase`, and completely invisible to the module system:
 
 ```rust
 // Compiler::new_with_interner() — hard-coded indices
-symbol_table.define_builtin(0, intern("print"));
-symbol_table.define_builtin(1, intern("len"));
-// ... 40 more, indices MUST match BUILTINS array
+symbol_table.define_base(0, intern("print"));
+symbol_table.define_base(1, intern("len"));
+// ... 40 more, indices MUST match BASE_FUNCTIONS array
 ```
 
-This creates a brittle coupling: adding a builtin requires synchronized changes in the `BUILTINS` array (runtime) and `define_builtin` calls (compiler). Index mismatches cause silent wrong-function-called bugs.
+This creates a brittle coupling: adding a base requires synchronized changes in the `BASE_FUNCTIONS` array (runtime) and `define_base` calls (compiler). Index mismatches cause silent wrong-function-called bugs.
 
 ### Problem 2: No User Control Over Global Names
 
-Every builtin is unconditionally global. Users cannot:
-- Shadow a builtin with a local definition without a shadowing warning
-- Exclude a builtin they don't want (e.g., a `print` that conflicts with their domain)
+Every base is unconditionally global. Users cannot:
+- Shadow a base with a local definition without a shadowing warning
+- Exclude a base they don't want (e.g., a `print` that conflicts with their domain)
 - Discover what's available without reading Rust source
 
 In Elixir, you can write `import Kernel, except: [length: 1]`. In Haskell, `import Prelude hiding (map)`. Flux has no equivalent.
 
 ### Problem 3: No Clear Boundary Between "Essential" and "Library"
 
-All 42 builtins have equal status. But `print` and `len` are fundamentally different from `starts_with` and `slice`. There's no layering that says "these are the core vocabulary" vs "these are convenience functions." This makes the language feel ad-hoc as builtins accumulate.
+All 42 base functions have equal status. But `print` and `len` are fundamentally different from `starts_with` and `slice`. There's no layering that says "these are the core vocabulary" vs "these are convenience functions." This makes the language feel ad-hoc as base functions accumulate.
 
 ### Problem 4: Growing Pains
 
-Proposals 017 (GC/collections) and 026 (concurrency) will add 10+ new builtins each (`hd`, `tl`, `list`, `put`, `get`, `spawn`, `send`, `ask`, `await`, etc.). Without a proper module architecture, the flat builtin list will become unwieldy. The index-coupling problem gets worse with every addition.
+Proposals 017 (GC/collections) and 026 (concurrency) will add 10+ new base functions each (`hd`, `tl`, `list`, `put`, `get`, `spawn`, `send`, `ask`, `await`, etc.). Without a proper module architecture, the flat base list will become unwieldy. The index-coupling problem gets worse with every addition.
 
 ## Design
 
@@ -257,7 +257,7 @@ let result = nums
     |> Opt.unwrap_or(0)
 ```
 
-**Note:** `Flow.List` operates on persistent lists (cons cells from Proposal 017), not arrays. Use `list(...)` or `[h | t]` syntax to create lists. Array operations use Base builtins directly (`first`, `rest`, `slice`, `sort`, etc.).
+**Note:** `Flow.List` operates on persistent lists (cons cells from Proposal 017), not arrays. Use `list(...)` or `[h | t]` syntax to create lists. Array operations use Base base functions directly (`first`, `rest`, `slice`, `sort`, etc.).
 
 **Key distinction:**
 - `Base` — Rust-backed, auto-imported, ~42 functions
@@ -300,13 +300,13 @@ When the module resolver encounters `import Flow.List`, it checks the virtual re
 
 ### Phase 1: Base Module Infrastructure
 
-Decouple builtins from index-based dispatch.
+Decouple base functions from index-based dispatch.
 
 #### 1.1 Base Module Definition
 
-Replace the `BUILTINS` array + `define_builtin` calls with a single declarative definition.
+Replace the `BASE_FUNCTIONS` array + `define_base` calls with a single declarative definition.
 
-**Critical:** Builtin index assignment must be deterministic. `HashMap` iteration order is not stable across runs or platforms. Use a `Vec` for the canonical ordered registry and derive the lookup index from it:
+**Critical:** Base index assignment must be deterministic. `HashMap` iteration order is not stable across runs or platforms. Use a `Vec` for the canonical ordered registry and derive the lookup index from it:
 
 ```rust
 // src/runtime/base.rs
@@ -321,12 +321,12 @@ impl BaseModule {
     pub fn new() -> Self {
         let entries = vec![
             // I/O
-            ("print", builtins::util_ops::builtin_print as BuiltinFn),
+            ("print", base functions::util_ops::base_print as BuiltinFn),
 
             // Collections
-            ("len", builtins::array_ops::builtin_len as BuiltinFn),
-            ("first", builtins::array_ops::builtin_first as BuiltinFn),
-            ("last", builtins::array_ops::builtin_last as BuiltinFn),
+            ("len", base functions::array_ops::base_len as BuiltinFn),
+            ("first", base functions::array_ops::base_first as BuiltinFn),
+            ("last", base functions::array_ops::base_last as BuiltinFn),
             // ... all 42 functions in deterministic declaration order
         ];
 
@@ -355,7 +355,7 @@ impl BaseModule {
 }
 ```
 
-The `Vec` is the source of truth. Indices are positions in the Vec. The `HashMap` is a derived lookup cache built from the Vec in the constructor. Adding a builtin means appending to the Vec — existing indices never change.
+The `Vec` is the source of truth. Indices are positions in the Vec. The `HashMap` is a derived lookup cache built from the Vec in the constructor. Adding a base means appending to the Vec — existing indices never change.
 
 #### 1.2 Compiler Integration
 
@@ -365,15 +365,15 @@ During module compilation, auto-inject Base bindings into the symbol table:
 // In Compiler::new_with_interner()
 
 // OLD: manual index registration
-// symbol_table.define_builtin(0, intern("print"));
-// symbol_table.define_builtin(1, intern("len"));
+// symbol_table.define_base(0, intern("print"));
+// symbol_table.define_base(1, intern("len"));
 // ... 40 more lines
 
 // NEW: iterate Base module (deterministic order guaranteed by Vec)
 let base = BaseModule::new();
 for (index, name) in base.names().enumerate() {
     let symbol = interner.intern(name);
-    symbol_table.define_builtin(index, symbol);
+    symbol_table.define_base(index, symbol);
 }
 ```
 
@@ -385,7 +385,7 @@ Replace index-based `OpGetBase` with name-based lookup:
 
 ```rust
 // Current: OpGetBase takes a u8 index
-OpGetBase, [idx]  // idx must match BUILTINS array position
+OpGetBase, [idx]  // idx must match BASE_FUNCTIONS array position
 
 // New: OpGetBase takes a constant index pointing to the function name
 OpGetBase, [const_idx]  // const_idx points to interned name in constants
@@ -430,7 +430,7 @@ fn inject_core_bindings(&mut self, except: &[Symbol]) {
     for (index, name) in core.names().enumerate() {
         let symbol = self.interner.intern(name);
         if !except.contains(&symbol) {
-            self.symbol_table.define_builtin(index, symbol);
+            self.symbol_table.define_base(index, symbol);
         }
     }
 }
@@ -813,17 +813,17 @@ target/flux/
 
 When the compiler version changes, all Flow caches auto-invalidate (embedded source content changes with each build). No special cache logic needed.
 
-### Phase 4: Migrate Builtins to Base
+### Phase 4: Migrate Base Functions to Base
 
 Mechanical migration:
 
-1. Remove `define_builtin()` calls from `Compiler::new_with_interner()`
+1. Remove `define_base()` calls from `Compiler::new_with_interner()`
 2. Replace with `inject_core_bindings()` that reads from `BaseModule`
-3. Keep all existing Rust implementations in `src/runtime/builtins/` unchanged
+3. Keep all existing Rust implementations in `src/runtime/base functions/` unchanged
 4. Keep `OpGetBase` opcode unchanged
 5. Update bytecode cache version
 
-**Zero behavioral change.** The only difference is how the compiler discovers builtins — from a `BaseModule` struct instead of hard-coded calls.
+**Zero behavioral change.** The only difference is how the compiler discovers base functions — from a `BaseModule` struct instead of hard-coded calls.
 
 ## Architecture Diagram
 
@@ -912,7 +912,7 @@ A function belongs in **Flow** if:
 | type_of, is_* | Yes | Type introspection needs runtime access |
 | to_string | Yes | Polymorphic conversion needs runtime |
 
-All 42 current builtins stay in Base. They all meet at least one criterion.
+All 42 current base functions stay in Base. They all meet at least one criterion.
 
 ### What Goes in Flow (New)
 
@@ -952,14 +952,14 @@ The `import Base except [...]` syntax adds a new field to `Statement::Import`. T
 
 ### Proposal 026 (Concurrency)
 
-New Base functions for async layer: the exact set depends on whether `async`/`await` are keywords or builtins. If builtins, they join Base:
+New Base functions for async layer: the exact set depends on whether `async`/`await` are keywords or base functions. If base functions, they join Base:
 
 ```
 Base.spawn(fn)    -- spawn async task
 Base.sleep(ms)    -- async timer
 ```
 
-Actor layer builtins could be a separate synthetic module `Actor` rather than cluttering Base:
+Actor layer base functions could be a separate synthetic module `Actor` rather than cluttering Base:
 
 ```flux
 import Actor
@@ -978,12 +978,12 @@ This keeps Base focused on single-threaded essentials.
 | Step | What | Effort |
 |------|------|--------|
 | 1.1 | Create `src/runtime/core.rs` with `BaseModule` struct | Small |
-| 1.2 | Populate with all 42 current builtins by name | Small |
-| 1.3 | Replace `define_builtin` loop in compiler with `BaseModule` iteration | Small |
+| 1.2 | Populate with all 42 current base functions by name | Small |
+| 1.3 | Replace `define_base` loop in compiler with `BaseModule` iteration | Small |
 | 1.4 | Remove hard-coded index constants | Small |
 | 1.5 | All tests pass, zero behavioral change | — |
 
-**Milestone:** Single source of truth for builtins. No more index coupling.
+**Milestone:** Single source of truth for base functions. No more index coupling.
 
 ### Phase 2: Import Except Syntax (Medium Risk)
 
@@ -1045,8 +1045,8 @@ The `--no-base` flag is useful for:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Non-deterministic builtin ordering | Bytecode cache invalidation, wrong function called | Use `Vec` for ordered registry; never derive indices from `HashMap` iteration |
-| Breaking bytecode cache | Stale cache loads wrong builtins | Bump cache version in Phase 1 |
+| Non-deterministic base ordering | Bytecode cache invalidation, wrong function called | Use `Vec` for ordered registry; never derive indices from `HashMap` iteration |
+| Breaking bytecode cache | Stale cache loads wrong base functions | Bump cache version in Phase 1 |
 | `except` conflicts with future keyword | Syntax ambiguity | `except` is contextual — only meaningful after `import Base` |
 | Flow module performance | Pure Flux slower than native | Profile; promote hot paths to Base if needed |
 | Name collisions between Base and Flow | `map` in Base vs `Flow.Option.map` | Base is unqualified; Flow is always qualified by module name |

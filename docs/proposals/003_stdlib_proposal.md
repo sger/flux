@@ -9,7 +9,7 @@ The name "Flow" complements "Flux" (meaning continuous change/movement) - data f
 1. [Current State](#current-state)
 2. [Phase 0: New Object Types](#phase-0-new-object-types)
 3. [Phase 1: Compiler Prerequisites](#phase-1-compiler-prerequisites)
-4. [Phase 2: New Builtins](#phase-2-new-builtins)
+4. [Phase 2: New Base Functions](#phase-2-new-base functions)
 5. [Phase 3: Flow Modules](#phase-3-flow-modules)
 6. [Implementation Roadmap](#implementation-roadmap)
 
@@ -30,9 +30,9 @@ The name "Flow" complements "Flux" (meaning continuous change/movement) - data f
 | `Array` | `Vec<Object>` | No | Dynamic array |
 | `Hash` | `HashMap<HashKey, Object>` | No | Key-value map |
 
-Internal types: `Function`, `Closure`, `Builtin`, `ReturnValue`
+Internal types: `Function`, `Closure`, `Base`, `ReturnValue`
 
-### Builtin Functions (7 total)
+### Base Functions (7 total)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -298,11 +298,11 @@ match n {
 
 ---
 
-## Phase 2: New Builtins
+## Phase 2: New Base Functions
 
-### 2.1 Array Builtins
+### 2.1 Array Base Functions
 
-| Builtin | Signature | Why Builtin? |
+| Base | Signature | Why Base? |
 |---------|-----------|--------------|
 | `concat(a, b)` | `Array, Array -> Array` | O(n) vs O(n²) in pure Flux |
 | `reverse(arr)` | `Array -> Array` | O(n) vs O(n²) in pure Flux |
@@ -312,9 +312,9 @@ match n {
 | `sort(arr)` | `Array -> Array` | Requires efficient algorithm |
 | `sort_by(arr, f)` | `Array, Fn -> Array` | Custom comparator |
 
-### 2.2 String Builtins
+### 2.2 String Base Functions
 
-| Builtin | Signature | Description |
+| Base | Signature | Description |
 |---------|-----------|-------------|
 | `char_at(s, i)` | `String, Int -> String` | Get character at index |
 | `split(s, delim)` | `String, String -> Array` | Split by delimiter |
@@ -332,9 +332,9 @@ match n {
 | `index_of(s, sub)` | `String, String -> Int \| None` | Find substring |
 | `chars(s)` | `String -> Array` | Split into characters |
 
-### 2.3 Math Builtins
+### 2.3 Math Base Functions
 
-| Builtin | Signature | Description |
+| Base | Signature | Description |
 |---------|-----------|-------------|
 | `abs(n)` | `Number -> Number` | Absolute value |
 | `min(a, b)` | `Number, Number -> Number` | Minimum |
@@ -352,9 +352,9 @@ match n {
 | `random()` | `-> Float` | Random number [0, 1) |
 | `random_int(min, max)` | `Int, Int -> Int` | Random integer |
 
-### 2.4 Type Checking Builtins
+### 2.4 Type Checking Base Functions
 
-| Builtin | Signature | Description |
+| Base | Signature | Description |
 |---------|-----------|-------------|
 | `type_of(x)` | `Any -> String` | Get type name |
 | `is_int(x)` | `Any -> Bool` | Check if integer |
@@ -368,18 +368,18 @@ match n {
 | `is_some(x)` | `Any -> Bool` | Check if Some |
 | `is_function(x)` | `Any -> Bool` | Check if callable |
 
-### 2.5 Conversion Builtins
+### 2.5 Conversion Base Functions
 
-| Builtin | Signature | Description |
+| Base | Signature | Description |
 |---------|-----------|-------------|
 | `to_int(x)` | `Any -> Int \| None` | Convert to integer |
 | `to_float(x)` | `Any -> Float \| None` | Convert to float |
 | `parse_int(s)` | `String -> Int \| None` | Parse integer from string |
 | `parse_float(s)` | `String -> Float \| None` | Parse float from string |
 
-### 2.6 Hash Builtins
+### 2.6 Hash Base Functions
 
-| Builtin | Signature | Description |
+| Base | Signature | Description |
 |---------|-----------|-------------|
 | `keys(h)` | `Hash -> Array` | Get all keys |
 | `values(h)` | `Hash -> Array` | Get all values |
@@ -1011,7 +1011,7 @@ module Flow.String {
     }
 
     // Check if blank (empty or whitespace only)
-    // Requires trim builtin
+    // Requires trim base
     // fn is_blank(s) {
     //     len(trim(s)) == 0;
     // }
@@ -1025,7 +1025,7 @@ module Flow.String {
         }
     }
 
-    // Reverse string (requires chars builtin)
+    // Reverse string (requires chars base)
     // fn reverse(s) {
     //     join(Flow.List.reverse(chars(s)), "");
     // }
@@ -1138,17 +1138,17 @@ module Flow.Func {
 | Add `&&` operator (short-circuit) | Critical | Medium | None |
 | Add `\|\|` operator (short-circuit) | Critical | Medium | None |
 
-### Milestone 2: Essential Builtins (Week 3-4)
+### Milestone 2: Essential Base Functions (Week 3-4)
 
 | Task | Priority | Effort | Dependencies |
 |------|----------|--------|--------------|
 | Add `concat(arr1, arr2)` | Critical | Small | None |
 | Add `reverse(arr)` | High | Small | None |
 | Add `slice(arr, start, end)` | High | Small | None |
-| Add type checking builtins | High | Medium | None |
+| Add type checking base functions | High | Medium | None |
 | Add `keys(h)`, `values(h)` | Medium | Small | None |
 
-### Milestone 3: String Builtins (Week 5-6)
+### Milestone 3: String Base Functions (Week 5-6)
 
 | Task | Priority | Effort | Dependencies |
 |------|----------|--------|--------------|
@@ -1159,7 +1159,7 @@ module Flow.Func {
 | Add `substring(s, start, end)` | Medium | Small | None |
 | Add `chars(s)` | Medium | Small | None |
 
-### Milestone 4: Math Builtins (Week 7)
+### Milestone 4: Math Base Functions (Week 7)
 
 | Task | Priority | Effort | Dependencies |
 |------|----------|--------|--------------|
@@ -1195,10 +1195,10 @@ module Flow.Func {
 
 ### Unit Tests
 
-Each builtin should have tests in `tests/`:
+Each base should have tests in `tests/`:
 ```rust
 #[test]
-fn test_builtin_concat() {
+fn test_base_concat() {
     assert_eq!(run("[1, 2] |> concat([3, 4])"), "[1, 2, 3, 4]");
 }
 ```
@@ -1241,11 +1241,11 @@ examples/flow/
 
 3. **Error handling:**
    - Add `Either` type now or later?
-   - How to handle errors in builtins (return None vs Left vs panic)?
+   - How to handle errors in base functions (return None vs Left vs panic)?
 
 4. **Performance:**
    - When is TCO needed?
-   - Which functions must be builtins vs pure Flux?
+   - Which functions must be base functions vs pure Flux?
 
 ---
 

@@ -4,7 +4,7 @@
 > Related:
 > - Base proposal: `docs/proposals/028_base.md`
 > - Base function implementation architecture: `docs/internals/base_functions.md`
-> - Runtime call routing internals: `docs/internals/primops_vs_builtins.md`
+> - Runtime call routing internals: `docs/internals/primops_vs_base_functions.md`
 
 This document defines Base surface governance labels.
 
