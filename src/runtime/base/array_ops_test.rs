@@ -1,6 +1,6 @@
 use crate::{
     bytecode::bytecode::Bytecode,
-    runtime::{builtins::get_builtin_index, value::Value, vm::VM},
+    runtime::{base::get_base_function_index, value::Value, vm::VM},
 };
 
 use super::array_ops::{
@@ -19,7 +19,7 @@ fn test_vm() -> VM {
 }
 
 fn builtin(name: &str) -> Value {
-    Value::Builtin(get_builtin_index(name).expect("builtin exists") as u8)
+    Value::BaseFunction(get_base_function_index(name).expect("builtin exists") as u8)
 }
 
 #[test]

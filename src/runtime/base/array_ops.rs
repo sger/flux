@@ -574,7 +574,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "map",
@@ -650,7 +650,7 @@ pub(super) fn builtin_filter(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "filter",
@@ -730,7 +730,7 @@ pub(super) fn builtin_flat_map(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "flat_map",
@@ -824,7 +824,7 @@ pub(super) fn builtin_any(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "any",
@@ -889,7 +889,7 @@ pub(super) fn builtin_all(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "all",
@@ -957,7 +957,7 @@ pub(super) fn builtin_find(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "find",
@@ -1025,7 +1025,7 @@ pub(super) fn builtin_sort_by(
 
     let func = args[1].clone();
     match &func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "sort_by",
@@ -1262,7 +1262,7 @@ pub(super) fn builtin_count(
     let func = &args[1];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "count",
@@ -1334,7 +1334,7 @@ pub(super) fn builtin_fold(
     let func = &args[2];
 
     match func {
-        Value::Closure(_) | Value::Builtin(_) | Value::JitClosure(_) => {}
+        Value::Closure(_) | Value::BaseFunction(_) | Value::JitClosure(_) => {}
         other => {
             return Err(type_error(
                 "fold",
