@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ast::{TailCall, collect_free_vars_in_program, find_tail_calls},
     bytecode::{
+        binding::Binding,
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
@@ -10,10 +11,11 @@ use crate::{
         symbol_table::SymbolTable,
     },
     diagnostics::{
-        CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, lookup_error_code,
+        CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
     runtime::value::Value,
+    runtime::base::BaseModule,
     syntax::{
         interner::Interner, pattern_validate::validate_program_patterns, program::Program,
         statement::Statement, symbol::Symbol,
@@ -54,6 +56,7 @@ pub struct Compiler {
     pub free_vars: HashSet<Symbol>,
     // Program-level tail-position analysis result for the latest optimized compile pass.
     pub tail_calls: Vec<TailCall>,
+    pub(super) excluded_base_symbols: HashSet<Symbol>,
 }
 
 #[cfg(test)]
@@ -71,88 +74,9 @@ impl Compiler {
     pub fn new_with_interner(file_path: impl Into<String>, interner: Interner) -> Self {
         let mut interner = interner;
         let mut symbol_table = SymbolTable::new();
-        symbol_table.define_builtin(0, interner.intern("print"));
-        symbol_table.define_builtin(1, interner.intern("len"));
-        symbol_table.define_builtin(2, interner.intern("first"));
-        symbol_table.define_builtin(3, interner.intern("last"));
-        symbol_table.define_builtin(4, interner.intern("rest"));
-        symbol_table.define_builtin(5, interner.intern("push"));
-        symbol_table.define_builtin(6, interner.intern("to_string"));
-        symbol_table.define_builtin(7, interner.intern("concat"));
-        symbol_table.define_builtin(8, interner.intern("reverse"));
-        symbol_table.define_builtin(9, interner.intern("contains"));
-        symbol_table.define_builtin(10, interner.intern("slice"));
-        symbol_table.define_builtin(11, interner.intern("sort"));
-        symbol_table.define_builtin(12, interner.intern("split"));
-        symbol_table.define_builtin(13, interner.intern("join"));
-        symbol_table.define_builtin(14, interner.intern("trim"));
-        symbol_table.define_builtin(15, interner.intern("upper"));
-        symbol_table.define_builtin(16, interner.intern("lower"));
-        symbol_table.define_builtin(17, interner.intern("starts_with"));
-        symbol_table.define_builtin(18, interner.intern("ends_with"));
-        symbol_table.define_builtin(19, interner.intern("replace"));
-        symbol_table.define_builtin(20, interner.intern("chars"));
-        symbol_table.define_builtin(21, interner.intern("substring"));
-        symbol_table.define_builtin(22, interner.intern("keys"));
-        symbol_table.define_builtin(23, interner.intern("values"));
-        symbol_table.define_builtin(24, interner.intern("has_key"));
-        symbol_table.define_builtin(25, interner.intern("merge"));
-        symbol_table.define_builtin(26, interner.intern("delete"));
-        symbol_table.define_builtin(27, interner.intern("abs"));
-        symbol_table.define_builtin(28, interner.intern("min"));
-        symbol_table.define_builtin(29, interner.intern("max"));
-        // Type Checking Builtins
-        symbol_table.define_builtin(30, interner.intern("type_of"));
-        symbol_table.define_builtin(31, interner.intern("is_int"));
-        symbol_table.define_builtin(32, interner.intern("is_float"));
-        symbol_table.define_builtin(33, interner.intern("is_string"));
-        symbol_table.define_builtin(34, interner.intern("is_bool"));
-        symbol_table.define_builtin(35, interner.intern("is_array"));
-        symbol_table.define_builtin(36, interner.intern("is_hash"));
-        symbol_table.define_builtin(37, interner.intern("is_none"));
-        symbol_table.define_builtin(38, interner.intern("is_some"));
-        // Higher-order builtins
-        symbol_table.define_builtin(39, interner.intern("map"));
-        symbol_table.define_builtin(40, interner.intern("filter"));
-        symbol_table.define_builtin(41, interner.intern("fold"));
-        // List builtins (persistent cons-cell lists)
-        symbol_table.define_builtin(42, interner.intern("hd"));
-        symbol_table.define_builtin(43, interner.intern("tl"));
-        symbol_table.define_builtin(44, interner.intern("is_list"));
-        symbol_table.define_builtin(45, interner.intern("to_list"));
-        symbol_table.define_builtin(46, interner.intern("to_array"));
-        // Map builtins (persistent HAMT maps)
-        symbol_table.define_builtin(47, interner.intern("put"));
-        symbol_table.define_builtin(48, interner.intern("get"));
-        symbol_table.define_builtin(49, interner.intern("is_map"));
-        symbol_table.define_builtin(50, interner.intern("list"));
-        // I/O and parsing builtins
-        symbol_table.define_builtin(51, interner.intern("read_file"));
-        symbol_table.define_builtin(52, interner.intern("read_lines"));
-        symbol_table.define_builtin(53, interner.intern("read_stdin"));
-        symbol_table.define_builtin(54, interner.intern("parse_int"));
-        symbol_table.define_builtin(55, interner.intern("now_ms"));
-        symbol_table.define_builtin(56, interner.intern("time"));
-        symbol_table.define_builtin(57, interner.intern("range"));
-        symbol_table.define_builtin(58, interner.intern("sum"));
-        symbol_table.define_builtin(59, interner.intern("product"));
-        symbol_table.define_builtin(60, interner.intern("parse_ints"));
-        symbol_table.define_builtin(61, interner.intern("split_ints"));
-        symbol_table.define_builtin(62, interner.intern("flat_map"));
-        // Higher-order search and sort builtins
-        symbol_table.define_builtin(63, interner.intern("any"));
-        symbol_table.define_builtin(64, interner.intern("all"));
-        symbol_table.define_builtin(65, interner.intern("find"));
-        symbol_table.define_builtin(66, interner.intern("sort_by"));
-        symbol_table.define_builtin(67, interner.intern("zip"));
-        symbol_table.define_builtin(68, interner.intern("flatten"));
-        symbol_table.define_builtin(69, interner.intern("count"));
-        // Assert builtins (test framework)
-        symbol_table.define_builtin(70, interner.intern("assert_eq"));
-        symbol_table.define_builtin(71, interner.intern("assert_neq"));
-        symbol_table.define_builtin(72, interner.intern("assert_true"));
-        symbol_table.define_builtin(73, interner.intern("assert_false"));
-        symbol_table.define_builtin(74, interner.intern("assert_throws"));
+        for (index, name) in BaseModule::new().names().enumerate() {
+            symbol_table.define_base_function(index, interner.intern(name));
+        }
 
         Self {
             constants: Vec::new(),
@@ -175,6 +99,7 @@ impl Compiler {
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
+            excluded_base_symbols: HashSet::new(),
         }
     }
 
@@ -205,6 +130,7 @@ impl Compiler {
         self.import_aliases.clear();
         self.current_module_prefix = None;
         self.current_span = None;
+        self.excluded_base_symbols.clear();
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -271,6 +197,8 @@ impl Compiler {
         self.imported_modules.clear();
         self.import_aliases.clear();
         self.current_module_prefix = None;
+        self.excluded_base_symbols.clear();
+        self.process_base_directives(program);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion
@@ -280,6 +208,7 @@ impl Compiler {
                 // Check for duplicate declaration first (takes precedence)
                 if let Some(existing) = self.symbol_table.resolve(name)
                     && self.symbol_table.exists_in_current_scope(name)
+                    && existing.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base
                 {
                     let name_str = self.sym(name);
                     self.errors.push(self.make_redeclaration_error(
@@ -626,6 +555,67 @@ impl Compiler {
 
         let current_idx = self.captured_local_indices.len() - 1;
         self.captured_local_indices[current_idx].insert(local_index);
+    }
+
+    pub(super) fn is_base_module_symbol(&self, name: Symbol) -> bool {
+        self.sym(name) == "Base"
+    }
+
+    pub(super) fn resolve_visible_symbol(&mut self, name: Symbol) -> Option<Binding> {
+        let binding = self.symbol_table.resolve(name)?;
+        if binding.symbol_scope == crate::bytecode::symbol_scope::SymbolScope::Base
+            && self.excluded_base_symbols.contains(&name)
+        {
+            return None;
+        }
+        Some(binding)
+    }
+
+    fn process_base_directives(&mut self, program: &Program) {
+        let mut seen = HashSet::new();
+
+        for statement in &program.statements {
+            let Statement::Import {
+                name,
+                alias,
+                except,
+                span,
+            } = statement
+            else {
+                continue;
+            };
+
+            if !self.is_base_module_symbol(*name) {
+                continue;
+            }
+
+            if let Some(alias) = alias {
+                let alias_name = self.sym(*alias);
+                self.errors.push(self.make_base_alias_error(alias_name, *span));
+            }
+
+            for excluded in except {
+                let excluded_name = self.sym(*excluded);
+                if !seen.insert(*excluded) {
+                    self.errors.push(
+                        self.make_duplicate_base_exclusion_error(excluded_name, *span),
+                    );
+                    continue;
+                }
+
+                if BaseModule::new().index_of(excluded_name).is_none() {
+                    self.errors.push(Diagnostic::make_error(
+                        &UNKNOWN_BASE_MEMBER,
+                        &[excluded_name],
+                        self.file_path.clone(),
+                        *span,
+                    ));
+                    continue;
+                }
+
+                self.excluded_base_symbols.insert(*excluded);
+            }
+        }
     }
 }
 

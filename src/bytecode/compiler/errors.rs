@@ -1,6 +1,7 @@
 use crate::diagnostics::{
-    DUPLICATE_NAME, Diagnostic, DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION,
-    OUTER_ASSIGNMENT, PRIVATE_MEMBER, UNDEFINED_VARIABLE, position::Span,
+    BASE_ALIAS_FORBIDDEN, DUPLICATE_BASE_EXCLUSION, DUPLICATE_NAME, Diagnostic,
+    DiagnosticBuilder, IMMUTABLE_BINDING, IMPORT_NAME_COLLISION, OUTER_ASSIGNMENT, PRIVATE_MEMBER,
+    UNDEFINED_VARIABLE, position::Span,
 };
 
 use super::{CompileResult, Compiler, suggestions::find_similar_names};
@@ -68,6 +69,14 @@ impl Compiler {
             self.file_path.clone(),
             span,
         )
+    }
+
+    pub(super) fn make_base_alias_error(&self, alias: &str, span: Span) -> Diagnostic {
+        Diagnostic::make_error(&BASE_ALIAS_FORBIDDEN, &[alias], self.file_path.clone(), span)
+    }
+
+    pub(super) fn make_duplicate_base_exclusion_error(&self, name: &str, span: Span) -> Diagnostic {
+        Diagnostic::make_error(&DUPLICATE_BASE_EXCLUSION, &[name], self.file_path.clone(), span)
     }
 
     pub(super) fn make_outer_assignment_error(&self, name: &str, span: Span) -> Diagnostic {

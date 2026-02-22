@@ -10,11 +10,12 @@ use crate::{
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
         ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        UNKNOWN_BASE_MEMBER, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
     primop::resolve_primop_call,
-    runtime::{compiled_function::CompiledFunction, value::Value},
+    runtime::{base::BaseModule, compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
         expression::{Expression, MatchArm, Pattern, StringPart},
@@ -55,11 +56,11 @@ impl Compiler {
             }
             Expression::Identifier { name, span } => {
                 let name = *name;
-                if let Some(symbol) = self.symbol_table.resolve(name) {
+                if let Some(symbol) = self.resolve_visible_symbol(name) {
                     self.load_symbol(&symbol);
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
-                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
@@ -276,6 +277,23 @@ impl Compiler {
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
                 let member = *member;
+
+                if let Expression::Identifier { name, .. } = object.as_ref()
+                    && self.is_base_module_symbol(*name)
+                {
+                    let member_name = self.sym(member);
+                    if let Some(index) = BaseModule::new().index_of(member_name) {
+                        self.emit(OpCode::OpGetBase, &[index]);
+                        return Ok(());
+                    }
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &UNKNOWN_BASE_MEMBER,
+                        &[member_name],
+                        self.file_path.clone(),
+                        expr_span,
+                    )));
+                }
+
                 let module_name = match object.as_ref() {
                     Expression::Identifier { name, .. } => {
                         let name = *name;
@@ -304,7 +322,7 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
                         return Ok(());
                     }
@@ -325,7 +343,7 @@ impl Compiler {
                 {
                     let name = *name;
                     if is_valid_module_name(self.sym(name)) {
-                        let has_symbol = self.symbol_table.resolve(name).is_some();
+                        let has_symbol = self.resolve_visible_symbol(name).is_some();
                         if !has_symbol {
                             let name_str = self.sym(name);
                             return Err(Self::boxed(Diagnostic::make_error(
@@ -1078,10 +1096,13 @@ impl Compiler {
         let Expression::Identifier { name, .. } = function else {
             return Ok(false);
         };
+        if self.excluded_base_symbols.contains(name) {
+            return Ok(false);
+        }
 
         // Shadowed names must resolve through the regular call path.
-        if let Some(symbol) = self.symbol_table.resolve(*name)
-            && symbol.symbol_scope != SymbolScope::Builtin
+        if let Some(symbol) = self.resolve_visible_symbol(*name)
+            && symbol.symbol_scope != SymbolScope::Base
         {
             return Ok(false);
         }
@@ -1121,17 +1142,17 @@ impl Compiler {
             return Ok(false);
         }
 
-        let Some(symbol) = self.symbol_table.resolve(*name) else {
+        let Some(symbol) = self.resolve_visible_symbol(*name) else {
             return Ok(false);
         };
-        if symbol.symbol_scope != SymbolScope::Builtin {
+        if symbol.symbol_scope != SymbolScope::Base {
             return Ok(false);
         }
 
         for argument in arguments {
             self.compile_non_tail_expression(argument)?;
         }
-        self.emit(OpCode::OpCallBuiltin, &[symbol.index, arguments.len()]);
+        self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
     }
 
@@ -1183,7 +1204,7 @@ impl Compiler {
         if consumable_counts.get(&name).copied().unwrap_or(0) != 1 {
             return false;
         }
-        if let Some(symbol) = self.symbol_table.resolve(name)
+        if let Some(symbol) = self.resolve_visible_symbol(name)
             && self.is_consumable_tail_param(&symbol)
         {
             self.emit(OpCode::OpConsumeLocal, &[symbol.index]);
