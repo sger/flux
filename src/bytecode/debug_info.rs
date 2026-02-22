@@ -1,5 +1,13 @@
 use crate::diagnostics::position::Span;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EffectSummary {
+    Pure,
+    #[default]
+    Unknown,
+    HasEffects,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
     pub file_id: u32,
@@ -17,6 +25,7 @@ pub struct FunctionDebugInfo {
     pub name: Option<String>,
     pub files: Vec<String>,
     pub locations: Vec<InstructionLocation>,
+    pub effect_summary: EffectSummary,
 }
 
 impl FunctionDebugInfo {
@@ -29,7 +38,13 @@ impl FunctionDebugInfo {
             name,
             files,
             locations,
+            effect_summary: EffectSummary::Unknown,
         }
+    }
+
+    pub fn with_effect_summary(mut self, effect_summary: EffectSummary) -> Self {
+        self.effect_summary = effect_summary;
+        self
     }
 
     pub fn location_at(&self, ip: usize) -> Option<&Location> {
