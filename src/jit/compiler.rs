@@ -1119,6 +1119,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if top_level {
                 if let Some(&idx) = scope.globals.get(name) {
                     let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
@@ -1148,6 +1149,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if top_level {
                 bind_top_level_pattern_value(
                     module, helpers, builder, scope, ctx_val, pattern, val,
@@ -1174,6 +1176,7 @@ fn compile_statement(
                 interner,
             )?;
             if *has_semicolon {
+                emit_return_on_null_value(builder, val);
                 Ok(StmtOutcome::None)
             } else {
                 Ok(StmtOutcome::Value(val))
@@ -1191,6 +1194,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if let Some(&var) = scope.locals.get(name) {
                 builder.def_var(var, val);
             } else if let Some(&idx) = scope.globals.get(name) {
@@ -1294,6 +1298,23 @@ fn compile_statement(
             Ok(StmtOutcome::None)
         }
     }
+}
+
+fn emit_return_on_null_value(builder: &mut FunctionBuilder, value_ptr: CraneliftValue) {
+    let is_null = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    let null_block = builder.create_block();
+    let continue_block = builder.create_block();
+    builder
+        .ins()
+        .brif(is_null, null_block, &[], continue_block, &[]);
+
+    builder.switch_to_block(null_block);
+    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+    builder.ins().return_(&[null_ptr]);
+    builder.seal_block(null_block);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
 }
 
 fn try_compile_tail_expression_statement(
