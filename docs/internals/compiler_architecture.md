@@ -74,9 +74,9 @@ src/
 │
 ├── bytecode/                Bytecode compiler
 │   ├── compiler/            AST → stack-based bytecode
-│   │   └── mod.rs           Compiler struct, symbol table setup, builtin registration
+│   │   └── mod.rs           Compiler struct, symbol table setup, Base function registration
 │   ├── opcode.rs            ~45 opcodes (OpGetLocal, OpCall, OpMatch, ...)
-│   ├── symbol_table.rs      Variable/function/builtin tracking per scope
+│   ├── symbol_table.rs      Variable/function/Base-function tracking per scope
 │   └── cache.rs             .fxc bytecode cache (SHA-2 content hashing)
 │
 ├── runtime/                 Bytecode VM and supporting runtime
@@ -138,7 +138,7 @@ enum Value {
     Array(Rc<Vec<Value>>),  // Rc-backed, not GC-managed
     Gc(GcHandle),           // GC-managed: cons cells and HAMT nodes
     // Functions
-    Function(Rc<CompiledFunction>), Closure(Rc<Closure>), Builtin(u8),
+    Function(Rc<CompiledFunction>), Closure(Rc<Closure>), BaseFunction(u8),
     JitClosure(Rc<JitClosure>),     // feature-gated
     // Internal
     ReturnValue(Rc<Value>),  // sentinel for return from blocks

@@ -3,7 +3,7 @@
 > Canonical classification for Proposal 028 Phase 5.
 > Related:
 > - Base proposal: `docs/proposals/028_base.md`
-> - Builtin implementation architecture: `docs/internals/builtins.md`
+> - Base function implementation architecture: `docs/internals/base_functions.md`
 > - Runtime call routing internals: `docs/internals/primops_vs_builtins.md`
 
 This document defines Base surface governance labels.
