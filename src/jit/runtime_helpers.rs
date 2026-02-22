@@ -928,6 +928,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             rt_greater_than_or_equal as *const u8,
         ),
         ("rt_call_builtin", rt_call_builtin as *const u8),
+        ("rt_call_primop", rt_call_primop as *const u8),
         ("rt_call_value", rt_call_value as *const u8),
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
