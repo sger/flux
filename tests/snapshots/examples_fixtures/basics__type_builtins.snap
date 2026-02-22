@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/basics/type_builtins.flx
+Fixture: examples/basics/type_base_functions.flx
 == compile ==
 ok
 == diagnostics ==

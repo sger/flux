@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/base/base_unknown_member_error.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E080]: UNKNOWN BASE MEMBER
+
+Base has no member named `not_real`.
+
+  --> examples/base/base_unknown_member_error.flx:3:1
+  |
+3 | Base.not_real();
+  | ^^^^^^^^^^^^^
+
+Hint:
+  Check the Base surface or remove this name from `except`.
+== stdout ==
+<not executed>

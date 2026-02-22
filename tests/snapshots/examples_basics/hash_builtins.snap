@@ -1,7 +1,7 @@
 ---
 source: tests/examples_basics_snapshots.rs
 ---
-Fixture: examples/basics/hash_builtins.flx
+Fixture: examples/basics/hash_base_functions.flx
 == compile ==
 ok
 == diagnostics ==
