@@ -1,0 +1,4 @@
+// Expected compile error E079: duplicate Base exclusion
+
+import Base except [print, print]
+Base.print("unreachable");
