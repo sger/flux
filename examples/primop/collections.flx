@@ -1,17 +1,12 @@
-print("== PrimOps: arrays + maps ==");
-
+print("== PrimOps: collections (array + list) ==");
 let arr = [|10, 20, 30|];
-print(array_len(arr));      // 3
-print(array_get(arr, 1));   // 20
+print(first(arr));
+print(last(arr));
+print(rest(arr));
+print(contains(arr, 20));
 
-let arr2 = array_set(arr, 1, 99);
-print(arr);   // original stays unchanged
-print(arr2);  // [|10, 99, 30|]
-
-let m0 = {};
-let m1 = map_set(m0, "name", "flux");
-let m2 = map_set(m1, "year", 2026);
-
-print(map_has(m2, "name"));  // true
-print(map_get(m2, "name"));  // Some("flux")
-print(map_get(m2, "missing")); // None
+let lst = list(1, 2, 3);
+print(first(lst));
+print(last(lst));
+print(rest(lst));
+print(contains(lst, 2));
