@@ -130,11 +130,15 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         Statement::Import {
             name,
             alias,
+            except,
             span: _,
         } => {
             visitor.visit_identifier(name);
             if let Some(alias_ident) = alias {
                 visitor.visit_identifier(alias_ident);
+            }
+            for excluded in except {
+                visitor.visit_identifier(excluded);
             }
         }
     }
