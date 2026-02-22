@@ -8,7 +8,7 @@ Constants:
   2: 3
 
 Instructions:
-0000 OpGetBuiltin 50
+0000 OpGetBase 50
 0002 OpConstant 0
 0005 OpConstant 1
 0008 OpConstant 2

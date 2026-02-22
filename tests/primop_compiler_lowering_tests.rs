@@ -55,7 +55,7 @@ fn compiler_emits_op_primop_for_existing_phase1_mappings() {
 }
 
 #[test]
-fn compiler_emits_op_primop_for_phase2_builtin_mappings() {
+fn compiler_emits_op_primop_for_phase2_base_mappings() {
     let programs = [
         "first(#[1, 2]);",
         "last(#[1, 2]);",
