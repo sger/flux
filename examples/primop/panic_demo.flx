@@ -1,0 +1,6 @@
+print("== PrimOps: panic demo ==");
+print("Uncomment the panic call below to see runtime panic propagation.");
+
+// panic("intentional crash from primop panic");
+
+print("done");

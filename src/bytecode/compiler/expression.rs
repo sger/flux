@@ -783,9 +783,8 @@ impl Compiler {
                 }
             }
             Pattern::Identifier { .. } => {
-                // Identifier always matches and binds the value
-                // For now, we'll treat it like wildcard
-                // TODO: Implement proper binding
+                // Identifier patterns always match; value binding is performed in
+                // `compile_pattern_bind` after a successful check.
                 self.emit(OpCode::OpTrue, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
