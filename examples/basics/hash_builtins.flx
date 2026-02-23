@@ -1,4 +1,4 @@
-// Test: Hash builtin functions
+// Test: Hash base functions
 // Expected output:
 // [|"name", "age", "city"|]
 // [|"Alice", 30, "NYC"|]
@@ -9,7 +9,7 @@
 // {"timeout": 60, "retries": 3, "debug": true}
 
 // =============================================================================
-// Hash Builtins (Milestone 5.3)
+// Hash Base Functions (Milestone 5.3)
 // =============================================================================
 
 // Sample hash for testing

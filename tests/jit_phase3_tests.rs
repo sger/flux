@@ -204,7 +204,7 @@ sum_to(200, 0)
 }
 
 #[test]
-fn jit_builtin_value_callable_works() {
+fn jit_base_value_callable_works() {
     let result = run_jit(
         r#"
 let f = len
@@ -215,7 +215,7 @@ f("flux")
 }
 
 #[test]
-fn jit_named_function_value_for_higher_order_builtin_works() {
+fn jit_named_function_value_for_higher_order_base_works() {
     let result = run_jit(
         r#"
 fn inc(x) { x + 1 }

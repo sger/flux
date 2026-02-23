@@ -536,7 +536,7 @@ r |> filter(is_prime) |> take(10)  // only computes what's needed
 
 | Step | Feature | Depends On | Effort |
 |------|---------|-----------|--------|
-| 5.1 | Standard library (modules, not builtins) | Traits, Modules | Large |
+| 5.1 | Standard library (modules, not base functions) | Traits, Modules | Large |
 | 5.2 | Package manager (Proposal 015) | Module system | Very Large |
 | 5.3 | LSP (language server) | Type inference | Very Large |
 | 5.4 | REPL | — | Medium |

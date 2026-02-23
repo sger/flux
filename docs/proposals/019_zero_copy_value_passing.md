@@ -19,7 +19,7 @@ The core insight: since Flux values are semantically immutable (no mutation afte
 ## Goals
 
 1. Eliminate O(n) deep clones when passing strings, arrays, and hashes to functions.
-2. Make per-value argument transfer O(1) for all runtime types (ref-count increment or bitwise copy) and remove per-call argument `Vec` allocation by passing builtin arguments as borrowed slices (`&[Value]`).
+2. Make per-value argument transfer O(1) for all runtime types (ref-count increment or bitwise copy) and remove per-call argument `Vec` allocation by passing base arguments as borrowed slices (`&[Value]`).
 3. Preserve immutable value semantics — no observable behavior change.
 4. Lay groundwork for Proposal 017 (persistent collections) by establishing shared-reference infrastructure.
 5. Keep the stack-based VM architecture; no GC required for this proposal.
@@ -42,7 +42,7 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 
 - Add microbenchmarks for clone-heavy runtime paths:
   - local/global/free access (`OpGet*`)
-  - builtin argument passing
+  - base argument passing
   - closure capture
 - Add regression tests for value semantics (arrays/hashes/options/either/closures).
 - **Done when:** baseline perf numbers are captured and regression tests are green.
@@ -72,15 +72,15 @@ Track execution with small, verifiable tasks. Each task has a clear done conditi
 - Update push/pop and `OpGet*` handlers to operate on `Value`.
 - **Done when:** VM tests pass and clone-heavy access paths no longer deep-copy collections.
 
-### 019.5 Builtin Call Path: Borrowed Args [PARTIAL]
+### 019.5 Base Call Path: Borrowed Args [PARTIAL]
 
 - Current state:
   - Removed old `to_vec()` clone-heavy path in VM dispatch.
-  - Builtins still receive owned `Vec<Value>` values (moved out of stack slots).
+  - Base Functions still receive owned `Vec<Value>` values (moved out of stack slots).
 - Remaining work:
-  - Introduce borrowed-slice builtin ABI (`&[Value]`) for read-only builtins.
-  - Keep an owned-args path for ownership-sensitive builtins.
-- **Done when:** builtin tests pass and eligible builtins avoid per-call arg vector allocation.
+  - Introduce borrowed-slice base ABI (`&[Value]`) for read-only base functions.
+  - Keep an owned-args path for ownership-sensitive base functions.
+- **Done when:** base tests pass and eligible base functions avoid per-call arg vector allocation.
 
 ### 019.6 Closure Capture Path [DONE]
 
@@ -151,10 +151,10 @@ For an array with 10,000 elements, every access allocates and copies all 10,000 
 
 ### Problem 2: O(n) Clone on Every Function Call
 
-Builtin functions receive `Vec<Object>` by cloning all arguments from the stack:
+Base functions receive `Vec<Object>` by cloning all arguments from the stack:
 
 ```rust
-// function_call.rs — builtin call
+// function_call.rs — base call
 let args: Vec<Object> = self.stack[self.sp - num_args..self.sp].to_vec(); // clones each arg
 ```
 
@@ -213,7 +213,7 @@ pub enum Value {
     Right(Rc<Value>),
     Function(Rc<CompiledFunction>),
     Closure(Rc<Closure>),
-    Builtin(BuiltinFunction),
+    Base(BuiltinFunction),
     ReturnValue(Rc<Value>),
 }
 ```
@@ -232,7 +232,7 @@ pub enum Value {
 
 6. **`Function` and `Closure` remain `Rc`** — no change.
 
-7. **`Builtin` stays as-is** — it's a function pointer, cheap to copy.
+7. **`Base` stays as-is** — it's a function pointer, cheap to copy.
 
 ### Why `Rc` and Not Arena/GC
 
@@ -274,7 +274,7 @@ New file: `src/runtime/value.rs`
 ```rust
 use std::{collections::HashMap, fmt, rc::Rc};
 use crate::runtime::{
-    builtin_function::BuiltinFunction,
+    base_function::BuiltinFunction,
     closure::Closure,
     compiled_function::CompiledFunction,
     hash_key::HashKey,
@@ -293,7 +293,7 @@ pub enum Value {
     ReturnValue(Rc<Value>),
     Function(Rc<CompiledFunction>),
     Closure(Rc<Closure>),
-    Builtin(BuiltinFunction),
+    Base(BuiltinFunction),
     Array(Rc<Vec<Value>>),
     Hash(Rc<HashMap<HashKey, Value>>),
 }
@@ -376,13 +376,13 @@ fn pop(&mut self) -> Result<Value, String> {
 
 This avoids the ref-count increment/decrement entirely — a true move. The stack slot gets `Value::None` (zero-cost sentinel). This is safe because `sp` has already decremented, so the slot is logically dead.
 
-#### 2.4 Builtin Argument Passing
+#### 2.4 Base Argument Passing
 
-Builtins should receive borrowed argument slices to remove per-call argument `Vec` allocation:
+Base Functions should receive borrowed argument slices to remove per-call argument `Vec` allocation:
 
 ```rust
 let args: &[Value] = &self.stack[self.sp - num_args..self.sp];
-call_builtin(builtin, args)?;
+call_base(base, args)?;
 ```
 
 ---
@@ -391,10 +391,10 @@ call_builtin(builtin, args)?;
 
 The Elixir model: "modifying" a collection creates a new version. With `Rc`, we can optimize this using `Rc::make_mut` for copy-on-write:
 
-#### 3.1 Array Push (Builtin)
+#### 3.1 Array Push (Base)
 
 ```rust
-fn builtin_push(args: &[Value]) -> Result<Value, String> {
+fn base_push(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Array(rc_vec), value] => {
             let mut new_vec = (**rc_vec).clone(); // Clone inner Vec only when mutating
@@ -409,7 +409,7 @@ fn builtin_push(args: &[Value]) -> Result<Value, String> {
 Optimization with `Rc::make_mut` (copy-on-write fast path):
 
 ```rust
-fn builtin_push_cow(args: &[Value]) -> Result<Value, String> {
+fn base_push_cow(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Array(rc_vec), value] => {
             // If refcount == 1, mutates in place (zero-copy).
@@ -425,12 +425,12 @@ fn builtin_push_cow(args: &[Value]) -> Result<Value, String> {
 
 This gives automatic copy-on-write: if no other reference exists to the array, mutation happens in place with zero allocation.
 
-#### 3.2 Hash Merge (Builtin)
+#### 3.2 Hash Merge (Base)
 
 Same pattern:
 
 ```rust
-fn builtin_merge(args: &[Value]) -> Result<Value, String> {
+fn base_merge(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::Hash(h1), Value::Hash(h2)] => {
             let mut result = (**h1).clone(); // Clone only when creating new version
@@ -447,7 +447,7 @@ fn builtin_merge(args: &[Value]) -> Result<Value, String> {
 #### 3.3 String Concatenation
 
 ```rust
-fn builtin_concat(args: &[Value]) -> Result<Value, String> {
+fn base_concat(args: &[Value]) -> Result<Value, String> {
     match args {
         [Value::String(s1), Value::String(s2)] => {
             let mut result = String::from(&**s1);
@@ -521,9 +521,9 @@ Every `match` that unpacks heap types needs to dereference `Rc`:
 | `Object::Array(elems) => elems[i].clone()` | `Value::Array(elems) => elems[i].clone()` (transparent — `Rc<Vec>` derefs to `Vec`) |
 | `Object::Some(inner) => *inner` | `Value::Some(inner) => (*inner).clone()` (Rc requires clone, not move) |
 
-### Step 4: Update Builtins
+### Step 4: Update Base Functions
 
-Each builtin in `src/runtime/builtins/` needs mechanical updates:
+Each base in `src/runtime/base functions/` needs mechanical updates:
 - Construction: wrap in `Rc`
 - Destruction: dereference `Rc` (usually automatic via `Deref`)
 - Mutation: clone inner value, mutate, re-wrap
@@ -546,7 +546,7 @@ Bump the bytecode cache version. Serialization format changes because `Rc` types
 |-----------|----------|--------|------|
 | `array_pass_10k_x100` | measured | measured | >= 20% faster mean time |
 | `closure_capture_5k_x100` | measured | measured | >= 20% faster mean time |
-| `builtin_call_small_args` | measured | measured | no regression > 2% |
+| `base_call_small_args` | measured | measured | no regression > 2% |
 | `string_concat_loop_1k` | measured | measured | >= 10% faster mean time |
 
 ### Expected Overhead
@@ -595,7 +595,7 @@ This proposal is a **stepping stone** to Proposal 017:
 4. Closure capture of heap types is O(1).
 5. `Rc::strong_count` never exceeds expected sharing (no leaks).
 6. Bytecode cache serialization/deserialization works correctly.
-7. Benchmarks (`array_pass_10k_x100`, `closure_capture_5k_x100`, `builtin_call_small_args`) are recorded with before/after raw numbers and meet gates in the Performance section.
+7. Benchmarks (`array_pass_10k_x100`, `closure_capture_5k_x100`, `base_call_small_args`) are recorded with before/after raw numbers and meet gates in the Performance section.
 8. Memory usage does not regress for typical programs (small arrays/strings).
 
 ---
@@ -616,7 +616,7 @@ This proposal is a **stepping stone** to Proposal 017:
 7. Update `VM` struct: `stack`, `constants`, `globals` use `Value`.
 8. Update `push()`, `pop()` — use `mem::replace` in `pop()`.
 9. Update `dispatch.rs`: `OpGetLocal`, `OpGetGlobal`, `OpGetFree`, `OpConstant`.
-10. Update `function_call.rs`: pass builtin arguments as `&[Value]`; keep closure capture semantics unchanged.
+10. Update `function_call.rs`: pass base arguments as `&[Value]`; keep closure capture semantics unchanged.
 11. Update `binary_ops.rs`, `comparison_ops.rs`, `index_ops.rs`.
 12. Verify all VM tests pass.
 
@@ -628,14 +628,14 @@ This proposal is a **stepping stone** to Proposal 017:
 16. Bump bytecode cache version.
 17. Verify compiler tests pass.
 
-### Phase 4: Builtins [DONE]
+### Phase 4: Base Functions [DONE]
 
-18. Update `src/runtime/builtins/` — all 35 builtin functions to accept `&[Value]`.
-19. Update array builtins: `push`, `concat`, `rest`, `first`, `last`, `reverse`, `sort`, `map`, `filter`, `reduce`, `contains`.
-20. Update hash builtins: `keys`, `values`, `has_key`, `merge`, `delete`.
-21. Update string builtins: `len`, `split`, `trim`, `replace`, `upper`, `lower`, `starts_with`, `ends_with`.
-22. Update type builtins: `type_of`, `is_array`, `is_hash`, `is_string`.
-23. Verify all builtin tests pass.
+18. Update `src/runtime/base functions/` — all 35 base functions to accept `&[Value]`.
+19. Update array base functions: `push`, `concat`, `rest`, `first`, `last`, `reverse`, `sort`, `map`, `filter`, `reduce`, `contains`.
+20. Update hash base functions: `keys`, `values`, `has_key`, `merge`, `delete`.
+21. Update string base functions: `len`, `split`, `trim`, `replace`, `upper`, `lower`, `starts_with`, `ends_with`.
+22. Update type base functions: `type_of`, `is_array`, `is_hash`, `is_string`.
+23. Verify all base tests pass.
 
 ### Phase 5: Cleanup and Benchmarks [DONE]
 
@@ -657,7 +657,7 @@ This proposal is a **stepping stone** to Proposal 017:
 | `PartialEq` through `Rc` | Compares by value, not identity (correct but potentially slow for deep structures) | `Rc::ptr_eq` for fast identity check where appropriate |
 | Breakage in pattern matching | `Rc` patterns differ from `Box` | Mechanical migration; compiler catches all mismatches |
 | Serialization changes | Bytecode cache incompatibility | Bump cache version; old caches auto-invalidate |
-| Builtin API churn | Every builtin needs updating | Systematic, file-by-file migration with tests |
+| Base API churn | Every base needs updating | Systematic, file-by-file migration with tests |
 | `Rc` reference cycle potential | Memory leak | Enforce No-Cycle Invariant; add regression tests around closure capture and nested containers |
 | `Rc<str>` vs `Rc<String>` choice | API ergonomics | `Rc<str>` is more efficient; conversion via `Rc::from(s.as_str())` |
 
@@ -669,7 +669,7 @@ This proposal is a **stepping stone** to Proposal 017:
 
 2. **Should `pop()` use `mem::replace` or `clone()`?** `mem::replace` is a true move (no ref-count), but leaves `Value::None` in dead slots. Recommendation: `mem::replace` — it's faster and the dead slot is never read.
 
-3. **Do we keep a temporary adapter from old `Vec<Value>` builtin signatures to new `&[Value]` signatures during migration?** Recommendation: yes, short-lived adapter for phased rollout, then remove.
+3. **Do we keep a temporary adapter from old `Vec<Value>` base signatures to new `&[Value]` signatures during migration?** Recommendation: yes, short-lived adapter for phased rollout, then remove.
 
 4. **Should `Rc<str>` be used or `Rc<String>`?** `Rc<str>` avoids double indirection but is slightly less ergonomic. Recommendation: `Rc<str>` for efficiency.
 

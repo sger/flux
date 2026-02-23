@@ -50,6 +50,7 @@ pub enum Statement {
     Import {
         name: Identifier,
         alias: Option<Identifier>,
+        except: Vec<Identifier>,
         span: Span,
     },
 }
@@ -123,11 +124,25 @@ impl fmt::Display for Statement {
             Statement::Module { name, body, .. } => {
                 write!(f, "module {} {}", name, body)
             }
-            Statement::Import { name, .. } => {
+            Statement::Import { name, except, .. } => {
                 if let Some(alias) = &self.get_import_alias() {
-                    write!(f, "import {} as {}", name, alias)
-                } else {
+                    if except.is_empty() {
+                        write!(f, "import {} as {}", name, alias)
+                    } else {
+                        let names: Vec<String> = except.iter().map(ToString::to_string).collect();
+                        write!(
+                            f,
+                            "import {} as {} except [{}]",
+                            name,
+                            alias,
+                            names.join(", ")
+                        )
+                    }
+                } else if except.is_empty() {
                     write!(f, "import {}", name)
+                } else {
+                    let names: Vec<String> = except.iter().map(ToString::to_string).collect();
+                    write!(f, "import {} except [{}]", name, names.join(", "))
                 }
             }
         }
@@ -198,15 +213,32 @@ impl Statement {
             Statement::Module { name, body, .. } => {
                 format!("module {} {}", interner.resolve(*name), body)
             }
-            Statement::Import { name, alias, .. } => {
+            Statement::Import {
+                name,
+                alias,
+                except,
+                ..
+            } => {
                 if let Some(alias) = alias {
-                    format!(
+                    let mut text = format!(
                         "import {} as {}",
                         interner.resolve(*name),
                         interner.resolve(*alias)
-                    )
+                    );
+                    if !except.is_empty() {
+                        let except_names: Vec<&str> =
+                            except.iter().map(|n| interner.resolve(*n)).collect();
+                        text.push_str(&format!(" except [{}]", except_names.join(", ")));
+                    }
+                    text
                 } else {
-                    format!("import {}", interner.resolve(*name))
+                    let mut text = format!("import {}", interner.resolve(*name));
+                    if !except.is_empty() {
+                        let except_names: Vec<&str> =
+                            except.iter().map(|n| interner.resolve(*n)).collect();
+                        text.push_str(&format!(" except [{}]", except_names.join(", ")));
+                    }
+                    text
                 }
             }
         }

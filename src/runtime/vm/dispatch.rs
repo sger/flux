@@ -1,6 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
-    runtime::{builtins::get_builtin_by_index, gc::HeapObject, leak_detector, value::Value},
+    runtime::{base::get_base_function_by_index, gc::HeapObject, leak_detector, value::Value},
 };
 
 use super::VM;
@@ -379,11 +379,11 @@ impl VM {
                 }
                 Ok(1)
             }
-            OpCode::OpGetBuiltin => {
+            OpCode::OpGetBase => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
-                let _ = get_builtin_by_index(idx)
-                    .ok_or_else(|| format!("invalid builtin index {}", idx))?;
-                self.push(Value::Builtin(idx as u8))?;
+                let _ = get_base_function_by_index(idx)
+                    .ok_or_else(|| format!("invalid Base function index {}", idx))?;
+                self.push(Value::BaseFunction(idx as u8))?;
                 Ok(2)
             }
             OpCode::OpCall => {
@@ -391,12 +391,12 @@ impl VM {
                 self.execute_call(num_args)?;
                 Ok(2)
             }
-            OpCode::OpCallBuiltin => {
-                // Encoded as [OpCallBuiltin, builtin_idx, arity]; callee is implicit.
+            OpCode::OpCallBase => {
+                // Encoded as [OpCallBase, base_fn_idx, arity]; callee is implicit.
                 // Stack before: [..., arg0, ..., argN]. After: [..., result].
-                let builtin_idx = Self::read_u8_fast(instructions, ip + 1);
+                let base_fn_idx = Self::read_u8_fast(instructions, ip + 1);
                 let arity = Self::read_u8_fast(instructions, ip + 2);
-                self.execute_call_builtin_direct(builtin_idx, arity)?;
+                self.execute_call_base_direct(base_fn_idx, arity)?;
                 Ok(3)
             }
             OpCode::OpPrimOp => {
@@ -410,9 +410,9 @@ impl VM {
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
                 let callee_idx = self.sp - 1 - num_args;
-                let is_builtin = matches!(self.stack[callee_idx], Value::Builtin(_));
+                let is_base_function = matches!(self.stack[callee_idx], Value::BaseFunction(_));
                 self.execute_tail_call(num_args)?;
-                if is_builtin { Ok(2) } else { Ok(0) }
+                if is_base_function { Ok(2) } else { Ok(0) }
             }
             OpCode::OpPop => {
                 self.pop_and_track()?;

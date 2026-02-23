@@ -26,7 +26,7 @@ print(extended)              // [|10, 20, 30, 40, 50|]
 print(scores)                // [|10, 20, 30, 40|]  — unchanged
 ```
 
-Common array builtins:
+Common array base functions:
 
 ```flux
 let nums = [|3, 1, 4, 1, 5, 9|]
@@ -40,7 +40,7 @@ print(sum(nums))                           // 23
 print(range(1, 5))                         // [|1, 2, 3, 4|]
 ```
 
-> See [`examples/basics/arrays_basic.flx`](../../examples/basics/arrays_basic.flx) and [`examples/basics/array_builtins.flx`](../../examples/basics/array_builtins.flx).
+> See [`examples/basics/arrays_basic.flx`](../../examples/basics/arrays_basic.flx) and [`examples/basics/array_base_functions.flx`](../../examples/basics/array_base_functions.flx).
 
 ## Cons Lists
 
@@ -99,7 +99,7 @@ print(get(updated, "email"))       // Some(alice@example.com)
 print(get(user, "email"))          // None  — original unchanged
 ```
 
-Common hash builtins:
+Common hash base functions:
 
 ```flux
 print(keys(user))                  // [|name, age|]
@@ -117,7 +117,7 @@ print(h["a"])   // Some(1)
 print(h["z"])   // None
 ```
 
-> See [`examples/basics/hash_basic.flx`](../../examples/basics/hash_basic.flx) and [`examples/basics/hash_builtins.flx`](../../examples/basics/hash_builtins.flx).
+> See [`examples/basics/hash_basic.flx`](../../examples/basics/hash_basic.flx) and [`examples/basics/hash_base_functions.flx`](../../examples/basics/hash_base_functions.flx).
 
 ## Tuples
 

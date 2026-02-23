@@ -294,6 +294,63 @@ fn self_recursion_still_works() {
 }
 
 #[test]
+fn import_base_as_alias_is_rejected() {
+    let code = compile_err("import Base as Core");
+    assert_eq!(code, "E078");
+}
+
+#[test]
+fn import_base_except_hides_unqualified_name() {
+    let code = compile_err("import Base except [print]\nprint(1);");
+    assert_eq!(code, "E004");
+}
+
+#[test]
+fn import_base_except_keeps_qualified_access() {
+    compile_ok_in("test.flx", "import Base except [print]\nBase.print(1);");
+}
+
+#[test]
+fn import_base_except_unknown_name_is_error() {
+    let code = compile_err("import Base except [does_not_exist]");
+    assert_eq!(code, "E080");
+}
+
+#[test]
+fn import_base_except_duplicate_name_is_error() {
+    let code = compile_err("import Base except [print, print]");
+    assert_eq!(code, "E079");
+}
+
+#[test]
+fn import_non_base_except_is_accepted() {
+    compile_ok_in("test.flx", "import Foo except [drop]\n1;");
+}
+
+#[test]
+fn import_non_base_alias_except_is_accepted() {
+    compile_ok_in("test.flx", "import Foo as F except [drop]\n1;");
+}
+
+#[test]
+fn base_qualified_unknown_member_is_error() {
+    let code = compile_err("Base.not_real();");
+    assert_eq!(code, "E080");
+}
+
+#[test]
+fn top_level_binding_can_shadow_base_name() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+let len = fn(x) { 42; };
+len([1, 2, 3]);
+Base.len([1, 2, 3]);
+"#,
+    );
+}
+
+#[test]
 fn forward_reference_with_variables() {
     // Forward reference with let bindings in between
     compile_ok_in("test.flx", "fn f() { g(); } let x = 10; fn g() { x; }");

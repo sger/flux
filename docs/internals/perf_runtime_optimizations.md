@@ -58,7 +58,7 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 
 - Reduced callee/arg movement overhead.
 - Added reusable tail-call argument scratch buffer.
-- Added builtin fixed-arity extraction fast path (0/1/2/3), preserving generic fallback behavior.
+- Added base fixed-arity extraction fast path (0/1/2/3), preserving generic fallback behavior.
 - Files:
   - `src/runtime/vm/mod.rs`
   - `src/runtime/vm/function_call.rs`

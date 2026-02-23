@@ -10,11 +10,13 @@ use crate::{
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
         ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        UNKNOWN_BASE_MEMBER, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
     primop::resolve_primop_call,
-    runtime::{compiled_function::CompiledFunction, value::Value},
+    runtime::base::is_base_fastcall_allowlisted,
+    runtime::{base::BaseModule, compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
         expression::{Expression, MatchArm, Pattern, StringPart},
@@ -55,11 +57,11 @@ impl Compiler {
             }
             Expression::Identifier { name, span } => {
                 let name = *name;
-                if let Some(symbol) = self.symbol_table.resolve(name) {
+                if let Some(symbol) = self.resolve_visible_symbol(name) {
                     self.load_symbol(&symbol);
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
-                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
@@ -179,13 +181,13 @@ impl Compiler {
                 self.compile_function_literal(parameters, body)?;
             }
             Expression::ListLiteral { elements, .. } => {
-                // Lower list literals through builtin `list(...)` to avoid deep
+                // Lower list literals through base `list(...)` to avoid deep
                 // recursive lowering for large literals.
                 let list_sym = self.interner.intern("list");
                 let symbol = self
                     .symbol_table
                     .resolve(list_sym)
-                    .expect("builtin list must be defined");
+                    .expect("base list must be defined");
                 self.load_symbol(&symbol);
                 for element in elements {
                     self.compile_non_tail_expression(element)?;
@@ -209,7 +211,7 @@ impl Compiler {
                 let symbol = self
                     .symbol_table
                     .resolve(list_sym)
-                    .expect("builtin list must be defined");
+                    .expect("base list must be defined");
                 self.load_symbol(&symbol);
                 self.emit(OpCode::OpCall, &[0]);
             }
@@ -240,7 +242,7 @@ impl Compiler {
                     self.current_span = previous_span;
                     return Ok(());
                 }
-                if self.try_emit_call_builtin(function, arguments)? {
+                if self.try_emit_call_base(function, arguments)? {
                     self.current_span = previous_span;
                     return Ok(());
                 }
@@ -276,23 +278,56 @@ impl Compiler {
             Expression::MemberAccess { object, member, .. } => {
                 let expr_span = expression.span();
                 let member = *member;
-                let module_name = match object.as_ref() {
+
+                if let Expression::Identifier { name, .. } = object.as_ref()
+                    && self.is_base_module_symbol(*name)
+                {
+                    let member_name = self.sym(member);
+                    if let Some(index) = BaseModule::new().index_of(member_name) {
+                        self.emit(OpCode::OpGetBase, &[index]);
+                        return Ok(());
+                    }
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &UNKNOWN_BASE_MEMBER,
+                        &[member_name],
+                        self.file_path.clone(),
+                        expr_span,
+                    )));
+                }
+
+                let (module_binding_name, module_name) = match object.as_ref() {
                     Expression::Identifier { name, .. } => {
                         let name = *name;
                         if let Some(target) = self.import_aliases.get(&name) {
-                            Some(*target)
+                            (Some(name), Some(*target))
                         } else if self.imported_modules.contains(&name)
                             || self.current_module_prefix == Some(name)
                         {
-                            Some(name)
+                            (Some(name), Some(name))
                         } else {
-                            None
+                            (Some(name), None)
                         }
                     }
-                    _ => None,
+                    _ => (None, None),
                 };
 
                 if let Some(module_name) = module_name {
+                    if let Some(binding_name) = module_binding_name
+                        && self
+                            .imported_module_exclusions
+                            .get(&binding_name)
+                            .is_some_and(|excluded| excluded.contains(&member))
+                    {
+                        let module_name_str = self.sym(module_name);
+                        let member_str = self.sym(member);
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &UNKNOWN_MODULE_MEMBER,
+                            &[module_name_str, member_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
+                    }
+
                     let member_str = self.sym(member);
                     self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
 
@@ -304,7 +339,7 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    if let Some(symbol) = self.symbol_table.resolve(qualified) {
+                    if let Some(symbol) = self.resolve_visible_symbol(qualified) {
                         self.load_symbol(&symbol);
                         return Ok(());
                     }
@@ -320,21 +355,19 @@ impl Compiler {
                     )));
                 }
 
-                if let Expression::Identifier { name, .. } = object.as_ref()
+                if let Some(name) = module_binding_name
                     && module_name.is_none()
+                    && is_valid_module_name(self.sym(name))
                 {
-                    let name = *name;
-                    if is_valid_module_name(self.sym(name)) {
-                        let has_symbol = self.symbol_table.resolve(name).is_some();
-                        if !has_symbol {
-                            let name_str = self.sym(name);
-                            return Err(Self::boxed(Diagnostic::make_error(
-                                &MODULE_NOT_IMPORTED,
-                                &[name_str],
-                                self.file_path.clone(),
-                                expr_span,
-                            )));
-                        }
+                    let has_symbol = self.resolve_visible_symbol(name).is_some();
+                    if !has_symbol {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &MODULE_NOT_IMPORTED,
+                            &[name_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
                     }
                 }
 
@@ -1078,10 +1111,13 @@ impl Compiler {
         let Expression::Identifier { name, .. } = function else {
             return Ok(false);
         };
+        if self.excluded_base_symbols.contains(name) {
+            return Ok(false);
+        }
 
         // Shadowed names must resolve through the regular call path.
-        if let Some(symbol) = self.symbol_table.resolve(*name)
-            && symbol.symbol_scope != SymbolScope::Builtin
+        if let Some(symbol) = self.resolve_visible_symbol(*name)
+            && symbol.symbol_scope != SymbolScope::Base
         {
             return Ok(false);
         }
@@ -1100,14 +1136,7 @@ impl Compiler {
         Ok(true)
     }
 
-    fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
-        matches!(
-            name,
-            "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
-        )
-    }
-
-    fn try_emit_call_builtin(
+    fn try_emit_call_base(
         &mut self,
         function: &Expression,
         arguments: &[Expression],
@@ -1116,22 +1145,22 @@ impl Compiler {
             return Ok(false);
         };
 
-        let builtin_name = self.sym(*name);
-        if !Self::is_builtin_fastcall_allowlisted(builtin_name) {
+        let base_name = self.sym(*name);
+        if !is_base_fastcall_allowlisted(base_name) {
             return Ok(false);
         }
 
-        let Some(symbol) = self.symbol_table.resolve(*name) else {
+        let Some(symbol) = self.resolve_visible_symbol(*name) else {
             return Ok(false);
         };
-        if symbol.symbol_scope != SymbolScope::Builtin {
+        if symbol.symbol_scope != SymbolScope::Base {
             return Ok(false);
         }
 
         for argument in arguments {
             self.compile_non_tail_expression(argument)?;
         }
-        self.emit(OpCode::OpCallBuiltin, &[symbol.index, arguments.len()]);
+        self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
     }
 
@@ -1183,7 +1212,7 @@ impl Compiler {
         if consumable_counts.get(&name).copied().unwrap_or(0) != 1 {
             return false;
         }
-        if let Some(symbol) = self.symbol_table.resolve(name)
+        if let Some(symbol) = self.resolve_visible_symbol(name)
             && self.is_consumable_tail_param(&symbol)
         {
             self.emit(OpCode::OpConsumeLocal, &[symbol.index]);

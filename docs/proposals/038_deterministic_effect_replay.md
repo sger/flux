@@ -7,7 +7,7 @@
 
 ## 1. Motivation
 
-Flux now has explicit effectful operation boundaries (`PrimOp` effects + builtin call boundaries), but reproducing failures is still difficult when programs depend on:
+Flux now has explicit effectful operation boundaries (`PrimOp` effects + base call boundaries), but reproducing failures is still difficult when programs depend on:
 
 - file IO (`read_file`, `read_lines`, `read_stdin`)
 - time (`now_ms`, `clock_now`)
@@ -52,7 +52,7 @@ Define a compact event log with strict order:
 Notes:
 
 - `Print`/`Panic` are recorded to validate ordering and exact output stream behavior.
-- Pure primops and pure builtins are never logged.
+- Pure primops and pure base functions are never logged.
 
 Suggested on-disk format (JSON Lines v1):
 
@@ -72,7 +72,7 @@ Introduce runtime mode:
 - `ReplayMode::Record { sink }`
 - `ReplayMode::Replay { source, cursor }`
 
-Add an `EffectRuntime` trait used by effectful primops/builtins:
+Add an `EffectRuntime` trait used by effectful primops/base functions:
 
 - `on_read_file(path) -> Result<String, Error>`
 - `on_read_lines(path) -> Result<Vec<String>, Error>`
@@ -98,7 +98,7 @@ Policy parity requirement:
 VM:
 
 - hook `OpPrimOp` effectful cases (`Println`, `ReadFile`, `ClockNow`, `Panic`)
-- hook effectful builtins (`print`, `read_*`, `now_ms`, `time` if kept effectful)
+- hook effectful base functions (`print`, `read_*`, `now_ms`, `time` if kept effectful)
 
 JIT:
 

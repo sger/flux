@@ -9,9 +9,9 @@ Flux v0.0.3 is the largest release yet — a second execution backend, persisten
 - **Tuples, do-blocks, and `where` clauses** — new language constructs
 - **List comprehensions** — `[x * 2 | x <- xs, x > 0]`
 - **Pattern matching: cons and tuple patterns** — `[h | t]`, `(a, b)`
-- **Unit test framework** — `test_*` functions + assert builtins + `FTest` stdlib
+- **Unit test framework** — `test_*` functions + assert base functions + `FTest` stdlib
 - **`--stats` analytics** — timing and code metrics per run
-- 75 builtins (up from 35), 62 opcodes (up from 44)
+- 75 base functions (up from 35), 62 opcodes (up from 44)
 
 ## New Language Features
 
@@ -22,7 +22,7 @@ cargo build --features jit
 cargo run --features jit -- examples/basics/fibonacci.flx --jit
 ```
 
-Compiles the AST directly to native machine code via [Cranelift](https://cranelift.dev/). Both backends share the same builtin table and GC heap — new builtins are automatically available in JIT mode.
+Compiles the AST directly to native machine code via [Cranelift](https://cranelift.dev/). Both backends share the same base table and GC heap — new base functions are automatically available in JIT mode.
 
 ### Persistent Cons Lists
 
@@ -149,7 +149,7 @@ fn to_string_list(lst) {
 }
 ```
 
-## New Builtins (75 total)
+## New Base Functions (75 total)
 
 ### Higher-Order
 

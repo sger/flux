@@ -17,15 +17,15 @@ print(result)  // ["Hello, Alice!", "Hello, Charlie!"]
 
 ## Features
 
-- **Two execution backends** — Bytecode VM for portability; Cranelift JIT for native-speed execution. Both share the same builtin table, GC heap, and collection library.
-- **Functional core** — Immutable `let` bindings, first-class functions, closures, higher-order builtins
+- **Two execution backends** — Bytecode VM for portability; Cranelift JIT for native-speed execution. Both share the same Base function registry, GC heap, and collection library.
+- **Functional core** — Immutable `let` bindings, first-class functions, closures, higher-order Base functions
 - **Pattern matching** — `match` on literals, `Some`/`None`, `Left`/`Right`, cons cells `[h | t]`, tuples, with guards
 - **List comprehensions** — `[x * 2 | x <- xs, x > 0]` desugared at parse time to `map`/`filter`/`flat_map`
 - **Persistent collections** — GC-managed cons lists and HAMT hash maps with structural sharing
 - **Pipe operator** — `a |> f(b)` desugars to `f(a, b)` — natural left-to-right data pipelines
 - **Modules** — Static qualified namespaces, imports with aliases, cycle detection at compile time
 - **String interpolation** — `"Hello #{name}, result is #{1 + 2}"`
-- **Unit testing** — Built-in `--test` runner, `test_*` discovery, assert builtins, `Flow.FTest` stdlib
+- **Unit testing** — Built-in `--test` runner, `test_*` discovery, assert functions, `Flow.FTest` stdlib
 - **Diagnostics** — Elm-style errors with stable codes (`E030`, `W200`), source snippets, inline suggestions
 - **Tooling** — Linter, formatter, bytecode inspector, free-variable analyzer, tail-call detector, `--stats`
 - **Bytecode cache** — `.fxc` files with SHA-2 hash–based dependency-aware invalidation
@@ -64,7 +64,7 @@ scripts/run_examples.sh --all --jit    # run all using JIT backend
 | Capability | VM | JIT | Notes |
 |---|---|---|---|
 | Run Flux programs | Yes | Yes | JIT requires `cargo build/run --features jit` and `--jit` flag |
-| Builtins | Yes | Yes | Shared builtin table/runtime behavior |
+| Base functions | Yes | Yes | Shared Base function registry/runtime behavior |
 | Unit test runner (`--test`) | Yes | Yes | Same `test_*` discovery and assertions |
 | AST optimizations (`-O`) | Yes | Yes | Shared optimization pipeline |
 | Analysis passes (`-A`) | Yes | Yes | Shared analysis pipeline |
@@ -89,7 +89,7 @@ scripts/run_examples.sh --all --jit    # run all using JIT backend
 | Do-blocks | No | No | Yes |
 | Where clauses | No | No | Yes |
 | List comprehensions | No | No | Yes |
-| Builtin count (approx) | 20+ | 35 | 75+ |
+| Base function count (approx) | 20+ | 35 | 75+ |
 | Built-in test runner (`--test`) | No | No | Yes |
 | Bytecode cache | Yes | Yes | Yes |
 
@@ -298,9 +298,9 @@ JIT output shows `jit compile [cranelift]` and `execute [native]` instead.
 
 ---
 
-## Builtin Functions
+## Base Functions
 
-All 77 builtins are available without imports:
+All 77 Base functions are available without imports:
 
 | Category | Functions |
 |----------|-----------|
@@ -329,9 +329,9 @@ All 77 builtins are available without imports:
 | [5. Higher-Order Functions](docs/guide/05_higher_order_functions.md) | map, filter, fold, zip, sort\_by, find, any, all |
 | [6. Pipe Operator and List Comprehensions](docs/guide/06_pipe_and_comprehensions.md) | `\|>` pipelines, `[x \| x <- xs]` comprehensions |
 | [7. Modules](docs/guide/07_modules.md) | Declaring modules, imports, aliases, private members |
-| [8. Testing](docs/guide/08_testing.md) | Unit test framework, assert builtins, FTest stdlib |
+| [8. Testing](docs/guide/08_testing.md) | Unit test framework, assert functions, FTest stdlib |
 
-**Compiler internals** — [`docs/internals/`](docs/internals/) covers bytecode, GC, JIT, value system, builtins, diagnostics, error codes, linter, and formatter.
+**Compiler internals** — [`docs/internals/`](docs/internals/) covers bytecode, GC, JIT, value system, Base functions, diagnostics, error codes, linter, and formatter.
 
 **Release history** — [`docs/versions/`](docs/versions/) has What's New documents for each tagged release.
 
@@ -346,7 +346,7 @@ src/
   bytecode/     Bytecode compiler, opcodes, symbol tables, .fxc cache
   runtime/
     vm/         Stack-based VM, instruction dispatch, tracing
-    builtins/   Built-in functions (array, string, hash, numeric, list ops)
+    base/       Base functions (array, string, map, numeric, higher-order, type checks)
     gc/         Mark-and-sweep GC, HAMT persistent maps, telemetry
   jit/          Cranelift JIT backend (feature-gated): IR generation, runtime helpers, value arena
   diagnostics/  Error types, rendering, builder pattern, aggregation, registry
@@ -357,7 +357,7 @@ tools/          VS Code syntax highlighting extension
 lib/            Flux standard library (Flow.FTest, etc.)
 docs/
   guide/        Chapter-by-chapter language manual (8 chapters)
-  internals/    Compiler internals: bytecode, GC, JIT, diagnostics, builtins
+  internals/    Compiler internals: bytecode, GC, JIT, diagnostics, Base functions
   versions/     Release notes (v0.0.1, v0.0.2, v0.0.3)
   roadmaps/     Version-specific implementation plans
   proposals/    Language design proposals
@@ -398,7 +398,7 @@ Source (.flx)
 
 ```bash
 cargo test                                # full suite (~915 tests)
-cargo test test_builtin_len               # single test by name
+cargo test test_base_len                  # single test by name
 cargo test --test parser_tests            # specific test file
 cargo test --features gc-telemetry        # include telemetry tests
 ```

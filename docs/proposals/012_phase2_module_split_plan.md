@@ -17,7 +17,7 @@ Phase 1 successfully split the three largest files:
 - ✅ `compiler.rs` (1,671 lines) → 5 modules (~300 lines each)
 - ✅ `parser.rs` (1,144 lines) → 4 modules (~250 lines each)
 - ✅ `vm.rs` (824 lines) → 6 modules (~150 lines each)
-- ✅ Plus secondary splits: module_graph, builtins, bytecode_cache
+- ✅ Plus secondary splits: module_graph, base functions, bytecode_cache
 
 ### Remaining Issues (Phase 2 Targets)
 

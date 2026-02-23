@@ -156,7 +156,7 @@ These indicate a bug in the compiler, not user code:
 | `E1000` | `WRONG_NUMBER_OF_ARGUMENTS` | Function called with wrong arity |
 | `E1001` | `NOT_A_FUNCTION` | Calling a non-function value |
 | `E1002` | `FUNCTION_NOT_FOUND` | Named function could not be resolved |
-| `E1003` | `BUILTIN_ERROR` | A builtin function returned an error |
+| `E1003` | `BASE_FUNCTION_ERROR` | A Base function returned an error |
 | `E1004` | `RUNTIME_TYPE_ERROR` | Wrong type for a runtime operation |
 | `E1005` | `NOT_INDEXABLE` | Indexing a value that doesn't support `[]` |
 | `E1006` | `KEY_NOT_HASHABLE` | Hash map key is not a hashable type |

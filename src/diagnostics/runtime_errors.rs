@@ -27,11 +27,11 @@ pub const FUNCTION_NOT_FOUND: ErrorCode = ErrorCode {
     hint: Some("Check that the function is defined and imported."),
 };
 
-pub const BUILTIN_ERROR: ErrorCode = ErrorCode {
+pub const BASE_FUNCTION_ERROR: ErrorCode = ErrorCode {
     code: "E1003",
-    title: "BUILTIN FUNCTION ERROR",
+    title: "BASE FUNCTION ERROR",
     error_type: ErrorType::Runtime,
-    message: "Error in builtin function `{}`: {}.",
+    message: "Error in Base function `{}`: {}.",
     hint: None,
 };
 

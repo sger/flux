@@ -12,7 +12,7 @@ Create a comprehensive plan for Flux v0.0.3 focusing on the most important langu
 - Core operators: `<=`, `>=`, `%`, `&&`, `||`, `|>`
 - Either type: `Left`/`Right` with pattern matching
 - Lambda shorthand: `\x -> expr`
-- 35 builtin functions (array, string, hash, math, type checking)
+- 35 base functions (array, string, hash, math, type checking)
 - Module system with imports, aliases, and forward references
 - Pattern matching: literals, wildcards, `None`/`Some`, `Left`/`Right`
 - Module-level constants with compile-time evaluation
@@ -89,7 +89,7 @@ Total: 11 weeks (2.75 months)
 
 **Future (Post v0.0.3):**
 - Macro System (Proposal 009) - 12 weeks
-- Reduces builtins from 35 to ~10
+- Reduces base functions from 35 to ~10
 - Enables user-defined language features
 
 ---
@@ -350,7 +350,7 @@ let (a, b) = pair;              // Pattern matching (M6)
 3. Parse tuple literals: `(a, b, c)`
 4. Parse tuple access: `tuple.0`
 5. Distinguish `(expr)` from `(expr,)` (single-element tuple)
-6. Add `is_tuple(x)` builtin
+6. Add `is_tuple(x)` base
 
 **Benefits:**
 - Multi-value returns without arrays
@@ -575,7 +575,7 @@ match tuple {
 
 **Related Proposals:**
 - [Proposal 007: Visitor Pattern](../proposals/007_visitor_pattern.md) - Future multi-pass compilation
-- [Proposal 008: Builtins Module Architecture](../proposals/008_builtins_module_architecture.md) - Future builtin organization
+- [Proposal 008: Base Functions Module Architecture](../proposals/008_builtins_module_architecture.md) - Future base organization
 
 ---
 
@@ -758,7 +758,7 @@ For-Loop Syntax (M6)     [Independent]
 **Prerequisites:** ✅ AST Spans (M2), ✅ Module Split (Phase 1.5)
 
 **What Macros Enable:**
-- Reduce VM builtins from 35 to ~10 (71% reduction)
+- Reduce VM base functions from 35 to ~10 (71% reduction)
 - User-defined control flow (unless, until, guard)
 - DSLs (testing frameworks, SQL, HTML templates)
 - Macro-based standard library
@@ -771,7 +771,7 @@ macro unless(condition, body) {
     quote { if !(unquote(condition)) { unquote(body) } }
 }
 
-// Type checking as macros (not builtins)
+// Type checking as macros (not base functions)
 macro is_int(x) {
     quote { type_of(unquote(x)) == "Integer" }
 }
@@ -845,5 +845,5 @@ This updated plan for v0.0.3 balances:
 **Related Proposals:**
 - [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md) - Module organization
 - [007_visitor_pattern.md](../proposals/007_visitor_pattern.md) - Multi-pass compilation (future)
-- [008_builtins_module_architecture.md](../proposals/008_builtins_module_architecture.md) - Builtin organization (future)
+- [008_builtins_module_architecture.md](../proposals/008_builtins_module_architecture.md) - Base organization (future)
 - [009_macro_system.md](../proposals/009_macro_system.md) - Metaprogramming foundation (future)

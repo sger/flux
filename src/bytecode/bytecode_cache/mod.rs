@@ -19,7 +19,8 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = 5;
+// Bumped for PrimOp hard cutover (mirrored PrimOps removed; ID space changed).
+const FORMAT_VERSION: u16 = 8;
 
 pub struct BytecodeCache {
     dir: PathBuf,

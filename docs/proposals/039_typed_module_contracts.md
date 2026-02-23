@@ -137,7 +137,7 @@ Exported contracts also carry declared effect set.
 
 v1 rules:
 
-- if export signature is pure, body cannot call effectful primops/builtins
+- if export signature is pure, body cannot call effectful primops/base functions
 - if export signature has `with IO`, IO operations are allowed
 - typed callers must satisfy callee effect requirements
 
