@@ -147,6 +147,28 @@ fn test_closures() {
 }
 
 #[test]
+fn runtime_contract_checks_dynamic_boundary_arguments() {
+    let err = run_error(
+        r#"
+fn old(v) { v }
+fn typed_add(a: Int, b: Int) -> Int { a + b }
+let x = old("oops")
+typed_add(x, 1)
+"#,
+    );
+    assert!(
+        err.contains("[E1004]"),
+        "expected runtime type error code E1004, got:\n{}",
+        err
+    );
+    assert!(
+        err.contains("Expected Int, got String."),
+        "expected contract mismatch details, got:\n{}",
+        err
+    );
+}
+
+#[test]
 fn test_recursive_fibonacci() {
     let input = r#"
         let fib = fn(n) {
