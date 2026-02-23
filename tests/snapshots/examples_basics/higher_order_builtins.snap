@@ -1,7 +1,7 @@
 ---
 source: tests/examples_basics_snapshots.rs
 ---
-Fixture: examples/basics/higher_order_base_functions.flx
+Fixture: examples/basics/higher_order_builtins.flx
 == compile ==
 ok
 == diagnostics ==
