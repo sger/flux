@@ -297,7 +297,9 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
 
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
-            Statement::Let { name, value, span } => {
+            Statement::Let {
+                name, value, span, ..
+            } => {
                 self.visit_expr(value);
                 self.define_binding(*name, span.start, BindingKind::Let);
             }
@@ -322,6 +324,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 parameters,
                 body,
                 span,
+                ..
             } => {
                 self.check_function_complexity(Some(*name), parameters, body, span.start);
                 let name_str = self.sym(*name);
@@ -384,6 +387,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 parameters,
                 body,
                 span,
+                ..
             } => {
                 self.check_function_complexity(None, parameters, body, span.start);
                 self.enter_scope();
