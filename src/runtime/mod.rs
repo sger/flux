@@ -19,6 +19,7 @@ pub mod base;
 pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
+pub mod contract;
 pub mod frame;
 pub mod gc;
 pub mod hash_key;
