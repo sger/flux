@@ -15,7 +15,10 @@ use crate::{
         CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
-    runtime::{base::BaseModule, function_contract::FunctionContract, value::Value},
+    runtime::{
+        base::BaseModule, function_contract::FunctionContract, runtime_type::RuntimeType,
+        value::Value,
+    },
     syntax::{
         interner::Interner, pattern_validate::validate_program_patterns, program::Program,
         statement::Statement, symbol::Symbol,
@@ -60,6 +63,7 @@ pub struct Compiler {
     pub tail_calls: Vec<TailCall>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
+    pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
 }
 
 #[cfg(test)]
@@ -105,6 +109,7 @@ impl Compiler {
             tail_calls: Vec::new(),
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
+            static_type_scopes: vec![HashMap::new()],
         }
     }
 
@@ -138,6 +143,8 @@ impl Compiler {
         self.current_span = None;
         self.excluded_base_symbols.clear();
         self.module_contracts.clear();
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -230,6 +237,22 @@ impl Compiler {
         to_runtime_contract(contract, &self.interner)
     }
 
+    #[inline]
+    pub(super) fn bind_static_type(&mut self, name: Symbol, ty: RuntimeType) {
+        if let Some(scope) = self.static_type_scopes.last_mut() {
+            scope.insert(name, ty);
+        }
+    }
+
+    #[inline]
+    pub(super) fn lookup_static_type(&self, name: Symbol) -> Option<RuntimeType> {
+        self.static_type_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name))
+            .cloned()
+    }
+
     /// Compile with optional optimization and analysis passes.
     ///
     /// # Parameters
@@ -288,6 +311,8 @@ impl Compiler {
         self.current_module_prefix = None;
         self.excluded_base_symbols.clear();
         self.module_contracts.clear();
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
         self.process_base_directives(program);
         self.collect_module_contracts(program);
 
@@ -408,6 +433,7 @@ impl Compiler {
         self.scopes.push(CompilationScope::new());
         self.scope_index += 1;
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
+        self.static_type_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_scope(
@@ -423,6 +449,7 @@ impl Compiler {
         if let Some(outer) = self.symbol_table.outer.take() {
             self.symbol_table = *outer;
         }
+        let _ = self.static_type_scopes.pop();
 
         (
             scope.instructions,
@@ -436,6 +463,7 @@ impl Compiler {
         let mut block_table = SymbolTable::new_block(self.symbol_table.clone());
         block_table.num_definitions = self.symbol_table.num_definitions;
         self.symbol_table = block_table;
+        self.static_type_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_block_scope(&mut self) {
@@ -445,6 +473,7 @@ impl Compiler {
             outer.num_definitions = num_definitions;
             self.symbol_table = outer;
         }
+        let _ = self.static_type_scopes.pop();
     }
 
     pub fn bytecode(&self) -> Bytecode {

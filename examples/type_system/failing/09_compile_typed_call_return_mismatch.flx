@@ -1,0 +1,5 @@
+fn make_label() -> String {
+    "label"
+}
+
+let n: Int = make_label()
