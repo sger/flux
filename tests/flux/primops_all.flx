@@ -1,0 +1,131 @@
+fn test_numeric_primops() {
+    assert_eq(iadd(10, 20), 30)
+    assert_eq(isub(20, 3), 17)
+    assert_eq(imul(6, 7), 42)
+    assert_eq(idiv(21, 3), 7)
+    assert_eq(imod(20, 6), 2)
+
+    assert_eq(fadd(1.5, 2.25), 3.75)
+    assert_eq(fsub(5.5, 2.0), 3.5)
+    assert_eq(fmul(2.0, 4.5), 9.0)
+    assert_eq(fdiv(9.0, 2.0), 4.5)
+
+    assert_eq(abs(-10), 10)
+    assert_eq(min(3, 7), 3)
+    assert_eq(max(3.0, 7.5), 7.5)
+}
+
+fn test_compare_primops() {
+    assert_true(icmp_eq(2, 2))
+    assert_true(icmp_ne(2, 3))
+    assert_true(icmp_lt(2, 3))
+    assert_true(icmp_le(3, 3))
+    assert_true(icmp_gt(4, 3))
+    assert_true(icmp_ge(4, 4))
+
+    assert_true(fcmp_eq(1.5, 1.5))
+    assert_true(fcmp_ne(1.5, 2.5))
+    assert_true(fcmp_lt(1.0, 2.0))
+    assert_true(fcmp_le(2.0, 2.0))
+    assert_true(fcmp_gt(3.0, 2.0))
+    assert_true(fcmp_ge(3.0, 3.0))
+
+    assert_true(cmp_eq("flux", "flux"))
+    assert_true(cmp_ne(1, 2))
+}
+
+fn test_array_and_collection_primops() {
+    let arr = [|10, 20, 30|]
+    assert_eq(array_len(arr), 3)
+    assert_eq(array_get(arr, 1), 20)
+
+    let arr2 = array_set(arr, 1, 99)
+    assert_eq(arr2, [|10, 99, 30|])
+
+    assert_eq(first(arr2), 10)
+    assert_eq(last(arr2), 30)
+    assert_eq(rest(arr2), [|99, 30|])
+    assert_true(contains(arr2, 99))
+    assert_eq(slice(arr2, 0, 2), [|10, 99|])
+    assert_eq(concat(arr2, [|40, 50|]), [|10, 99, 30, 40, 50|])
+
+    let lst = list(1, 2, 3)
+    assert_eq(first(lst), 1)
+    assert_eq(last(lst), 3)
+    assert_true(contains(lst, 2))
+}
+
+fn test_map_primops() {
+    let m0 = {}
+    let m1 = map_set(m0, "name", "flux")
+    let m2 = map_set(m1, "year", 2026)
+
+    assert_true(map_has(m2, "name"))
+    assert_eq(map_get(m2, "name"), Some("flux"))
+
+    assert_true(is_map(m2))
+    assert_true(is_hash(m2))
+
+    let ks = keys(m2)
+    let vs = values(m2)
+    assert_eq(len(ks), 2)
+    assert_eq(len(vs), 2)
+    assert_true(contains(ks, "name"))
+    assert_true(contains(ks, "year"))
+
+    let m3 = delete(m2, "year")
+    assert_false(map_has(m3, "year"))
+
+    let m4 = merge(m3, map_set({}, "lang", "en"))
+    assert_true(map_has(m4, "name"))
+    assert_true(map_has(m4, "lang"))
+}
+
+fn test_string_primops() {
+    let s = "  hello flux  "
+    assert_eq(string_len(s), 14)
+    assert_eq(string_concat("hello", " world"), "hello world")
+    assert_eq(string_slice("hello flux", 0, 5), "hello")
+
+    assert_eq(trim(s), "hello flux")
+    assert_eq(upper("flux"), "FLUX")
+    assert_eq(lower("FLUX"), "flux")
+    assert_true(starts_with("flux-lang", "flux"))
+    assert_true(ends_with("flux-lang", "lang"))
+    assert_eq(replace("flux flux", "flux", "vm"), "vm vm")
+    assert_eq(chars("abc"), [|"a", "b", "c"|])
+}
+
+fn test_parse_primops() {
+    assert_eq(parse_int("42"), 42)
+    assert_eq(parse_ints([|"1", "2", "3"|]), [|1, 2, 3|])
+    assert_eq(split_ints("10,20,30", ","), [|10, 20, 30|])
+}
+
+fn test_type_and_compat_primops() {
+    let arr = [|1, 2, 3|]
+
+    assert_eq(len(arr), 3)
+    assert_eq(type_of(arr), "Array")
+    assert_true(is_int(1))
+    assert_true(is_float(1.0))
+    assert_true(is_string("x"))
+    assert_true(is_bool(true))
+    assert_true(is_array(arr))
+    assert_true(is_none(None))
+    assert_true(is_some(Some(1)))
+    assert_true(string_len(to_string(arr)) > 0)
+}
+
+fn test_effect_primops() {
+    println("primop test println")
+
+    let t0 = clock_now()
+    let t1 = clock_now()
+    assert_true(t1 >= t0)
+
+    let content = read_file("tests/flux/primops_input.txt")
+    assert_true(string_len(content) > 0)
+
+    assert_throws(\() -> panic("boom"), "boom")
+}

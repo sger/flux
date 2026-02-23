@@ -1,6 +1,9 @@
 # Builtin Functions
 
 > Source: `src/runtime/builtins/`
+> Proposal context:
+> - Base prelude architecture: `docs/proposals/028_base.md`
+> - Flow stdlib architecture: `docs/proposals/030_flow.md`
 
 Flux has 75 builtin functions available without any import. This document covers how they are registered internally and how to add a new one.
 

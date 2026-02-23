@@ -1,4 +1,4 @@
-# Proposal: Type System with Algebraic Effects for Flux
+# Proposal 032: Type System with Algebraic Effects for Flux
 
 **Status:** Draft
 **Date:** 2026-02-17

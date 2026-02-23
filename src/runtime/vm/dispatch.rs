@@ -391,6 +391,22 @@ impl VM {
                 self.execute_call(num_args)?;
                 Ok(2)
             }
+            OpCode::OpCallBuiltin => {
+                // Encoded as [OpCallBuiltin, builtin_idx, arity]; callee is implicit.
+                // Stack before: [..., arg0, ..., argN]. After: [..., result].
+                let builtin_idx = Self::read_u8_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 2);
+                self.execute_call_builtin_direct(builtin_idx, arity)?;
+                Ok(3)
+            }
+            OpCode::OpPrimOp => {
+                // Encoded as [OpPrimOp, primop_id, arity].
+                // Stack before: [..., arg0, ..., argN]. After: [..., result].
+                let primop_id = Self::read_u8_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 2);
+                self.execute_primop_opcode(primop_id, arity)?;
+                Ok(3)
+            }
             OpCode::OpTailCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
                 let callee_idx = self.sp - 1 - num_args;

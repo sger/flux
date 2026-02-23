@@ -3,5 +3,6 @@ pub mod bytecode;
 pub mod diagnostics;
 #[cfg(feature = "jit")]
 pub mod jit;
+pub mod primop;
 pub mod runtime;
 pub mod syntax;

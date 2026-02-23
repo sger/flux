@@ -6,6 +6,39 @@ use crate::{
 use super::{Parser, helpers::SyncMode};
 
 impl Parser {
+    fn looks_like_text_block_juxtaposition(&self) -> bool {
+        if self.current_token.token_type != TokenType::Ident
+            || self.peek_token.token_type != TokenType::Ident
+        {
+            return false;
+        }
+
+        // Strong signal: at least three bare words on one line (`Roses are red`).
+        self.peek2_token.token_type == TokenType::Ident
+            && self.peek2_token.position.line == self.peek_token.position.line
+    }
+
+    fn build_juxtaposed_identifier_error(
+        &self,
+        ident_name: &str,
+        span: crate::diagnostics::position::Span,
+    ) -> crate::diagnostics::Diagnostic {
+        let mut diag = unexpected_token(
+            span,
+            format!("Unexpected identifier `{ident_name}` after expression."),
+        )
+        .with_hint_text("If you intended a function call, use parentheses: `f(x)`.")
+        .with_hint_text("If you intended separate expressions, add an operator or a separator.");
+
+        if self.looks_like_text_block_juxtaposition() {
+            diag = diag.with_hint_text(
+                "If this is text, wrap lines in quotes or use multiline strings with triple quotes: `\"\"\"...\"\"\"`.",
+            );
+        }
+
+        diag
+    }
+
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
         let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
@@ -70,13 +103,8 @@ impl Parser {
         {
             let ident_name = self.peek_token.literal.to_string();
             let error_span = self.span_from(start);
-            self.errors.push(unexpected_token(
-                error_span,
-                format!(
-                    "Unexpected identifier `{ident_name}` after expression — \
-                     in Flux, function calls require parentheses: `f(x)`."
-                ),
-            ));
+            self.errors
+                .push(self.build_juxtaposed_identifier_error(&ident_name, error_span));
             // Skip the current line AND any subsequent lines that also consist of
             // bare identifier sequences (e.g. lines of prose inside a `""` that should
             // have been `"""`). This emits a single error for the whole group instead

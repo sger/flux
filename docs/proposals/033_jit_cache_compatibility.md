@@ -1,9 +1,9 @@
-# Proposal 031: JIT and Cache Compatibility
+# Proposal 033: JIT and Cache Compatibility
 
 **Status:** Proposed  
 **Priority:** High  
 **Created:** 2026-02-18  
-**Related:** Proposal 029 (Cranelift JIT Backend), Proposal 023 (Bytecode Decode Passes)
+**Related:** Proposal 031 (Cranelift JIT Backend), Proposal 023 (Bytecode Decode Passes)
 
 ## Summary
 
