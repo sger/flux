@@ -17,9 +17,10 @@ use cranelift_module::{FuncId, Linkage, Module};
 use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
+use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
-    program::Program, statement::Statement,
+    program::Program, statement::Statement, type_expr::TypeExpr,
 };
 
 use super::context::JitFunctionEntry;
@@ -101,6 +102,8 @@ impl LiteralKey {
 struct LiteralFunctionSpec {
     key: LiteralKey,
     parameters: Vec<Identifier>,
+    parameter_types: Vec<Option<TypeExpr>>,
+    return_type: Option<TypeExpr>,
     body: Block,
     captures: Vec<Identifier>,
     self_name: Option<Identifier>,
@@ -152,8 +155,14 @@ pub struct JitCompiler {
     pub module: JITModule,
     builder_ctx: FunctionBuilderContext,
     helpers: HelperFuncs,
-    jit_functions: Vec<(FuncId, usize)>,
+    jit_functions: Vec<JitFunctionCompileEntry>,
     named_functions: HashMap<String, usize>,
+}
+
+struct JitFunctionCompileEntry {
+    id: FuncId,
+    num_params: usize,
+    contract: Option<FunctionContract>,
 }
 
 impl JitCompiler {
@@ -247,7 +256,7 @@ impl JitCompiler {
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
         self.predeclare_functions(program, &mut scope, interner)?;
-        self.predeclare_literal_functions(&literal_specs, &mut scope)?;
+        self.predeclare_literal_functions(&literal_specs, &mut scope, interner)?;
         self.compile_functions(program, &scope, interner)?;
         self.compile_literal_functions(&literal_specs, &scope, interner)?;
         self.record_named_functions(&scope, interner);
@@ -356,7 +365,11 @@ impl JitCompiler {
         for stmt in &program.statements {
             match stmt {
                 Statement::Function {
-                    name, parameters, ..
+                    name,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    ..
                 } => {
                     if scope.functions.contains_key(name) {
                         continue;
@@ -369,7 +382,13 @@ impl JitCompiler {
                         .declare_function(&fn_name, Linkage::Local, &sig)
                         .map_err(|e| format!("declare {}: {}", fn_name, e))?;
                     let function_index = self.jit_functions.len();
-                    self.jit_functions.push((id, parameters.len()));
+                    let contract =
+                        runtime_contract_from_annotations(parameter_types, return_type, interner);
+                    self.jit_functions.push(JitFunctionCompileEntry {
+                        id,
+                        num_params: parameters.len(),
+                        contract,
+                    });
                     scope.functions.insert(
                         *name,
                         JitFunctionMeta {
@@ -389,6 +408,8 @@ impl JitCompiler {
                         let Statement::Function {
                             name: fn_name,
                             parameters,
+                            parameter_types,
+                            return_type,
                             ..
                         } = inner
                         else {
@@ -411,7 +432,16 @@ impl JitCompiler {
                             .declare_function(&label, Linkage::Local, &sig)
                             .map_err(|e| format!("declare {}: {}", label, e))?;
                         let function_index = self.jit_functions.len();
-                        self.jit_functions.push((id, parameters.len()));
+                        let contract = runtime_contract_from_annotations(
+                            parameter_types,
+                            return_type,
+                            interner,
+                        );
+                        self.jit_functions.push(JitFunctionCompileEntry {
+                            id,
+                            num_params: parameters.len(),
+                            contract,
+                        });
                         scope.module_functions.insert(
                             key,
                             JitFunctionMeta {
@@ -860,6 +890,7 @@ impl JitCompiler {
         &mut self,
         specs: &[LiteralFunctionSpec],
         scope: &mut Scope,
+        interner: &Interner,
     ) -> Result<(), String> {
         for spec in specs {
             if scope.literal_functions.contains_key(&spec.key) {
@@ -884,7 +915,16 @@ impl JitCompiler {
                 .declare_function(&fn_name, Linkage::Local, &sig)
                 .map_err(|e| format!("declare {}: {}", fn_name, e))?;
             let function_index = self.jit_functions.len();
-            self.jit_functions.push((id, spec.parameters.len()));
+            let contract = runtime_contract_from_annotations(
+                &spec.parameter_types,
+                &spec.return_type,
+                interner,
+            );
+            self.jit_functions.push(JitFunctionCompileEntry {
+                id,
+                num_params: spec.parameters.len(),
+                contract,
+            });
             scope.literal_functions.insert(
                 spec.key,
                 JitFunctionMeta {
@@ -1096,9 +1136,10 @@ impl JitCompiler {
     pub fn jit_function_entries(&self) -> Vec<JitFunctionEntry> {
         self.jit_functions
             .iter()
-            .map(|(id, num_params)| JitFunctionEntry {
-                ptr: self.module.get_finalized_function(*id),
-                num_params: *num_params,
+            .map(|entry| JitFunctionEntry {
+                ptr: self.module.get_finalized_function(entry.id),
+                num_params: entry.num_params,
+                contract: entry.contract.clone(),
             })
             .collect()
     }
@@ -1726,7 +1767,7 @@ fn compile_expression(
         Expression::Call {
             function,
             arguments,
-            ..
+            span,
         } => {
             if let Some(primop) = resolve_call_primop(scope, function, arguments, interner) {
                 return compile_primop_call(
@@ -1754,6 +1795,7 @@ fn compile_expression(
                         return_block,
                         tail_call,
                         meta,
+                        *span,
                         arguments,
                         interner,
                     );
@@ -2801,6 +2843,7 @@ fn compile_user_function_call(
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
     meta: JitFunctionMeta,
+    call_span: crate::diagnostics::position::Span,
     arguments: &[Expression],
     interner: &Interner,
 ) -> Result<CraneliftValue, String> {
@@ -2841,11 +2884,49 @@ fn compile_user_function_call(
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
     let zero = builder.ins().iconst(PTR_TYPE, 0);
+    let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+    let line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let col_val = builder.ins().iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+
+    let check_call = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
+    let call_ok = builder
+        .ins()
+        .call(check_call, &[ctx_val, fn_index, args_ptr, nargs_val, line_val, col_val]);
+    let call_ok_val = builder.inst_results(call_ok)[0];
+    let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
+
+    let call_block = builder.create_block();
+    let fail_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, PTR_TYPE);
+    builder
+        .ins()
+        .brif(call_ok_bool, call_block, &[], fail_block, &[]);
+
+    builder.switch_to_block(fail_block);
+    let fail_args = [BlockArg::Value(null_ptr)];
+    builder.ins().jump(done_block, &fail_args);
+    builder.seal_block(fail_block);
+
+    builder.switch_to_block(call_block);
     let callee_ref = module.declare_func_in_func(meta.id, builder.func);
     let call = builder
         .ins()
         .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero]);
-    Ok(builder.inst_results(call)[0])
+    let raw_result = builder.inst_results(call)[0];
+    let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
+    let checked_ret_call = builder
+        .ins()
+        .call(check_ret, &[ctx_val, fn_index, raw_result]);
+    let checked_ret = builder.inst_results(checked_ret_call)[0];
+    let ok_args = [BlockArg::Value(checked_ret)];
+    builder.ins().jump(done_block, &ok_args);
+    builder.seal_block(call_block);
+
+    builder.switch_to_block(done_block);
+    let result = builder.block_params(done_block)[0];
+    builder.seal_block(done_block);
+    Ok(result)
 }
 
 fn compile_generic_call(
@@ -3179,6 +3260,8 @@ impl LiteralCollector {
                     self.specs.push(LiteralFunctionSpec {
                         key,
                         parameters: parameters.clone(),
+                        parameter_types: parameter_types.clone(),
+                        return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
                         self_name: Some(*name),
@@ -3214,7 +3297,11 @@ impl LiteralCollector {
     fn collect_expr(&mut self, expr: &Expression) {
         match expr {
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                body,
+                ..
             } => {
                 let key = LiteralKey::from_expr(expr);
                 if !self.seen.contains(&key) {
@@ -3226,6 +3313,8 @@ impl LiteralCollector {
                     self.specs.push(LiteralFunctionSpec {
                         key,
                         parameters: parameters.clone(),
+                        parameter_types: parameter_types.clone(),
+                        return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
                         self_name: None,
@@ -3339,6 +3428,62 @@ impl LiteralCollector {
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
+
+fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            let name_str = interner.try_resolve(*name)?;
+            match (name_str, args.len()) {
+                ("Any", 0) => Some(RuntimeType::Any),
+                ("Int", 0) => Some(RuntimeType::Int),
+                ("Float", 0) => Some(RuntimeType::Float),
+                ("Bool", 0) => Some(RuntimeType::Bool),
+                ("String", 0) => Some(RuntimeType::String),
+                ("Unit", 0) => Some(RuntimeType::Unit),
+                ("Option", 1) => Some(RuntimeType::Option(Box::new(
+                    convert_type_expr_for_contract(&args[0], interner)?,
+                ))),
+                ("Array", 1) => Some(RuntimeType::Array(Box::new(
+                    convert_type_expr_for_contract(&args[0], interner)?,
+                ))),
+                ("Map", 2) => Some(RuntimeType::Map(
+                    Box::new(convert_type_expr_for_contract(&args[0], interner)?),
+                    Box::new(convert_type_expr_for_contract(&args[1], interner)?),
+                )),
+                _ => None,
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
+            elements
+                .iter()
+                .map(|e| convert_type_expr_for_contract(e, interner))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        TypeExpr::Function { .. } => None,
+    }
+}
+
+fn runtime_contract_from_annotations(
+    parameter_types: &[Option<TypeExpr>],
+    return_type: &Option<TypeExpr>,
+    interner: &Interner,
+) -> Option<FunctionContract> {
+    let params = parameter_types
+        .iter()
+        .map(|ty| {
+            ty.as_ref()
+                .and_then(|t| convert_type_expr_for_contract(t, interner))
+        })
+        .collect::<Vec<_>>();
+    let ret = return_type
+        .as_ref()
+        .and_then(|ty| convert_type_expr_for_contract(ty, interner));
+    if !params.iter().any(|t| t.is_some()) && ret.is_none() {
+        None
+    } else {
+        Some(FunctionContract { params, ret })
+    }
+}
 
 struct HelperSig {
     num_params: usize,
@@ -3585,6 +3730,20 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 3,
                 has_return: false,
+            },
+        ),
+        (
+            "rt_check_jit_contract_call",
+            HelperSig {
+                num_params: 6,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_return",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
             },
         ),
         // Phase 4: value wrappers (ctx, value) -> *mut Value

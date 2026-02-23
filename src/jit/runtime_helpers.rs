@@ -564,6 +564,50 @@ pub extern "C" fn rt_set_arity_error(ctx: *mut JitContext, got: i64, want: i64) 
     ));
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call(
+    ctx: *mut JitContext,
+    function_index: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+    line: i64,
+    column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            return 0;
+        }
+        let arg = unsafe { &*arg_ptr };
+        if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
+            ctx.error = Some(ctx.render_runtime_type_error_at(&expected, &actual, line as usize, column as usize));
+            return 0;
+        }
+    }
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_return(
+    ctx: *mut JitContext,
+    function_index: i64,
+    value: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    let value_ref = unsafe { &*value };
+    if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref)
+    {
+        ctx.error = Some(ctx.render_runtime_type_error(&expected, &actual, None));
+        return ptr::null_mut();
+    }
+    value
+}
+
 // ---------------------------------------------------------------------------
 // Value wrappers: Some / Left / Right
 // ---------------------------------------------------------------------------
@@ -933,6 +977,14 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
         ("rt_set_arity_error", rt_set_arity_error as *const u8),
+        (
+            "rt_check_jit_contract_call",
+            rt_check_jit_contract_call as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_return",
+            rt_check_jit_contract_return as *const u8,
+        ),
         // Phase 4: wrappers
         ("rt_make_some", rt_make_some as *const u8),
         ("rt_make_left", rt_make_left as *const u8),

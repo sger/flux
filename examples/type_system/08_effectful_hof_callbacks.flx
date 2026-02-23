@@ -1,0 +1,12 @@
+fn each_log(xs: List<Int>, f: (Int) -> Unit with IO) with IO {
+    match xs {
+        [h | t] -> do {
+            f(h)
+            each_log(t, f)
+        },
+        [] -> print("done"),
+        _ -> print("done")
+    }
+}
+
+each_log(list(10, 20, 30), \(x: Int) -> print("callback=#{x}"))

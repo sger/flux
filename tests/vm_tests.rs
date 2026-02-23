@@ -169,6 +169,26 @@ typed_add(x, 1)
 }
 
 #[test]
+fn runtime_contract_checks_typed_return_values() {
+    let err = run_error(
+        r#"
+fn bad() -> Int { "oops" }
+bad()
+"#,
+    );
+    assert!(
+        err.contains("[E1004]"),
+        "expected runtime type error code E1004, got:\n{}",
+        err
+    );
+    assert!(
+        err.contains("Expected Int, got String."),
+        "expected contract mismatch details, got:\n{}",
+        err
+    );
+}
+
+#[test]
 fn test_recursive_fibonacci() {
     let input = r#"
         let fib = fn(n) {

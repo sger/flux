@@ -20,6 +20,7 @@ use crate::{
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
 };
 
@@ -169,6 +170,8 @@ impl Compiler {
                 Statement::Function {
                     name,
                     parameters,
+                    parameter_types,
+                    return_type,
                     body,
                     span,
                     ..
@@ -189,7 +192,14 @@ impl Compiler {
                             Some("Use a different name or remove the previous definition"),
                         )));
                     }
-                    self.compile_function_statement(name, parameters, body, span.start)?;
+                    self.compile_function_statement(
+                        name,
+                        parameters,
+                        parameter_types,
+                        return_type,
+                        body,
+                        span.start,
+                    )?;
                     // For nested functions, add to file_scope_symbols
                     if self.scope_index == 0 {
                         // Already added in pass 1 for top-level functions
@@ -280,6 +290,8 @@ impl Compiler {
         &mut self,
         name: Symbol,
         parameters: &[Symbol],
+        parameter_types: &[Option<TypeExpr>],
+        return_type: &Option<TypeExpr>,
         body: &Block,
         position: Position,
     ) -> CompileResult<()> {
@@ -343,15 +355,27 @@ impl Compiler {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
-            instructions,
-            num_locals,
-            parameters.len(),
-            Some(
-                FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
-                    .with_effect_summary(effect_summary),
-            ),
-        ))));
+        let runtime_contract = {
+            let contract = crate::bytecode::compiler::contracts::FnContract {
+                params: parameter_types.to_vec(),
+                ret: return_type.clone(),
+                effects: Vec::new(),
+            };
+            self.to_runtime_contract(&contract)
+        };
+
+        let fn_idx = self.add_constant(Value::Function(Rc::new(
+            CompiledFunction::new(
+                instructions,
+                num_locals,
+                parameters.len(),
+                Some(
+                    FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
+                        .with_effect_summary(effect_summary),
+                ),
+            )
+            .with_contract(runtime_contract),
+        )));
         self.emit_closure_index(fn_idx, free_symbols.len());
 
         match symbol.symbol_scope {
@@ -477,6 +501,8 @@ impl Compiler {
             if let Statement::Function {
                 name: fn_name,
                 parameters,
+                parameter_types,
+                return_type,
                 body: fn_body,
                 span,
                 ..
@@ -484,8 +510,14 @@ impl Compiler {
             {
                 let position = span.start;
                 let qualified_name = self.interner.intern_join(binding_name, *fn_name);
-                if let Err(err) =
-                    self.compile_function_statement(qualified_name, parameters, fn_body, position)
+                if let Err(err) = self.compile_function_statement(
+                    qualified_name,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    fn_body,
+                    position,
+                )
                 {
                     self.current_module_prefix = previous_module;
                     return Err(err);
