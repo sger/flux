@@ -2,7 +2,9 @@ use std::fmt;
 
 use crate::{
     diagnostics::position::Span,
-    syntax::{Identifier, block::Block, interner::Interner},
+    syntax::{
+        Identifier, block::Block, effect_expr::EffectExpr, interner::Interner, type_expr::TypeExpr,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -110,6 +112,9 @@ pub enum Expression {
     },
     Function {
         parameters: Vec<Identifier>,
+        parameter_types: Vec<Option<TypeExpr>>,
+        return_type: Option<TypeExpr>,
+        effects: Vec<EffectExpr>,
         body: Block,
         span: Span,
     },
@@ -225,10 +230,51 @@ impl fmt::Display for Expression {
             }
             Expression::DoBlock { block, .. } => write!(f, "do {}", block),
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
             } => {
-                let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fn({}) {}", params.join(", "), body)
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(
+                        |(idx, param)| match parameter_types.get(idx).and_then(|ta| ta.as_ref()) {
+                            Some(ta) => format!("{param}: {ta}"),
+                            None => param.to_string(),
+                        },
+                    )
+                    .collect();
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        write!(f, "fn({}) -> {} {}", params.join(", "), return_type, body)
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(ToString::to_string).collect();
+                        write!(
+                            f,
+                            "fn({}) -> {} with {} {}",
+                            params.join(", "),
+                            return_type,
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    write!(f, "fn({}) {}", params.join(", "), body)
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(ToString::to_string).collect();
+                    write!(
+                        f,
+                        "fn({}) with {} {}",
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Expression::Call {
                 function,
@@ -376,10 +422,55 @@ impl Expression {
                 format!("do {}", block)
             }
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
             } => {
-                let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
-                format!("fn({}) {}", params.join(", "), body)
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, param)| {
+                        let param_name = interner.resolve(*param);
+                        match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
+                            Some(ty) => format!("{param_name}: {}", ty.display_with(interner)),
+                            None => param_name.to_string(),
+                        }
+                    })
+                    .collect();
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        format!(
+                            "fn({}) -> {} {}",
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            body
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(|e| e.display_with(interner)).collect();
+                        format!(
+                            "fn({}) -> {} with {} {}",
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    format!("fn({}) {}", params.join(", "), body)
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(|e| e.display_with(interner)).collect();
+                    format!(
+                        "fn({}) with {} {}",
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Expression::Call {
                 function,
