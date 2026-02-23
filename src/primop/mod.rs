@@ -510,14 +510,10 @@ pub fn execute_primop(
         | PrimOp::EndsWith
         | PrimOp::Replace
         | PrimOp::Chars => execute_string_ops_primop(op, args),
-        PrimOp::Keys
-        | PrimOp::Values
-        | PrimOp::Delete
-        | PrimOp::Merge
-        | PrimOp::IsMap => execute_map_primop_extended(ctx, op, args),
-        PrimOp::ParseInt | PrimOp::ParseInts | PrimOp::SplitInts => {
-            execute_parse_primop(op, args)
+        PrimOp::Keys | PrimOp::Values | PrimOp::Delete | PrimOp::Merge | PrimOp::IsMap => {
+            execute_map_primop_extended(ctx, op, args)
         }
+        PrimOp::ParseInt | PrimOp::ParseInts | PrimOp::SplitInts => execute_parse_primop(op, args),
     }
 }
 
@@ -732,9 +728,10 @@ fn execute_parse_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> {
             for value in lines.iter() {
                 match value {
                     Value::String(s) => {
-                        let parsed = s.trim().parse::<i64>().map_err(|_| {
-                            format!("parse_ints: could not parse '{}' as Int", s)
-                        })?;
+                        let parsed = s
+                            .trim()
+                            .parse::<i64>()
+                            .map_err(|_| format!("parse_ints: could not parse '{}' as Int", s))?;
                         out.push(Value::Integer(parsed));
                     }
                     other => {
