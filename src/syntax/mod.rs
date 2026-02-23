@@ -2,6 +2,7 @@
 
 pub mod block;
 pub mod byte_span;
+pub mod effect_expr;
 pub mod entry;
 pub mod expression;
 pub mod formatter;
@@ -18,5 +19,6 @@ pub mod statement;
 pub mod symbol;
 pub mod token;
 pub mod token_type;
+pub mod type_expr;
 
 pub type Identifier = symbol::Symbol;
