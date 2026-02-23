@@ -25,6 +25,11 @@ impl BaseModule {
         BASE_FUNCTIONS.len()
     }
 
+    /// Returns true when the Base registry has no entries.
+    pub fn is_empty(self) -> bool {
+        BASE_FUNCTIONS.is_empty()
+    }
+
     /// Returns the Base entry for a given index.
     pub fn by_index(self, index: usize) -> Option<&'static BaseFunction> {
         BASE_FUNCTIONS.get(index)
