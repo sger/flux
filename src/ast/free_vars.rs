@@ -74,6 +74,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 name,
                 value,
                 span: _,
+                ..
             } => {
                 // Visit value before defining the binding (value can't reference itself).
                 self.visit_expr(value);
@@ -92,6 +93,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 parameters,
                 body,
                 span: _,
+                ..
             } => {
                 // Define function in outer scope first to support recursion.
                 self.define(*name);
@@ -127,6 +129,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 parameters,
                 body,
                 span: _,
+                ..
             } => {
                 self.push_scope();
                 for param in parameters {

@@ -73,6 +73,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
     match stmt {
         Statement::Let {
             name,
+            type_annotation: _,
             value,
             span: _,
         } => {
@@ -102,6 +103,9 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         Statement::Function {
             name,
             parameters,
+            parameter_types: _,
+            return_type: _,
+            effects: _,
             body,
             span: _,
         } => {
@@ -191,6 +195,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         }
         Expression::Function {
             parameters,
+            parameter_types: _,
+            return_type: _,
+            effects: _,
             body,
             span: _,
         } => {
