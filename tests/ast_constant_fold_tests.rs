@@ -1,5 +1,5 @@
 use flux::{
-    ast::constant_fold,
+    ast::{constant_fold, constant_fold_with_interner},
     syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement},
 };
 
@@ -35,6 +35,26 @@ fn parse_and_fold_statement(input: &str) -> Statement {
     let folded = constant_fold(program);
     assert_eq!(folded.statements.len(), 1, "Expected single statement");
     folded.statements[0].clone()
+}
+
+fn parse_and_fold_with_interner(input: &str) -> Expression {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "Parse errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+
+    let folded = constant_fold_with_interner(program, &interner);
+    assert_eq!(folded.statements.len(), 1, "Expected single statement");
+
+    match &folded.statements[0] {
+        flux::syntax::statement::Statement::Expression { expression, .. } => expression.clone(),
+        _ => panic!("Expected expression statement"),
+    }
 }
 
 #[test]
@@ -316,5 +336,29 @@ fn fold_inside_let_binding() {
             other => panic!("expected Integer, got {:?}", other),
         },
         other => panic!("expected Let, got {:?}", other),
+    }
+}
+
+#[test]
+fn folds_pure_primop_abs_call_with_interner() {
+    match parse_and_fold_with_interner("abs(-5);") {
+        Expression::Integer { value, .. } => assert_eq!(value, 5),
+        other => panic!("expected Integer(5), got {:?}", other),
+    }
+}
+
+#[test]
+fn folds_pure_primop_string_len_call_with_interner() {
+    match parse_and_fold_with_interner(r#"string_len("é");"#) {
+        Expression::Integer { value, .. } => assert_eq!(value, 2),
+        other => panic!("expected Integer(2), got {:?}", other),
+    }
+}
+
+#[test]
+fn does_not_fold_effectful_primop_print_call_with_interner() {
+    match parse_and_fold_with_interner(r#"print("x");"#) {
+        Expression::Call { .. } => {}
+        other => panic!("expected Call (unfolded), got {:?}", other),
     }
 }

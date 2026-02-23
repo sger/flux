@@ -135,13 +135,26 @@ fn vm_and_jit_match_phase2_parse_primop_values() {
 }
 
 #[test]
+fn vm_and_jit_match_string_length_contract_for_non_ascii() {
+    let vm_len = run_vm(r#"len("é")"#).expect("VM len should succeed");
+    let jit_len = run_jit(r#"len("é")"#).expect("JIT len should succeed");
+    assert_eq!(vm_len, Value::Integer(2));
+    assert_eq!(jit_len, Value::Integer(2));
+
+    let vm_string_len = run_vm(r#"string_len("é")"#).expect("VM string_len should succeed");
+    let jit_string_len = run_jit(r#"string_len("é")"#).expect("JIT string_len should succeed");
+    assert_eq!(vm_string_len, Value::Integer(2));
+    assert_eq!(jit_string_len, Value::Integer(2));
+}
+
+#[test]
 fn vm_and_jit_match_phase2_primop_errors() {
-    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected Array or List");
+    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected first argument");
     assert_vm_jit_error_contains("concat(1, #[2])", "concat expected Array");
     assert_vm_jit_error_contains("concat(#[1], 2)", "concat expected Array");
     assert_vm_jit_error_contains(r#"parse_int("12x")"#, "could not parse");
     assert_vm_jit_error_contains(r#"split_ints("1,a,3", ",")"#, "could not parse");
-    assert_vm_jit_error_contains(r#"delete({}, [])"#, "expects hashable key");
+    assert_vm_jit_error_contains(r#"delete({}, [])"#, "hashable");
 }
 
 #[test]

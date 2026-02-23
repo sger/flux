@@ -3,6 +3,7 @@ use crate::runtime::{RuntimeContext, base_function::BaseFunction, value::Value};
 mod registry;
 pub use registry::{
     BaseModule, get_base_function, get_base_function_by_index, get_base_function_index,
+    is_base_fastcall_allowlisted,
 };
 
 mod array_ops;

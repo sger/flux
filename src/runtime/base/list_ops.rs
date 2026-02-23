@@ -183,7 +183,7 @@ pub(super) fn collect_list(ctx: &dyn RuntimeContext, value: &Value) -> Option<Ve
 }
 
 /// Helper: counts the length of a cons list.
-pub(super) fn list_len(ctx: &dyn RuntimeContext, value: &Value) -> Option<usize> {
+pub(crate) fn list_len(ctx: &dyn RuntimeContext, value: &Value) -> Option<usize> {
     let mut count = 0;
     let mut current = value.clone();
     loop {
