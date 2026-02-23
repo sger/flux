@@ -294,7 +294,8 @@ impl Compiler {
         }
 
         let num_locals = self.symbol_table.num_definitions;
-        let (instructions, locations, files) = self.leave_scope();
+
+        let (instructions, locations, files, effect_summary) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -304,11 +305,10 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
-            Some(FunctionDebugInfo::new(
-                Some(self.sym(name).to_string()),
-                files,
-                locations,
-            )),
+            Some(
+                FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
+                    .with_effect_summary(effect_summary),
+            ),
         ))));
         self.emit_closure_index(fn_idx, free_symbols.len());
 

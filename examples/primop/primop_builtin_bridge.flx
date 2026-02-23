@@ -1,0 +1,14 @@
+print("== PrimOp and builtin bridge ==");
+
+let arr = [|10, 20, 30|];
+print(array_len(arr));
+print(len(arr)); // builtin name lowered to PrimOp::Len
+
+let m = put({}, "lang", "flux");
+print(map_get(m, "lang")); // canonical primop name
+print(get(m, "lang"));     // builtin alias lowered to same PrimOp
+print(has_key(m, "lang")); // builtin alias lowered to same PrimOp as map_has
+
+print(type_of(arr));
+print(is_array(arr));
+print(to_string(42));

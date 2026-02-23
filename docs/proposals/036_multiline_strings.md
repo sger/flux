@@ -1,4 +1,4 @@
-# Proposal 034: Multi-line String Literals
+# Proposal 036: Multi-line String Literals
 
 **Status:** Draft
 **Date:** 2026-02-20

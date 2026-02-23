@@ -13,6 +13,7 @@ use crate::{
         UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
+    primop::resolve_primop_call,
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
@@ -235,6 +236,15 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                if self.try_emit_primop_call(function, arguments)? {
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+                if self.try_emit_call_builtin(function, arguments)? {
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 // Check if this is a self recursive tail call
                 let is_self_tail_call = self.in_tail_position && self.is_self_call(function);
 
@@ -437,7 +447,8 @@ impl Compiler {
         }
 
         let num_locals = self.symbol_table.num_definitions;
-        let (instructions, locations, files) = self.leave_scope();
+
+        let (instructions, locations, files, effect_summary) = self.leave_scope();
 
         for free in &free_symbols {
             self.load_symbol(free);
@@ -447,7 +458,9 @@ impl Compiler {
             instructions,
             num_locals,
             parameters.len(),
-            Some(FunctionDebugInfo::new(None, files, locations)),
+            Some(
+                FunctionDebugInfo::new(None, files, locations).with_effect_summary(effect_summary),
+            ),
         ))));
 
         self.emit_closure_index(fn_idx, free_symbols.len());
@@ -773,9 +786,8 @@ impl Compiler {
                 }
             }
             Pattern::Identifier { .. } => {
-                // Identifier always matches and binds the value
-                // For now, we'll treat it like wildcard
-                // TODO: Implement proper binding
+                // Identifier patterns always match; value binding is performed in
+                // `compile_pattern_bind` after a successful check.
                 self.emit(OpCode::OpTrue, &[]);
                 Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
             }
@@ -1056,6 +1068,71 @@ impl Compiler {
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
         }
         Ok(())
+    }
+
+    fn try_emit_primop_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<bool> {
+        let Expression::Identifier { name, .. } = function else {
+            return Ok(false);
+        };
+
+        // Shadowed names must resolve through the regular call path.
+        if let Some(symbol) = self.symbol_table.resolve(*name)
+            && symbol.symbol_scope != SymbolScope::Builtin
+        {
+            return Ok(false);
+        }
+
+        let primop = resolve_primop_call(self.sym(*name), arguments.len());
+
+        let Some(primop) = primop else {
+            return Ok(false);
+        };
+
+        for argument in arguments {
+            self.compile_non_tail_expression(argument)?;
+        }
+
+        self.emit(OpCode::OpPrimOp, &[primop.id() as usize, arguments.len()]);
+        Ok(true)
+    }
+
+    fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
+        matches!(
+            name,
+            "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
+        )
+    }
+
+    fn try_emit_call_builtin(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<bool> {
+        let Expression::Identifier { name, .. } = function else {
+            return Ok(false);
+        };
+
+        let builtin_name = self.sym(*name);
+        if !Self::is_builtin_fastcall_allowlisted(builtin_name) {
+            return Ok(false);
+        }
+
+        let Some(symbol) = self.symbol_table.resolve(*name) else {
+            return Ok(false);
+        };
+        if symbol.symbol_scope != SymbolScope::Builtin {
+            return Ok(false);
+        }
+
+        for argument in arguments {
+            self.compile_non_tail_expression(argument)?;
+        }
+        self.emit(OpCode::OpCallBuiltin, &[symbol.index, arguments.len()]);
+        Ok(true)
     }
 
     fn compile_non_tail_expression(&mut self, expression: &Expression) -> CompileResult<()> {

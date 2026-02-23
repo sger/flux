@@ -5,7 +5,7 @@ use crate::{
     bytecode::{
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
-        debug_info::{FunctionDebugInfo, InstructionLocation},
+        debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
     },
@@ -390,14 +390,26 @@ impl Compiler {
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
     }
 
-    pub(super) fn leave_scope(&mut self) -> (Instructions, Vec<InstructionLocation>, Vec<String>) {
+    pub(super) fn leave_scope(
+        &mut self,
+    ) -> (
+        Instructions,
+        Vec<InstructionLocation>,
+        Vec<String>,
+        EffectSummary,
+    ) {
         let scope = self.scopes.pop().unwrap();
         self.scope_index -= 1;
         if let Some(outer) = self.symbol_table.outer.take() {
             self.symbol_table = *outer;
         }
 
-        (scope.instructions, scope.locations, scope.files)
+        (
+            scope.instructions,
+            scope.locations,
+            scope.files,
+            scope.effect_summary,
+        )
     }
 
     pub(super) fn enter_block_scope(&mut self) {
@@ -419,11 +431,14 @@ impl Compiler {
         Bytecode {
             instructions: self.scopes[self.scope_index].instructions.clone(),
             constants: self.constants.clone(),
-            debug_info: Some(FunctionDebugInfo::new(
-                Some("<main>".to_string()),
-                self.scopes[self.scope_index].files.clone(),
-                self.scopes[self.scope_index].locations.clone(),
-            )),
+            debug_info: Some(
+                FunctionDebugInfo::new(
+                    Some("<main>".to_string()),
+                    self.scopes[self.scope_index].files.clone(),
+                    self.scopes[self.scope_index].locations.clone(),
+                )
+                .with_effect_summary(self.scopes[self.scope_index].effect_summary),
+            ),
         }
     }
 

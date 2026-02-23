@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use cranelift_codegen::ir::StackSlotData;
 use cranelift_codegen::ir::{
     AbiParam, BlockArg, Function, InstBuilder, MemFlags, UserFuncName, Value as CraneliftValue,
     condcodes::IntCC, types,
@@ -14,6 +15,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
+use crate::primop::{PrimOp, resolve_primop_call};
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement,
@@ -1117,6 +1119,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if top_level {
                 if let Some(&idx) = scope.globals.get(name) {
                     let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
@@ -1146,6 +1149,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if top_level {
                 bind_top_level_pattern_value(
                     module, helpers, builder, scope, ctx_val, pattern, val,
@@ -1172,6 +1176,7 @@ fn compile_statement(
                 interner,
             )?;
             if *has_semicolon {
+                emit_return_on_null_value(builder, val);
                 Ok(StmtOutcome::None)
             } else {
                 Ok(StmtOutcome::Value(val))
@@ -1189,6 +1194,7 @@ fn compile_statement(
                 value,
                 interner,
             )?;
+            emit_return_on_null_value(builder, val);
             if let Some(&var) = scope.locals.get(name) {
                 builder.def_var(var, val);
             } else if let Some(&idx) = scope.globals.get(name) {
@@ -1292,6 +1298,23 @@ fn compile_statement(
             Ok(StmtOutcome::None)
         }
     }
+}
+
+fn emit_return_on_null_value(builder: &mut FunctionBuilder, value_ptr: CraneliftValue) {
+    let is_null = builder.ins().icmp_imm(IntCC::Equal, value_ptr, 0);
+    let null_block = builder.create_block();
+    let continue_block = builder.create_block();
+    builder
+        .ins()
+        .brif(is_null, null_block, &[], continue_block, &[]);
+
+    builder.switch_to_block(null_block);
+    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+    builder.ins().return_(&[null_ptr]);
+    builder.seal_block(null_block);
+
+    builder.switch_to_block(continue_block);
+    builder.seal_block(continue_block);
 }
 
 fn try_compile_tail_expression_statement(
@@ -1665,22 +1688,22 @@ fn compile_expression(
             arguments,
             ..
         } => {
+            if let Some(primop) = resolve_call_primop(scope, function, arguments, interner) {
+                return compile_primop_call(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    return_block,
+                    tail_call,
+                    primop,
+                    arguments,
+                    interner,
+                );
+            }
             // Check if calling a builtin directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
-                if let Some(&builtin_idx) = scope.builtins.get(name) {
-                    return compile_builtin_call(
-                        module,
-                        helpers,
-                        builder,
-                        scope,
-                        ctx_val,
-                        return_block,
-                        tail_call,
-                        builtin_idx,
-                        arguments,
-                        interner,
-                    );
-                }
                 if let Some(meta) = scope.functions.get(name).copied() {
                     return compile_user_function_call(
                         module,
@@ -1691,6 +1714,22 @@ fn compile_expression(
                         return_block,
                         tail_call,
                         meta,
+                        arguments,
+                        interner,
+                    );
+                }
+                if should_use_builtin_fastcall(scope, *name, interner)
+                    && let Some(&builtin_idx) = scope.builtins.get(name)
+                {
+                    return compile_builtin_call(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        builtin_idx,
                         arguments,
                         interner,
                     );
@@ -2622,6 +2661,98 @@ fn compile_builtin_call(
     Ok(builder.inst_results(call)[0])
 }
 
+fn compile_primop_call(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    primop: PrimOp,
+    arguments: &[Expression],
+    interner: &Interner,
+) -> Result<CraneliftValue, String> {
+    let mut arg_vals = Vec::with_capacity(arguments.len());
+
+    for arg in arguments {
+        let val = compile_expression(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            arg,
+            interner,
+        )?;
+        arg_vals.push(val);
+    }
+
+    let nargs = arg_vals.len();
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (nargs as u32) * 8,
+        3,
+    ));
+
+    for (i, val) in arg_vals.iter().enumerate() {
+        builder.ins().stack_store(*val, slot, (i * 8) as i32);
+    }
+
+    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let primop_val = builder.ins().iconst(PTR_TYPE, primop.id() as i64);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let call_primop = get_helper_func_ref(module, helpers, builder, "rt_call_primop");
+    let call = builder
+        .ins()
+        .call(call_primop, &[ctx_val, primop_val, args_ptr, nargs_val]);
+    Ok(builder.inst_results(call)[0])
+}
+
+fn resolve_call_primop(
+    scope: &Scope,
+    function: &Expression,
+    arguments: &[Expression],
+    interner: &Interner,
+) -> Option<PrimOp> {
+    let Expression::Identifier { name, .. } = function else {
+        return None;
+    };
+
+    // Shadowed names must resolve through the regular call path.
+    if scope.locals.contains_key(name)
+        || scope.functions.contains_key(name)
+        || scope.globals.contains_key(name)
+    {
+        return None;
+    }
+
+    let name = interner.try_resolve(*name)?;
+    resolve_primop_call(name, arguments.len())
+}
+
+fn is_builtin_fastcall_allowlisted(name: &str) -> bool {
+    matches!(
+        name,
+        "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
+    )
+}
+
+fn should_use_builtin_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
+    if scope.locals.contains_key(&name)
+        || scope.functions.contains_key(&name)
+        || scope.globals.contains_key(&name)
+    {
+        return false;
+    }
+    let Some(name_str) = interner.try_resolve(name) else {
+        return false;
+    };
+    is_builtin_fastcall_allowlisted(name_str)
+}
+
 fn compile_user_function_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -3322,6 +3453,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         // Builtins & globals
         (
             "rt_call_builtin",
+            HelperSig {
+                num_params: 4,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_call_primop",
             HelperSig {
                 num_params: 4,
                 has_return: true,

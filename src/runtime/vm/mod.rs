@@ -20,6 +20,7 @@ mod comparison_ops;
 mod dispatch;
 mod function_call;
 mod index_ops;
+mod primop;
 pub mod test_runner;
 mod trace;
 

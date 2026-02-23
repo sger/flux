@@ -1,0 +1,15 @@
+print("== PrimOps: comparisons ==");
+print(icmp_eq(2, 2));
+print(icmp_ne(2, 3));
+print(icmp_lt(2, 3));
+print(icmp_le(3, 3));
+print(icmp_gt(4, 3));
+print(icmp_ge(4, 4));
+print(fcmp_eq(1.5, 1.5));
+print(fcmp_ne(1.5, 2.5));
+print(fcmp_lt(1.0, 2.0));
+print(fcmp_le(2.0, 2.0));
+print(fcmp_gt(3.0, 2.0));
+print(fcmp_ge(3.0, 3.0));
+print(cmp_eq("flux", "flux"));
+print(cmp_ne(1, 2));

@@ -15,7 +15,10 @@ if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
   git fetch --depth=1 origin "$BASE_REF":"$BASE_REF"
 fi
 
-changed_files="$(git diff --name-only "$BASE_REF...HEAD")"
+if ! changed_files="$(git diff --name-only "$BASE_REF...HEAD" 2>/dev/null)"; then
+  echo "Warning: no merge base for $BASE_REF...HEAD; using tree diff fallback."
+  changed_files="$(git diff --name-only "$BASE_REF" HEAD)"
+fi
 
 if [ -z "$changed_files" ]; then
   echo "No changed files detected; skipping fragment check."
