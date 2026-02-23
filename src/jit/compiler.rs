@@ -1280,6 +1280,9 @@ fn compile_statement(
         Statement::Function { name, .. } => {
             let Statement::Function {
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 span,
                 ..
@@ -1289,6 +1292,9 @@ fn compile_statement(
             };
             let expr = Expression::Function {
                 parameters: parameters.clone(),
+                parameter_types: parameter_types.clone(),
+                return_type: return_type.clone(),
+                effects: effects.clone(),
                 body: body.clone(),
                 span: *span,
             };
@@ -3147,11 +3153,17 @@ impl LiteralCollector {
             Statement::Function {
                 name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 ..
             } => {
                 let expr = Expression::Function {
                     parameters: parameters.clone(),
+                    parameter_types: parameter_types.clone(),
+                    return_type: return_type.clone(),
+                    effects: effects.clone(),
                     body: body.clone(),
                     span: stmt.span(),
                 };

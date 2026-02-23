@@ -6,6 +6,7 @@ use crate::{
         binding::Binding,
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
+        compiler::contracts::{ContractKey, FnContract, ModuleContractTable, to_runtime_contract},
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
@@ -14,8 +15,7 @@ use crate::{
         CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
-    runtime::base::BaseModule,
-    runtime::value::Value,
+    runtime::{base::BaseModule, function_contract::FunctionContract, value::Value},
     syntax::{
         interner::Interner, pattern_validate::validate_program_patterns, program::Program,
         statement::Statement, symbol::Symbol,
@@ -59,6 +59,7 @@ pub struct Compiler {
     // Program-level tail-position analysis result for the latest optimized compile pass.
     pub tail_calls: Vec<TailCall>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
+    pub module_contracts: ModuleContractTable,
 }
 
 #[cfg(test)]
@@ -103,6 +104,7 @@ impl Compiler {
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
             excluded_base_symbols: HashSet::new(),
+            module_contracts: HashMap::new(),
         }
     }
 
@@ -135,15 +137,97 @@ impl Compiler {
         self.current_module_prefix = None;
         self.current_span = None;
         self.excluded_base_symbols.clear();
+        self.module_contracts.clear();
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
         Box::new(diag)
     }
 
+    fn collect_module_contracts(&mut self, program: &Program) {
+        self.module_contracts.clear();
+
+        for statement in &program.statements {
+            self.collect_contracts_from_statement(statement, None);
+        }
+    }
+
+    fn collect_contracts_from_statement(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
+        match statement {
+            Statement::Function {
+                name,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                ..
+            } => {
+                let has_annotations = parameter_types.iter().any(Option::is_some)
+                    || return_type.is_some()
+                    || !effects.is_empty();
+
+                if has_annotations {
+                    self.module_contracts.insert(
+                        ContractKey {
+                            module_name,
+                            function_name: *name,
+                            arity: parameters.len(),
+                        },
+                        FnContract {
+                            params: parameter_types.clone(),
+                            ret: return_type.clone(),
+                            effects: effects.clone(),
+                        },
+                    );
+                }
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.collect_contracts_from_statement(nested, Some(*name));
+                }
+            }
+            _ => {}
+        }
+    }
+
     #[inline]
     pub(super) fn sym(&self, s: Symbol) -> &str {
         self.interner.resolve(s)
+    }
+
+    pub(super) fn lookup_contract(
+        &self,
+        module_name: Option<Symbol>,
+        function_name: Symbol,
+        arity: usize,
+    ) -> Option<&FnContract> {
+        self.module_contracts.get(&ContractKey {
+            module_name,
+            function_name,
+            arity,
+        })
+    }
+
+    pub(super) fn lookup_unqualified_contract(
+        &self,
+        function_name: Symbol,
+        arity: usize,
+    ) -> Option<&FnContract> {
+        if let Some(module_name) = self.current_module_prefix
+            && let Some(contract) = self.lookup_contract(Some(module_name), function_name, arity)
+        {
+            return Some(contract);
+        }
+
+        self.lookup_contract(None, function_name, arity)
+    }
+
+    pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
+        to_runtime_contract(contract, &self.interner)
     }
 
     /// Compile with optional optimization and analysis passes.
@@ -203,7 +287,9 @@ impl Compiler {
         self.imported_module_exclusions.clear();
         self.current_module_prefix = None;
         self.excluded_base_symbols.clear();
+        self.module_contracts.clear();
         self.process_base_directives(program);
+        self.collect_module_contracts(program);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion

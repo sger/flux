@@ -2,8 +2,11 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::{
-        compiler::Compiler, debug_info::FunctionDebugInfo,
-        module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
+        compiler::{Compiler, contracts::convert_type_expr},
+        debug_info::FunctionDebugInfo,
+        module_constants::compile_module_constants,
+        op_code::OpCode,
+        symbol_scope::SymbolScope,
     },
     diagnostics::{
         DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
@@ -37,8 +40,19 @@ impl Compiler {
                         self.emit(OpCode::OpPop, &[]);
                     }
                 }
-                Statement::Let { name, value, span } => {
+                Statement::Let {
+                    name,
+                    type_annotation,
+                    value,
+                    span,
+                    ..
+                } => {
                     let name = *name;
+                    if let Some(annotation) = type_annotation
+                        && let Some(expected) = convert_type_expr(annotation, &self.interner)
+                        && let Some(actual) = self.static_expr_type(value)
+                        && !Self::runtime_types_compatible(&expected, &actual)
+                    {}
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
