@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod builder;
+mod contracts;
 mod errors;
 mod expression;
 mod statement;
