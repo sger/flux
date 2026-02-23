@@ -169,9 +169,9 @@ impl Compiler {
     ) -> Result<(), Vec<Diagnostic>> {
         // Apply optimizations if requested
         let program_to_compile = if optimize {
-            use crate::ast::{constant_fold, desugar, rename};
+            use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
-            let optimized = constant_fold(desugared);
+            let optimized = constant_fold_with_interner(desugared, &self.interner);
             // Rename pass (currently no-op, reserved for future alpha-conversion)
             rename(optimized, HashMap::new())
         } else if analyze {

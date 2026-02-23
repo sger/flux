@@ -70,10 +70,20 @@ fn compiler_emits_op_call_base_for_allowlisted_base_function() {
 
 #[test]
 fn compiler_does_not_emit_op_call_base_for_non_allowlisted_base_function() {
-    let asm = compile_disassembly("zip(list(1), list(2))");
+    let asm = compile_disassembly(r#"split("a,b", ",")"#);
     assert!(
         !asm.contains("OpCallBase"),
         "did not expect OpCallBase in disassembly:\n{}",
+        asm
+    );
+}
+
+#[test]
+fn compiler_emits_op_call_base_for_promoted_allowlisted_base_function() {
+    let asm = compile_disassembly("zip(list(1), list(2))");
+    assert!(
+        asm.contains("OpCallBase"),
+        "expected OpCallBase in disassembly:\n{}",
         asm
     );
 }
