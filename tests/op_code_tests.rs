@@ -55,6 +55,12 @@ mod tests {
     }
 
     #[test]
+    fn make_op_call_builtin_operands() {
+        let ins = make(OpCode::OpCallBuiltin, &[9, 2]);
+        assert_eq!(ins, vec![OpCode::OpCallBuiltin as u8, 9, 2]);
+    }
+
+    #[test]
     fn read_helpers() {
         let bytes = vec![0xAA, 0x01, 0x02, 0x03, 0x04, 0xFF];
 

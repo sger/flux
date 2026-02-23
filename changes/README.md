@@ -31,6 +31,26 @@ Use this format:
 
 Sections are optional; only include what applies.
 
+## Auto-generate from commits
+
+You can draft a fragment from commit subjects:
+
+```bash
+scripts/changelog_fragment_from_commits.sh main primops
+```
+
+Prefix mapping:
+
+| Commit prefix | Changelog section |
+| --- | --- |
+| `feat:` | `Added` |
+| `fix:` | `Fixed` |
+| `perf:` | `Performance` |
+| `docs:` | `Docs` |
+| everything else | `Changed` |
+
+The generated file is a draft; review and edit for user-facing wording before committing.
+
 ## Commands
 
 Update `[Unreleased]` from fragments:

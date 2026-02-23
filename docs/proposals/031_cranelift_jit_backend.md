@@ -1,4 +1,4 @@
-# Cranelift JIT Backend for Flux
+# Proposal 031: Cranelift JIT Backend for Flux
 
 ## Context
 

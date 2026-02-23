@@ -5,6 +5,11 @@
 **Created:** 2026-02-12
 **Related:** Proposal 003 (Flow Stdlib), Proposal 008 (Builtins Module Architecture), Proposal 017 (Persistent Collections + GC), Proposal 026 (Concurrency Model)
 
+> Historical combined context document.
+> Canonical current split:
+> - Base: `docs/proposals/028_base.md`
+> - Flow: `docs/proposals/030_flow.md`
+
 ## Summary
 
 Replace the hard-coded builtin system with a **`Base` module** — a privileged module that is auto-imported into every Flux module and script. Functions in `Base` look and feel like language primitives but participate in the module system. Users can exclude specific `Base` functions. The standard library grows as **`Flow`** modules — data flows through Flux.

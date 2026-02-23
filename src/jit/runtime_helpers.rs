@@ -12,6 +12,7 @@
 use std::ptr;
 use std::rc::Rc;
 
+use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::{
     builtins::get_builtin_by_index,
     gc::{
@@ -473,6 +474,42 @@ pub extern "C" fn rt_call_builtin(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rt_call_primop(
+    ctx: *mut JitContext,
+    primop_id: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+
+    let op = match PrimOp::from_id(primop_id as u8) {
+        Some(op) => op,
+        None => {
+            ctx.error = Some(format!("unknown primop id: {}", primop_id));
+            return ptr::null_mut();
+        }
+    };
+
+    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("primop arg {} evaluated to null", i));
+            return ptr::null_mut();
+        }
+        args.push(unsafe { (*arg_ptr).clone() });
+    }
+
+    match execute_primop(ctx, op, args) {
+        Ok(result) => ctx.alloc(result),
+        Err(msg) => {
+            ctx.error = Some(msg);
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rt_call_value(
     ctx: *mut JitContext,
     callee: *mut Value,
@@ -891,6 +928,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             rt_greater_than_or_equal as *const u8,
         ),
         ("rt_call_builtin", rt_call_builtin as *const u8),
+        ("rt_call_primop", rt_call_primop as *const u8),
         ("rt_call_value", rt_call_value as *const u8),
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),

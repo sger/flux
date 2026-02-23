@@ -1,0 +1,12 @@
+print("== PrimOps: collections (array + list) ==");
+let arr = [|10, 20, 30|];
+print(first(arr));
+print(last(arr));
+print(rest(arr));
+print(contains(arr, 20));
+
+let lst = list(1, 2, 3);
+print(first(lst));
+print(last(lst));
+print(rest(lst));
+print(contains(lst, 2));
