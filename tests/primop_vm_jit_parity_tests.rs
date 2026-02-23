@@ -136,12 +136,12 @@ fn vm_and_jit_match_phase2_parse_primop_values() {
 
 #[test]
 fn vm_and_jit_match_phase2_primop_errors() {
-    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected first argument");
-    assert_vm_jit_error_contains("concat(1, #[2])", "concat expected first argument");
-    assert_vm_jit_error_contains("concat(#[1], 2)", "concat expected second argument");
+    assert_vm_jit_error_contains(r#"contains("oops", 1)"#, "contains expected Array or List");
+    assert_vm_jit_error_contains("concat(1, #[2])", "concat expected Array");
+    assert_vm_jit_error_contains("concat(#[1], 2)", "concat expected Array");
     assert_vm_jit_error_contains(r#"parse_int("12x")"#, "could not parse");
     assert_vm_jit_error_contains(r#"split_ints("1,a,3", ",")"#, "could not parse");
-    assert_vm_jit_error_contains(r#"delete({}, [])"#, "must be hashable");
+    assert_vm_jit_error_contains(r#"delete({}, [])"#, "expects hashable key");
 }
 
 #[test]
