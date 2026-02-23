@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/primop/primop_base_bridge.flx
+Fixture: examples/primop/primop_builtin_bridge.flx
 == compile ==
 ok
 == diagnostics ==
