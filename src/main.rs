@@ -32,7 +32,7 @@ use flux::{
 };
 #[cfg(feature = "jit")]
 use flux::{
-    ast::{constant_fold, desugar, rename},
+    ast::{constant_fold_with_interner, desugar, rename},
     runtime::jit_closure::JitClosure,
     runtime::vm::test_runner::run_test_fns,
 };
@@ -507,7 +507,6 @@ fn run_file(
             // --- JIT execution path ---
             #[cfg(feature = "jit")]
             if use_jit {
-                use flux::ast::{constant_fold, desugar, rename};
                 use std::collections::HashMap;
 
                 // JIT must see the same module set as the VM path (entry + imports).
@@ -521,7 +520,7 @@ fn run_file(
                 // Apply AST optimizations if requested (same pipeline as bytecode path)
                 if enable_optimize {
                     let desugared = desugar(jit_program);
-                    let optimized = constant_fold(desugared);
+                    let optimized = constant_fold_with_interner(desugared, &compiler.interner);
                     jit_program = rename(optimized, HashMap::new());
                 }
 
@@ -791,7 +790,7 @@ fn run_test_file(
 
         if enable_optimize {
             let desugared = desugar(jit_program);
-            let optimized = constant_fold(desugared);
+            let optimized = constant_fold_with_interner(desugared, &compiler.interner);
             jit_program = rename(optimized, std::collections::HashMap::new());
         }
 

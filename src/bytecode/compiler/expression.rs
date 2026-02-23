@@ -15,6 +15,7 @@ use crate::{
         position::{Position, Span},
     },
     primop::resolve_primop_call,
+    runtime::base::is_base_fastcall_allowlisted,
     runtime::{base::BaseModule, compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
@@ -1135,13 +1136,6 @@ impl Compiler {
         Ok(true)
     }
 
-    fn is_base_fastcall_allowlisted(name: &str) -> bool {
-        matches!(
-            name,
-            "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
-        )
-    }
-
     fn try_emit_call_base(
         &mut self,
         function: &Expression,
@@ -1152,7 +1146,7 @@ impl Compiler {
         };
 
         let base_name = self.sym(*name);
-        if !Self::is_base_fastcall_allowlisted(base_name) {
+        if !is_base_fastcall_allowlisted(base_name) {
             return Ok(false);
         }
 

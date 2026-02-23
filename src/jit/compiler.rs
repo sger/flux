@@ -16,7 +16,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
-use crate::runtime::base::BaseModule;
+use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement,
@@ -2768,13 +2768,6 @@ fn resolve_call_primop(
 
     let name = interner.try_resolve(*name)?;
     resolve_primop_call(name, arguments.len())
-}
-
-fn is_base_fastcall_allowlisted(name: &str) -> bool {
-    matches!(
-        name,
-        "map" | "filter" | "fold" | "flat_map" | "any" | "all" | "find" | "sort_by" | "count"
-    )
 }
 
 fn should_use_base_fastcall(scope: &Scope, name: Identifier, interner: &Interner) -> bool {
