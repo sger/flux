@@ -28,6 +28,7 @@ fn analyze_orders_dependencies() {
         statements: vec![
             Statement::Let {
                 name: sym_b,
+                type_annotation: None,
                 value: Expression::Identifier {
                     name: sym_a,
                     span: Span::new(pos(1, 1), pos(1, 2)),
@@ -36,6 +37,7 @@ fn analyze_orders_dependencies() {
             },
             Statement::Let {
                 name: sym_a,
+                type_annotation: None,
                 value: Expression::Integer {
                     value: 1,
                     span: Span::new(pos(2, 1), pos(2, 2)),
@@ -62,6 +64,7 @@ fn analyze_detects_cycle() {
         statements: vec![
             Statement::Let {
                 name: sym_a,
+                type_annotation: None,
                 value: Expression::Identifier {
                     name: sym_b,
                     span: Span::new(pos(1, 1), pos(1, 2)),
@@ -70,6 +73,7 @@ fn analyze_detects_cycle() {
             },
             Statement::Let {
                 name: sym_b,
+                type_annotation: None,
                 value: Expression::Identifier {
                     name: sym_a,
                     span: Span::new(pos(2, 1), pos(2, 2)),
