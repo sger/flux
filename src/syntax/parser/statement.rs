@@ -169,7 +169,17 @@ impl Parser {
             return None;
         }
 
-        let parameters = self.parse_function_parameters()?;
+        let (parameters, parameter_types) = self.parse_typed_function_parameters()?;
+
+        let return_type = if self.is_peek_token(TokenType::Arrow) {
+            self.next_token(); // ->
+            self.next_token(); // start of return type
+            self.parse_type_expr()
+        } else {
+            None
+        };
+
+        let effects = self.parse_effect_list()?;
 
         if !self.expect_peek(TokenType::LBrace) {
             return None;
@@ -180,6 +190,9 @@ impl Parser {
         Some(Statement::Function {
             name,
             parameters,
+            parameter_types,
+            return_type,
+            effects,
             body,
             span: self.span_from(start),
         })
@@ -251,6 +264,14 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        let type_annotation = if self.is_peek_token(TokenType::Colon) {
+            self.next_token(); // :
+            self.next_token(); // type start
+            self.parse_type_expr()
+        } else {
+            None
+        };
+
         if !self.expect_peek(TokenType::Assign) {
             return None;
         }
@@ -271,6 +292,7 @@ impl Parser {
 
         Some(Statement::Let {
             name,
+            type_annotation,
             value,
             span: self.span_from(start),
         })
