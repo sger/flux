@@ -526,6 +526,16 @@ impl Compiler {
             Expression::String { .. } | Expression::InterpolatedString { .. } => {
                 Some(RuntimeType::String)
             }
+            Expression::Identifier { name, .. } => self.lookup_static_type(*name),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                let contract = self.resolve_call_contract(function, arguments.len())?;
+                let ret = contract.ret.as_ref()?;
+                convert_type_expr(ret, &self.interner)
+            }
             Expression::TupleLiteral { elements, .. } => Some(RuntimeType::Tuple(
                 elements
                     .iter()
@@ -598,8 +608,13 @@ impl Compiler {
 
         self.enter_scope();
 
-        for param in parameters {
+        for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
+            if let Some(Some(param_ty)) = parameters_types.get(index)
+                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
+            {
+                self.bind_static_type(*param, runtime_ty);
+            }
         }
 
         self.with_function_context(parameters.len(), |compiler| {

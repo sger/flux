@@ -94,6 +94,13 @@ impl Compiler {
                         ));
                     }
                     self.compile_expression(value)?;
+                    if let Some(annotation) = type_annotation
+                        && let Some(ty) = convert_type_expr(annotation, &self.interner)
+                    {
+                        self.bind_static_type(name, ty);
+                    } else if let Some(inferred) = self.static_expr_type(value) {
+                        self.bind_static_type(name, inferred);
+                    }
 
                     match symbol.symbol_scope {
                         SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
@@ -318,8 +325,13 @@ impl Compiler {
         self.enter_scope();
         self.symbol_table.define_function_name(name, function_span);
 
-        for param in parameters {
+        for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
+            if let Some(Some(param_ty)) = parameter_types.get(index)
+                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
+            {
+                self.bind_static_type(*param, runtime_ty);
+            }
         }
 
         self.with_function_context(parameters.len(), |compiler| {

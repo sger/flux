@@ -1,6 +1,7 @@
 use crate::{
     bytecode::compiler::Compiler,
     bytecode::symbol_scope::SymbolScope,
+    diagnostics::render_diagnostics,
     runtime::base::BaseModule,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
@@ -151,4 +152,44 @@ fn base_indices_are_deterministic_across_interner_state() {
             name
         );
     }
+}
+
+#[test]
+fn typed_let_mismatch_is_checked_for_identifier_expression() {
+    let (program, interner) = parse_program(
+        r#"
+let y = 42.5
+let x: Int = y
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile-time type mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Expected Int, got Float."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_mismatch_is_checked_for_typed_call_return() {
+    let (program, interner) = parse_program(
+        r#"
+fn make() -> Float { 1.5 }
+let x: Int = make()
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile-time type mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("Expected Int, got Float."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
 }
