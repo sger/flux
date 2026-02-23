@@ -162,3 +162,6 @@ fn parse_program_span_covers_all_tokens() {
     assert_eq!(span.start.line, 1);
     assert!(span.end.line >= span.start.line);
 }
+
+#[test]
+fn parses_typed_let_statement() {}

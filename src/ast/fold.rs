@@ -74,8 +74,14 @@ pub fn fold_block<F: Folder + ?Sized>(folder: &mut F, block: Block) -> Block {
 
 pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Statement {
     match stmt {
-        Statement::Let { name, value, span } => Statement::Let {
+        Statement::Let {
+            name,
+            type_annotation,
+            value,
+            span,
+        } => Statement::Let {
             name: folder.fold_identifier(name),
+            type_annotation,
             value: folder.fold_expr(value),
             span,
         },
@@ -104,6 +110,9 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
         Statement::Function {
             name,
             parameters,
+            parameter_types,
+            return_type,
+            effects,
             body,
             span,
         } => Statement::Function {
@@ -112,6 +121,9 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
                 .into_iter()
                 .map(|p| folder.fold_identifier(p))
                 .collect(),
+            parameter_types,
+            return_type,
+            effects,
             body: folder.fold_block(body),
             span,
         },
@@ -196,6 +208,9 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
         },
         Expression::Function {
             parameters,
+            parameter_types,
+            return_type,
+            effects,
             body,
             span,
         } => Expression::Function {
@@ -203,6 +218,9 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
                 .into_iter()
                 .map(|p| folder.fold_identifier(p))
                 .collect(),
+            parameter_types,
+            return_type,
+            effects,
             body: folder.fold_block(body),
             span,
         },
