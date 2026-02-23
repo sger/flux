@@ -9,8 +9,9 @@ use crate::{
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
+        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
         INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        TYPE_MISMATCH,
         position::{Position, Span},
     },
     runtime::{compiled_function::CompiledFunction, value::Value},
@@ -48,11 +49,6 @@ impl Compiler {
                     ..
                 } => {
                     let name = *name;
-                    if let Some(annotation) = type_annotation
-                        && let Some(expected) = convert_type_expr(annotation, &self.interner)
-                        && let Some(actual) = self.static_expr_type(value)
-                        && !Self::runtime_types_compatible(&expected, &actual)
-                    {}
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
                         && self.symbol_table.exists_in_current_scope(name)
@@ -75,6 +71,27 @@ impl Compiler {
                     }
 
                     let symbol = self.symbol_table.define(name, *span);
+                    if let Some(annotation) = type_annotation
+                        && let Some(expected) = convert_type_expr(annotation, &self.interner)
+                        && let Some(actual) = self.static_expr_type(value)
+                        && !Self::runtime_types_compatible(&expected, &actual)
+                    {
+                        let expected = expected.type_name();
+                        let actual = actual.type_name();
+                        return Err(Self::boxed(
+                            Diagnostic::make_error(
+                                &TYPE_MISMATCH,
+                                &[&expected, &actual],
+                                self.file_path.clone(),
+                                value.span(),
+                            )
+                            .with_primary_label(
+                                value.span(),
+                                "initializer type is known at compile time",
+                            )
+                            .with_help("binding initializer does not match type annotation"),
+                        ));
+                    }
                     self.compile_expression(value)?;
 
                     match symbol.symbol_scope {
