@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/04_compile_float_string_arg.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E055]: TYPE MISMATCH
+
+Expected Float, got String.
+
+  --> examples/type_system/failing/04_compile_float_string_arg.flx:6:7
+  |
+6 | scale("3.14", 2.0)
+  |       ^^^^^^
+  |       ------ argument type is known at compile time
+
+Help:
+  argument #1 does not match function contract
+== stdout ==
+<not executed>

@@ -1,0 +1,6 @@
+fn bad() -> Int {
+    "not-an-int"
+}
+
+// Runtime contract violation on function return boundary.
+bad()

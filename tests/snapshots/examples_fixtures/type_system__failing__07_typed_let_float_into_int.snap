@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/07_typed_let_float_into_int.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E055]: TYPE MISMATCH
+
+Expected Int, got Float.
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
+  |
+1 | let answer: Int = 42.5
+  |                   ^^^^
+  |                   ---- initializer type is known at compile time
+
+Help:
+  binding initializer does not match type annotation
+== stdout ==
+<not executed>

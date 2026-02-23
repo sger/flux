@@ -527,6 +527,8 @@ fn run_file(
                 let jit_options = flux::jit::JitOptions {
                     no_gc,
                     gc_threshold,
+                    source_file: Some(path.to_string()),
+                    source_text: Some(source.clone()),
                 };
 
                 let jit_compile_start = Instant::now();
@@ -797,6 +799,8 @@ fn run_test_file(
         let jit_options = flux::jit::JitOptions {
             no_gc,
             gc_threshold,
+            source_file: Some(path.to_string()),
+            source_text: Some(source.clone()),
         };
 
         let compiled = match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
