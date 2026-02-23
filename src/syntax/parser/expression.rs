@@ -691,6 +691,9 @@ impl Parser {
         let body_span = body.span();
         Expression::Function {
             parameters: vec![param],
+            parameter_types: vec![None],
+            return_type: None,
+            effects: vec![],
             body: Block {
                 statements: vec![Statement::Expression {
                     expression: body,
@@ -1083,6 +1086,7 @@ impl Parser {
         }
 
         let parameters = self.parse_function_parameters()?;
+        let parameter_types = vec![None; parameters.len()];
 
         if !self.expect_peek(TokenType::LBrace) {
             return None;
@@ -1091,6 +1095,9 @@ impl Parser {
         let body = self.parse_block();
         Some(Expression::Function {
             parameters,
+            parameter_types,
+            return_type: None,
+            effects: vec![],
             body,
             span: Span::new(start, self.current_token.end_position),
         })
@@ -1105,9 +1112,9 @@ impl Parser {
         self.next_token();
 
         // Parse parameters
-        let parameters = if self.is_current_token(TokenType::LParen) {
+        let (parameters, parameter_types) = if self.is_current_token(TokenType::LParen) {
             // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
-            self.parse_function_parameters()?
+            self.parse_typed_function_parameters()?
         } else if self.is_current_token(TokenType::Arrow) {
             self.errors.push(lambda_syntax_error(
                 self.current_token.span(),
@@ -1119,10 +1126,20 @@ impl Parser {
             // Validate using the same identifier checks used by parenthesized
             // parameter lists to keep diagnostics consistent.
             let mut params = Vec::new();
+            let mut types = Vec::new();
             if let Some(param) = self.validate_parameter_identifier() {
                 params.push(param);
+
+                let type_annotation = if self.is_peek_token(TokenType::Colon) {
+                    self.next_token();
+                    self.next_token();
+                    self.parse_type_expr()
+                } else {
+                    None
+                };
+                types.push(type_annotation);
             }
-            params
+            (params, types)
         };
 
         // Expect ->
@@ -1163,6 +1180,9 @@ impl Parser {
 
         Some(Expression::Function {
             parameters,
+            parameter_types,
+            return_type: None,
+            effects: vec![],
             body,
             span: Span::new(start, self.current_token.end_position),
         })
