@@ -21,7 +21,7 @@ The design follows Elixir's collection model: List for sequential/recursive proc
 1. Provide an O(1) prepend/head/tail persistent List with `[head | tail]` syntax and pattern matching.
 2. Provide an O(log32 n) persistent Map backed by a HAMT that replaces the current `Hash(HashMap)`.
 3. Implement a stop-the-world mark-and-sweep GC to manage heap-allocated shared nodes.
-4. Preserve full backward compatibility for Array syntax and builtins.
+4. Preserve full backward compatibility for Array syntax and base functions.
 
 ### Non-Goals
 
@@ -40,11 +40,11 @@ The design follows Elixir's collection model: List for sequential/recursive proc
 Every `push`, `concat`, `merge`, `rest`, `reverse`, and `sort` clones the entire backing `Vec` or `HashMap`:
 
 ```rust
-// array_ops.rs — builtin_push
+// array_ops.rs — base_push
 let mut new_arr = arr.clone();  // O(n) clone
 new_arr.push(args[1].clone());
 
-// hash_ops.rs — builtin_merge
+// hash_ops.rs — base_merge
 let mut result = h1.clone();    // O(n) clone
 for (k, v) in h2.iter() {
     result.insert(k.clone(), v.clone());
@@ -58,7 +58,7 @@ An accumulator loop calling `push` n times incurs O(n^2) total work.
 `rest(arr)` clones the entire tail — O(n) per call:
 
 ```rust
-// array_ops.rs — builtin_rest
+// array_ops.rs — base_rest
 Ok(Object::Array(arr[1..].to_vec()))  // O(n) copy
 ```
 
@@ -169,7 +169,7 @@ pub enum Object {
     ReturnValue(Box<Object>),
     Function(Rc<CompiledFunction>),
     Closure(Rc<Closure>),
-    Builtin(BuiltinFunction),
+    Base(BuiltinFunction),
     Array(Vec<Object>),
     Gc(GcHandle),               // NEW — gateway to all heap-managed types
 }
@@ -233,7 +233,7 @@ match my_list {
 }
 ```
 
-**`[a, b, c]` remains Array.** Lists are built via `[h | t]` or the `list(...)` builtin.
+**`[a, b, c]` remains Array.** Lists are built via `[h | t]` or the `list(...)` base.
 
 #### 2.4 New Token
 
@@ -282,9 +282,9 @@ self.sp -= n;
 self.push(list)?;
 ```
 
-#### 2.7 New Builtins
+#### 2.7 New Base Functions
 
-| Builtin | Signature | Complexity |
+| Base | Signature | Complexity |
 |---------|-----------|------------|
 | `hd(list)` | List → Object | O(1) |
 | `tl(list)` | List → List | O(1) |
@@ -293,9 +293,9 @@ self.push(list)?;
 | `to_list(arr)` | Array → List | O(n) |
 | `to_array(list)` | List → Array | O(n) |
 
-#### 2.8 Existing Builtins Gain List Support
+#### 2.8 Existing Base Functions Gain List Support
 
-| Builtin | Current | With List |
+| Base | Current | With List |
 |---------|---------|-----------|
 | `len(x)` | Array, String | + List: O(n) traversal |
 | `first(x)` | Array O(1) | + List: O(1) (synonym for hd) |
@@ -376,9 +376,9 @@ let m2 = put(m, "email", "a@b.com");   // new Map, shares nodes with m
 
 `OpHash` (opcode 28) is repurposed to build a HAMT from stack pairs.
 
-#### 3.5 Hash Builtin Migration
+#### 3.5 Hash Base Migration
 
-| Builtin | Before | After |
+| Base | Before | After |
 |---------|--------|-------|
 | `keys(h)` | HashMap → Array | HAMT leaf traversal → Array |
 | `values(h)` | HashMap → Array | HAMT leaf traversal → Array |
@@ -386,9 +386,9 @@ let m2 = put(m, "email", "a@b.com");   // new Map, shares nodes with m
 | `merge(h1, h2)` | HashMap clone O(n) | HAMT insert chain O(m2 × log32 m1) |
 | `is_hash(x)` | checks Hash variant | alias for `is_map(x)`, deprecated |
 
-#### 3.6 New Map Builtins
+#### 3.6 New Map Base Functions
 
-| Builtin | Signature | Complexity |
+| Base | Signature | Complexity |
 |---------|-----------|------------|
 | `put(map, key, value)` | Map → Map | O(log32 n) |
 | `delete(map, key)` | Map → Map | O(log32 n) |
@@ -432,11 +432,11 @@ let m2 = put(m, "email", "a@b.com");   // new Map, shares nodes with m
 | `{"k": v}` | Map literal (now HAMT instead of HashMap) |
 | `x[i]` | Index (works on Array, List, Map) |
 
-### New Builtins (10)
+### New Base Functions (10)
 
 `hd`, `tl`, `list`, `is_list`, `to_list`, `to_array`, `put`, `delete`, `get`, `is_map`
 
-### Modified Builtins
+### Modified Base Functions
 
 `len`, `first`, `rest`, `contains`, `reverse`, `keys`, `values`, `has_key`, `merge`, `type_of`
 
@@ -530,7 +530,7 @@ Closures remain `Rc<Closure>` in this proposal. The mark phase handles `Object::
 10. Compile `Expression::Cons` → `OpCons`
 11. Compile `list(...)` → `OpList`
 12. Compile `Pattern::Cons` to head/tail destructure in match
-13. Add builtins: `hd`, `tl`, `list`, `is_list`, `to_list`, `to_array`
+13. Add base functions: `hd`, `tl`, `list`, `is_list`, `to_list`, `to_array`
 14. Update `len`, `first`, `rest`, `contains`, `reverse` for lists
 15. Update `execute_index_expression` for list indexing
 16. Update `Display`, `type_of` for lists
@@ -545,7 +545,7 @@ Closures remain `Rc<Closure>` in this proposal. The mark phase handles `Object::
 4. Remove `Object::Hash(HashMap)` variant
 5. Update `execute_index_expression` for HAMT lookup
 6. Migrate `keys`, `values`, `has_key`, `merge` to HAMT
-7. Add builtins: `put`, `delete`, `get`, `is_map`
+7. Add base functions: `put`, `delete`, `get`, `is_map`
 8. Add `is_hash` alias for `is_map`
 9. Update `Display`, `type_of`, `PartialEq` for maps
 10. Implement consistent 64-bit hash for `HashKey`
@@ -574,7 +574,7 @@ Closures remain `Rc<Closure>` in this proposal. The mark phase handles `Object::
 
 ## Open Questions
 
-1. **Should `list(1, 2, 3)` be a builtin or compile-time sugar?** Recommendation: compiler-recognized builtin that emits `OpList` directly (like `OpArray`).
+1. **Should `list(1, 2, 3)` be a base or compile-time sugar?** Recommendation: compiler-recognized base that emits `OpList` directly (like `OpArray`).
 
 2. **Should empty list be `[]` or `None`?** Using `None` is simpler but conflates "no value" with "empty list." A dedicated `Object::Nil` is cleaner but adds a variant. Recommendation: `None` for now, matching Elixir's spirit.
 

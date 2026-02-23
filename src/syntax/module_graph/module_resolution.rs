@@ -96,13 +96,23 @@ pub(super) fn resolve_imports(
 
     for statement in &program.statements {
         let (name, alias, position) = match statement {
-            Statement::Import { name, alias, span } => {
+            Statement::Import {
+                name,
+                alias,
+                except: _,
+                span,
+            } => {
                 let name_str = interner.resolve(*name).to_string();
                 let alias_str = alias.map(|a| interner.resolve(a).to_string());
                 (name_str, alias_str, span.start)
             }
             _ => continue,
         };
+
+        // `Base` is synthetic and does not resolve to a filesystem module.
+        if name == "Base" {
+            continue;
+        }
 
         if !is_valid_module_name(&name) {
             let error_spec = &INVALID_MODULE_NAME;

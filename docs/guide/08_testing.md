@@ -39,9 +39,9 @@ fn test_divide_by_zero() {
 }
 ```
 
-## Assert Builtins
+## Assert Base Functions
 
-| Builtin | Passes when |
+| Base | Passes when |
 |---------|-------------|
 | `assert_eq(a, b)` | `a == b` |
 | `assert_neq(a, b)` | `a != b` |

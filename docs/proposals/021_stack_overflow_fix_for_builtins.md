@@ -1,10 +1,10 @@
-# Proposal 021: Stack Overflow Fix for Higher-Order Builtins
+# Proposal 021: Stack Overflow Fix for Higher-Order Base Functions
 
 **Status:** ✅ Implemented
 **Priority:** Critical (Blocking Production Use)
 **Created:** 2026-02-11
 **Implemented:** 2026-02-11
-**Related:** Proposal 020 (map/filter/fold Builtins)
+**Related:** Proposal 020 (map/filter/fold Base Functions)
 
 ## Problem Statement
 
@@ -32,7 +32,7 @@ fn push(&mut self, obj: Value) -> Result<(), String> {
 
 **Impact:**
 - Large array literals alone can overflow before `map/filter/fold` execute.
-- Higher-order builtins can also hit the same fixed VM stack limit depending on callback/local stack pressure.
+- Higher-order base functions can also hit the same fixed VM stack limit depending on callback/local stack pressure.
 - This should be solved first as VM stack-capacity management plus large-literal stack-pressure reduction.
 
 ## Proposed Solutions
@@ -61,15 +61,15 @@ pub fn invoke_value_iterative(&mut self, callee: Value, args: Vec<Value>) -> Res
 
             // This avoids deep recursion
         }
-        Value::Builtin(builtin) => {
-            // Builtins don't push frames, so they're already safe
-            (builtin.func)(self, args)
+        Value::Base(base) => {
+            // Base Functions don't push frames, so they're already safe
+            (base.func)(self, args)
         }
     }
 }
 ```
 
-2. Update `builtin_map`, `builtin_filter`, `builtin_fold` to use `invoke_value_iterative`.
+2. Update `base_map`, `base_filter`, `base_fold` to use `invoke_value_iterative`.
 
 **Pros:**
 - ✅ Eliminates stack overflow completely
@@ -163,23 +163,23 @@ std::thread::Builder::new()
 
 ---
 
-### Option 4: Hybrid Approach - Direct Builtin Execution Mode
+### Option 4: Hybrid Approach - Direct Base Execution Mode
 
-**Approach:** Add a special fast path for builtins that execute callbacks in a tight loop without frames.
+**Approach:** Add a special fast path for base functions that execute callbacks in a tight loop without frames.
 
 **Implementation Strategy:**
 
 ```rust
 // In array_ops.rs
-pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
+pub(super) fn base_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
     // ... validation code ...
 
     match &func {
-        Value::Builtin(builtin) => {
+        Value::Base(base) => {
             // FAST PATH: Direct execution without frames
             let mut results = Vec::with_capacity(arr.len());
             for (idx, item) in arr.iter().enumerate() {
-                let result = (builtin.func)(ctx, vec![item.clone()])
+                let result = (base.func)(ctx, vec![item.clone()])
                     .map_err(|e| format!("map: callback error at index {}: {}", idx, e))?;
                 results.push(result);
             }
@@ -194,7 +194,7 @@ pub(super) fn builtin_map(ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 ```
 
 **Pros:**
-- ✅ Builtins get optimal performance
+- ✅ Base Functions get optimal performance
 - ✅ Closures still work without stack overflow
 - ✅ Progressive enhancement
 
@@ -313,12 +313,12 @@ If fixing the stack overflow is not immediately feasible, we should:
    }
    ```
 
-This is **not recommended** as it significantly limits the usefulness of these builtins.
+This is **not recommended** as it significantly limits the usefulness of these base functions.
 
 ---
 
 ## References
 
-- Proposal 020: map/filter/fold Builtins
+- Proposal 020: map/filter/fold Base Functions
 - [src/runtime/vm/mod.rs](../src/runtime/vm/mod.rs) - VM stack limit and push overflow behavior
 - [benches/map_filter_fold_bench.rs](../benches/map_filter_fold_bench.rs) - Performance benchmarks

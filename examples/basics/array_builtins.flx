@@ -1,4 +1,4 @@
-// Test: Array builtin functions
+// Test: Array base functions
 
 let arr = [|1, 2, 3, 4, 5|];
 
@@ -24,7 +24,7 @@ print(last([||]));      // None
 print(rest([||]));      // None
 
 // =============================================================================
-// New Array Builtins (Milestone 5.1)
+// New Array Base Functions (Milestone 5.1)
 // =============================================================================
 
 // concat - join two arrays

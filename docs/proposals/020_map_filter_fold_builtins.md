@@ -1,4 +1,4 @@
-# Proposal 020: `map` / `filter` / `fold` Builtins
+# Proposal 020: `map` / `filter` / `fold` Base Functions
 
 **Status:** Proposed
 **Priority:** High (Language Ergonomics)
@@ -7,13 +7,13 @@
 
 ## Overview
 
-Add three higher-order builtins with eager array semantics:
+Add three higher-order base functions with eager array semantics:
 
 - `map(arr, fn)`
 - `filter(arr, pred)`
 - `fold(arr, init, fn)`
 
-This unlocks idiomatic functional pipelines immediately with minimal compiler impact because these are runtime builtins, not syntax changes.
+This unlocks idiomatic functional pipelines immediately with minimal compiler impact because these are runtime base functions, not syntax changes.
 
 ## Goals
 
@@ -59,7 +59,7 @@ This unlocks idiomatic functional pipelines immediately with minimal compiler im
 
 - Type errors if:
   - first arg is not an array
-  - function arg is not callable (`Closure` or `Builtin`)
+  - function arg is not callable (`Closure` or `Base`)
 - Arity errors if callback receives wrong number of args:
   - `map` and `filter`: callback must accept exactly 1 argument
   - `fold`: callback must accept exactly 2 arguments
@@ -79,7 +79,7 @@ Baseline acceptance targets for initial release:
 ## Compatibility and Future-Proofing
 
 - Current semantics are eager over arrays.
-- Builtin contract must not expose internals tied to `Vec` mutability.
+- Base contract must not expose internals tied to `Vec` mutability.
 - Future Proposal 017 migration may extend support to persistent list/map structures without changing user-facing call shape.
 
 ## Test Plan
@@ -104,7 +104,7 @@ Baseline acceptance targets for initial release:
 
 ## Rollout
 
-1. Ship builtins and tests first.
+1. Ship base functions and tests first.
 2. Add examples in `examples/Modules/advanced_map_filter_fold_pipeline.flx`.
 3. Benchmark and record in `PERF_REPORT.md`.
 4. Revisit after Proposal 017 to evaluate extension to persistent collections.

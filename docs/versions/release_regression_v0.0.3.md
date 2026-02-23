@@ -77,7 +77,7 @@ Manual spot checks (recommended):
 - unterminated strings
 - malformed match patterns
 - module/import resolution errors
-- wrong builtin arity/type errors
+- wrong base arity/type errors
 
 ---
 

@@ -39,9 +39,15 @@ fn parses_import_with_alias() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import { name, alias, .. } => {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } => {
             assert_eq!(interner.resolve(*name), "Foo.Bar");
             assert_eq!(alias.map(|a| interner.resolve(a)), Some("Baz"));
+            assert!(except.is_empty());
         }
         _ => panic!("expected import statement"),
     }
@@ -53,9 +59,57 @@ fn parses_import_without_alias() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import { name, alias, .. } => {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } => {
             assert_eq!(interner.resolve(*name), "Foo");
             assert!(alias.is_none());
+            assert!(except.is_empty());
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
+fn parses_import_base_with_except() {
+    let (program, interner) = parse_ok("import Base except [print, len]");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Base");
+            assert!(alias.is_none());
+            let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
+            assert_eq!(names, vec!["print", "len"]);
+        }
+        _ => panic!("expected import statement"),
+    }
+}
+
+#[test]
+fn parses_import_non_base_with_except() {
+    let (program, interner) = parse_ok("import Foo except [bar]");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Foo");
+            assert!(alias.is_none());
+            let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
+            assert_eq!(names, vec!["bar"]);
         }
         _ => panic!("expected import statement"),
     }

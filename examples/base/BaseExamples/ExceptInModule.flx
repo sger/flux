@@ -1,0 +1,11 @@
+import Base except [print]
+
+module BaseExamples.ExceptInModule {
+  fn run() {
+    let xs = [10, 20, 30];
+
+    // `print` is excluded unqualified in this module unit, but qualified access still works.
+    Base.print("module len(xs) = " + to_string(len(xs)));
+    Base.print("module first(xs) = " + to_string(first(xs)));
+  }
+}

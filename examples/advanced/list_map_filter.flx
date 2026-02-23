@@ -1,6 +1,6 @@
 // Test: Advanced list processing with map, filter, fold
 // Expected output:
-// === Builtin map/filter/fold on lists ===
+// === Base map/filter/fold on lists ===
 // [|2, 4, 6, 8, 10|]
 // [|4, 6, 8, 10|]
 // 15
@@ -20,10 +20,10 @@
 // [|4, 5|]
 
 // =============================================================================
-// Part 1: Builtin map/filter/fold Work Directly on Lists
+// Part 1: Base map/filter/fold Work Directly on Lists
 // =============================================================================
 
-print("=== Builtin map/filter/fold on lists ===");
+print("=== Base map/filter/fold on lists ===");
 
 let nums = [1, 2, 3, 4, 5];
 

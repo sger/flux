@@ -1,7 +1,7 @@
 // Test: Combining Modules, Pipelines, and Lambdas
 // This example demonstrates idiomatic functional programming in Flux
 // Expected output:
-// Pipeline with builtins:
+// Pipeline with base functions:
 // hello world
 // HELLO WORLD
 // Higher-order functions with lambdas:
@@ -18,14 +18,14 @@
 // [|HELLO, WORLD, FLUX|]
 
 // =============================================================================
-// Higher-Order Function Utilities (map, filter, fold are now builtins)
+// Higher-Order Function Utilities (map, filter, fold are now base functions)
 // =============================================================================
 
 // =============================================================================
-// Example 1: Pipeline with Builtin Functions
+// Example 1: Pipeline with Base Functions
 // =============================================================================
 
-print("Pipeline with builtins:");
+print("Pipeline with base functions:");
 
 // Chain string operations with pipe
 let greeting = "  HELLO WORLD  " |> trim |> lower;
@@ -88,7 +88,7 @@ print("Data pipeline:");
 // Process a list of names
 let names = [|"alice", "bob"|];
 
-// Transform with pipe + builtins
+// Transform with pipe + base functions
 let name1 = first(names) |> upper;
 print(name1);  // ALICE
 

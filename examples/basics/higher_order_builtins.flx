@@ -1,4 +1,4 @@
-// Higher-order builtin functions: any, all, find, sort_by, zip, flatten, count
+// Higher-order base functions: any, all, find, sort_by, zip, flatten, count
 
 let nums    = [|1, 2, 3, 4, 5|]
 let words   = [|"banana", "fig", "apple", "kiwi"|]
@@ -94,7 +94,7 @@ print(count([||], \x -> true))         // 0  (empty)
 print(count(words, \w -> len(w) > 4)) // 2  (banana, apple)
 
 // =============================================================================
-// Combining the new builtins
+// Combining the new base functions
 // =============================================================================
 
 // Find the longest word

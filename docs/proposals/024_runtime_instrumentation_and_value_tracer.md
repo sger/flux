@@ -78,7 +78,7 @@ execute_current_instruction()
 | `ReturnValue(Rc<Value>)` | Rc | **yes** (1 child) |
 | `Function(Rc<CompiledFunction>)` | Rc | no (bytecode only) |
 | `Closure(Rc<Closure>)` | Rc | **yes** (free vars: `Vec<Value>`) |
-| `Builtin(BuiltinFunction)` | fn pointer | no |
+| `Base(BuiltinFunction)` | fn pointer | no |
 | `Array(Rc<Vec<Value>>)` | Rc | **yes** (N children) |
 | `Hash(Rc<HashMap<HashKey, Value>>)` | Rc | **yes** (N children) |
 
@@ -228,7 +228,7 @@ impl Trace for Value {
         match self {
             // Primitives — no children, no Rc
             Value::Integer(_) | Value::Float(_) | Value::Boolean(_)
-            | Value::None | Value::Builtin(_) => {}
+            | Value::None | Value::Base(_) => {}
 
             // Rc<str> — track pointer, no children
             Value::String(rc) => { tracer.visit_rc(rc); }
@@ -345,7 +345,7 @@ src/runtime/
 | **on_call / on_return** | Observer records call/return events; run program with function calls; verify call tree |
 | **on_error** | Observer captures error string; run program that errors; verify on_error was called |
 | **TraceObserver output** | Run simple program with TraceObserver; verify no panic (output goes to stdout) |
-| **Observer with invoke_value** | Higher-order builtin (map/filter) triggers on_call for user callbacks |
+| **Observer with invoke_value** | Higher-order base (map/filter) triggers on_call for user callbacks |
 
 ### Part B — Value Trace Tests (`tests/value_trace_tests.rs`)
 

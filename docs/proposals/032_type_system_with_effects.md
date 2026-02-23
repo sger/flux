@@ -477,11 +477,11 @@ effect Time {
 }
 ```
 
-### 9.3 Built-in Effects and Typed Builtins
+### 9.3 Built-in Effects and Typed Base Functions
 
-The standard library pre-declares commonly used effects. Existing builtins get typed signatures:
+The standard library pre-declares commonly used effects. Existing base functions get typed signatures:
 
-**IO effect operations (already exist as builtins):**
+**IO effect operations (already exist as base functions):**
 
 ```
 print       : (String) -> Unit          with IO
@@ -490,7 +490,7 @@ read_lines  : (String) -> Array<String> with IO
 read_stdin  : () -> String              with IO
 ```
 
-**Pure builtins (no effect required):**
+**Pure base functions (no effect required):**
 
 ```
 len         : <T>(Array<T>) -> Int
@@ -538,7 +538,7 @@ now_ms      : () -> Int                 with Time
 
 **Rule:** Effect operations are in scope like normal functions when the effect is in the ambient effect set. Calling `print(...)` inside a `with IO` function works directly — no `perform` keyword needed.
 
-In untyped code (no annotations), all builtins remain callable as before. The effect system only constrains when the caller has explicit type annotations.
+In untyped code (no annotations), all base functions remain callable as before. The effect system only constrains when the caller has explicit type annotations.
 
 ### 9.4 The `fn main` Entry Point
 
@@ -1024,7 +1024,7 @@ fn main() with IO {
 | **Pattern matching** | Exhaustiveness checking becomes type-aware for ADTs/Option/Either/Bool. Tuples add `(a, b)` patterns. |
 | **Pipe operator** | Works unchanged. Types flow through the pipe. |
 | **Modules** | Module signatures can specify types. Public functions require annotations in `--strict`. |
-| **Builtins** | Get typed signatures with effect annotations. Pure builtins callable anywhere, IO builtins require `with IO`. |
+| **Base Functions** | Get typed signatures with effect annotations. Pure base functions callable anywhere, IO base functions require `with IO`. |
 | **Closures** | Capture types inferred from context. Effect variables propagate through closures. |
 | **Cons lists** | `List<T>` is the typed cons list. `[]` is the empty list, `None` is `Option::None`. |
 | **HAMT maps** | `Map<K, V>` with `K: Hashable` constraint (future). |

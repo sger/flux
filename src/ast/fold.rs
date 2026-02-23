@@ -125,9 +125,18 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             body: folder.fold_block(body),
             span,
         },
-        Statement::Import { name, alias, span } => Statement::Import {
+        Statement::Import {
+            name,
+            alias,
+            except,
+            span,
+        } => Statement::Import {
             name: folder.fold_identifier(name),
             alias: alias.map(|a| folder.fold_identifier(a)),
+            except: except
+                .into_iter()
+                .map(|name| folder.fold_identifier(name))
+                .collect(),
             span,
         },
     }

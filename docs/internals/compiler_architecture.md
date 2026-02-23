@@ -74,16 +74,16 @@ src/
 │
 ├── bytecode/                Bytecode compiler
 │   ├── compiler/            AST → stack-based bytecode
-│   │   └── mod.rs           Compiler struct, symbol table setup, builtin registration
+│   │   └── mod.rs           Compiler struct, symbol table setup, Base function registration
 │   ├── opcode.rs            ~45 opcodes (OpGetLocal, OpCall, OpMatch, ...)
-│   ├── symbol_table.rs      Variable/function/builtin tracking per scope
+│   ├── symbol_table.rs      Variable/function/Base-function tracking per scope
 │   └── cache.rs             .fxc bytecode cache (SHA-2 content hashing)
 │
 ├── runtime/                 Bytecode VM and supporting runtime
 │   ├── vm/                  Stack-based VM, instruction dispatch, call frames
 │   │   └── test_runner.rs   --test flag: collect_test_functions, run_test_fns, reporting
 │   ├── value.rs             Value enum (Integer, Float, String, Array, Gc, Closure, ...)
-│   ├── builtins/            75 builtin functions, registered via BUILTINS array
+│   ├── base/                75 Base functions, registered via BASE_FUNCTIONS array
 │   │   ├── array_ops.rs
 │   │   ├── string_ops.rs
 │   │   ├── hash_ops.rs
@@ -100,7 +100,7 @@ src/
 ├── jit/                     Cranelift JIT backend (--features jit)
 │   ├── compiler.rs          AST → Cranelift IR
 │   ├── context.rs           JIT execution context, shares GC heap with VM
-│   ├── runtime_helpers.rs   Native callbacks: rt_call_builtin, GC allocation
+│   ├── runtime_helpers.rs   Native callbacks: rt_call_base_function, GC allocation
 │   └── value_arena.rs       Pointer-stable allocation for JIT values
 │
 └── diagnostics/             Structured error reporting
@@ -138,7 +138,7 @@ enum Value {
     Array(Rc<Vec<Value>>),  // Rc-backed, not GC-managed
     Gc(GcHandle),           // GC-managed: cons cells and HAMT nodes
     // Functions
-    Function(Rc<CompiledFunction>), Closure(Rc<Closure>), Builtin(u8),
+    Function(Rc<CompiledFunction>), Closure(Rc<Closure>), BaseFunction(u8),
     JitClosure(Rc<JitClosure>),     // feature-gated
     // Internal
     ReturnValue(Rc<Value>),  // sentinel for return from blocks
@@ -148,15 +148,15 @@ enum Value {
 
 `Value::Gc` wraps heap objects. `Display` for `Value::Gc` shows `<gc@N>` — use `list_ops::format_value()` with a `RuntimeContext` for proper rendering.
 
-### Builtin Registration
+### Base Function Registration
 
-Builtins must be registered in three places with matching indices:
+Base functions must be registered in three places with matching indices:
 
-1. **Implementation** in `runtime/builtins/<module>.rs`
-2. **`BUILTINS` array** in `runtime/builtins/mod.rs` — the array index is the builtin's ID
-3. **Symbol table** in `bytecode/compiler/mod.rs` — `symbol_table.define_builtin(INDEX, ...)`
+1. **Implementation** in `runtime/base/<module>.rs`
+2. **`BASE_FUNCTIONS` array** in `runtime/base/mod.rs` — the array index is the Base function ID
+3. **Symbol table** in `bytecode/compiler/mod.rs` — `symbol_table.define_base_function(INDEX, ...)`
 
-`OpGetBuiltin` emits the index at compile time; `get_builtin_by_index()` resolves it at runtime. The JIT uses the same `BUILTINS` array via `rt_call_builtin()`, so new builtins work in both backends automatically.
+`OpGetBase` emits the index at compile time; `get_base_function_by_index()` resolves it at runtime. The JIT uses the same `BASE_FUNCTIONS` array via `rt_call_base_function()`, so new Base functions work in both backends automatically.
 
 ### Diagnostics Builder
 
@@ -185,7 +185,7 @@ Compiled bytecode is cached as `.fxc` files under `target/flux/`. Cache keys are
 
 The JIT (`src/jit/`) compiles the AST directly to native machine code via [Cranelift](https://cranelift.dev/), bypassing the bytecode compiler and VM entirely. It shares:
 - The same `RuntimeContext` trait
-- The same `BUILTINS` array
+- The same `BASE_FUNCTIONS` array
 - The same GC heap
 
 Enable with `cargo build --features jit` and run with `--jit`.

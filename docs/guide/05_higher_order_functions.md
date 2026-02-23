@@ -1,8 +1,8 @@
 # Chapter 5 — Higher-Order Functions
 
-> Full examples: [`examples/basics/higher_order_builtins.flx`](../../examples/basics/higher_order_builtins.flx), [`examples/advanced/functional_pipeline.flx`](../../examples/advanced/functional_pipeline.flx)
+> Full examples: [`examples/basics/higher_order_base_functions.flx`](../../examples/basics/higher_order_base_functions.flx), [`examples/advanced/functional_pipeline.flx`](../../examples/advanced/functional_pipeline.flx)
 
-Higher-order functions take or return functions. Flux ships them as builtins — no imports needed.
+Higher-order functions take or return functions. Flux ships them as base functions — no imports needed.
 
 ## map
 

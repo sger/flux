@@ -2,7 +2,7 @@
 
 > Source: `src/runtime/value.rs`
 
-All runtime values in Flux are represented by the `Value` enum. Understanding its variants and memory model is essential for working on the VM, builtins, JIT, and GC.
+All runtime values in Flux are represented by the `Value` enum. Understanding its variants and memory model is essential for working on the VM, Base functions, JIT, and GC.
 
 ## Value Variants
 
@@ -33,7 +33,7 @@ enum Value {
     // Functions
     Function(Rc<CompiledFunction>),  // Named function (bytecode)
     Closure(Rc<Closure>),            // Function + captured free variables
-    Builtin(u8),                     // Index into BUILTINS array
+    BaseFunction(u8),                // Index into BASE_FUNCTIONS array
     JitClosure(Rc<JitClosure>),      // JIT-compiled function (feature-gated)
 }
 ```
@@ -65,7 +65,7 @@ Arrays and tuples do **not** go through the GC — they live on the Rc heap. The
 
 ### `type_name() -> &'static str`
 
-Returns the canonical type label used by `type_of()` builtin and error messages:
+Returns the canonical type label used by `type_of()` and error messages:
 
 | Variant | `type_name()` |
 |---------|--------------|
@@ -79,7 +79,7 @@ Returns the canonical type label used by `type_of()` builtin and error messages:
 | `Tuple` | `"Tuple"` |
 | `Gc` | `"List"` or `"Map"` (resolved at runtime) |
 | `Function` / `Closure` | `"Function"` |
-| `Builtin` | `"Builtin"` |
+| `BaseFunction` | `"BaseFunction"` |
 
 ### `is_truthy() -> bool`
 
@@ -102,7 +102,7 @@ Used in string interpolation (`"#{expr}"`). Unlike `Display`, strings are return
 println!("{}", value);
 
 // Correct: prints [1, 2, 3]
-use crate::runtime::builtins::list_ops;
+use crate::runtime::base::list_ops;
 println!("{}", list_ops::format_value(&value, ctx));
 ```
 

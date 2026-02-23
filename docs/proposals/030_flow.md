@@ -80,4 +80,4 @@ Flow modules depend on Base as foundational runtime vocabulary. Base behavior re
 ## References
 
 - Base canonical proposal: `docs/proposals/028_base.md`
-- Existing combined historical context: `docs/proposals/029_base.md`
+- Existing combined historical context: `docs/proposals/029_base_and_flow.md`
