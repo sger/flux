@@ -6,10 +6,7 @@ fn workspace_root() -> &'static Path {
 }
 
 fn fixture_path(name: &str) -> PathBuf {
-    workspace_root()
-        .join("tests")
-        .join("flux")
-        .join(name)
+    workspace_root().join("tests").join("flux").join(name)
 }
 
 fn run_flux(args: &[&str]) -> Output {
