@@ -1,5 +1,6 @@
 use crate::{
     bytecode::op_code::OpCode,
+    diagnostics::RUNTIME_TYPE_ERROR,
     runtime::{base::get_base_function_by_index, gc::HeapObject, leak_detector, value::Value},
 };
 
@@ -130,12 +131,32 @@ impl VM {
                 if matches!(return_value, Value::Uninit) {
                     return_value = Value::None;
                 }
+                if let Some(contract) = self.current_frame().closure.function.contract.as_ref()
+                    && let Some(expected) = contract.ret.as_ref()
+                    && !expected.matches_value(&return_value, self)
+                {
+                    let expected_name = expected.type_name();
+                    return Err(self.runtime_error_enhanced(
+                        &RUNTIME_TYPE_ERROR,
+                        &[&expected_name, return_value.type_name()],
+                    ));
+                }
                 let bp = self.pop_frame_bp();
                 self.reset_sp(bp - 1)?;
                 self.push(return_value)?;
                 Ok(0)
             }
             OpCode::OpReturn => {
+                if let Some(contract) = self.current_frame().closure.function.contract.as_ref()
+                    && let Some(expected) = contract.ret.as_ref()
+                    && !expected.matches_value(&Value::None, self)
+                {
+                    let expected_name = expected.type_name();
+                    return Err(self.runtime_error_enhanced(
+                        &RUNTIME_TYPE_ERROR,
+                        &[&expected_name, Value::None.type_name()],
+                    ));
+                }
                 let bp = self.pop_frame_bp();
                 self.reset_sp(bp - 1)?;
                 self.push(Value::None)?;

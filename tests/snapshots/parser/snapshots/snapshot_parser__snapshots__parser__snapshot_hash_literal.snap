@@ -8,6 +8,7 @@ Program {
             name: Symbol(
                 0,
             ),
+            type_annotation: None,
             value: Hash {
                 pairs: [
                     (

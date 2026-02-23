@@ -1,0 +1,10 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/03_typed_lambdas_and_function_types.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

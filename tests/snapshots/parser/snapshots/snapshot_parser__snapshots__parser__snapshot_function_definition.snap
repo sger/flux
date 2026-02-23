@@ -16,6 +16,12 @@ Program {
                     2,
                 ),
             ],
+            parameter_types: [
+                None,
+                None,
+            ],
+            return_type: None,
+            effects: [],
             body: Block {
                 statements: [
                     Return {
