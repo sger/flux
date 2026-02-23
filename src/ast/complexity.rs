@@ -106,6 +106,7 @@ impl<'ast> Visitor<'ast> for ComplexityCollector {
             parameters,
             body,
             span,
+            ..
         } = stmt
         {
             self.analyze_function(Some(*name), parameters.len(), body, *span);
@@ -121,6 +122,7 @@ impl<'ast> Visitor<'ast> for ComplexityCollector {
             parameters,
             body,
             span,
+            ..
         } = expr
         {
             self.analyze_function(None, parameters.len(), body, *span);
