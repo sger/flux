@@ -339,6 +339,7 @@ impl Parser {
 
         let name = self.parse_qualified_name()?;
         let mut alias = None;
+        let mut except = Vec::new();
 
         if self.is_peek_token(TokenType::As) {
             self.next_token(); // consume 'as'
@@ -352,12 +353,62 @@ impl Parser {
             );
         }
 
+        if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "except" {
+            self.next_token(); // consume `except`
+            except = self.parse_import_except_list()?;
+        }
+
         // No semicolon required for import statements
 
         Some(Statement::Import {
             name,
             alias,
+            except,
             span: self.span_from(start),
         })
+    }
+
+    fn parse_import_except_list(&mut self) -> Option<Vec<crate::syntax::Identifier>> {
+        if !self.expect_peek(TokenType::LBracket) {
+            return None;
+        }
+
+        let mut names = Vec::new();
+        if self.is_peek_token(TokenType::RBracket) {
+            self.next_token();
+            return Some(names);
+        }
+
+        loop {
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            names.push(
+                self.current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+            );
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume comma
+                continue;
+            }
+
+            if self.is_peek_token(TokenType::RBracket) {
+                self.next_token(); // consume closing bracket
+                break;
+            }
+
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                format!(
+                    "Expected `,` or `]` in import except list, got {}.",
+                    self.peek_token.token_type
+                ),
+            ));
+            return None;
+        }
+
+        Some(names)
     }
 }

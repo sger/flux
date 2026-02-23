@@ -15,8 +15,8 @@
 //! Any future cyclic data feature must use cycle-aware memory management.
 use crate::runtime::value::Value;
 
-pub mod builtin_function;
-pub mod builtins;
+pub mod base;
+pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
 pub mod frame;
@@ -44,4 +44,4 @@ pub trait RuntimeContext {
     fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
 }
 
-pub type BuiltinFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
+pub type BaseFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;

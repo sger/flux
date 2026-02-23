@@ -18,12 +18,12 @@
 | **Statements** | 7 variants (let, assign, return, expression, function, module, import) |
 | **Patterns** | 7 variants (wildcard, literal, identifier, None, Some, Left, Right) + guards |
 | **Operators** | 16 (arithmetic, comparison, logical, modulo, pipe, member access) |
-| **Builtins** | 35 (array, string, hash, math, type-checking, I/O) |
+| **Base Functions** | 35 (array, string, hash, math, type-checking, I/O) |
 | **Opcodes** | 44 (OpCode 0-43) |
 | **Lexer** | Byte-dispatch, span-backed lexemes, symbol interning, string interpolation |
 | **Parser** | Recursive descent + Pratt precedence, 3-token lookahead, error recovery |
 | **Compiler** | 2-pass (predeclare functions, then compile), module constant evaluation |
-| **VM** | Stack-based (2048 slots), 65536 globals, frame stack, 35 builtins |
+| **VM** | Stack-based (2048 slots), 65536 globals, frame stack, 35 base functions |
 | **Module System** | Module declarations, imports with aliases, cycle detection, topological ordering |
 | **Diagnostics** | Structured errors (E101-E1011), source snippets, hints, suggestions, aggregation |
 | **Linter** | 10 warnings (unused vars/params/imports, shadowing, naming, dead code, complexity) |
@@ -50,7 +50,7 @@
 | Type system | Fully dynamic; no static checking |
 | Default parameters | `fn f(x, y = 0)` not supported |
 | Array destructuring in patterns | `match arr { [a, b, ...rest] -> ... }` not supported |
-| String escape builtins | No `char_at`, `starts_with`, `ends_with`, `replace`, `index_of` |
+| String escape base functions | No `char_at`, `starts_with`, `ends_with`, `replace`, `index_of` |
 | Mid-level IR | AST compiled directly to bytecode; no optimization layer |
 | LSP / Language Server | No IDE integration beyond the formatter |
 
@@ -101,7 +101,7 @@ These are pure runtime/compiler improvements with no syntax changes. They make e
 
 #### 1.3 Accumulator Array Reuse (Proposal 016, Phase 2)
 
-**What:** Add `OpConsumeLocal` opcode. When the compiler proves a local is dead after a tail-call argument expression, it moves (instead of clones) the value. Combined with builtin ownership refactor, arrays mutate in-place.
+**What:** Add `OpConsumeLocal` opcode. When the compiler proves a local is dead after a tail-call argument expression, it moves (instead of clones) the value. Combined with base ownership refactor, arrays mutate in-place.
 
 **Why now:** The O(n^2) accumulator problem is the single biggest performance issue in Flux. `build(10000, [])` does ~50M element copies today.
 
@@ -111,7 +111,7 @@ These are pure runtime/compiler improvements with no syntax changes. They make e
 |------|--------|
 | New opcode | `OpConsumeLocal = 45` (uses `std::mem::replace`) |
 | Compiler change | Emit `OpConsumeLocal` when local is dead + not in `free_symbols` |
-| Builtin change | `builtin_push`, `concat`, `reverse`, `sort` use `swap_remove` |
+| Base change | `base_push`, `concat`, `reverse`, `sort` use `swap_remove` |
 | Effort | ~1 week |
 | Dependencies | 1.1 (TCE) + 1.2 (liveness) |
 | Risk | Low — conservative analysis; only parameters, not captured |
@@ -362,7 +362,7 @@ for item in items {
 | Dependencies | None |
 | Risk | None |
 
-#### 2.5 String Builtins (Missing Essentials)
+#### 2.5 String Base Functions (Missing Essentials)
 
 **What:** Add `starts_with`, `ends_with`, `replace`, `index_of`, `contains` (for strings), `char_at`.
 
@@ -370,7 +370,7 @@ for item in items {
 
 | Item | Detail |
 |------|--------|
-| New builtins | 6 functions wrapping Rust `str` methods |
+| New base functions | 6 functions wrapping Rust `str` methods |
 | Effort | ~1 day |
 | Dependencies | None |
 | Risk | None |
@@ -576,7 +576,7 @@ Week 1-2:   1.1 Tail-Call Elimination
             1.2 Liveness Analysis
             1.5 Constant Pool Deduplication
             2.4 Block Comments
-            2.5 String Builtins
+            2.5 String Base Functions
                                           ← Ship: v0.2.0 (recursion + quick wins)
 
 Week 3-4:   1.3 Accumulator Array Reuse
@@ -615,7 +615,7 @@ Week 15+:   Tier 5 features based on user feedback
 | 016 (Tail-Call) | 1.1 + 1.3 | Implement as-is. Phase 1 first, Phase 2 after liveness. |
 | 017 (Persistent Collections) | Tier 5 | Revise to use Rc-based sharing (no GC needed). Defer until after TCE proves itself. |
 | 010 (GC) | Deferred | Not needed with Rc-based approach. Revisit only if mutable refs or lazy eval added. |
-| 003 (Stdlib/Flow) | 2.5 + Tier 5 | String builtins now. Flow modules after for-loops + TCE make them practical. |
+| 003 (Stdlib/Flow) | 2.5 + Tier 5 | String base functions now. Flow modules after for-loops + TCE make them practical. |
 | 004 (Language Features) | 2.1-2.4, 3.1-3.4 | Many items already implemented (operators, pipe, lambda, guards). Remaining items mapped above. |
 | 005 (Symbol Interning) | In progress | Partially implemented on `feature/byte` branch (lexer-level). Extend to compiler. |
 | 007 (Visitor Pattern) | Tier 4 | Useful for multi-pass analysis. Defer until type system work begins. |
@@ -650,5 +650,5 @@ These design questions should be resolved before implementation begins:
 | `build(10000, [])` time | O(n^2) ~seconds | O(n) ~milliseconds (after 1.3) |
 | Bytecode size (avg program) | Baseline | -15% (after 1.4 + 4.1) |
 | Linter warnings | 10 types | 15+ types (after liveness) |
-| Builtin count | 35 | 41+ (after 2.5) |
+| Base count | 35 | 41+ (after 2.5) |
 | Test files | 41 | 55+ (after each tier) |

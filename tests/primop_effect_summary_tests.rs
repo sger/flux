@@ -22,7 +22,7 @@ fn compile_bytecode(input: &str) -> flux::bytecode::bytecode::Bytecode {
 
 #[test]
 fn main_effect_summary_is_pure_for_pure_primop_only_program() {
-    let bytecode = compile_bytecode("len(#[1, 2, 3]);");
+    let bytecode = compile_bytecode("iadd(1, 2);");
     let info = bytecode.debug_info.expect("main debug info");
     assert_eq!(info.effect_summary, EffectSummary::Pure);
 }

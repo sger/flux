@@ -2,7 +2,7 @@
 pub enum SymbolScope {
     Global,
     Local,
-    Builtin,
+    Base,
     Free,
     Function,
 }

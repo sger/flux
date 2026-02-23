@@ -373,7 +373,7 @@ Full supervision trees (Erlang OTP-style) are a future extension.
 | 2.1 | `actor` keyword in parser — parse actor declarations | Medium |
 | 2.2 | `TransferValue` — serialize/deserialize values across thread boundaries | Medium |
 | 2.3 | Actor runtime — spawn OS thread per actor, mailbox via `crossbeam` channel | Medium |
-| 2.4 | `spawn` / `send` / `ask` / `stop` builtins | Medium |
+| 2.4 | `spawn` / `send` / `ask` / `stop` base functions | Medium |
 | 2.5 | Actor-internal `async`/`await` — each actor runs its own scheduler | Small (reuse Phase 1) |
 | 2.6 | `monitor` / `ActorDown` — basic fault notification | Medium |
 

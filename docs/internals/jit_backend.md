@@ -31,7 +31,7 @@ Value Arena (src/jit/value_arena.rs)
  │   pointer-stable allocations
  ▼
 Runtime Helpers (src/jit/runtime_helpers.rs)
-    extern "C" callbacks for GC, builtins, closures
+    extern "C" callbacks for GC, Base functions, closures
 ```
 
 ## JIT Compiler (`compiler.rs`)
@@ -43,7 +43,7 @@ Translates each Flux AST function to Cranelift IR. Key points:
 - Literal deduplication: function literals at the same source span (tracked by `LiteralKey`) are compiled once.
 - Closures capture free variables as extra pointer arguments injected at call sites.
 
-The compiler emits calls to runtime helper functions for anything that requires heap allocation or builtin dispatch.
+The compiler emits calls to runtime helper functions for anything that requires heap allocation or Base function dispatch.
 
 ## Runtime Helpers (`runtime_helpers.rs`)
 
@@ -60,7 +60,7 @@ Key helpers:
 | `rt_make_float(ctx, i64)` | Allocate `Value::Float` (bits passed as i64) |
 | `rt_make_bool(ctx, i64)` | Allocate `Value::Boolean` |
 | `rt_make_none(ctx)` | Allocate `Value::None` |
-| `rt_call_builtin(ctx, index, args, nargs)` | Call `BUILTINS[index]` with argument array |
+| `rt_call_base_function(ctx, index, args, nargs)` | Call `BASE_FUNCTIONS[index]` with argument array |
 | `rt_make_closure(ctx, func_ptr, captures, ncap)` | Allocate a `JitClosure` |
 | `rt_cons(ctx, head, tail)` | Allocate a cons cell on the GC heap |
 | `rt_hamt_put(ctx, map, key, val)` | HAMT insert, returns new map handle |
@@ -87,12 +87,12 @@ The JIT reuses the same components as the VM:
 
 | Component | Shared via |
 |-----------|-----------|
-| Builtin functions | `BUILTINS` array in `runtime/builtins/mod.rs` |
+| Base functions | `BASE_FUNCTIONS` array in `runtime/base/mod.rs` |
 | GC heap | `runtime/gc/gc_heap.rs` — `JitContext` owns a `GcHeap` |
 | `RuntimeContext` trait | Both VM and JIT context implement it |
 | Error codes | `diagnostics/` — same error codes and messages |
 
-This means adding a new builtin automatically makes it available in JIT mode — no JIT-specific code needed.
+This means adding a new Base function automatically makes it available in JIT mode — no JIT-specific code needed.
 
 ## Limitations
 

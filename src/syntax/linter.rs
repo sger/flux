@@ -347,7 +347,12 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
-            Statement::Import { name, alias, span } => {
+            Statement::Import {
+                name,
+                alias,
+                except: _,
+                span,
+            } => {
                 let name_str = self.sym(*name);
                 if !is_valid_module_name(name_str) {
                     self.push_warning(

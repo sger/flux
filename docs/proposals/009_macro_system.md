@@ -7,7 +7,7 @@
 
 ## Overview
 
-This proposal introduces a **macro system** to Flux, enabling compile-time code generation and transformation. Following Elixir's philosophy of "put power in macros — keep the compiler small," this system would allow moving language features, builtins, and control flow from the compiler into user-space code.
+This proposal introduces a **macro system** to Flux, enabling compile-time code generation and transformation. Following Elixir's philosophy of "put power in macros — keep the compiler small," this system would allow moving language features, base functions, and control flow from the compiler into user-space code.
 
 ## Motivation: The Elixir Insight
 
@@ -50,7 +50,7 @@ end
 ### What This Means for Flux
 
 **With macros, we can:**
-1. Move 20+ builtins to standard library (macro-generated)
+1. Move 20+ base functions to standard library (macro-generated)
 2. Let users define control flow (unless, until, guard, etc.)
 3. Build DSLs (SQL, HTML, testing frameworks)
 4. Keep compiler focused on core semantics
@@ -366,12 +366,12 @@ unless(user.is_admin()) {
 }
 ```
 
-### Example 2: Move Builtins to Stdlib
+### Example 2: Move Base Functions to Stdlib
 
 **Current (Hard-coded in VM):**
 ```rust
-// runtime/builtins.rs
-fn builtin_is_int(args: Vec<Object>) -> Result<Object, String> {
+// runtime/base functions.rs
+fn base_is_int(args: Vec<Object>) -> Result<Object, String> {
     check_arity(&args, 1, "is_int", "is_int(x)")?;
     Ok(Object::Boolean(matches!(args[0], Object::Integer(_))))
 }
@@ -381,7 +381,7 @@ fn builtin_is_int(args: Vec<Object>) -> Result<Object, String> {
 ```flux
 // stdlib/type.flx
 module Stdlib.Type {
-    // type_of() remains a VM builtin
+    // type_of() remains a VM base
     // Everything else is a macro
 
     macro is_int(x) {
@@ -507,11 +507,11 @@ let result = data
 let result = transform(validate(parse(data)));
 ```
 
-## Reduced Builtin Set
+## Reduced Base Set
 
-With macros, we can drastically reduce VM builtins:
+With macros, we can drastically reduce VM base functions:
 
-### Must Stay as VM Builtins (Core Set: ~10 functions)
+### Must Stay as VM Base Functions (Core Set: ~10 functions)
 
 ```
 Data introspection:
@@ -558,7 +558,7 @@ min, max (could be macros comparing two values)
 to_string (could be macro calling type-specific converters)
 ```
 
-**Result:** 35 builtins → 10 core builtins + 25 macro-based functions
+**Result:** 35 base functions → 10 core base functions + 25 macro-based functions
 
 ## Benefits
 
@@ -717,7 +717,7 @@ pub struct MacroExpansionInfo {
 ## Success Metrics
 
 ### Code Quality
-- **Builtin count:** 35 → 10 (71% reduction)
+- **Base count:** 35 → 10 (71% reduction)
 - **Compiler lines of code:** Increase ~500 lines (macro system), but isolated
 - **Language flexibility:** Users can add features without compiler changes
 
@@ -733,7 +733,7 @@ pub struct MacroExpansionInfo {
 
 ### Alternative 1: No Macros (Status Quo)
 **Pros:** Simpler compiler, easier to understand
-**Cons:** Every feature requires compiler change, 35 hard-coded builtins
+**Cons:** Every feature requires compiler change, 35 hard-coded base functions
 
 ### Alternative 2: Preprocessor (C-style)
 ```flux
@@ -767,7 +767,7 @@ A macro system would fundamentally reshape Flux's architecture, following Elixir
 **"Put power in macros — keep the compiler small."**
 
 This enables:
-- 71% reduction in VM builtins (35 → 10)
+- 71% reduction in VM base functions (35 → 10)
 - User-defined control flow and language features
 - Faster language evolution
 - Community-driven extensions
@@ -848,7 +848,7 @@ OpGreaterThan
 OpBang            // !
 OpJumpIfFalse 10
 OpConstant 2      // "x is not greater than 10"
-OpGetBuiltin 0    // print
+OpGetBase 0    // print
 OpCall 1
 ```
 

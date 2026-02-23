@@ -65,7 +65,7 @@ let t1 = now_ms()
 
 print("AoC Day 1 password:")
 print(password)
-print("elapsed (time builtin, ms):")
+print("elapsed (time base, ms):")
 print(elapsed_via_time)
 print("elapsed (now_ms delta, ms):")
 print(t1 - t0)

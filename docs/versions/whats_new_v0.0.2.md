@@ -1,6 +1,6 @@
 # What's New in Flux v0.0.2
 
-Flux v0.0.2 significantly expands the language with new operators, the pipe operator, the Either type, lambda shorthand, string interpolation, a major builtin expansion, and module system enhancements.
+Flux v0.0.2 significantly expands the language with new operators, the pipe operator, the Either type, lambda shorthand, string interpolation, a major base expansion, and module system enhancements.
 
 ## Highlights
 
@@ -9,7 +9,7 @@ Flux v0.0.2 significantly expands the language with new operators, the pipe oper
 - Lambda shorthand: `\x -> expr`, `\(a, b) -> a + b`
 - String interpolation: `"Hello, #{name}!"`
 - Module enhancements: forward references, module constants, qualified imports, cycle detection
-- 35 builtins (up from ~6): arrays, strings, hash maps, numeric, type checks
+- 35 base functions (up from ~6): arrays, strings, hash maps, numeric, type checks
 - Improved diagnostics: central error code registry, AST spans, colorized runtime errors
 
 ## New Language Features
@@ -155,13 +155,13 @@ Skip default module root resolution and use only the paths specified via `--root
 cargo run -- --root lib/ --roots-only main.flx
 ```
 
-## Builtins
+## Base Functions
 
-35 total builtins (up from ~6). All are available without imports.
+35 total base functions (up from ~6). All are available without imports.
 
 ### Array
 
-| Builtin | Description |
+| Base | Description |
 |---------|-------------|
 | `concat(a, b)` | Combine two arrays |
 | `reverse(arr)` | Reverse an array |
@@ -171,7 +171,7 @@ cargo run -- --root lib/ --roots-only main.flx
 
 ### String
 
-| Builtin | Description |
+| Base | Description |
 |---------|-------------|
 | `split(s, delim)` | Split by delimiter → array |
 | `join(arr, delim)` | Join array with separator |
@@ -183,7 +183,7 @@ cargo run -- --root lib/ --roots-only main.flx
 
 ### Hash Maps
 
-| Builtin | Description |
+| Base | Description |
 |---------|-------------|
 | `keys(h)` | All keys → array |
 | `values(h)` | All values → array |

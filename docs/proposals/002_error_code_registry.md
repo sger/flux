@@ -571,7 +571,7 @@ return Err(self.runtime_error_with_code(
 ));
 ```
 
-**Update builtin errors (runtime/builtins.rs):**
+**Update base errors (runtime/base functions.rs):**
 ```rust
 // Before
 fn arity_error(name: &str, expected: &str, got: usize, signature: &str) -> String {

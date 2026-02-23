@@ -1,0 +1,9 @@
+// Phase 3 Base directives: valid usage
+// - excludes unqualified `print`
+// - still allows qualified `Base.print`
+
+import Base except [print]
+
+let xs = [10, 20, 30, 40];
+Base.print("len(xs) = " + to_string(len(xs)));
+Base.print("first(xs) = " + to_string(first(xs)));

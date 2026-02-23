@@ -1,4 +1,4 @@
-// Advent of Code 2024 - Day 1 (compact FP + tuples, new HO builtins)
+// Advent of Code 2024 - Day 1 (compact FP + tuples, new HO base functions)
 // Uses input file: examples/aoc/2024/day01.txt
 
 import Aoc2024Shared as Shared

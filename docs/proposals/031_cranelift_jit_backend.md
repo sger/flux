@@ -2,7 +2,7 @@
 
 ## Context
 
-Flux currently compiles AST to custom bytecode and interprets it in a stack-based VM. Adding a Cranelift JIT backend will eliminate the dispatch loop overhead, producing native machine code while reusing the existing runtime (Value type, GC, builtins). The JIT sits alongside the VM behind a `--jit` CLI flag, gated by a `jit` Cargo feature.
+Flux currently compiles AST to custom bytecode and interprets it in a stack-based VM. Adding a Cranelift JIT backend will eliminate the dispatch loop overhead, producing native machine code while reusing the existing runtime (Value type, GC, base functions). The JIT sits alongside the VM behind a `--jit` CLI flag, gated by a `jit` Cargo feature.
 
 ## Architecture
 
@@ -102,7 +102,7 @@ pub struct JitContext {
 }
 ```
 
-Implements `RuntimeContext` trait so builtins work unchanged.
+Implements `RuntimeContext` trait so base functions work unchanged.
 
 #### 1.3 ValueArena (`value_arena.rs`)
 
@@ -127,8 +127,8 @@ All helpers follow the pattern: `extern "C" fn(ctx: *mut JitContext, ...) -> *mu
 - `rt_equal`, `rt_not_equal`, `rt_greater_than`, `rt_less_than_or_equal`, `rt_greater_than_or_equal`
 - `rt_negate`, `rt_not`
 
-**Builtins & calls:**
-- `rt_call_builtin(ctx, builtin_index, *const *mut Value, nargs) -> *mut Value`
+**Base Functions & calls:**
+- `rt_call_base(ctx, base_index, *const *mut Value, nargs) -> *mut Value`
 - `rt_print(ctx, *const *mut Value, nargs) -> *mut Value`
 
 All return NULL on error, with the error message stored in `ctx.error`.
@@ -138,9 +138,9 @@ All return NULL on error, with the error message stored in `ctx.error`.
 - Integer/Float/Boolean/None/String literals
 - Prefix and infix expressions (arithmetic, comparisons)
 - Let bindings → Cranelift variables
-- Identifier lookup → load variable / load global / load builtin
+- Identifier lookup → load variable / load global / load base
 - Expression statements (compile + discard result)
-- Top-level builtin calls (e.g. `print`)
+- Top-level base calls (e.g. `print`)
 
 #### 1.6 JitEngine (`mod.rs`)
 
@@ -207,7 +207,7 @@ Each `Function` expression → separate Cranelift function:
 
 `rt_call_value(ctx, callee, args, nargs) -> *mut Value` dispatches to:
 - JIT-compiled function pointer (direct call)
-- Builtin function
+- Base function
 - Closure
 
 #### Closures
@@ -232,7 +232,7 @@ Represented as `(function_ptr, *mut Vec<Value>)` pair:
 |---------|---------------|
 | Arrays | `rt_make_array(ctx, *const *mut Value, len)` |
 | Cons lists | `rt_cons(ctx, head, tail)` — allocates on GC heap |
-| List literals | Desugar to cons chain or call `list` builtin |
+| List literals | Desugar to cons chain or call `list` base |
 | HAMT maps | `rt_make_hash(ctx, keys_values, npairs)` |
 | Index | `rt_index(ctx, collection, key)` |
 | Some/Left/Right | `rt_make_some`, `rt_make_left`, `rt_make_right` |

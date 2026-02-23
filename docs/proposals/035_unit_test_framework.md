@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Date:** 2026-02-19
-**Scope:** CLI, runtime builtins, Flow stdlib module, VM/JIT test runner
+**Scope:** CLI, runtime base functions, Flow stdlib module, VM/JIT test runner
 
 ---
 
@@ -19,7 +19,7 @@ This proposal defines a minimal, idiomatic unit test framework for Flux that:
 - Leverages the existing `invoke_value` / `Result<Value, String>` runtime mechanism for
   test isolation
 - Adds a `--test` CLI flag for discovery and reporting
-- Provides a small set of assertion builtins
+- Provides a small set of assertion base functions
 
 ---
 
@@ -32,7 +32,7 @@ This proposal defines a minimal, idiomatic unit test framework for Flux that:
 3. **Isolation at the Rust level.** The test runner calls each test via `invoke_value`,
    which returns `Result<Value, String>`. A runtime error (from an assertion or otherwise)
    becomes an `Err(String)` that the runner catches — other tests continue.
-4. **Assertions are builtins.** They return `Err(String)` on failure, which propagates
+4. **Assertions are base functions.** They return `Err(String)` on failure, which propagates
    through the VM's normal error path and is caught by the runner.
 5. **Pure functional test bodies.** Tests are zero-argument functions. Setup via `let`
    bindings or shared helper functions.
@@ -140,9 +140,9 @@ Exit code: `0` if all pass, `1` if any fail.
 
 ---
 
-## Assertion Builtins
+## Assertion Base Functions
 
-Four new builtins added to `runtime/builtins/`:
+Four new base functions added to `runtime/base functions/`:
 
 ### `assert_eq(actual, expected)`
 
@@ -185,8 +185,8 @@ All assertions follow the same pattern — they return `Value::None` on success 
 per-test via `invoke_value`.
 
 ```rust
-// src/runtime/builtins/assert_ops.rs
-pub(super) fn builtin_assert_eq(
+// src/runtime/base functions/assert_ops.rs
+pub(super) fn base_assert_eq(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
@@ -268,7 +268,7 @@ This means:
 
 ## `Flow.FTest` Standard Library Module
 
-A thin stdlib module wrapping the builtins, providing grouped tests and richer output:
+A thin stdlib module wrapping the base functions, providing grouped tests and richer output:
 
 ```flux
 // lib/Flow/FTest.flx
@@ -348,14 +348,14 @@ cargo run -- --test tests/collections_test.flx --root src/
 
 ## Implementation Phases
 
-### Phase 1 — Assert Builtins + `--test` Flag
+### Phase 1 — Assert Base Functions + `--test` Flag
 
-**Effort:** Low-medium. Touches builtins, CLI, and a small test runner.
+**Effort:** Low-medium. Touches base functions, CLI, and a small test runner.
 
 Changes:
-- `src/runtime/builtins/assert_ops.rs` — 4 new builtins
-- `src/runtime/builtins/mod.rs` — register 4 new builtins
-- `src/bytecode/compiler/mod.rs` — add `define_builtin` for 4 new names
+- `src/runtime/base functions/assert_ops.rs` — 4 new base functions
+- `src/runtime/base functions/mod.rs` — register 4 new base functions
+- `src/bytecode/compiler/mod.rs` — add `define_base` for 4 new names
 - `src/main.rs` / CLI — add `--test` flag
 - `src/runtime/vm/` — test runner that collects and invokes `test_*` functions
 
@@ -366,7 +366,7 @@ Changes:
 
 **Effort:** Low. Pure Flux code.
 
-- `lib/Flow/FTest.flx` — wraps assert builtins, provides `describe`
+- `lib/Flow/FTest.flx` — wraps assert base functions, provides `describe`
 - Documentation and examples
 
 ### Phase 3 — Property-Based Testing
@@ -388,7 +388,7 @@ fn test_reverse_involution() {
 ```
 
 Requires:
-- `for_all(generator, property_fn)` builtin
+- `for_all(generator, property_fn)` base
 - Built-in generators: `Property.int`, `Property.string`, `Property.bool`,
   `Property.array(gen)`, `Property.option(gen)`
 - Shrinking: on failure, find the minimal failing input
@@ -403,7 +403,7 @@ Phase 1 is complete only when:
 
 Phase 2 is complete only when:
 - `Flow.FTest` wrappers are documented and examples compile
-- wrapper names do not shadow builtin assertion names
+- wrapper names do not shadow base assertion names
 
 Phase 3 is complete only when:
 - failing property output includes counterexample + shrunk value
@@ -483,8 +483,8 @@ callee is `Value::Closure`; in JIT mode it is `Value::JitClosure`. Both are hand
 their respective `invoke_value` implementations and both return `Result<Value, String>`,
 which is the runner's isolation mechanism.
 
-Assert builtins work identically in JIT — they are in the `BUILTINS` array and called
-via `rt_call_builtin` in JIT-compiled code, dispatching to the same Rust functions.
+Assert base functions work identically in JIT — they are in the `BASE_FUNCTIONS` array and called
+via `rt_call_base` in JIT-compiled code, dispatching to the same Rust functions.
 
 ```bash
 # Run tests via VM (default)
@@ -496,7 +496,7 @@ cargo run --features jit -- --test examples/tests/math_test.flx --jit
 
 The output and exit code are identical between the two backends.
 
-**One caveat:** `JitContext::invoke_value` currently only handles `Value::Builtin` and
+**One caveat:** `JitContext::invoke_value` currently only handles `Value::Base` and
 `Value::JitClosure`. If a test function is somehow stored as `Value::Closure` (which
 should not happen in a fully JIT-compiled program), it would return an error. In
 practice this is not an issue because the JIT compiles all user-defined functions to
@@ -512,7 +512,7 @@ practice this is not an issue because the JIT compiles all user-defined function
   make mocking less necessary.
 - **Snapshot testing.** The compiler's own test suite uses `insta` for snapshots, but
   user-facing snapshot tests are out of scope here.
-- **Benchmarking.** The existing `time(fn)` builtin provides basic timing. A dedicated
+- **Benchmarking.** The existing `time(fn)` base provides basic timing. A dedicated
   benchmark runner is a separate concern.
 - **Watch mode.** `flux --test --watch` (re-run on file change) is a tooling concern
   beyond this proposal.
@@ -523,13 +523,13 @@ practice this is not an issue because the JIT compiles all user-defined function
 
 | File | Phase | Change |
 |---|---|---|
-| `src/runtime/builtins/assert_ops.rs` | 1 | New file: 4 assert builtins |
-| `src/runtime/builtins/mod.rs` | 1 | Register 4 new builtins |
-| `src/bytecode/compiler/mod.rs` | 1 | `define_builtin` for 4 new names |
+| `src/runtime/base functions/assert_ops.rs` | 1 | New file: 4 assert base functions |
+| `src/runtime/base functions/mod.rs` | 1 | Register 4 new base functions |
+| `src/bytecode/compiler/mod.rs` | 1 | `define_base` for 4 new names |
 | `src/main.rs` | 1 | `--test` flag, invoke test runner |
 | `src/runtime/vm/test_runner.rs` | 1 | New: collect + run `test_*` functions |
 | `lib/Flow/FTest.flx` | 2 | New: `Flow.FTest` module |
-| `src/runtime/builtins/property_ops.rs` | 3 | Property-based testing |
+| `src/runtime/base functions/property_ops.rs` | 3 | Property-based testing |
 | `examples/tests/` | All | Example test files |
 
 ---
@@ -608,9 +608,9 @@ OK
 ## References
 
 - `src/runtime/vm/function_call.rs` — `invoke_value` (the isolation mechanism)
-- `src/runtime/builtins/mod.rs` — BUILTINS array and registration pattern
-- `src/runtime/builtins/io_ops.rs` — `time(fn)` as a pattern for calling user functions
-  from builtins
+- `src/runtime/base functions/mod.rs` — BASE_FUNCTIONS array and registration pattern
+- `src/runtime/base functions/io_ops.rs` — `time(fn)` as a pattern for calling user functions
+  from base functions
 - `src/main.rs` — existing CLI flag handling
 - Elm Test: `package.elm-lang.org/packages/elm-explorations/test`
 - HUnit: `hackage.haskell.org/package/HUnit`

@@ -1,0 +1,4 @@
+// Expected compile error E080: unknown Base member in except list
+
+import Base except [does_not_exist]
+print("unreachable");

@@ -61,7 +61,7 @@ The Flux bytecode compiler translates the AST to a compact stack-based instructi
 | `OpGetLocal0` | — | Push local[0] (optimized fast path) |
 | `OpGetLocal1` | — | Push local[1] (optimized fast path) |
 | `OpConsumeLocal` | u8 index | Move local (avoids Rc clone) |
-| `OpGetBuiltin` | u8 index | Push builtin function by BUILTINS index |
+| `OpGetBase` | u8 index | Push Base function by `BASE_FUNCTIONS` index |
 
 ### Functions and Closures
 

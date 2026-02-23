@@ -1,5 +1,7 @@
 use crate::{
     bytecode::compiler::Compiler,
+    bytecode::symbol_scope::SymbolScope,
+    runtime::base::BaseModule,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
@@ -100,4 +102,53 @@ fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile_with_opts(&program, false, false).unwrap();
     assert!(compiler.tail_calls.is_empty());
+}
+
+#[test]
+fn compiler_registers_base_functions_in_registry_order() {
+    let (_, interner) = parse_program("");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let base = BaseModule::new();
+
+    for (expected_index, name) in base.names().enumerate() {
+        let symbol = compiler.interner.intern(name);
+        let binding = compiler
+            .symbol_table
+            .resolve(symbol)
+            .expect("base base should be pre-registered");
+        assert_eq!(binding.symbol_scope, SymbolScope::Base);
+        assert_eq!(binding.index, expected_index);
+    }
+}
+
+#[test]
+fn base_indices_are_deterministic_across_interner_state() {
+    let mut seeded_interner = Interner::new();
+    // Pre-seed unrelated symbols to prove base indices do not depend on interner history.
+    seeded_interner.intern("zzz");
+    seeded_interner.intern("another_symbol");
+
+    let mut compiler_a = Compiler::new_with_interner("<test-a>", Interner::new());
+    let mut compiler_b = Compiler::new_with_interner("<test-b>", seeded_interner);
+
+    for name in BaseModule::new().names() {
+        let sym_a = compiler_a.interner.intern(name);
+        let sym_b = compiler_b.interner.intern(name);
+        let binding_a = compiler_a
+            .symbol_table
+            .resolve(sym_a)
+            .expect("base must exist in compiler A");
+        let binding_b = compiler_b
+            .symbol_table
+            .resolve(sym_b)
+            .expect("base must exist in compiler B");
+
+        assert_eq!(binding_a.symbol_scope, SymbolScope::Base);
+        assert_eq!(binding_b.symbol_scope, SymbolScope::Base);
+        assert_eq!(
+            binding_a.index, binding_b.index,
+            "base index mismatch for `{}`",
+            name
+        );
+    }
 }

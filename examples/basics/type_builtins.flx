@@ -1,4 +1,4 @@
-// Test: Type Checking builtin functions
+// Test: Type Checking base functions
 // Expected output:
 // Int
 // Float
@@ -36,7 +36,7 @@
 // Left(age must be an integer, got String)
 
 // =============================================================================
-// Type Checking Builtins (Milestone 5.5)
+// Type Checking Base Functions (Milestone 5.5)
 // =============================================================================
 
 // type_of - get type name as string
