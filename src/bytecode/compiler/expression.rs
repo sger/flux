@@ -356,18 +356,17 @@ impl Compiler {
 
                 if let Some(name) = module_binding_name
                     && module_name.is_none()
+                    && is_valid_module_name(self.sym(name))
                 {
-                    if is_valid_module_name(self.sym(name)) {
-                        let has_symbol = self.resolve_visible_symbol(name).is_some();
-                        if !has_symbol {
-                            let name_str = self.sym(name);
-                            return Err(Self::boxed(Diagnostic::make_error(
-                                &MODULE_NOT_IMPORTED,
-                                &[name_str],
-                                self.file_path.clone(),
-                                expr_span,
-                            )));
-                        }
+                    let has_symbol = self.resolve_visible_symbol(name).is_some();
+                    if !has_symbol {
+                        let name_str = self.sym(name);
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &MODULE_NOT_IMPORTED,
+                            &[name_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
                     }
                 }
 
