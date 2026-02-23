@@ -2,27 +2,38 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     bytecode::{
-        binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
+        binding::Binding,
+        compiler::{
+            Compiler,
+            contracts::{FnContract, convert_type_expr},
+        },
+        debug_info::FunctionDebugInfo,
+        op_code::OpCode,
         symbol_scope::SymbolScope,
     },
     diagnostics::{
         DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
         ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
         ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH,
         UNKNOWN_BASE_MEMBER, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR,
         position::{Position, Span},
     },
     primop::resolve_primop_call,
-    runtime::base::is_base_fastcall_allowlisted,
-    runtime::{base::BaseModule, compiled_function::CompiledFunction, value::Value},
+    runtime::{
+        base::{BaseModule, is_base_fastcall_allowlisted},
+        compiled_function::CompiledFunction,
+        runtime_type::RuntimeType,
+        value::Value,
+    },
     syntax::{
         block::Block,
         expression::{Expression, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
 };
 
@@ -176,9 +187,14 @@ impl Compiler {
                 }
             }
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects: _,
+                body,
+                ..
             } => {
-                self.compile_function_literal(parameters, body)?;
+                self.compile_function_literal(parameters, parameter_types, return_type, body)?;
             }
             Expression::ListLiteral { elements, .. } => {
                 // Lower list literals through base `list(...)` to avoid deep
@@ -238,6 +254,8 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                self.check_static_contract_call(function, arguments)?;
+
                 if self.try_emit_primop_call(function, arguments)? {
                     self.current_span = previous_span;
                     return Ok(());
@@ -432,9 +450,140 @@ impl Compiler {
         Ok(())
     }
 
+    fn check_static_contract_call(
+        &self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<()> {
+        let Some(contract) = self.resolve_call_contract(function, arguments.len()) else {
+            return Ok(());
+        };
+
+        for (index, argument) in arguments.iter().enumerate() {
+            let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
+                continue;
+            };
+            let Some(expected_runtime) = convert_type_expr(expected_ty, &self.interner) else {
+                continue;
+            };
+            let Some(actual_runtime) = self.static_expr_type(argument) else {
+                continue;
+            };
+            if !Self::runtime_types_compatible(&expected_runtime, &actual_runtime) {
+                let expected = expected_runtime.type_name();
+                let actual = actual_runtime.type_name();
+
+                return Err(Self::boxed(
+                    Diagnostic::make_error(
+                        &TYPE_MISMATCH,
+                        &[&expected, &actual],
+                        self.file_path.clone(),
+                        argument.span(),
+                    )
+                    .with_primary_label(argument.span(), "argument type is known at compile time")
+                    .with_help(format!(
+                        "argument #{} does not match function contract",
+                        index + 1
+                    )),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn resolve_call_contract<'a>(
+        &'a self,
+        function: &Expression,
+        arity: usize,
+    ) -> Option<&'a FnContract> {
+        match function {
+            Expression::Identifier { name, .. } => self.lookup_unqualified_contract(*name, arity),
+            Expression::MemberAccess { object, member, .. } => {
+                let Expression::Identifier { name, .. } = object.as_ref() else {
+                    return None;
+                };
+                let module_name = if let Some(target) = self.import_aliases.get(name) {
+                    Some(*target)
+                } else if self.imported_modules.contains(name)
+                    || self.current_module_prefix == Some(*name)
+                {
+                    Some(*name)
+                } else {
+                    None
+                }?;
+                self.lookup_contract(Some(module_name), *member, arity)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn static_expr_type(&self, expression: &Expression) -> Option<RuntimeType> {
+        match expression {
+            Expression::Integer { .. } => Some(RuntimeType::Int),
+            Expression::Float { .. } => Some(RuntimeType::Float),
+            Expression::Boolean { .. } => Some(RuntimeType::Bool),
+            Expression::String { .. } | Expression::InterpolatedString { .. } => {
+                Some(RuntimeType::String)
+            }
+            Expression::TupleLiteral { elements, .. } => Some(RuntimeType::Tuple(
+                elements
+                    .iter()
+                    .map(|e| self.static_expr_type(e))
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            Expression::ArrayLiteral { elements, .. } => {
+                if elements.is_empty() {
+                    return Some(RuntimeType::Array(Box::new(RuntimeType::Any)));
+                }
+                let first = self.static_expr_type(&elements[0])?;
+                if elements[1..]
+                    .iter()
+                    .all(|e| self.static_expr_type(e).is_some_and(|t| t == first))
+                {
+                    Some(RuntimeType::Array(Box::new(first)))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn runtime_types_compatible(expected: &RuntimeType, actual: &RuntimeType) -> bool {
+        match expected {
+            RuntimeType::Any => true,
+            RuntimeType::Option(inner_expected) => match actual {
+                RuntimeType::Option(inner_actual) => {
+                    Self::runtime_types_compatible(inner_expected, inner_actual)
+                }
+                _ => false,
+            },
+            RuntimeType::Array(inner_expected) => match actual {
+                RuntimeType::Array(inner_actual) => {
+                    Self::runtime_types_compatible(inner_expected, inner_actual)
+                }
+                _ => false,
+            },
+            RuntimeType::Map(_, _) => matches!(actual, RuntimeType::Map(_, _)),
+            RuntimeType::Tuple(expected_elems) => match actual {
+                RuntimeType::Tuple(actual_elems) if expected_elems.len() == actual_elems.len() => {
+                    expected_elems
+                        .iter()
+                        .zip(actual_elems.iter())
+                        .all(|(e, a)| Self::runtime_types_compatible(e, a))
+                }
+                _ => false,
+            },
+            _ => expected == actual,
+        }
+    }
+
     pub(super) fn compile_function_literal(
         &mut self,
         parameters: &[Symbol],
+        parameters_types: &[Option<TypeExpr>],
+        return_type: &Option<TypeExpr>,
         body: &Block,
     ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
@@ -487,14 +636,27 @@ impl Compiler {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
-            instructions,
-            num_locals,
-            parameters.len(),
-            Some(
-                FunctionDebugInfo::new(None, files, locations).with_effect_summary(effect_summary),
-            ),
-        ))));
+        let runtime_contract = {
+            let contract = FnContract {
+                params: parameters_types.to_vec(),
+                ret: return_type.clone(),
+                effects: Vec::new(),
+            };
+            self.to_runtime_contract(&contract)
+        };
+
+        let fn_idx = self.add_constant(Value::Function(Rc::new(
+            CompiledFunction::new(
+                instructions,
+                num_locals,
+                parameters.len(),
+                Some(
+                    FunctionDebugInfo::new(None, files, locations)
+                        .with_effect_summary(effect_summary),
+                ),
+            )
+            .with_contract(runtime_contract),
+        )));
 
         self.emit_closure_index(fn_idx, free_symbols.len());
 

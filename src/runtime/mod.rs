@@ -19,12 +19,13 @@ pub mod base;
 pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
-pub mod contract;
 pub mod frame;
+pub mod function_contract;
 pub mod gc;
 pub mod hash_key;
 pub mod jit_closure;
 pub mod leak_detector;
+pub mod runtime_type;
 pub mod value;
 pub mod vm;
 

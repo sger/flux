@@ -1,6 +1,6 @@
 use crate::syntax::{
-    interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
-    token::Token, token_type::TokenType,
+    expression::Expression, interner::Interner, lexer::Lexer, parser::Parser, program::Program,
+    statement::Statement, token::Token, token_type::TokenType,
 };
 
 use super::{is_pascal_case_ident, is_uppercase_ident};
@@ -164,4 +164,86 @@ fn parse_program_span_covers_all_tokens() {
 }
 
 #[test]
-fn parses_typed_let_statement() {}
+fn parses_typed_let_statement() {
+    let (program, interner) = parse_ok("let x: Int = 1;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let {
+            name,
+            type_annotation: Some(ty),
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "x");
+            assert_eq!(ty.display_with(&interner), "Int");
+        }
+        _ => panic!("expected typed let statement"),
+    }
+}
+
+#[test]
+fn parses_typed_function_signature_with_effects() {
+    let (program, interner) = parse_ok("fn add(a: Int, b: Int) -> Int with IO, Time { a + b }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function {
+            name,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "add");
+            assert_eq!(parameters.len(), 2);
+            assert_eq!(
+                parameter_types
+                    .iter()
+                    .map(|ty| ty.as_ref().map(|t| t.display_with(&interner)))
+                    .collect::<Vec<_>>(),
+                vec![Some("Int".to_string()), Some("Int".to_string())]
+            );
+            assert_eq!(
+                return_type
+                    .as_ref()
+                    .map(|ty| ty.display_with(&interner))
+                    .as_deref(),
+                Some("Int")
+            );
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["IO".to_string(), "Time".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_lambda_parameter_annotation() {
+    let (program, interner) = parse_ok("let inc = \\(x: Int) -> x + 1;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let { value, .. } => match value {
+            Expression::Function {
+                parameter_types, ..
+            } => {
+                assert_eq!(parameter_types.len(), 1);
+                assert_eq!(
+                    parameter_types[0]
+                        .as_ref()
+                        .map(|t| t.display_with(&interner))
+                        .as_deref(),
+                    Some("Int")
+                );
+            }
+            _ => panic!("expected function expression"),
+        },
+        _ => panic!("expected let statement"),
+    }
+}
