@@ -505,6 +505,17 @@ impl Parser {
         match self.current_token.token_type {
             TokenType::Ident => self.parse_named_type_expr(),
             TokenType::LParen => self.parse_paren_type_expr(),
+            TokenType::None => {
+                // Allow `None` as a type annotation (void return type)
+                let start = self.current_token.position;
+                let name = self.lexer.interner_mut().intern("None");
+                let end = self.current_token.end_position;
+                Some(TypeExpr::Named {
+                    name,
+                    args: vec![],
+                    span: Span::new(start, end),
+                })
+            }
             _ => {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
