@@ -170,10 +170,11 @@ typed_add(x, 1)
 
 #[test]
 fn runtime_contract_checks_typed_return_values() {
+    // Use an untyped parameter so the mismatch is caught at runtime (not compile time).
     let err = run_error(
         r#"
-fn bad() -> Int { "oops" }
-bad()
+fn bad(x) -> Int { x }
+bad("oops")
 "#,
     );
     assert!(

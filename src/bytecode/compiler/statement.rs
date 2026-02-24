@@ -338,6 +338,38 @@ impl Compiler {
             }
         }
 
+        // Compile-time return type check: if the declared return type and the static type of
+        // the tail expression are both known, verify they're compatible.
+        if let Some(ret_annotation) = return_type
+            && let Some(expected_ret) = convert_type_expr(ret_annotation, &self.interner)
+            && self.block_has_value_tail(body)
+        {
+            if let Some(Statement::Expression {
+                expression,
+                has_semicolon: false,
+                ..
+            }) = body.statements.last()
+                && let Some(actual_ret) = self.static_expr_type(expression)
+                && !Self::runtime_types_compatible(&expected_ret, &actual_ret)
+            {
+                let expected_str = expected_ret.type_name();
+                let actual_str = actual_ret.type_name();
+                return Err(Self::boxed(
+                    Diagnostic::make_error(
+                        &TYPE_MISMATCH,
+                        &[&expected_str, &actual_str],
+                        self.file_path.clone(),
+                        expression.span(),
+                    )
+                    .with_primary_label(
+                        expression.span(),
+                        "return expression type is known at compile time",
+                    )
+                    .with_help("return expression type does not match the declared return type"),
+                ));
+            }
+        }
+
         self.with_function_context(parameters.len(), |compiler| {
             compiler.compile_block_with_tail(body)
         })?;
