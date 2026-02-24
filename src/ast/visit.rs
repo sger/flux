@@ -145,6 +145,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
                 visitor.visit_identifier(excluded);
             }
         }
+        Statement::Data { .. } => {}
     }
 }
 
@@ -310,6 +311,11 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
         Pattern::Tuple { elements, .. } => {
             for element in elements {
                 visitor.visit_pat(element);
+            }
+        }
+        Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                visitor.visit_pat(field);
             }
         }
     }

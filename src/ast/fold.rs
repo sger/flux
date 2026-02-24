@@ -151,6 +151,17 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
                 .collect(),
             span,
         },
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            span,
+        } => Statement::Data {
+            name,
+            type_params,
+            variants,
+            span,
+        },
     }
 }
 
@@ -338,6 +349,11 @@ pub fn fold_pat<F: Folder + ?Sized>(folder: &mut F, pat: Pattern) -> Pattern {
         Pattern::EmptyList { span } => Pattern::EmptyList { span },
         Pattern::Tuple { elements, span } => Pattern::Tuple {
             elements: elements.into_iter().map(|p| folder.fold_pat(p)).collect(),
+            span,
+        },
+        Pattern::Constructor { name, fields, span } => Pattern::Constructor {
+            name,
+            fields: fields.into_iter().map(|p| folder.fold_pat(p)).collect(),
             span,
         },
     }
