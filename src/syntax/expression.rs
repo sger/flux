@@ -55,8 +55,11 @@ pub enum Pattern {
     },
     /// User-defined ADT constructor pattern: `Circle(r)`, `Red`, `Node(l, v, r)`
     Constructor {
+        /// Constructor symbol (for example `Circle`, `Red`, `Node`).
         name: Identifier,
+        /// Nested subpatterns for constructor fields.
         fields: Vec<Pattern>,
+        /// Source span covering the full constructor pattern.
         span: Span,
     },
 }

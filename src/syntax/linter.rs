@@ -177,6 +177,7 @@ impl<'a> Linter<'a> {
         }
     }
 
+    /// Recursively collects bindings introduced by a pattern into the current scope.
     fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Identifier { name, .. } => {
