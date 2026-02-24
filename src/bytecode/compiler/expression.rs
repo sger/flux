@@ -1,4 +1,7 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use crate::{
     bytecode::{
@@ -12,12 +15,13 @@ use crate::{
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
-        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
-        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH,
-        UNKNOWN_BASE_MEMBER, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR,
+        ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
+        DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
+        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH, UNKNOWN_BASE_MEMBER,
+        UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        UNKNOWN_PREFIX_OPERATOR, diag_enhanced,
         position::{Position, Span},
     },
     primop::resolve_primop_call,
@@ -77,12 +81,47 @@ impl Compiler {
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
+                    } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                        // Zero-arg ADT constructor used inside a module (e.g. `Dot`, `Leaf`)
+                        if info.arity != 0 {
+                            let name_str = self.interner.resolve(name).to_string();
+                            return Err(Self::boxed(
+                                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Constructor `{}` expects {} argument(s) but got 0.",
+                                        name_str, info.arity
+                                    )),
+                            ));
+                        }
+
+                        let constructor_name = self.interner.resolve(name).to_string();
+                        let const_idx =
+                            self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                        self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
                             self.make_undefined_variable_error(name_str, *span),
                         ));
                     }
+                } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                    // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
+                    if info.arity != 0 {
+                        let name_str = self.interner.resolve(name).to_string();
+                        return Err(Self::boxed(
+                            diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                .with_span(*span)
+                                .with_message(format!(
+                                    "Constructor `{}` expects {} argument(s) but got 0.",
+                                    name_str, info.arity
+                                )),
+                        ));
+                    }
+                    let constructor_name = self.interner.resolve(name).to_string();
+                    let const_idx =
+                        self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                    self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                 } else {
                     let name_str = self.sym(name);
                     return Err(Self::boxed(
@@ -255,6 +294,11 @@ impl Compiler {
                 ..
             } => {
                 self.check_static_contract_call(function, arguments)?;
+
+                if self.try_emit_adt_constructor_call(function, arguments, expression.span())? {
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
 
                 if self.try_emit_primop_call(function, arguments)? {
                     self.current_span = previous_span;
@@ -780,8 +824,10 @@ impl Compiler {
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
-        _match_span: Span,
+        match_span: Span,
     ) -> CompileResult<()> {
+        // Exhaustiveness check for ADT patterns (before compiling arms)
+        self.check_match_exhaustiveness(arms, match_span)?;
         // Compile scrutinee once and store it in a temp symbol.
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
         self.compile_non_tail_expression(scrutinee)?;
@@ -1108,6 +1154,64 @@ impl Compiler {
 
                 Ok(jumps)
             }
+            Pattern::Constructor { name, fields, span } => {
+                // 1. Check if this is a known constructor
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+
+                // tag_idx not used in check
+                let _ = constructor_info.tag_idx;
+
+                // 2. Load scrutinee, emit OpIsAdt with constructor name constant
+                self.load_symbol(scrutinee);
+                let constructor_name = self.interner.resolve(*name).to_string();
+                let const_idx =
+                    self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                self.emit(OpCode::OpIsAdt, &[const_idx]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                // 3. For each non-wildcard/non-identifier field pattern, extract and sub-check
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(
+                        field_pat,
+                        Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                    ) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    let inner_jumps = self.compile_pattern_check(&inner_symbol, field_pat)?;
+                    jumps.extend(inner_jumps);
+                }
+
+                Ok(jumps)
+            }
         }
     }
 
@@ -1276,6 +1380,35 @@ impl Compiler {
                 }
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
+            Pattern::Constructor { fields, .. } => {
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(field_pat, Pattern::Wildcard { .. }) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    self.compile_pattern_bind(&inner_symbol, field_pat)?;
+                }
+            }
         }
         Ok(())
     }
@@ -1424,6 +1557,7 @@ impl Compiler {
                 }
             }
             Statement::Import { .. } => {}
+            Statement::Data { .. } => {}
         }
     }
 
@@ -1564,5 +1698,116 @@ impl Compiler {
             Some(num_params) => symbol.index < num_params,
             None => false,
         }
+    }
+
+    fn try_emit_adt_constructor_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        span: Span,
+    ) -> CompileResult<bool> {
+        let Expression::Identifier { name, .. } = function else {
+            return Ok(false);
+        };
+
+        // Only intercept if the name is a known ADT constructor
+        let Some(info) = self.adt_registry.lookup_constructor(*name) else {
+            return Ok(false);
+        };
+
+        let expected_arity = info.arity;
+        let actual_arity = arguments.len();
+
+        if actual_arity != expected_arity {
+            let name_str = self.interner.resolve(*name).to_string();
+            return Err(Self::boxed(
+                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Constructor `{}` expects {} argument(s) but got {}.",
+                        name_str, expected_arity, actual_arity
+                    )),
+            ));
+        }
+
+        // Compile each argument
+        for arg in arguments {
+            self.compile_non_tail_expression(arg)?;
+        }
+
+        // Add constructor name as a string constant
+        let constructor_name = self.interner.resolve(*name).to_string();
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+        self.emit(OpCode::OpMakeAdt, &[const_idx, actual_arity]);
+
+        Ok(true)
+    }
+
+    fn check_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
+        // Collect all constructor patterns from arms
+        let constructor_names: Vec<Symbol> = arms
+            .iter()
+            .filter_map(|arm| {
+                if let Pattern::Constructor { name, .. } = &arm.pattern {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // If no constructor patterns, nothing to check
+        if constructor_names.is_empty() {
+            return Ok(());
+        }
+
+        // If any arm has a wildcard or identifier (catch-all), it's exhaustive
+        let has_catch_all = arms.iter().any(|arm| {
+            matches!(
+                arm.pattern,
+                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+            )
+        });
+        if has_catch_all {
+            return Ok(());
+        }
+
+        // Look up the ADT from the first constructor name
+        let first_constructor = constructor_names[0];
+        let Some(constructor_info) = self.adt_registry.lookup_constructor(first_constructor) else {
+            return Ok(()); // Unknown constructor, already reported elsewhere
+        };
+        let adt_name = constructor_info.adt_name;
+        let Some(adt_def) = self.adt_registry.lookup_adt(adt_name) else {
+            return Ok(());
+        };
+
+        // Check if all constructors are covered
+        let covered: HashSet<Symbol> = constructor_names.into_iter().collect();
+        let missing: Vec<&str> = adt_def
+            .constructors
+            .iter()
+            .filter(|(name, _)| !covered.contains(name))
+            .map(|(name, _)| self.interner.resolve(*name))
+            .collect();
+
+        if !missing.is_empty() {
+            let adt_name_str = self.interner.resolve(adt_name).to_string();
+            let missing_list = missing.join(", ");
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match on `{}` is missing constructors: {}.",
+                        adt_name_str, missing_list
+                    ))
+                    .with_hint_text(format!(
+                        "Add arms for {} or add a `_ -> ...` catch-all.",
+                        missing_list
+                    )),
+            ));
+        }
+
+        Ok(())
     }
 }

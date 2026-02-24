@@ -6,7 +6,10 @@ use crate::{
         binding::Binding,
         bytecode::Bytecode,
         compilation_scope::CompilationScope,
-        compiler::contracts::{ContractKey, FnContract, ModuleContractTable, to_runtime_contract},
+        compiler::{
+            adt_registry::AdtRegistry,
+            contracts::{ContractKey, FnContract, ModuleContractTable, to_runtime_contract},
+        },
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
         op_code::{Instructions, OpCode, make},
         symbol_table::SymbolTable,
@@ -67,6 +70,7 @@ pub struct Compiler {
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
+    pub(super) adt_registry: AdtRegistry,
 }
 
 #[cfg(test)]
@@ -113,6 +117,7 @@ impl Compiler {
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
+            adt_registry: AdtRegistry::new(),
         }
     }
 
@@ -152,6 +157,27 @@ impl Compiler {
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
         Box::new(diag)
+    }
+
+    fn collect_adt_definitions(&mut self, program: &Program) {
+        self.adt_registry = AdtRegistry::new();
+        for statement in &program.statements {
+            self.collect_adt_definitions_from_stmt(statement);
+        }
+    }
+
+    fn collect_adt_definitions_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::Data { name, variants, .. } => {
+                self.adt_registry.register_adt(*name, variants);
+            }
+            Statement::Module { body, .. } => {
+                for statement in &body.statements {
+                    self.collect_adt_definitions_from_stmt(statement);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
@@ -318,6 +344,7 @@ impl Compiler {
         self.static_type_scopes.push(HashMap::new());
         self.process_base_directives(program);
         self.collect_module_contracts(program);
+        self.collect_adt_definitions(program);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion
