@@ -169,6 +169,31 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
+        // Optional generic type parameters <T, U, ...>
+        let mut type_params = Vec::new();
+        if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume '<'
+
+            loop {
+                if !self.expect_peek(TokenType::Ident) {
+                    return None;
+                }
+                type_params.push(
+                    self.current_token
+                        .symbol
+                        .expect("ident token should have symbol"),
+                );
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume ','
+                } else {
+                    break;
+                }
+            }
+            if !self.expect_peek(TokenType::Gt) {
+                return None;
+            }
+        }
+
         if !self.expect_peek(TokenType::LParen) {
             return None;
         }
@@ -193,6 +218,7 @@ impl Parser {
 
         Some(Statement::Function {
             name,
+            type_params,
             parameters,
             parameter_types,
             return_type,
