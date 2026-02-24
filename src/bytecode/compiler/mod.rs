@@ -25,7 +25,10 @@ use crate::{
     },
 };
 
+mod adt_definition;
+mod adt_registry;
 mod builder;
+mod constructor_info;
 mod contracts;
 mod errors;
 mod expression;
