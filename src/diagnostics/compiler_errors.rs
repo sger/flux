@@ -717,6 +717,36 @@ pub const ADT_NON_EXHAUSTIVE_MATCH: ErrorCode = ErrorCode {
 };
 
 // ============================================================================
+// Type Inference Errors (E300–E399)
+// ============================================================================
+
+pub const TYPE_UNIFICATION_ERROR: ErrorCode = ErrorCode {
+    code: "E300",
+    title: "TYPE UNIFICATION ERROR",
+    error_type: ErrorType::Compiler,
+    message: "Cannot unify {} with {}.",
+    hint: None,
+};
+
+pub const OCCURS_CHECK_FAILURE: ErrorCode = ErrorCode {
+    code: "E301",
+    title: "OCCURS CHECK FAILURE",
+    error_type: ErrorType::Compiler,
+    message: "Infinite type: type variable {} occurs in {}.",
+    hint: Some(
+        "A type cannot contain itself. This usually indicates a recursive type without a data wrapper.",
+    ),
+};
+
+pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
+    code: "E302",
+    title: "UNDEFINED TYPE VARIABLE",
+    error_type: ErrorType::Compiler,
+    message: "Undefined type variable `{}`.",
+    hint: Some("Declare the type variable in the function's generic parameter list: fn f<T>(...)"),
+};
+
+// ============================================================================
 // Error Constructor Functions
 // ============================================================================
 // These functions provide a clean API for creating diagnostics with proper
