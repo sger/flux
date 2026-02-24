@@ -1129,5 +1129,9 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_tuple_get", rt_tuple_get as *const u8),
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
+        // Phase 5: ADT helpers
+        ("rt_make_adt", rt_make_adt as *const u8),
+        ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
+        ("rt_adt_field", rt_adt_field as *const u8),
     ]
 }
