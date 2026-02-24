@@ -102,6 +102,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         Statement::Function {
             name,
+            type_params: _,
             parameters,
             parameter_types: _,
             return_type: _,

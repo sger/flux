@@ -247,3 +247,67 @@ fn parses_lambda_parameter_annotation() {
         _ => panic!("expected let statement"),
     }
 }
+
+#[test]
+fn parses_generic_function_one_type_param() {
+    let (program, interner) = parse_ok("fn identity<T>(x: T) -> T { x }");
+    match &program.statements[0] {
+        Statement::Function {
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "identity");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0]), "T");
+            assert_eq!(parameters.len(), 1);
+            assert_eq!(
+                parameter_types[0]
+                    .as_ref()
+                    .map(|t| t.display_with(&interner))
+                    .as_deref(),
+                Some("T")
+            );
+            assert_eq!(
+                return_type
+                    .as_ref()
+                    .map(|t| t.display_with(&interner))
+                    .as_deref(),
+                Some("T")
+            );
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_generic_function_two_type_params() {
+    let (program, interner) = parse_ok("fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) }");
+    match &program.statements[0] {
+        Statement::Function {
+            type_params,
+            parameters,
+            ..
+        } => {
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(interner.resolve(type_params[0]), "A");
+            assert_eq!(interner.resolve(type_params[1]), "B");
+            assert_eq!(parameters.len(), 2);
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_non_generic_function_has_empty_type_params() {
+    let (program, _) = parse_ok("fn f(x: Int) -> Int { x }");
+    match &program.statements[0] {
+        Statement::Function { type_params, .. } => {
+            assert!(type_params.is_empty());
+        }
+        _ => panic!("expected function"),
+    }
+}

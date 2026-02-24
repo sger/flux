@@ -37,6 +37,9 @@ pub enum Statement {
     },
     Function {
         name: Identifier,
+        /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
+        /// Empty for non-generic functions.
+        type_params: Vec<Identifier>,
         parameters: Vec<Identifier>,
         parameter_types: Vec<Option<TypeExpr>>,
         return_type: Option<TypeExpr>,
