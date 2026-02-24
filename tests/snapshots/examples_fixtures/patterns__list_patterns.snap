@@ -3,32 +3,26 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/patterns/list_patterns.flx
 == compile ==
-failed (compile)
+failed (parse)
 == diagnostics ==
---> compiler error[E077]: LEGACY LIST TAIL
+--> compiler error[E034]: UNEXPECTED TOKEN
 
-Use `[]` as the empty list tail instead of `None`.
+Expected IDENT, got data.
 
-  --> examples/patterns/list_patterns.flx:14:25
-   |
-14 | let xs = [1 | [2 | [3 | None]]];
-   |                         ^^^^
-
-Hint:
-  Replace `None` with `[]` in cons expressions, for example: `[1 | []]`.
-
-
---> compiler error[E077]: LEGACY LIST TAIL
-
-Use `[]` as the empty list tail instead of `None`.
-
-  --> examples/patterns/list_patterns.flx:57:30
+  --> examples/patterns/list_patterns.flx:57:5
    |
 57 | let data = [10 | [20 | [30 | None]]];
-   |                              ^^^^
+   |     ^^^^
 
-Hint:
-  Replace `None` with `[]` in cons expressions, for example: `[1 | []]`.
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found data.
+
+  --> examples/patterns/list_patterns.flx:59:7
+   |
+59 | match data {
+   |       ^^^^
 
 Found 2 errors.
 == stdout ==
