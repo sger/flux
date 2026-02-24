@@ -100,15 +100,23 @@ fn validate_match_arms(
         }
     }
 
-    if let Some(last) = arms.last()
-        && !is_unconditional_catchall_arm(last)
-    {
-        diagnostics.push(Diagnostic::make_error(
-            &NON_EXHAUSTIVE_MATCH,
-            &[],
-            ctx.file_path.to_string(),
-            match_span,
-        ));
+    // Skip E015 when any arm is a Constructor pattern: ADT matches are exhaustive
+    // when all constructors are covered, which is checked by E083 in the compiler.
+    let has_constructor_arms = arms
+        .iter()
+        .any(|arm| matches!(arm.pattern, Pattern::Constructor { .. }));
+
+    if !has_constructor_arms {
+        if let Some(last) = arms.last()
+            && !is_unconditional_catchall_arm(last)
+        {
+            diagnostics.push(Diagnostic::make_error(
+                &NON_EXHAUSTIVE_MATCH,
+                &[],
+                ctx.file_path.to_string(),
+                match_span,
+            ));
+        }
     }
 }
 
@@ -147,6 +155,11 @@ fn validate_pattern_bindings(
         | Pattern::Literal { .. }
         | Pattern::None { .. }
         | Pattern::EmptyList { .. } => {}
+        Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                validate_pattern_bindings(field, ctx, diagnostics, bindings);
+            }
+        }
     }
 }
 

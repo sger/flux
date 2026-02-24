@@ -53,6 +53,12 @@ pub enum Pattern {
         elements: Vec<Pattern>,
         span: Span,
     },
+    /// User-defined ADT constructor pattern: `Circle(r)`, `Red`, `Node(l, v, r)`
+    Constructor {
+        name: Identifier,
+        fields: Vec<Pattern>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -605,6 +611,14 @@ impl Pattern {
                     _ => format!("({})", elems.join(", ")),
                 }
             }
+            Pattern::Constructor { name, fields, .. } => {
+                if fields.is_empty() {
+                    interner.resolve(*name).to_string()
+                } else {
+                    let fs: Vec<String> = fields.iter().map(|p| p.display_with(interner)).collect();
+                    format!("{}({})", interner.resolve(*name), fs.join(", "))
+                }
+            }
         }
     }
 }
@@ -629,6 +643,14 @@ impl fmt::Display for Pattern {
                     _ => write!(f, "({})", elems.join(", ")),
                 }
             }
+            Pattern::Constructor { name, fields, .. } => {
+                if fields.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    let fs: Vec<String> = fields.iter().map(|p| p.to_string()).collect();
+                    write!(f, "{}({})", name, fs.join(", "))
+                }
+            }
         }
     }
 }
@@ -643,7 +665,8 @@ impl Pattern {
             | Pattern::Some { span, .. }
             | Pattern::Left { span, .. }
             | Pattern::Right { span, .. }
-            | Pattern::Tuple { span, .. } => *span,
+            | Pattern::Tuple { span, .. }
+            | Pattern::Constructor { span, .. } => *span,
             Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }

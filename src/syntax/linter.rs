@@ -200,6 +200,11 @@ impl<'a> Linter<'a> {
             | Pattern::Literal { .. }
             | Pattern::None { .. }
             | Pattern::EmptyList { .. } => {}
+            Pattern::Constructor { fields, .. } => {
+                for field in fields {
+                    self.extract_pattern_bindings(field);
+                }
+            }
         }
     }
 
@@ -375,6 +380,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             Statement::Return { .. } | Statement::Expression { .. } => {
                 visit::walk_stmt(self, stmt);
             }
+            Statement::Data { .. } => {}
         }
     }
 
