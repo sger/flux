@@ -59,6 +59,11 @@ impl FreeVarCollector {
                     self.extract_pattern_bindings(element);
                 }
             }
+            Pattern::Constructor { fields, .. } => {
+                for field in fields {
+                    self.extract_pattern_bindings(field);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
