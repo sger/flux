@@ -136,5 +136,6 @@ define_tokens! {
         Left   => "Left",
         Right  => "Right",
         Where  => "where",
+        Data   => "data",
     }
 }
