@@ -671,6 +671,88 @@ impl VM {
                 self.push(return_value)?;
                 Ok(0)
             }
+            OpCode::OpMakeAdt => {
+                // Operands: const_idx: u16, arity: u8
+                // Stack before: [..., field0, field1, ..., fieldN-1]
+                // Stack after:  [..., Adt { constructor, fields }]
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 3);
+                let constructor_name = match &self.constants[const_idx] {
+                    Value::String(s) => std::rc::Rc::clone(s),
+                    other => {
+                        return Err(format!(
+                            "OpMakeAdt: expected string constant for constructor name, got {}",
+                            other
+                        ));
+                    }
+                };
+
+                let mut fields = Vec::with_capacity(arity);
+
+                for i in 0..arity {
+                    let val = self.stack[self.sp - arity + i].clone();
+                    fields.push(val);
+                }
+
+                self.reset_sp(self.sp - arity)?;
+                self.push(Value::Adt {
+                    constructor: constructor_name,
+                    fields: std::rc::Rc::new(fields),
+                })?;
+                Ok(4) // 1 opcode + 2 const_idx + 1 arity
+            }
+            OpCode::OpIsAdt => {
+                // Operands: const_idx: u16
+                // Stack before: [..., value]
+                // Stack after:  [..., bool]  (peek-and-replace, value stays for next ops)
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let construct_name = match &self.constants[const_idx] {
+                    Value::String(s) => s.as_ref().to_owned(),
+                    other => {
+                        return Err(format!(
+                            "OpIsAdt: expected string constant for constructor name, got {}",
+                            other
+                        ));
+                    }
+                };
+
+                if self.sp == 0 {
+                    return Err(Self::stack_underflow_err());
+                }
+
+                let idx = self.sp - 1;
+                let is_adt = match &self.stack[idx] {
+                    Value::Adt { constructor, .. } => constructor.as_ref() == construct_name,
+                    _ => false,
+                };
+
+                self.stack[idx] = Value::Boolean(is_adt);
+                Ok(3) // 1 opcode + 2 const_idx
+            }
+            OpCode::OpAdtField => {
+                // Operands: field_idx: u8
+                // Stack before: [..., Adt { .. }]
+                // Stack after:  [..., field_value]
+                let field_idx = Self::read_u8_fast(instructions, ip + 1);
+                let adt = self.pop_untracked()?;
+                match adt {
+                    Value::Adt { fields, .. } => {
+                        let value = fields.get(field_idx).cloned().ok_or_else(|| {
+                            format!(
+                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                field_idx,
+                                fields.len()
+                            )
+                        })?;
+                        self.push(value)?;
+                        Ok(2) // 1 opcode + 1 field_idx
+                    }
+                    other => Err(format!(
+                        "OpAdtField: expected Adt value, got {}",
+                        other.type_name()
+                    )),
+                }
+            }
         }
     }
 }

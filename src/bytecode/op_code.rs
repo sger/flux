@@ -78,6 +78,17 @@ pub enum OpCode {
     /// Unlike `OpCall`, no callee value is read from the stack.
     /// Consumes `arity` arguments from the stack and pushes one result.
     OpCallBase = 63,
+    /// Construct a user-defined ADT value.
+    /// Operands: `[const_idx: u16, arity: u8]`.
+    /// Pops `arity` values (the constructor fields), then pushes `Value::Adt { constructor, fields }`.
+    /// `constants[const_idx]` must be a `Value::String` containing the constructor name.
+    OpMakeAdt = 64,
+    /// Test whether top-of-stack is a `Value::Adt` with a specific constructor name.
+    /// Operand: `[const_idx: u16]`. Replaces top-of-stack with a boolean.
+    OpIsAdt = 65,
+    /// Extract a field from a `Value::Adt` by index.
+    /// Operand: `[field_idx: u8]`. Replaces top-of-stack with `fields[field_idx]`.
+    OpAdtField = 66,
 }
 
 impl From<u8> for OpCode {
@@ -147,6 +158,9 @@ impl From<u8> for OpCode {
             61 => OpCode::OpIsTuple,
             62 => OpCode::OpPrimOp,
             63 => OpCode::OpCallBase,
+            64 => OpCode::OpMakeAdt,
+            65 => OpCode::OpIsAdt,
+            66 => OpCode::OpAdtField,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -184,6 +198,10 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpPrimOp | OpCode::OpCallBase => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
+        // ADT opcodes
+        OpCode::OpMakeAdt => vec![2, 1], // const_idx: u16, arity: u8
+        OpCode::OpIsAdt => vec![2],      // const_idx: u16
+        OpCode::OpAdtField => vec![1],   // field_idx: u8
         _ => vec![],
     }
 }
