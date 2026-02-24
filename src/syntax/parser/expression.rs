@@ -989,6 +989,8 @@ impl Parser {
         Some(self.build_match_expression(start, scrutinee, arms))
     }
 
+    /// Parses a single match pattern, including ADT constructors such as
+    /// `Red`, `Circle(r)`, and nested constructor fields.
     pub(super) fn parse_pattern(&mut self) -> Option<Pattern> {
         let start = self.current_token.position;
         match &self.current_token.token_type {

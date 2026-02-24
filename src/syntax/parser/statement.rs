@@ -438,6 +438,8 @@ impl Parser {
         Some(names)
     }
 
+    /// Parses a `data` declaration with optional type parameters and constructor
+    /// variants, for example `data Option<T> { Some(T), None }`.
     pub(super) fn parse_data_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
