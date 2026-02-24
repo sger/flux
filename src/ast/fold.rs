@@ -109,6 +109,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
         },
         Statement::Function {
             name,
+            type_params,
             parameters,
             parameter_types,
             return_type,
@@ -117,6 +118,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         } => Statement::Function {
             name: folder.fold_identifier(name),
+            type_params,
             parameters: parameters
                 .into_iter()
                 .map(|p| folder.fold_identifier(p))
