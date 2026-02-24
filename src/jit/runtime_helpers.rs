@@ -11,6 +11,8 @@
 
 use std::ptr;
 use std::rc::Rc;
+use std::slice::from_raw_parts;
+use std::str::from_utf8_unchecked;
 
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::{
@@ -582,7 +584,12 @@ pub extern "C" fn rt_check_jit_contract_call(
         }
         let arg = unsafe { &*arg_ptr };
         if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
-            ctx.error = Some(ctx.render_runtime_type_error_at(&expected, &actual, line as usize, column as usize));
+            ctx.error = Some(ctx.render_runtime_type_error_at(
+                &expected,
+                &actual,
+                line as usize,
+                column as usize,
+            ));
             return 0;
         }
     }
@@ -594,15 +601,21 @@ pub extern "C" fn rt_check_jit_contract_return(
     ctx: *mut JitContext,
     function_index: i64,
     value: *mut Value,
+    line: i64,
+    column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     if value.is_null() {
         return ptr::null_mut();
     }
     let value_ref = unsafe { &*value };
-    if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref)
-    {
-        ctx.error = Some(ctx.render_runtime_type_error(&expected, &actual, None));
+    if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref) {
+        ctx.error = Some(ctx.render_runtime_type_error_at(
+            &expected,
+            &actual,
+            line as usize,
+            column as usize,
+        ));
         return ptr::null_mut();
     }
     value
@@ -933,6 +946,113 @@ pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut 
     let v = unsafe { &*value };
     let s = v.to_string_value();
     unsafe { ctx_ref(ctx) }.alloc(Value::String(s.into()))
+}
+
+// ---------------------------------------------------------------------------
+// ADT helpers
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    fields_ptr: *const *mut Value,
+    arity: i64,
+) -> *mut Value {
+    // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+
+    // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
+    // The helper assumes each pointer is non-null and points to a live Value.
+    let fields: Vec<Value> = (0..arity as usize)
+        .map(|i| unsafe { (*fields_ptr.add(i)).as_ref().unwrap().clone() })
+        .collect();
+
+    // Allocate ADT object in the JIT context arena and return the boxed runtime pointer.
+    unsafe { ctx_ref(ctx) }.alloc(Value::Adt {
+        constructor,
+        fields: Rc::new(fields),
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_adt_constructor(
+    ctx: *mut JitContext,
+    value: *mut Value,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+) -> i64 {
+    let _ = ctx;
+    // Null values never match any constructor tag.
+    if value.is_null() {
+        return 0;
+    }
+
+    // ABI contract: constructor bytes are compiler/JIT-emitted and valid UTF-8.
+    let expected =
+        unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
+
+    match unsafe { &*value } {
+        Value::Adt { constructor, .. } => {
+            // Constructor comparison is a tag-name equality check.
+            if constructor.as_ref() == expected {
+                1
+            } else {
+                0
+            }
+        }
+        // Non-ADT values cannot satisfy constructor patterns.
+        _ => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_adt_field(
+    ctx: *mut JitContext,
+    value: *mut Value,
+    field_idx: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+
+    // Null pointer is a runtime error; return null and set context error.
+    if value.is_null() {
+        ctx.error = Some("adt field access on null".to_string());
+        return ptr::null_mut();
+    }
+
+    match unsafe { &*value } {
+        Value::Adt { fields, .. } => {
+            // Field index comes from JIT as i64 and is interpreted as usize.
+            let idx = field_idx as usize;
+
+            if idx < fields.len() {
+                // Return a freshly allocated clone for uniform pointer ownership semantics.
+                ctx.alloc(fields[idx].clone())
+            } else {
+                // Out-of-bounds ADT field access is reported through JitContext error state.
+                ctx.error = Some(format!(
+                    "adt field index {} out of bounds (len={})",
+                    idx,
+                    fields.len()
+                ));
+                ptr::null_mut()
+            }
+        }
+        _ => {
+            // Accessing fields on non-ADT values is a type error.
+            ctx.error = Some(format!(
+                "expected Adt, got {}",
+                unsafe { &*value }.type_name()
+            ));
+            ptr::null_mut()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
