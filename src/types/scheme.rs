@@ -1,0 +1,204 @@
+//! Polymorphic type schemes for Hindley-Milner inference.
+//!
+//! A [`Scheme`] pairs a type body with a list of universally quantified
+//! type-variable IDs. It is the representation used for let-polymorphism:
+//! generalized bindings store schemes in the typing environment, and each use
+//! site instantiates that scheme with fresh variables.
+
+use std::collections::{HashMap, HashSet};
+
+use crate::types::{TypeVarId, infer_type::InferType, type_subst::TypeSubst};
+
+/// A type scheme — a type with universally quantified type variables.
+///
+/// `∀ a b. a -> b -> a` is represented as:
+/// ```text
+/// Scheme { forall: [0, 1], ty: Fun([Var(0), Var(1)], Var(0)) }
+/// ```
+///
+/// Conceptually:
+/// - `forall` contains bound variables (universally quantified)
+/// - `infer_type` is the body where those variables may appear
+///
+/// During inference:
+/// - `generalize` computes a scheme from an inferred monotype
+/// - `instantiate` creates a fresh monotype each time the scheme is used
+#[derive(Debug, Clone)]
+pub struct Scheme {
+    /// Universally quantified type variables (the `∀` binders).
+    pub forall: Vec<TypeVarId>,
+    /// Scheme body type.
+    ///
+    /// This may contain `Var(v)` for variables listed in `forall`, as well as
+    /// other free variables not bound by this scheme.
+    pub infer_type: InferType,
+}
+
+impl Scheme {
+    /// Constructs a monomorphic scheme (`forall = []`).
+    ///
+    /// Use this when a binding should remain monomorphic in the environment.
+    pub fn mono(infer_type: InferType) -> Self {
+        Scheme {
+            forall: Vec::new(),
+            infer_type,
+        }
+    }
+
+    /// Instantiates this scheme into a monotype.
+    ///
+    /// Each quantified variable in `forall` is replaced with a fresh
+    /// [`InferType::Var`] using `counter`, which is advanced as fresh IDs are
+    /// allocated.
+    ///
+    /// Returns the instantiated type and the mapping from old to new vars.
+    ///
+    /// The returned mapping is useful for debugging and tests; inference usually
+    /// only needs the instantiated type.
+    pub fn instantiate(&self, counter: &mut u32) -> (InferType, HashMap<TypeVarId, TypeVarId>) {
+        let mut mapping: HashMap<TypeVarId, TypeVarId> = HashMap::new();
+
+        for &v in &self.forall {
+            let fresh = *counter;
+            *counter += 1;
+            mapping.insert(v, fresh);
+        }
+
+        let type_subst: TypeSubst = {
+            let mut s = TypeSubst::empty();
+            for (&old, &new) in &mapping {
+                s.insert(old, InferType::Var(new));
+            }
+            s
+        };
+
+        (self.infer_type.apply_type_subst(&type_subst), mapping)
+    }
+
+    /// Returns free type variables in the body that are not quantified by
+    /// `forall`.
+    ///
+    /// This corresponds to `FV(∀a. t) = FV(t) - {a}`.
+    pub fn free_vars(&self) -> HashSet<TypeVarId> {
+        let forall_set: HashSet<TypeVarId> = self.forall.iter().copied().collect();
+        self.infer_type
+            .free_vars()
+            .difference(&forall_set)
+            .copied()
+            .collect()
+    }
+}
+
+/// Generalize a type over all type variables that are free in `ty` but not
+/// free anywhere in `env_free_vars` (the environment's free variables).
+///
+/// This is the "let-generalization" step of Algorithm W:
+/// - Variables free in the env are *monomorphic* (they might be constrained by
+///   the surrounding context).
+/// - Variables free in `ty` but not the env are truly polymorphic.
+///
+/// The `forall` list is sorted to keep output deterministic for diagnostics,
+/// snapshots, and tests.
+pub fn generalize(infer_type: &InferType, env_free_vars: &HashSet<TypeVarId>) -> Scheme {
+    let mut free: Vec<TypeVarId> = infer_type
+        .free_vars()
+        .difference(env_free_vars)
+        .copied()
+        .collect();
+    // Keep quantifier order stable for reproducible diagnostics and tests.
+    free.sort_unstable();
+    Scheme {
+        forall: free,
+        infer_type: infer_type.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::{Scheme, generalize};
+    use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+
+    fn infer_var(id: u32) -> InferType {
+        InferType::Var(id)
+    }
+
+    fn int() -> InferType {
+        InferType::Con(TypeConstructor::Int)
+    }
+
+    #[test]
+    fn generalize_sorts_forall_deterministically() {
+        let infer_type = InferType::Fun(
+            vec![
+                infer_var(2),
+                infer_var(0),
+                InferType::Tuple(vec![infer_var(1), infer_var(2)]),
+            ],
+            Box::new(infer_var(0)),
+        );
+
+        let scheme = generalize(&infer_type, &HashSet::new());
+        assert_eq!(scheme.forall, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn instantiate_is_fresh_and_avoids_capture_of_free_vars() {
+        let scheme = Scheme {
+            forall: vec![0],
+            // ?1 is free in the scheme body (not quantified) and must remain unchanged.
+            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1))),
+        };
+
+        let mut counter = 10;
+        let (instantiated, mapping) = scheme.instantiate(&mut counter);
+
+        assert_eq!(mapping.get(&0), Some(&10));
+        assert_eq!(counter, 11);
+        assert_eq!(
+            instantiated,
+            InferType::Fun(vec![infer_var(10)], Box::new(infer_var(1)))
+        );
+    }
+
+    #[test]
+    fn instantiate_produces_distinct_fresh_vars_per_call() {
+        let scheme = Scheme {
+            forall: vec![0, 1],
+            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1))),
+        };
+
+        let mut counter = 20;
+        let (first, first_mapping) = scheme.instantiate(&mut counter);
+        let (second, second_mapping) = scheme.instantiate(&mut counter);
+
+        assert_eq!(first_mapping.get(&0), Some(&20));
+        assert_eq!(first_mapping.get(&1), Some(&21));
+        assert_eq!(second_mapping.get(&0), Some(&22));
+        assert_eq!(second_mapping.get(&1), Some(&23));
+        assert_eq!(counter, 24);
+        assert_eq!(
+            first,
+            InferType::Fun(vec![infer_var(20)], Box::new(infer_var(21)))
+        );
+        assert_eq!(
+            second,
+            InferType::Fun(vec![infer_var(22)], Box::new(infer_var(23)))
+        );
+    }
+
+    #[test]
+    fn generalize_excludes_env_free_vars() {
+        let infer_type = InferType::Fun(
+            vec![infer_var(0), infer_var(1), int()],
+            Box::new(infer_var(2)),
+        );
+        let env_free_vars = HashSet::from([1, 42]);
+
+        let scheme = generalize(&infer_type, &env_free_vars);
+
+        assert_eq!(scheme.forall, vec![0, 2]);
+        assert_eq!(scheme.infer_type, infer_type);
+    }
+}
