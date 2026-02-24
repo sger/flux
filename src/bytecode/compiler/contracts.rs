@@ -31,7 +31,7 @@ pub fn convert_type_expr(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeTy
                 ("Float", 0) => Some(RuntimeType::Float),
                 ("Bool", 0) => Some(RuntimeType::Bool),
                 ("String", 0) => Some(RuntimeType::String),
-                ("Unit", 0) => Some(RuntimeType::Unit),
+                ("None", 0) => Some(RuntimeType::Unit),
                 ("Option", 1) => Some(RuntimeType::Option(Box::new(convert_type_expr(
                     &args[0], interner,
                 )?))),

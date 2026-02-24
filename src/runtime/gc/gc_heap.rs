@@ -283,6 +283,14 @@ impl GcHeap {
                             i += 1;
                         }
                     }
+                    Value::Adt { fields, .. } => {
+                        let mut i = 0;
+                        let len = fields.len();
+                        while i < len {
+                            worklist.push(WorkItem::Value(fields[i].clone()));
+                            i += 1;
+                        }
+                    }
                     // Leaf types: no GC references
                     Value::Uninit
                     | Value::Integer(_)
