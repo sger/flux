@@ -3,19 +3,37 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/using_list_module.flx
 == compile ==
-failed (module)
+failed (parse)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+--> compiler error[E034]: UNEXPECTED TOKEN
 
-Cannot find module `Modules.ListUtils` to import.
+Expected IDENT, got data.
 
-  --> examples/advanced/using_list_module.flx:27:1
+  --> examples/advanced/using_list_module.flx:79:5
    |
-27 | import Modules.ListUtils as L
-   | ^
+79 | let data = [1, 2, 3, 4, 5];
+   |     ^^^^
 
-Hint:
-  Check that: 1) The module file exists (e.g., `Modules.ListUtils.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.ListUtils` under roots: examples/advanced, src (imported from examples/advanced/using_list_module.flx).
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found data.
+
+  --> examples/advanced/using_list_module.flx:80:42
+   |
+80 | print("Any negative? " + to_string(L.any(data, /x -> x < 0)));
+   |                                          ^^^^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found data.
+
+  --> examples/advanced/using_list_module.flx:81:42
+   |
+81 | print("All positive? " + to_string(L.all(data, /x -> x > 0)));
+   |                                          ^^^^
+
+Found 3 errors.
 == stdout ==
 <not executed>

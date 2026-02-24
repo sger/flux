@@ -283,11 +283,11 @@ impl GcHeap {
                             i += 1;
                         }
                     }
-                    Value::Adt { fields, .. } => {
+                    Value::Adt(adt) => {
                         let mut i = 0;
-                        let len = fields.len();
+                        let len = adt.fields.len();
                         while i < len {
-                            worklist.push(WorkItem::Value(fields[i].clone()));
+                            worklist.push(WorkItem::Value(adt.fields[i].clone()));
                             i += 1;
                         }
                     }

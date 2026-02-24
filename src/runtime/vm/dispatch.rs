@@ -1,7 +1,10 @@
 use crate::{
     bytecode::op_code::OpCode,
     diagnostics::RUNTIME_TYPE_ERROR,
-    runtime::{base::get_base_function_by_index, gc::HeapObject, leak_detector, value::Value},
+    runtime::{
+        base::get_base_function_by_index, gc::HeapObject, leak_detector,
+        value::{AdtValue, Value},
+    },
 };
 
 use super::VM;
@@ -695,10 +698,10 @@ impl VM {
                 }
 
                 self.reset_sp(self.sp - arity)?;
-                self.push(Value::Adt {
+                self.push(Value::Adt(std::rc::Rc::new(AdtValue {
                     constructor: constructor_name,
-                    fields: std::rc::Rc::new(fields),
-                })?;
+                    fields,
+                })))?;
                 Ok(4) // 1 opcode + 2 const_idx + 1 arity
             }
             OpCode::OpIsAdt => {
@@ -722,7 +725,7 @@ impl VM {
 
                 let idx = self.sp - 1;
                 let is_adt = match &self.stack[idx] {
-                    Value::Adt { constructor, .. } => constructor.as_ref() == construct_name,
+                    Value::Adt(adt) => adt.constructor.as_ref() == construct_name,
                     _ => false,
                 };
 
@@ -736,12 +739,12 @@ impl VM {
                 let field_idx = Self::read_u8_fast(instructions, ip + 1);
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt { fields, .. } => {
-                        let value = fields.get(field_idx).cloned().ok_or_else(|| {
+                    Value::Adt(adt) => {
+                        let value = adt.fields.get(field_idx).cloned().ok_or_else(|| {
                             format!(
                                 "OpAdtField: field index {} out of bounds (adt has {} fields)",
                                 field_idx,
-                                fields.len()
+                                adt.fields.len()
                             )
                         })?;
                         self.push(value)?;
