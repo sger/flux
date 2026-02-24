@@ -48,6 +48,7 @@ impl<'ast> Visitor<'ast> for PatternValidator<'_> {
     }
 }
 
+/// Validates all `match` patterns in a parsed program and returns diagnostics.
 pub fn validate_program_patterns(
     program: &Program,
     file_path: &str,
@@ -62,6 +63,7 @@ pub fn validate_program_patterns(
     validator.diagnostics
 }
 
+/// Validates a single pattern and emits diagnostics for duplicate bindings.
 pub fn validate_pattern(
     pattern: &Pattern,
     ctx: &PatternValidationContext<'_>,
