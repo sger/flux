@@ -5,6 +5,15 @@ use crate::runtime::{
     hash_key::HashKey, jit_closure::JitClosure,
 };
 
+/// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
+/// `Value::Adt` stays at one thin pointer (8 bytes) rather than a fat-pointer +
+/// thin-pointer pair (24 bytes), keeping `size_of::<Value>() <= 24`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdtValue {
+    pub constructor: Rc<str>,
+    pub fields: Vec<Value>,
+}
+
 /// Runtime value used by the VM stack, globals, constants, and closures.
 ///
 /// ## Memory Management Model
@@ -78,10 +87,7 @@ pub enum Value {
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
-    Adt {
-        constructor: Rc<str>,
-        fields: Rc<Vec<Value>>,
-    },
+    Adt(Rc<AdtValue>),
 }
 
 impl fmt::Display for Value {
@@ -115,15 +121,12 @@ impl fmt::Display for Value {
                 }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
-            Value::Adt {
-                constructor,
-                fields,
-            } => {
-                if fields.is_empty() {
-                    write!(f, "{}", constructor)
+            Value::Adt(adt) => {
+                if adt.fields.is_empty() {
+                    write!(f, "{}", adt.constructor)
                 } else {
-                    let items: Vec<String> = fields.iter().map(|v| v.to_string()).collect();
-                    write!(f, "{}({})", constructor, items.join(", "))
+                    let items: Vec<String> = adt.fields.iter().map(|v| v.to_string()).collect();
+                    write!(f, "{}({})", adt.constructor, items.join(", "))
                 }
             }
         }
@@ -154,15 +157,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
-            Value::Adt { constructor, .. } => {
-                // SAFETY: type_name returns &'static str, but constructor is Rc<str>.
-                // We leak a copy into a static string for diagnostics use.
-                // This is acceptable since type_name is only called for error messages.
-                // For the general case we return a fixed label; callers that need the
-                // exact constructor name should match on Value::Adt directly.
-                let _ = constructor;
-                "Adt"
-            }
+            Value::Adt(_) => "Adt",
         }
     }
 
@@ -227,15 +222,13 @@ impl Value {
                 }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
-            Value::Adt {
-                constructor,
-                fields,
-            } => {
-                if fields.is_empty() {
-                    constructor.to_string()
+            Value::Adt(adt) => {
+                if adt.fields.is_empty() {
+                    adt.constructor.to_string()
                 } else {
-                    let items: Vec<String> = fields.iter().map(|v| v.to_string_value()).collect();
-                    format!("{}({})", constructor, items.join(", "))
+                    let items: Vec<String> =
+                        adt.fields.iter().map(|v| v.to_string_value()).collect();
+                    format!("{}({})", adt.constructor, items.join(", "))
                 }
             }
         }
@@ -385,9 +378,9 @@ mod tests {
 
     #[test]
     fn value_size_is_compact() {
-        // Value::Adt { constructor: Rc<str>, fields: Rc<Vec<Value>> } requires 24 bytes payload
-        // (Rc<str> is a fat pointer = 16 bytes, Rc<Vec<Value>> = 8 bytes), so the enum needs
-        // 32 bytes on 64-bit platforms after discriminant + padding.
+        // Value::Adt(Rc<AdtValue>) is a single thin pointer (8 bytes).
+        // The largest payload is Value::String(Rc<str>) at 16 bytes (fat pointer).
+        // With discriminant + padding the enum fits in 24 bytes on 64-bit platforms.
         assert!(std::mem::size_of::<Value>() <= 24);
     }
 }

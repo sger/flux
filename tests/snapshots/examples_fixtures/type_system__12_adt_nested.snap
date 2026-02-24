@@ -1,0 +1,10 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/12_adt_nested.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

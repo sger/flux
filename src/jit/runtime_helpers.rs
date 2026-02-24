@@ -22,7 +22,7 @@ use crate::runtime::{
         heap_object::HeapObject,
     },
     jit_closure::JitClosure,
-    value::Value,
+    value::{AdtValue, Value},
 };
 
 use super::context::JitContext;
@@ -975,10 +975,10 @@ pub extern "C" fn rt_make_adt(
         .collect();
 
     // Allocate ADT object in the JIT context arena and return the boxed runtime pointer.
-    unsafe { ctx_ref(ctx) }.alloc(Value::Adt {
+    unsafe { ctx_ref(ctx) }.alloc(Value::Adt(Rc::new(AdtValue {
         constructor,
-        fields: Rc::new(fields),
-    })
+        fields,
+    })))
 }
 
 #[unsafe(no_mangle)]
@@ -999,9 +999,9 @@ pub extern "C" fn rt_is_adt_constructor(
         unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
 
     match unsafe { &*value } {
-        Value::Adt { constructor, .. } => {
+        Value::Adt(adt) => {
             // Constructor comparison is a tag-name equality check.
-            if constructor.as_ref() == expected {
+            if adt.constructor.as_ref() == expected {
                 1
             } else {
                 0
@@ -1027,19 +1027,19 @@ pub extern "C" fn rt_adt_field(
     }
 
     match unsafe { &*value } {
-        Value::Adt { fields, .. } => {
+        Value::Adt(adt) => {
             // Field index comes from JIT as i64 and is interpreted as usize.
             let idx = field_idx as usize;
 
-            if idx < fields.len() {
+            if idx < adt.fields.len() {
                 // Return a freshly allocated clone for uniform pointer ownership semantics.
-                ctx.alloc(fields[idx].clone())
+                ctx.alloc(adt.fields[idx].clone())
             } else {
                 // Out-of-bounds ADT field access is reported through JitContext error state.
                 ctx.error = Some(format!(
                     "adt field index {} out of bounds (len={})",
                     idx,
-                    fields.len()
+                    adt.fields.len()
                 ));
                 ptr::null_mut()
             }
