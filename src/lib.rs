@@ -6,3 +6,4 @@ pub mod jit;
 pub mod primop;
 pub mod runtime;
 pub mod syntax;
+pub mod types;
