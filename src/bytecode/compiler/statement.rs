@@ -17,6 +17,7 @@ use crate::{
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
+        data_variant::DataVariant,
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -286,6 +287,9 @@ impl Compiler {
                     self.file_scope_symbols.insert(binding_name);
                     self.compile_import_statement(name, *alias, except)?;
                 }
+                Statement::Data { name, variants, .. } => {
+                    self.compile_data_statement(*name, variants)?;
+                }
             }
             Ok(())
         })();
@@ -437,6 +441,8 @@ impl Compiler {
                 Statement::Let { .. } => {
                     // Let statements are allowed for module constants
                 }
+                // ADT type declarations are allowed inside modules
+                Statement::Data { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
@@ -529,8 +535,7 @@ impl Compiler {
                     return_type,
                     fn_body,
                     position,
-                )
-                {
+                ) {
                     self.current_module_prefix = previous_module;
                     return Err(err);
                 }
@@ -539,6 +544,17 @@ impl Compiler {
 
         self.current_module_prefix = previous_module;
 
+        Ok(())
+    }
+
+    pub(super) fn compile_data_statement(
+        &mut self,
+        name: Symbol,
+        variants: &[DataVariant],
+    ) -> CompileResult<()> {
+        // Data declarations are handled at the registry level (collect_adt_definitions).
+        // No bytecode is emitted here — constructors are compiled on-demand when called.
+        let _ = (name, variants);
         Ok(())
     }
 

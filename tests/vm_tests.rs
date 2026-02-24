@@ -357,7 +357,7 @@ fn large_array_literal_no_stack_overflow() {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    let input = format!("let data = #[{}]; len(data);", values);
+    let input = format!("let arr = #[{}]; len(arr);", values);
     assert_eq!(run(&input), Value::Integer(3000));
 }
 
@@ -368,7 +368,7 @@ fn large_map_pipeline_no_stack_overflow() {
         .collect::<Vec<_>>()
         .join(", ");
     let input = format!(
-        "let data = #[{}]; let mapped = map(data, \\x -> x + 1); len(mapped);",
+        "let arr = #[{}]; let mapped = map(arr, \\x -> x + 1); len(mapped);",
         values
     );
     assert_eq!(run(&input), Value::Integer(3000));
@@ -383,8 +383,8 @@ fn map_filter_fold_across_u16_boundary() {
         .join(", ");
     let input = format!(
         r#"
-let data = #[{}];
-let mapped = map(data, \x -> x + 1);
+let arr = #[{}];
+let mapped = map(arr, \x -> x + 1);
 let filtered = filter(mapped, \x -> x % 2 == 0);
 fold(filtered, 0, \(acc, x) -> acc + x);
 "#,
@@ -1225,8 +1225,8 @@ fn test_fold_large_array_5k() {
 fn test_chained_operations_large_array() {
     // Test chained map/filter/fold with large array
     let program = format!(
-        "let data = #[{}]; \
-         let mapped = map(data, fn(x) {{ x * 2 }}); \
+        "let arr = #[{}]; \
+         let mapped = map(arr, fn(x) {{ x * 2 }}); \
          let filtered = filter(mapped, fn(x) {{ x % 3 == 0 }}); \
          len(filtered);",
         (0..1000)

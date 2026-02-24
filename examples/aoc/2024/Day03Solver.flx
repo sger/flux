@@ -1,18 +1,25 @@
 module Day03Solver {
-    fn char_at(s, idx) {
+    // Tokens that can appear at any position in the memory string.
+    data Token {
+        Mul(Int, Int),  // mul(X,Y) — the two operands
+        Enable,         // do()     — re-enable multiplication
+        Disable,        // don't()  — disable multiplication
+    }
+
+    fn char_at(s: String, idx: Int) -> String {
         substring(s, idx, idx + 1)
     }
 
-    fn starts_with_at(s, idx, token) {
+    fn starts_with_at(s: String, idx: Int, token: String) -> Bool {
         idx + len(token) <= len(s) && substring(s, idx, idx + len(token)) == token
     }
 
-    fn is_digit(ch) {
+    fn is_digit(ch: String) -> Bool {
         ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" ||
         ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9"
     }
 
-    fn take_digits_1_to_3(s, idx, count, acc) {
+    fn take_digits_1_to_3(s: String, idx: Int, count: Int, acc: String) -> (String, Int, Int) {
         if idx >= len(s) || count >= 3 {
             (acc, idx, count)
         } else {
@@ -25,11 +32,14 @@ module Day03Solver {
         }
     }
 
-    // Returns Some((value, next_idx)) when mul(X,Y) is valid at idx, otherwise None.
-    fn parse_mul_at(s, idx) {
-        if !starts_with_at(s, idx, "mul(") {
-            None
-        } else {
+    // Try to parse a Token at position idx.
+    // Returns Some((Token, next_idx)) on success, None otherwise.
+    fn parse_token_at(s: String, idx: Int) {
+        if starts_with_at(s, idx, "don't()") {
+            Some((Disable, idx + 7))
+        } else if starts_with_at(s, idx, "do()") {
+            Some((Enable, idx + 4))
+        } else if starts_with_at(s, idx, "mul(") {
             let left = take_digits_1_to_3(s, idx + 4, 0, "")
             let left_text = left.0
             let after_left = left.1
@@ -46,38 +56,43 @@ module Day03Solver {
                 if right_count == 0 || after_right >= len(s) || char_at(s, after_right) != ")" {
                     None
                 } else {
-                    Some((parse_int(left_text) * parse_int(right_text), after_right + 1))
+                    Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
                 }
             }
+        } else {
+            None
         }
     }
 
-    // Fold over indices while carrying parser state.
+    // Part A: sum all mul(X,Y) products — Enable/Disable tokens are ignored.
     // state = (next_idx_to_process, total)
-    fn day03a_from_memory(memory) {
+    fn day03a_from_memory(memory: String) -> Int {
         state.1
         where indices = to_list(range(0, len(memory)))
-        where state = fold(indices, (0, 0), \(st, i) -> {
+        where state = fold(indices, (0, 0), \(st: (Int, Int), i: Int) -> {
             let next_idx = st.0
             let total = st.1
 
             if i != next_idx {
                 st
             } else {
-                match parse_mul_at(memory, i) {
-                    Some(hit) -> (hit.1, total + hit.0),
-                    _ -> (i + 1, total)
+                match parse_token_at(memory, i) {
+                    Some(hit) -> match hit.0 {
+                        Mul(a, b) -> (hit.1, total + a * b),
+                        _ -> (hit.1, total),
+                    },
+                    _ -> (i + 1, total),
                 }
             }
         })
     }
 
-    // Fold variant for do()/don't() behavior.
+    // Part B: respect Enable/Disable control tokens.
     // state = (next_idx_to_process, enabled, total)
-    fn day03b_from_memory(memory) {
+    fn day03b_from_memory(memory: String) -> Int {
         state.2
         where indices = to_list(range(0, len(memory)))
-        where state = fold(indices, (0, true, 0), \(st, i) -> {
+        where state = fold(indices, (0, true, 0), \(st: (Int, Bool, Int), i: Int) -> {
             let next_idx = st.0
             let enabled = st.1
             let total = st.2
@@ -85,32 +100,27 @@ module Day03Solver {
             if i != next_idx {
                 st
             } else {
-                if starts_with_at(memory, i, "don't()") {
-                    (i + 7, false, total)
-                } else {
-                    if starts_with_at(memory, i, "do()") {
-                        (i + 4, true, total)
-                    } else {
-                        if enabled {
-                            match parse_mul_at(memory, i) {
-                                Some(hit) -> (hit.1, true, total + hit.0),
-                                _ -> (i + 1, true, total)
-                            }
-                        } else {
-                            (i + 1, false, total)
-                        }
-                    }
+                match parse_token_at(memory, i) {
+                    Some(hit) -> match hit.0 {
+                        Enable -> (hit.1, true, total),
+                        Disable -> (hit.1, false, total),
+                        Mul(a, b) ->
+                            if enabled { (hit.1, true, total + a * b) }
+                            else { (hit.1, false, total) },
+                        _ -> (i + 1, enabled, total),
+                    },
+                    _ -> (i + 1, enabled, total),
                 }
             }
         })
     }
 
     // Backward-compatible aliases used by existing perf scripts/tests.
-    fn day03a_from_memory_hof(memory) {
+    fn day03a_from_memory_hof(memory: String) -> Int {
         day03a_from_memory(memory)
     }
 
-    fn day03b_from_memory_hof(memory) {
+    fn day03b_from_memory_hof(memory: String) -> Int {
         day03b_from_memory(memory)
     }
 }

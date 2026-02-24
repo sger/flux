@@ -689,6 +689,34 @@ pub const UNKNOWN_BASE_MEMBER: ErrorCode = ErrorCode {
 };
 
 // ============================================================================
+// ADT ERRORS (E081-E083)
+// ============================================================================
+
+pub const UNKNOWN_CONSTRUCTOR: ErrorCode = ErrorCode {
+    code: "E081",
+    title: "UNKNOWN CONSTRUCTOR",
+    error_type: ErrorType::Compiler,
+    message: "Unknown constructor `{}`.",
+    hint: Some("Check that the constructor is defined in a `data` declaration in scope."),
+};
+
+pub const CONSTRUCTOR_ARITY_MISMATCH: ErrorCode = ErrorCode {
+    code: "E082",
+    title: "CONSTRUCTOR ARITY MISMATCH",
+    error_type: ErrorType::Compiler,
+    message: "Constructor `{}` expects {} argument(s) but got {}.",
+    hint: Some("Check the `data` declaration for the correct number of fields."),
+};
+
+pub const ADT_NON_EXHAUSTIVE_MATCH: ErrorCode = ErrorCode {
+    code: "E083",
+    title: "NON-EXHAUSTIVE ADT MATCH",
+    error_type: ErrorType::Compiler,
+    message: "Match expression on `{}` does not cover all constructors.",
+    hint: Some("Add the missing constructors or a wildcard `_` catch-all arm."),
+};
+
+// ============================================================================
 // Error Constructor Functions
 // ============================================================================
 // These functions provide a clean API for creating diagnostics with proper
