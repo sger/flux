@@ -3,8 +3,19 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/03_runtime_return_violation.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E055]: TYPE MISMATCH
+
+Expected Int, got String.
+
+  --> examples/type_system/failing/03_runtime_return_violation.flx:2:5
+  |
+2 |     "not-an-int"
+  |     ^^^^^^^^^^^^
+  |     ------------ return expression type is known at compile time
+
+Help:
+  return expression type does not match the declared return type
 == stdout ==
 <not executed>
