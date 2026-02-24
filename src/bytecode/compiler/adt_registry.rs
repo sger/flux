@@ -37,7 +37,6 @@ impl AdtRegistry {
         self.adts.insert(
             name,
             AdtDefinition {
-                name,
                 constructors: constructor_list,
             },
         );
