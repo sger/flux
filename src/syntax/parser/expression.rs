@@ -33,6 +33,47 @@ impl Parser {
         Some(inner)
     }
 
+    /// Parses comma-separated patterns between the current `(` and the closing `close`.
+    /// `current_token` must be `(` on entry; leaves `current_token` at `close` on exit.
+    fn parse_comma_separated_patterns(&mut self, close: TokenType) -> Option<Vec<Pattern>> {
+        debug_assert!(self.is_current_token(TokenType::LParen));
+        let mut patterns = Vec::new();
+
+        // Empty: Constructor()
+        if self.consume_if_peek(close) {
+            return Some(patterns);
+        }
+
+        self.next_token(); // move to first pattern start
+
+        loop {
+            if self.is_current_token(close) || self.is_current_token(TokenType::Eof) {
+                break;
+            }
+
+            let pattern = self.parse_pattern()?;
+            patterns.push(pattern);
+            self.next_token(); // advance past last token of pattern
+
+            match self.current_token.token_type {
+                TokenType::Comma => {
+                    self.next_token(); // move to start of next pattern
+                }
+                ref t if *t == close || *t == TokenType::Eof => break,
+                _ => {
+                    self.errors.push(unexpected_token(
+                        self.current_token.span(),
+                        format!(
+                            "Expected `,` or `)` in constructor pattern, got {}",
+                            self.current_token.token_type
+                        ),
+                    ));
+                    return None;
+                }
+            }
+        }
+        Some(patterns)
+    }
     fn build_match_expression(
         &self,
         start: Position,
@@ -954,6 +995,38 @@ impl Parser {
             TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard {
                 span: Span::new(start, self.current_token.end_position),
             }),
+            // Uppercase-initial identifier → ADT constructor pattern: `Red`, `Circle(r)`, `Node(l, v, r)`
+            TokenType::Ident
+                if self
+                    .current_token
+                    .literal
+                    .starts_with(|c: char| c.is_uppercase()) =>
+            {
+                let name = self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol");
+
+                // If followed by '(' → parse field sub-patterns
+                if self.is_peek_token(TokenType::LParen) {
+                    self.next_token(); // advance to '('
+                    let fields = self
+                        .parse_comma_separated_patterns(TokenType::RParen)
+                        .unwrap_or_default();
+                    Some(Pattern::Constructor {
+                        name,
+                        fields,
+                        span: Span::new(start, self.current_token.end_position),
+                    })
+                } else {
+                    // Zero-argument constructor: `Red`, `None_` etc.
+                    Some(Pattern::Constructor {
+                        name,
+                        fields: vec![],
+                        span: Span::new(start, self.current_token.end_position),
+                    })
+                }
+            }
             TokenType::Ident => Some(Pattern::Identifier {
                 name: self
                     .current_token
