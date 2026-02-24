@@ -12,7 +12,7 @@ use cranelift_codegen::ir::{
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::JITModule;
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
@@ -132,6 +132,8 @@ struct Scope {
     literal_functions: HashMap<LiteralKey, JitFunctionMeta>,
     /// Statically resolved capture order per literal.
     literal_captures: HashMap<LiteralKey, Vec<Identifier>>,
+    /// Maps ADT constructor name (interned) → arity. Used to route constructor calls.
+    adt_constructors: HashMap<Identifier, usize>,
 }
 
 impl Scope {
@@ -147,6 +149,7 @@ impl Scope {
             import_aliases: HashMap::new(),
             literal_functions: HashMap::new(),
             literal_captures: HashMap::new(),
+            adt_constructors: HashMap::new(),
         }
     }
 }
@@ -253,6 +256,7 @@ impl JitCompiler {
         apply_base_directives(program, &mut scope, interner)?;
         self.predeclare_imports(program, &mut scope, interner);
         self.predeclare_globals(program, &mut scope);
+        collect_adt_definitions(program, &mut scope, interner);
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
         self.predeclare_functions(program, &mut scope, interner)?;
@@ -279,7 +283,7 @@ impl JitCompiler {
             // Compile each statement
             let mut last_val = None;
             for stmt in &program.statements {
-                if matches!(stmt, Statement::Function { .. }) {
+                if matches!(stmt, Statement::Function { .. } | Statement::Data { .. }) {
                     continue;
                 }
                 let outcome = compile_statement(
@@ -492,6 +496,11 @@ impl JitCompiler {
                 Pattern::Tuple { elements, .. } => {
                     for element in elements {
                         collect_pattern_names(element, out);
+                    }
+                }
+                Pattern::Constructor { fields, .. } => {
+                    for field in fields {
+                        collect_pattern_names(field, out);
                     }
                 }
                 Pattern::Wildcard { .. }
@@ -1365,6 +1374,10 @@ fn compile_statement(
             scope.imported_modules.insert(*name);
             Ok(StmtOutcome::None)
         }
+        Statement::Data { .. } => {
+            // ADT declarations are no-ops at runtime; constructors are called directly.
+            Ok(StmtOutcome::None)
+        }
     }
 }
 
@@ -1571,6 +1584,37 @@ fn compile_expression(
                 let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
                 let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
                 let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
+                Ok(builder.inst_results(call)[0])
+            } else if scope.adt_constructors.get(name).copied() == Some(0) {
+                // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
+
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())?;
+
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).map_err(|e| e.to_string())?;
+
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                let empty_slot = builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+
+                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, empty_slot, 0);
+                let zero = builder.ins().iconst(PTR_TYPE, 0);
+                let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+                let call = builder
+                    .ins()
+                    .call(make_adt, &[ctx_val, name_ptr, name_len, fields_ptr, zero]);
+
                 Ok(builder.inst_results(call)[0])
             } else {
                 Err(format!("undefined identifier: {}", interner.resolve(*name)))
@@ -1782,6 +1826,63 @@ fn compile_expression(
                     arguments,
                     interner,
                 );
+            }
+            // Check if calling a registered ADT constructor
+            if let Expression::Identifier { name, .. } = function.as_ref() {
+                if let Some(&arity) = scope.adt_constructors.get(name) {
+                    let name_str = interner.resolve(*name);
+                    let bytes = name_str.as_bytes().to_vec();
+
+                    let data = module
+                        .declare_anonymous_data(false, false)
+                        .map_err(|e| e.to_string())?;
+                    let mut desc = DataDescription::new();
+                    desc.define(bytes.into_boxed_slice());
+                    module.define_data(data, &desc).map_err(|e| e.to_string())?;
+
+                    let global_value = module.declare_data_in_func(data, builder.func);
+                    let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                    let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                    let mut arg_vals = Vec::with_capacity(arguments.len());
+
+                    for arg in arguments {
+                        let value = compile_expression(
+                            module,
+                            helpers,
+                            builder,
+                            scope,
+                            ctx_val,
+                            return_block,
+                            tail_call,
+                            arg,
+                            interner,
+                        )?;
+                        arg_vals.push(value);
+                    }
+
+                    let n = arg_vals.len();
+                    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        (n as u32).max(1) * 8,
+                        3,
+                    ));
+
+                    for (i, value) in arg_vals.iter().enumerate() {
+                        builder.ins().stack_store(*value, slot, (i * 8) as i32);
+                    }
+
+                    let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                    let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
+                    let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+
+                    let call = builder.ins().call(
+                        make_adt,
+                        &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
+                    );
+
+                    return Ok(builder.inst_results(call)[0]);
+                }
             }
             // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
@@ -2120,6 +2221,36 @@ fn compile_expression(
     }
 }
 
+fn collect_adt_definitions(program: &Program, scope: &mut Scope, interner: &Interner) {
+    for statement in &program.statements {
+        collect_adt_definitions_from_stmt(statement, scope, interner);
+    }
+}
+
+fn collect_adt_definitions_from_stmt(
+    statement: &Statement,
+    scope: &mut Scope,
+    interner: &Interner,
+) {
+    let _ = interner;
+    match statement {
+        Statement::Data { variants, .. } => {
+            for variant in variants {
+                let name_sym = variant.name;
+                scope
+                    .adt_constructors
+                    .insert(name_sym, variant.fields.len());
+            }
+        }
+        Statement::Module { body, .. } => {
+            for statement in &body.statements {
+                collect_adt_definitions_from_stmt(statement, scope, interner);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn compile_match_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -2275,6 +2406,35 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
+            Pattern::Constructor { name, .. } => {
+                // Embed the constructor name as a data constant
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
+
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())
+                    .expect("declare unknown data");
+
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).expect("define data");
+
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                let is_adt = get_helper_func_ref(module, helpers, builder, "rt_is_adt_constructor");
+                let call = builder
+                    .ins()
+                    .call(is_adt, &[ctx_val, scrutinee_val, name_ptr, name_len]);
+                let result = builder.inst_results(call)[0];
+                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+                let next = builder.create_block();
+                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
         }
 
         builder.seal_block(test_block);
@@ -2414,6 +2574,24 @@ fn bind_pattern_value(
             }
             Ok(())
         }
+        Pattern::Constructor { fields, .. } => {
+            let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
+            for (index, field_pattern) in fields.iter().enumerate() {
+                let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
+                let item = builder.inst_results(call)[0];
+                bind_pattern_value(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    field_pattern,
+                    item,
+                )?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -2474,6 +2652,24 @@ fn bind_top_level_pattern_value(
                 let item = builder.inst_results(call)[0];
                 bind_top_level_pattern_value(
                     module, helpers, builder, scope, ctx_val, element, item,
+                )?;
+            }
+            Ok(())
+        }
+        Pattern::Constructor { fields, .. } => {
+            let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
+            for (index, field_pattern) in fields.iter().enumerate() {
+                let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
+                let item = builder.inst_results(call)[0];
+                bind_top_level_pattern_value(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    field_pattern,
+                    item,
                 )?;
             }
             Ok(())
@@ -2886,12 +3082,15 @@ fn compile_user_function_call(
     let zero = builder.ins().iconst(PTR_TYPE, 0);
     let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
     let line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
-    let col_val = builder.ins().iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
 
     let check_call = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
-    let call_ok = builder
-        .ins()
-        .call(check_call, &[ctx_val, fn_index, args_ptr, nargs_val, line_val, col_val]);
+    let call_ok = builder.ins().call(
+        check_call,
+        &[ctx_val, fn_index, args_ptr, nargs_val, line_val, col_val],
+    );
     let call_ok_val = builder.inst_results(call_ok)[0];
     let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
 
@@ -2915,9 +3114,10 @@ fn compile_user_function_call(
         .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero]);
     let raw_result = builder.inst_results(call)[0];
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
-    let checked_ret_call = builder
-        .ins()
-        .call(check_ret, &[ctx_val, fn_index, raw_result]);
+    let checked_ret_call = builder.ins().call(
+        check_ret,
+        &[ctx_val, fn_index, raw_result, line_val, col_val],
+    );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
     let ok_args = [BlockArg::Value(checked_ret)];
     builder.ins().jump(done_block, &ok_args);
@@ -3207,6 +3407,11 @@ impl LiteralCollector {
                     self.bind_pattern_identifiers(element);
                 }
             }
+            Pattern::Constructor { fields, .. } => {
+                for field in fields {
+                    self.bind_pattern_identifiers(field);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -3291,6 +3496,7 @@ impl LiteralCollector {
                 self.pop_scope();
             }
             Statement::Import { .. } => {}
+            Statement::Data { .. } => {}
         }
     }
 
@@ -3742,7 +3948,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         (
             "rt_check_jit_contract_return",
             HelperSig {
-                num_params: 3,
+                num_params: 5,
                 has_return: true,
             },
         ),
@@ -3889,6 +4095,31 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_to_string",
             HelperSig {
                 num_params: 2,
+                has_return: true,
+            },
+        ),
+        // Phase 5: ADT helpers
+        // rt_make_adt(ctx, constructor_ptr, constructor_len, fields_ptr, arity) -> *mut Value
+        (
+            "rt_make_adt",
+            HelperSig {
+                num_params: 5,
+                has_return: true,
+            },
+        ),
+        // rt_is_adt_constructor(ctx, value, constructor_ptr, constructor_len) -> i64
+        (
+            "rt_is_adt_constructor",
+            HelperSig {
+                num_params: 4,
+                has_return: true,
+            },
+        ),
+        // rt_adt_field(ctx, value, field_idx) -> *mut Value
+        (
+            "rt_adt_field",
+            HelperSig {
+                num_params: 3,
                 has_return: true,
             },
         ),
