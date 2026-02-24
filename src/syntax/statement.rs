@@ -5,6 +5,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        data_variant::DataVariant,
         effect_expr::EffectExpr,
         expression::{Expression, Pattern},
         interner::Interner,
@@ -59,6 +60,12 @@ pub enum Statement {
         except: Vec<Identifier>,
         span: Span,
     },
+    Data {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        variants: Vec<DataVariant>,
+        span: Span,
+    },
 }
 
 impl Statement {
@@ -72,6 +79,7 @@ impl Statement {
             Statement::Assign { span, .. } => span.start,
             Statement::Module { span, .. } => span.start,
             Statement::Import { span, .. } => span.start,
+            Statement::Data { span, .. } => span.start,
         }
     }
 
@@ -85,6 +93,7 @@ impl Statement {
             Statement::Assign { span, .. } => *span,
             Statement::Module { span, .. } => *span,
             Statement::Import { span, .. } => *span,
+            Statement::Data { span, .. } => *span,
         }
     }
 }
@@ -207,6 +216,21 @@ impl fmt::Display for Statement {
                     let names: Vec<String> = except.iter().map(ToString::to_string).collect();
                     write!(f, "import {} except [{}]", name, names.join(", "))
                 }
+            }
+            Statement::Data { name, variants, .. } => {
+                write!(f, "data {} {{", name)?;
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, " {}", v.name)?;
+                    if !v.fields.is_empty() {
+                        let fields: Vec<String> =
+                            v.fields.iter().map(|t| format!("{}", t)).collect();
+                        write!(f, "({})", fields.join(", "))?;
+                    }
+                }
+                write!(f, " }}")
             }
         }
     }
@@ -363,6 +387,22 @@ impl Statement {
                     }
                     text
                 }
+            }
+            Statement::Data { name, variants, .. } => {
+                let mut text = format!("data {} {{", interner.resolve(*name));
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 {
+                        text.push_str(", ");
+                    }
+                    text.push_str(&format!(" {}", interner.resolve(v.name)));
+                    if !v.fields.is_empty() {
+                        let fields: Vec<String> =
+                            v.fields.iter().map(|t| t.display_with(interner)).collect();
+                        text.push_str(&format!("({})", fields.join(", ")));
+                    }
+                }
+                text.push_str(" }");
+                text
             }
         }
     }
