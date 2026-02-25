@@ -1549,6 +1549,20 @@ impl Compiler {
                     ));
                 };
 
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                            .with_span(*span)
+                            .with_message(format!(
+                                "Constructor `{}` expects {} argument(s) but got {}.",
+                                name_str,
+                                constructor_info.arity,
+                                fields.len()
+                            )),
+                    ));
+                }
+
                 // tag_idx not used in check
                 let _ = constructor_info.tag_idx;
 
@@ -1764,7 +1778,29 @@ impl Compiler {
                 }
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
-            Pattern::Constructor { fields, .. } => {
+            Pattern::Constructor { name, fields, span } => {
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                            .with_span(*span)
+                            .with_message(format!(
+                                "Constructor `{}` expects {} argument(s) but got {}.",
+                                name_str,
+                                constructor_info.arity,
+                                fields.len()
+                            )),
+                    ));
+                }
+
                 for (field_idx, field_pat) in fields.iter().enumerate() {
                     if matches!(field_pat, Pattern::Wildcard { .. }) {
                         continue;
@@ -2385,8 +2421,10 @@ impl Compiler {
     }
 
     fn check_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
-        // Collect all constructor patterns from arms
-        let constructor_names: Vec<Symbol> = arms
+        // Collect constructor patterns:
+        // - `all_constructor_names`: any constructor arm (guarded or unguarded)
+        // - `constructor_names`: unguarded constructor arms only (these can prove coverage)
+        let all_constructor_names: Vec<Symbol> = arms
             .iter()
             .filter_map(|arm| {
                 if let Pattern::Constructor { name, .. } = &arm.pattern {
@@ -2397,24 +2435,27 @@ impl Compiler {
             })
             .collect();
 
-        // If no constructor patterns, nothing to check
-        if constructor_names.is_empty() {
+        // Guarded constructor arms do not prove exhaustiveness.
+        let constructor_names: Vec<Symbol> = arms
+            .iter()
+            .filter_map(|arm| {
+                if arm.guard.is_none()
+                    && let Pattern::Constructor { name, .. } = &arm.pattern
+                {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // If no constructor patterns at all, nothing to check
+        if all_constructor_names.is_empty() {
             return Ok(());
         }
 
-        // If any arm has a wildcard or identifier (catch-all), it's exhaustive
-        let has_catch_all = arms.iter().any(|arm| {
-            matches!(
-                arm.pattern,
-                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-            )
-        });
-        if has_catch_all {
-            return Ok(());
-        }
-
-        // Look up the ADT from the first constructor name
-        let first_constructor = constructor_names[0];
+        // Look up the ADT from the first constructor name.
+        let first_constructor = all_constructor_names[0];
         let Some(constructor_info) = self.adt_registry.lookup_constructor(first_constructor) else {
             return Ok(()); // Unknown constructor, already reported elsewhere
         };
@@ -2422,6 +2463,64 @@ impl Compiler {
         let Some(adt_def) = self.adt_registry.lookup_adt(adt_name) else {
             return Ok(());
         };
+
+        // Constructor arms for exhaustiveness must belong to the same ADT.
+        for constructor_name in &all_constructor_names {
+            let Some(info) = self.adt_registry.lookup_constructor(*constructor_name) else {
+                continue;
+            };
+            if info.adt_name != adt_name {
+                let first_adt = self.interner.resolve(adt_name).to_string();
+                let mixed_adt = self.interner.resolve(info.adt_name).to_string();
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match arms mix constructors from different ADTs: `{}` and `{}`.",
+                            first_adt, mixed_adt
+                        ))
+                        .with_hint_text(
+                            "Use constructors from a single ADT in a given match expression.".to_string(),
+                        ),
+                ));
+            }
+        }
+
+        // If any arm has a wildcard or identifier (catch-all), it's exhaustive
+        let has_catch_all = arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        });
+        if has_catch_all {
+            return Ok(());
+        }
+
+        // If all constructor arms are guarded and there is no unguarded catch-all,
+        // the match is non-exhaustive because guards may fail.
+        if constructor_names.is_empty() {
+            let adt_name_str = self.interner.resolve(adt_name).to_string();
+            let missing_list = adt_def
+                .constructors
+                .iter()
+                .map(|(name, _)| self.interner.resolve(*name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match on `{}` is non-exhaustive because all constructor arms are guarded.",
+                        adt_name_str
+                    ))
+                    .with_hint_text(format!(
+                        "Add unguarded arms for {} or add a `_ -> ...` catch-all.",
+                        missing_list
+                    )),
+            ));
+        }
 
         // Check if all constructors are covered
         let covered: HashSet<Symbol> = constructor_names.into_iter().collect();
