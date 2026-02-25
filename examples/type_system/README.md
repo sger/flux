@@ -26,6 +26,7 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `10_boundary_runtime_success.flx` - dynamic value crossing typed boundary (successful runtime check)
 - `19_effect_call_propagation.flx` - effect propagation across typed function calls
 - `20_effect_inference_unannotated.flx` - effect inference for unannotated functions
+- `21_effect_polymorphism_with_e.flx` - effect polymorphism in higher-order functions (`with e`)
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -48,6 +49,7 @@ cargo run -- examples/type_system/09_static_propagation_success.flx
 cargo run -- examples/type_system/10_boundary_runtime_success.flx
 cargo run -- examples/type_system/19_effect_call_propagation.flx
 cargo run -- examples/type_system/20_effect_inference_unannotated.flx
+cargo run -- examples/type_system/21_effect_polymorphism_with_e.flx
 ```
 
 JIT:
@@ -59,6 +61,7 @@ cargo run --features jit -- examples/type_system/09_static_propagation_success.f
 cargo run --features jit -- examples/type_system/10_boundary_runtime_success.flx --jit
 cargo run --features jit -- examples/type_system/19_effect_call_propagation.flx --jit
 cargo run --features jit -- examples/type_system/20_effect_inference_unannotated.flx --jit
+cargo run --features jit -- examples/type_system/21_effect_polymorphism_with_e.flx --jit
 ```
 
 Run everything:
