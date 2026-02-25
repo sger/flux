@@ -1,0 +1,14 @@
+effect Console {
+    print: String -> ()
+}
+
+fn greet(name) {
+    perform Console.print(name)
+}
+
+greet("world") handle Console {
+    print(resume, msg) -> do {
+        print(msg)
+        resume(())
+    }
+}

@@ -579,6 +579,19 @@ impl<'a> InferCtx<'a> {
                 self.infer_expr(object);
                 InferType::Con(TypeConstructor::Any)
             }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.infer_expr(arg);
+                }
+                InferType::Con(TypeConstructor::Any)
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.infer_expr(expr);
+                for arm in arms {
+                    self.infer_expr(&arm.body);
+                }
+                InferType::Con(TypeConstructor::Any)
+            }
         }
     }
 

@@ -6,7 +6,7 @@ use crate::{
     },
     syntax::{
         block::Block,
-        expression::{Expression, MatchArm, Pattern},
+        expression::{Expression, HandleArm, MatchArm, Pattern},
         precedence::{
             Fixity, Precedence, infix_op, postfix_op, prefix_op, rhs_precedence_for_infix,
         },
@@ -177,6 +177,7 @@ impl Parser {
             TokenType::LBracket => self.parse_index_expression(left),
             TokenType::Dot => self.parse_member_access(left),
             TokenType::Pipe => self.parse_pipe_expression(left),
+            TokenType::Handle => self.parse_handle_expression(left),
             _ if infix_op(&self.current_token.token_type).is_some() => {
                 self.parse_infix_expression(left)
             }
@@ -877,6 +878,105 @@ impl Parser {
         Some(Expression::DoBlock {
             block,
             span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    /// Parses `expr handle Effect { op(resume, arg1, ...) -> body, ... }`.
+    /// `current_token` is `Handle`; `left` is the expression being handled.
+    pub(super) fn parse_handle_expression(&mut self, left: Expression) -> Option<Expression> {
+        let start = left.span().start;
+
+        // Expect the effect name (Ident)
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
+
+        // Expect `{`
+        if !self.expect_peek(TokenType::LBrace) {
+            return None;
+        }
+
+        let mut arms: Vec<HandleArm> = Vec::new();
+
+        while !self.is_peek_token(TokenType::RBrace) && !self.is_peek_token(TokenType::Eof) {
+            // op name
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            let arm_start = self.current_token.position;
+            let op_name = self
+                .lexer
+                .interner_mut()
+                .intern(&self.current_token.literal);
+
+            // `(`
+            if !self.expect_peek(TokenType::LParen) {
+                return None;
+            }
+
+            // First param is the resume continuation
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+            let resume_param = self
+                .lexer
+                .interner_mut()
+                .intern(&self.current_token.literal);
+
+            // Remaining params
+            let mut params = Vec::new();
+            while self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume `,`
+                if !self.expect_peek(TokenType::Ident) {
+                    return None;
+                }
+                let p = self
+                    .lexer
+                    .interner_mut()
+                    .intern(&self.current_token.literal);
+                params.push(p);
+            }
+
+            // `)`
+            if !self.expect_peek(TokenType::RParen) {
+                return None;
+            }
+
+            // `->`
+            if !self.expect_peek(TokenType::Arrow) {
+                return None;
+            }
+
+            // body
+            self.next_token();
+            let body = self.parse_expression(Precedence::Lowest)?;
+            let arm_end = body.span().end;
+
+            arms.push(HandleArm {
+                operation_name: op_name,
+                resume_param,
+                params,
+                body,
+                span: Span::new(arm_start, arm_end),
+            });
+
+            // Optional trailing comma
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            }
+        }
+
+        if !self.expect_peek(TokenType::RBrace) {
+            return None;
+        }
+
+        let end = self.current_token.span().end;
+        Some(Expression::Handle {
+            expr: Box::new(left),
+            effect,
+            arms,
+            span: Span::new(start, end),
         })
     }
 

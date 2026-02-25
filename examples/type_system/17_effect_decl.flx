@@ -1,0 +1,21 @@
+// Iteration 3: effect keyword — declaration syntax.
+// No enforcement yet; this just parses and is ignored by the compiler.
+
+effect Console {
+    print: String -> ()
+    read:  () -> String
+}
+
+effect State {
+    get: () -> Int
+    put: Int -> ()
+}
+
+// Functions can still reference IO freely for now.
+// Enforcement of user-declared effects comes in Iteration 4.
+fn greet(name: String) -> String with IO {
+    print(name)
+    name
+}
+
+print(greet("hello"))

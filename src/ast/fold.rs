@@ -1,7 +1,7 @@
 use crate::syntax::{
     Identifier,
     block::Block,
-    expression::{Expression, MatchArm, Pattern, StringPart},
+    expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
     program::Program,
     statement::Statement,
 };
@@ -315,6 +315,41 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
         Expression::Cons { head, tail, span } => Expression::Cons {
             head: Box::new(folder.fold_expr(*head)),
             tail: Box::new(folder.fold_expr(*tail)),
+            span,
+        },
+        Expression::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => Expression::Perform {
+            effect: folder.fold_identifier(effect),
+            operation: folder.fold_identifier(operation),
+            args: args.into_iter().map(|a| folder.fold_expr(a)).collect(),
+            span,
+        },
+        Expression::Handle {
+            expr,
+            effect,
+            arms,
+            span,
+        } => Expression::Handle {
+            expr: Box::new(folder.fold_expr(*expr)),
+            effect: folder.fold_identifier(effect),
+            arms: arms
+                .into_iter()
+                .map(|a| HandleArm {
+                    operation_name: folder.fold_identifier(a.operation_name),
+                    resume_param: folder.fold_identifier(a.resume_param),
+                    params: a
+                        .params
+                        .into_iter()
+                        .map(|p| folder.fold_identifier(p))
+                        .collect(),
+                    body: folder.fold_expr(a.body),
+                    span: a.span,
+                })
+                .collect(),
             span,
         },
     }

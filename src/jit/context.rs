@@ -2,12 +2,29 @@ use crate::runtime::{
     RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
 };
 use crate::{
-    diagnostics::{Diagnostic, DiagnosticsAggregator, RUNTIME_TYPE_ERROR},
     diagnostics::position::{Position, Span},
+    diagnostics::{Diagnostic, DiagnosticsAggregator, RUNTIME_TYPE_ERROR},
 };
 use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
+
+/// A single arm of a JIT handler: maps an effect operation symbol ID to its arm closure.
+#[derive(Clone)]
+pub struct JitHandlerArm {
+    /// Symbol ID of the operation name (e.g. `Console.print` → symbol of `print`).
+    pub op: u32,
+    /// Pre-compiled arm closure value (`Value::JitClosure`).
+    pub closure: Value,
+}
+
+/// An active handler pushed onto `JitContext::handler_stack` by `rt_push_handler`.
+#[derive(Clone)]
+pub struct JitHandlerFrame {
+    /// Symbol ID of the effect name (e.g. symbol of `Console`).
+    pub effect: u32,
+    pub arms: Vec<JitHandlerArm>,
+}
 
 /// Execution context for JIT-compiled code.
 ///
@@ -26,6 +43,11 @@ pub struct JitContext {
     /// When a runtime helper encounters an error, it stores the message here
     /// and returns NULL to the JIT code.
     pub error: Option<String>,
+    /// Active effect handlers pushed by `rt_push_handler` / popped by `rt_pop_handler`.
+    pub handler_stack: Vec<JitHandlerFrame>,
+    /// Function index of the JIT-compiled identity closure used as the `resume`
+    /// value passed to handler arms (shallow handlers: resume returns its argument).
+    pub identity_fn_index: usize,
 }
 
 #[derive(Clone)]
@@ -47,7 +69,8 @@ impl JitContext {
             .clone()
             .unwrap_or_else(|| "<jit>".to_string());
         let span = span.unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
-        let diag = Diagnostic::make_error(&RUNTIME_TYPE_ERROR, &[expected, actual], file.clone(), span);
+        let diag =
+            Diagnostic::make_error(&RUNTIME_TYPE_ERROR, &[expected, actual], file.clone(), span);
         let mut agg =
             DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
         if let Some(src) = &self.source_text {
@@ -124,6 +147,8 @@ impl JitContext {
             source_file: None,
             source_text: None,
             error: None,
+            handler_stack: Vec::new(),
+            identity_fn_index: usize::MAX,
         }
     }
 

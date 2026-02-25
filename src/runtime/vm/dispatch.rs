@@ -1,8 +1,16 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     bytecode::op_code::OpCode,
     diagnostics::RUNTIME_TYPE_ERROR,
     runtime::{
-        base::get_base_function_by_index, gc::HeapObject, leak_detector,
+        base::get_base_function_by_index,
+        closure::Closure,
+        continuation::Continuation,
+        gc::HeapObject,
+        handler_arm::HandlerArm,
+        handler_frame::HandlerFrame,
+        leak_detector,
         value::{AdtValue, Value},
     },
 };
@@ -412,8 +420,17 @@ impl VM {
             }
             OpCode::OpCall => {
                 let num_args = Self::read_u8_fast(instructions, ip + 1);
-                self.execute_call(num_args)?;
-                Ok(2)
+                let callee_idx = self.sp - 1 - num_args;
+                if matches!(self.stack[callee_idx], Value::Continuation(_)) {
+                    // `resume(val)` call: restore the captured continuation.
+                    // Returns ip_delta = 0 so apply_ip_delta leaves the
+                    // newly-restored frame's IP untouched.
+                    self.execute_resume(num_args)?;
+                    Ok(0)
+                } else {
+                    self.execute_call(num_args)?;
+                    Ok(2)
+                }
             }
             OpCode::OpCallBase => {
                 // Encoded as [OpCallBase, base_fn_idx, arity]; callee is implicit.
@@ -755,6 +772,162 @@ impl VM {
                         other.type_name()
                     )),
                 }
+            }
+
+            // ---------------------------------------------------------------
+            // Algebraic effects
+            // ---------------------------------------------------------------
+            OpCode::OpHandle => {
+                // Operands: const_idx: u8
+                // Stack before: [..., closure_0, ..., closure_{n-1}]
+                //   where n = descriptor.ops.len()
+                // Stack after:  [...]  (closures consumed)
+                // Side effect: HandlerFrame pushed onto handler_stack
+                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let (effect, ops) = match &self.constants[const_idx] {
+                    Value::HandlerDescriptor(desc) => (desc.effect, desc.ops.clone()),
+                    other => {
+                        return Err(format!(
+                            "OpHandle: expected HandlerDescriptor constant, got {}",
+                            other.type_name()
+                        ));
+                    }
+                };
+                let n = ops.len();
+                // Pop closures in reverse (last pushed = last arm)
+                let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let v = self.pop_untracked()?;
+                    match v {
+                        Value::Closure(c) => arm_closures.push(c),
+                        other => {
+                            return Err(format!(
+                                "OpHandle: expected Closure for arm, got {}",
+                                other.type_name()
+                            ));
+                        }
+                    }
+                }
+                // Closures were pushed in order 0..n, popped in reverse → reverse to restore order
+                arm_closures.reverse();
+                let arms: Vec<HandlerArm> = ops
+                    .into_iter()
+                    .zip(arm_closures)
+                    .map(|(op, closure)| HandlerArm { op, closure })
+                    .collect();
+                self.handler_stack.push(HandlerFrame {
+                    effect,
+                    arms,
+                    entry_frame_index: self.frame_index,
+                    entry_sp: self.sp,
+                    entry_handler_stack_len: self.handler_stack.len(),
+                });
+                Ok(2)
+            }
+            OpCode::OpEndHandle => {
+                // No operands. Pops the top handler from handler_stack.
+                self.handler_stack.pop();
+                Ok(1)
+            }
+            OpCode::OpPerform => {
+                // Operands: const_idx: u8, arity: u8
+                // Stack before: [..., arg_0, ..., arg_{arity-1}]
+                // After:  captures continuation, unwinds to handler frame,
+                //         calls arm closure(resume_cont, arg_0, ..., arg_{arity-1})
+                // ip_delta = 0 (frame change)
+                let const_idx = Self::read_u8_fast(instructions, ip + 1);
+                let arity = Self::read_u8_fast(instructions, ip + 2);
+
+                let (effect, op, effect_name, op_name) = match &self.constants[const_idx] {
+                    Value::PerformDescriptor(desc) => (
+                        desc.effect,
+                        desc.op,
+                        desc.effect_name.clone(),
+                        desc.op_name.clone(),
+                    ),
+                    other => {
+                        return Err(format!(
+                            "OpPerform: expected PerformDescriptor constant, got {}",
+                            other.type_name()
+                        ));
+                    }
+                };
+
+                // Pop the perform arguments
+                let mut perform_args: Vec<Value> = Vec::with_capacity(arity);
+                for _ in 0..arity {
+                    perform_args.push(self.pop_untracked()?);
+                }
+                perform_args.reverse();
+
+                // Find matching handler frame (search from top)
+                let handler_pos = self
+                    .handler_stack
+                    .iter()
+                    .rposition(|h| h.effect == effect)
+                    .ok_or_else(|| {
+                        format!(
+                            "unhandled effect: {} (no matching handle block)",
+                            effect_name
+                        )
+                    })?;
+
+                let arm_closure = {
+                    let handler = &self.handler_stack[handler_pos];
+                    let arm = handler.arms.iter().find(|a| a.op == op).ok_or_else(|| {
+                        format!("unhandled operation: {}.{}", effect_name, op_name)
+                    })?;
+                    arm.closure.clone()
+                };
+
+                let entry_frame_index = self.handler_stack[handler_pos].entry_frame_index;
+                let entry_sp = self.handler_stack[handler_pos].entry_sp;
+
+                // Capture frames above the handler boundary.
+                // Advance the perform frame's IP past OpPerform (3 bytes) so that
+                // when the continuation is resumed, execution continues correctly.
+                let mut captured_frames: Vec<super::super::frame::Frame> =
+                    self.frames[entry_frame_index + 1..=self.frame_index].to_vec();
+                if let Some(last) = captured_frames.last_mut() {
+                    last.ip += 3; // skip past OpPerform (opcode:1 + const_idx:1 + arity:1)
+                }
+
+                // Capture value stack slice (between entry_sp and sp before perform args).
+                let captured_sp = self.sp; // sp after args were already popped above
+                let captured_stack = self.stack[entry_sp..captured_sp].to_vec();
+
+                // Capture inner handlers (those nested inside our handler boundary)
+                let inner_handlers: Vec<HandlerFrame> =
+                    self.handler_stack[handler_pos + 1..].to_vec();
+
+                // Build continuation
+                let cont = Continuation {
+                    frames: captured_frames,
+                    stack: captured_stack,
+                    sp: captured_sp,
+                    entry_sp,
+                    entry_frame_index,
+                    inner_handlers,
+                    used: false,
+                };
+                let cont_val = Value::Continuation(Rc::new(RefCell::new(cont)));
+
+                // Unwind back to handler entry frame
+                self.frame_index = entry_frame_index;
+                // Keep our handler frame on handler_stack (OpEndHandle will pop it after arm returns).
+                // Truncate inner handlers that were captured.
+                self.handler_stack.truncate(handler_pos + 1);
+                self.reset_sp(entry_sp)?;
+
+                // Call the arm: push closure, then resume (cont_val), then perform args
+                self.push(Value::Closure(arm_closure))?;
+                self.push(cont_val)?;
+                for arg in perform_args {
+                    self.push(arg)?;
+                }
+                self.execute_call(1 + arity)?;
+
+                Ok(0)
             }
         }
     }
