@@ -1,0 +1,20 @@
+// Effect inference for unannotated functions.
+//
+// `log_line` and `double_and_log` have no explicit `with IO`, but they call `print`,
+// so the compiler infers IO for them.
+
+fn log_line(msg: String) {
+    print(msg)
+}
+
+fn double_and_log(x: Int) -> Int {
+    let y = x * 2
+    log_line("double=#{to_string(y)}")
+    y
+}
+
+fn run_demo() with IO {
+    print(to_string(double_and_log(7)))
+}
+
+run_demo()
