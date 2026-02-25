@@ -567,7 +567,9 @@ fn execute_string_primop(op: PrimOp, args: Vec<Value>) -> Result<Value, String> 
             let chars: Vec<char> = s.chars().collect();
             let len = chars.len() as i64;
             let start = if start < 0 { 0 } else { start as usize };
-            let end = if end > len {
+            let end = if end < 0 {
+                0
+            } else if end > len {
                 len as usize
             } else {
                 end as usize
