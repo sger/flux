@@ -422,6 +422,7 @@ impl JitCompiler {
                     parameters,
                     parameter_types,
                     return_type,
+                    effects,
                     ..
                 } => {
                     if scope.functions.contains_key(name) {
@@ -435,8 +436,12 @@ impl JitCompiler {
                         .declare_function(&fn_name, Linkage::Local, &sig)
                         .map_err(|e| format!("declare {}: {}", fn_name, e))?;
                     let function_index = self.jit_functions.len();
-                    let contract =
-                        runtime_contract_from_annotations(parameter_types, return_type, interner);
+                    let contract = runtime_contract_from_annotations(
+                        parameter_types,
+                        return_type,
+                        effects,
+                        interner,
+                    );
                     self.jit_functions.push(JitFunctionCompileEntry {
                         id,
                         num_params: parameters.len(),
@@ -463,6 +468,7 @@ impl JitCompiler {
                             parameters,
                             parameter_types,
                             return_type,
+                            effects,
                             ..
                         } = inner
                         else {
@@ -488,6 +494,7 @@ impl JitCompiler {
                         let contract = runtime_contract_from_annotations(
                             parameter_types,
                             return_type,
+                            effects,
                             interner,
                         );
                         self.jit_functions.push(JitFunctionCompileEntry {
@@ -976,6 +983,7 @@ impl JitCompiler {
             let contract = runtime_contract_from_annotations(
                 &spec.parameter_types,
                 &spec.return_type,
+                &[],
                 interner,
             );
             self.jit_functions.push(JitFunctionCompileEntry {
@@ -4147,6 +4155,7 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
 fn runtime_contract_from_annotations(
     parameter_types: &[Option<TypeExpr>],
     return_type: &Option<TypeExpr>,
+    effects: &[crate::syntax::effect_expr::EffectExpr],
     interner: &Interner,
 ) -> Option<FunctionContract> {
     let params = parameter_types
@@ -4159,10 +4168,20 @@ fn runtime_contract_from_annotations(
     let ret = return_type
         .as_ref()
         .and_then(|ty| convert_type_expr_for_contract(ty, interner));
-    if !params.iter().any(|t| t.is_some()) && ret.is_none() {
+    if !params.iter().any(|t| t.is_some()) && ret.is_none() && effects.is_empty() {
         None
     } else {
-        Some(FunctionContract { params, ret })
+        let effects = effects
+            .iter()
+            .map(|effect| match effect {
+                crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+            })
+            .collect::<Vec<_>>();
+        Some(FunctionContract {
+            params,
+            ret,
+            effects,
+        })
     }
 }
 

@@ -9,6 +9,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        effect_expr::EffectExpr,
         expression::{Expression, Pattern},
         interner::Interner,
         program::Program,
@@ -147,6 +148,7 @@ impl<'a> InferCtx<'a> {
                 parameters,
                 parameter_types,
                 return_type,
+                effects,
                 body,
                 ..
             } => {
@@ -156,6 +158,7 @@ impl<'a> InferCtx<'a> {
                     parameters,
                     parameter_types,
                     return_type,
+                    effects,
                     body,
                 );
             }
@@ -203,6 +206,7 @@ impl<'a> InferCtx<'a> {
         parameters: &[Identifier],
         parameter_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
+        effects: &[EffectExpr],
         body: &Block,
     ) {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
@@ -242,7 +246,13 @@ impl<'a> InferCtx<'a> {
             .iter()
             .map(|t| t.apply_type_subst(&self.subst))
             .collect();
-        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty));
+        let effect_symbols = effects
+            .iter()
+            .map(|effect| match effect {
+                EffectExpr::Named { name, .. } => *name,
+            })
+            .collect();
+        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols);
 
         self.env.leave_scope();
 
@@ -438,6 +448,7 @@ impl<'a> InferCtx<'a> {
                 parameters,
                 parameter_types,
                 return_type,
+                effects,
                 body,
                 ..
             } => {
@@ -477,7 +488,13 @@ impl<'a> InferCtx<'a> {
                     .collect();
                 self.env.leave_scope();
 
-                InferType::Fun(final_param_tys, Box::new(ret_ty))
+                let effect_symbols = effects
+                    .iter()
+                    .map(|effect| match effect {
+                        EffectExpr::Named { name, .. } => *name,
+                    })
+                    .collect();
+                InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols)
             }
 
             // ── Function call ─────────────────────────────────────────────────
@@ -658,7 +675,7 @@ impl<'a> InferCtx<'a> {
         // Build the function type we expect and unify with the callee's type.
         // A fresh return-type variable is solved by unification.
         let ret_var = self.env.fresh_infer_type();
-        let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()));
+        let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
         self.unify_reporting(&fn_ty, &expected_fn_ty, span);
 
         // The return variable is now resolved (or remains free → Any at use).

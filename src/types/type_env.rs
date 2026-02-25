@@ -143,13 +143,24 @@ impl TypeEnv {
                     .collect();
                 Some(InferType::Tuple(elem_tys?))
             }
-            TypeExpr::Function { params, ret, .. } => {
+            TypeExpr::Function {
+                params,
+                ret,
+                effects,
+                ..
+            } => {
                 let param_tys: Option<Vec<InferType>> = params
                     .iter()
                     .map(|p| Self::infer_type_from_type_expr(p, type_params, interner))
                     .collect();
                 let ret_ty = Self::infer_type_from_type_expr(ret, type_params, interner)?;
-                Some(InferType::Fun(param_tys?, Box::new(ret_ty)))
+                let effect_symbols = effects
+                    .iter()
+                    .map(|e| match e {
+                        crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                    })
+                    .collect();
+                Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_symbols))
             }
         }
     }
@@ -307,7 +318,7 @@ mod tests {
             a,
             Scheme {
                 forall: vec![0],
-                infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1))),
+                infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
             },
         );
         env.bind(b, Scheme::mono(InferType::Tuple(vec![infer_var(2), int()])));
@@ -354,6 +365,7 @@ mod tests {
                 TypeConstructor::Option,
                 vec![InferType::Con(TypeConstructor::String)],
             )),
+            vec![],
         );
         assert_eq!(got, expected);
     }
