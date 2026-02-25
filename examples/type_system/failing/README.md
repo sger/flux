@@ -22,6 +22,8 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E055`) on typed `let` from identifier (`Int` annotated, `String` value)
 - `09_compile_typed_call_return_mismatch.flx`
   - Expected: compile-time failure (`E055`) on typed `let` from typed call return (`Int` annotated, `String` return)
+- `15_effect_missing_from_caller.flx`
+  - Expected: compile-time failure (`E400`) when a typed-pure caller invokes a `with IO` function
 
 ## Run
 
@@ -35,6 +37,7 @@ cargo run -- --no-cache examples/type_system/failing/06_runtime_float_string_ret
 cargo run -- --no-cache examples/type_system/failing/07_typed_let_float_into_int.flx
 cargo run -- --no-cache examples/type_system/failing/08_compile_identifier_type_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/09_compile_typed_call_return_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/15_effect_missing_from_caller.flx
 ```
 
 JIT (compile-time failure examples):
@@ -44,4 +47,5 @@ cargo run --features jit -- --no-cache examples/type_system/failing/01_compile_t
 cargo run --features jit -- --no-cache examples/type_system/failing/07_typed_let_float_into_int.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/08_compile_identifier_type_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/09_compile_typed_call_return_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/15_effect_missing_from_caller.flx --jit
 ```

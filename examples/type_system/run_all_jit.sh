@@ -12,6 +12,7 @@ examples=(
   "examples/type_system/08_effectful_hof_callbacks.flx"
   "examples/type_system/09_static_propagation_success.flx"
   "examples/type_system/10_boundary_runtime_success.flx"
+  "examples/type_system/19_effect_call_propagation.flx"
 )
 
 for file in "${examples[@]}"; do
