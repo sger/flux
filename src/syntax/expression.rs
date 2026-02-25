@@ -72,6 +72,28 @@ pub struct MatchArm {
     pub span: Span,
 }
 
+/// One arm inside a `handle` block.
+///
+/// ```flux
+/// handle Console {
+///     print(resume, msg) -> body
+/// //         ^^^^^^  ^^^
+/// //   resume_param  params[0]
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct HandleArm {
+    /// The effect operation name
+    pub operation_name: Identifier,
+    /// First parameter receives the captured continuation.
+    /// Typically named 'resume' by convetion but can be any identifier.
+    pub resume_param: Identifier,
+    /// Remaining operation argument names.
+    pub params: Vec<Identifier>,
+    pub body: Expression,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub enum Expression {
     Identifier {
@@ -190,6 +212,20 @@ pub enum Expression {
     Cons {
         head: Box<Expression>,
         tail: Box<Expression>,
+        span: Span,
+    },
+    /// `perform Effect.operation(args)` — performs a user-declared effect operation.
+    Perform {
+        effect: Identifier,
+        operation: Identifier,
+        args: Vec<Expression>,
+        span: Span,
+    },
+    /// `expr handle Effect { op(resume, args) -> body, ... }` — handles an effect.
+    Handle {
+        expr: Box<Expression>,
+        effect: Identifier,
+        arms: Vec<HandleArm>,
         span: Span,
     },
 }
@@ -342,6 +378,40 @@ impl fmt::Display for Expression {
             Expression::Left { value, .. } => write!(f, "Left({})", value),
             Expression::Right { value, .. } => write!(f, "Right({})", value),
             Expression::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args_str: Vec<String> = args.iter().map(|a| format!("{a}")).collect();
+                write!(
+                    f,
+                    "perform {}.{}({})",
+                    effect,
+                    operation,
+                    args_str.join(", ")
+                )
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                write!(f, "{} handle {} {{", expr, effect)?;
+                for arm in arms {
+                    let param: Vec<String> = std::iter::once(arm.resume_param)
+                        .chain(arm.params.iter().copied())
+                        .map(|p| format!("{p}"))
+                        .collect();
+                    write!(
+                        f,
+                        " {}({}) -> {},",
+                        arm.operation_name,
+                        param.join(", "),
+                        arm.body
+                    )?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -375,6 +445,8 @@ impl Expression {
             // Either type expressions
             Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
             Expression::Cons { span, .. } => *span,
+            Expression::Perform { span, .. } => *span,
+            Expression::Handle { span, .. } => *span,
         }
     }
 }
@@ -575,6 +647,43 @@ impl Expression {
                     head.display_with(interner),
                     tail.display_with(interner)
                 )
+            }
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args_str: Vec<String> = args.iter().map(|a| a.display_with(interner)).collect();
+                format!(
+                    "perform {}.{}({})",
+                    interner.resolve(*effect),
+                    interner.resolve(*operation),
+                    args_str.join(", ")
+                )
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                let mut out = format!(
+                    "{} handle {} {{",
+                    expr.display_with(interner),
+                    interner.resolve(*effect)
+                );
+                for arm in arms {
+                    let mut param_names: Vec<&str> = vec![interner.resolve(arm.resume_param)];
+                    for p in &arm.params {
+                        param_names.push(interner.resolve(*p));
+                    }
+                    out.push_str(&format!(
+                        " {}({}) -> {},",
+                        interner.resolve(arm.operation_name),
+                        param_names.join(", "),
+                        arm.body.display_with(interner)
+                    ));
+                }
+                out.push_str(" }");
+                out
             }
         }
     }
