@@ -1,0 +1,214 @@
+// Statistical utilities module — typed, ADT-driven.
+//
+// ADTs:
+//   Grade   — letter grade (GradeA | GradeB | GradeC | GradeD | GradeF)
+//   Summary — snapshot of aggregate statistics over a list of scores
+//
+// All public functions carry explicit type annotations.
+
+module TypeSystem.Stats {
+
+    // ── ADT: letter grade ─────────────────────────────────────────────────
+
+    data Grade {
+        GradeA,
+        GradeB,
+        GradeC,
+        GradeD,
+        GradeF,
+    }
+
+    fn score_to_grade(score: Int) -> Grade {
+        if score >= 90 { GradeA }
+        else if score >= 80 { GradeB }
+        else if score >= 70 { GradeC }
+        else if score >= 60 { GradeD }
+        else { GradeF }
+    }
+
+    fn grade_to_string(g: Grade) -> String {
+        match g {
+            GradeA -> "A",
+            GradeB -> "B",
+            GradeC -> "C",
+            GradeD -> "D",
+            GradeF -> "F",
+        }
+    }
+
+    fn grade_points(g: Grade) -> Int {
+        match g {
+            GradeA -> 4,
+            GradeB -> 3,
+            GradeC -> 2,
+            GradeD -> 1,
+            GradeF -> 0,
+        }
+    }
+
+    fn grade_passed(g: Grade) -> Bool {
+        match g {
+            GradeF -> false,
+            _ -> true,
+        }
+    }
+
+    // Convenience wrappers — take a raw score, hide ADT from caller.
+    fn letter_for_score(score: Int) -> String {
+        grade_to_string(score_to_grade(score))
+    }
+
+    fn points_for_score(score: Int) -> Int {
+        grade_points(score_to_grade(score))
+    }
+
+    fn score_passed(score: Int) -> Bool {
+        grade_passed(score_to_grade(score))
+    }
+
+    // Returns (a_count, b_count, c_count, d_count, f_count) using ADT internally.
+    fn grade_distribution(scores: List<Int>) -> (Int, Int, Int, Int, Int) {
+        fn tally(xs: List<Int>, a: Int, b: Int, c: Int, d: Int, f: Int) -> (Int, Int, Int, Int, Int) {
+            match xs {
+                [h | t] -> match score_to_grade(h) {
+                    GradeA -> tally(t, a + 1, b, c, d, f),
+                    GradeB -> tally(t, a, b + 1, c, d, f),
+                    GradeC -> tally(t, a, b, c + 1, d, f),
+                    GradeD -> tally(t, a, b, c, d + 1, f),
+                    GradeF -> tally(t, a, b, c, d, f + 1),
+                },
+                _ -> (a, b, c, d, f)
+            }
+        }
+        tally(scores, 0, 0, 0, 0, 0)
+    }
+
+    // ── ADT: summary statistics ───────────────────────────────────────────
+    //
+    // Summary(total, count, mean, max, min)
+
+    data Summary {
+        Summary(Int, Int, Int, Int, Int),
+    }
+
+    fn summarize(scores: List<Int>) -> Summary {
+        let n = list_len(scores)
+        if n == 0 {
+            Summary(0, 0, 0, 0, 0)
+        } else {
+            let total = list_sum(scores)
+            Summary(total, n, total / n, list_max(scores), list_min(scores))
+        }
+    }
+
+    fn summary_total(s: Summary) -> Int {
+        match s { Summary(v, _, _, _, _) -> v }
+    }
+
+    fn summary_count(s: Summary) -> Int {
+        match s { Summary(_, v, _, _, _) -> v }
+    }
+
+    fn summary_mean(s: Summary) -> Int {
+        match s { Summary(_, _, v, _, _) -> v }
+    }
+
+    fn summary_max(s: Summary) -> Int {
+        match s { Summary(_, _, _, v, _) -> v }
+    }
+
+    fn summary_min(s: Summary) -> Int {
+        match s { Summary(_, _, _, _, v) -> v }
+    }
+
+    fn summary_print(s: Summary) with IO {
+        print("  Total students : " + to_string(summary_count(s)))
+        print("  Total points   : " + to_string(summary_total(s)))
+        print("  Class average  : " + to_string(summary_mean(s)))
+        print("  Highest score  : " + to_string(summary_max(s)))
+        print("  Lowest score   : " + to_string(summary_min(s)))
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    fn list_sum(xs: List<Int>) -> Int {
+        match xs {
+            [h | t] -> h + list_sum(t),
+            _ -> 0
+        }
+    }
+
+    fn list_len(xs: List<Int>) -> Int {
+        match xs {
+            [h | t] -> 1 + list_len(t),
+            _ -> 0
+        }
+    }
+
+    fn max_two(a: Int, b: Int) -> Int { if a > b { a } else { b } }
+    fn min_two(a: Int, b: Int) -> Int { if a < b { a } else { b } }
+
+    fn list_max(xs: List<Int>) -> Int {
+        fn go(xs: List<Int>, cur: Int) -> Int {
+            match xs {
+                [h | t] -> go(t, max_two(cur, h)),
+                _ -> cur
+            }
+        }
+        match xs { [h | t] -> go(t, h), _ -> 0 }
+    }
+
+    fn list_min(xs: List<Int>) -> Int {
+        fn go(xs: List<Int>, cur: Int) -> Int {
+            match xs {
+                [h | t] -> go(t, min_two(cur, h)),
+                _ -> cur
+            }
+        }
+        match xs { [h | t] -> go(t, h), _ -> 0 }
+    }
+
+    // ── Filtering ────────────────────────────────────────────────────────
+
+    fn keep_above(xs: List<Int>, threshold: Int) -> List<Int> {
+        match xs {
+            [h | t] -> if h > threshold {
+                [h | keep_above(t, threshold)]
+            } else {
+                keep_above(t, threshold)
+            },
+            _ -> []
+        }
+    }
+
+    fn keep_below(xs: List<Int>, threshold: Int) -> List<Int> {
+        match xs {
+            [h | t] -> if h < threshold {
+                [h | keep_below(t, threshold)]
+            } else {
+                keep_below(t, threshold)
+            },
+            _ -> []
+        }
+    }
+
+    // ── Ranking (insertion sort on (String, Int) pairs) ───────────────────
+
+    fn rank(pairs: List<(String, Int)>) -> List<(String, Int)> {
+        match pairs {
+            [h | t] -> insert_ranked(h, rank(t)),
+            _ -> []
+        }
+    }
+
+    fn insert_ranked(pair: (String, Int), sorted: List<(String, Int)>) -> List<(String, Int)> {
+        match sorted {
+            [(n2, s2) | rest] -> if pair.1 >= s2 {
+                [pair | sorted]
+            } else {
+                [(n2, s2) | insert_ranked(pair, rest)]
+            },
+            _ -> [pair]
+        }
+    }
+}

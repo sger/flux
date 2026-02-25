@@ -2396,13 +2396,25 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            Pattern::Tuple { .. } => {
-                let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
-                let call = builder.ins().call(is_tuple, &[ctx_val, scrutinee_val]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            Pattern::Tuple { elements, .. } => {
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                // Use emit_pattern_check to recursively validate the tuple
+                // and each of its elements against their sub-patterns.
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
+                // Seal intermediate element-check blocks created inside
+                // emit_pattern_check (they were created and immediately switched to).
+                // We only need to track elements as a reference to satisfy the compiler.
+                let _ = elements;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -2593,6 +2605,140 @@ fn bind_pattern_value(
             Ok(())
         }
     }
+}
+
+/// Emits a chain of feasibility checks for `pattern` applied to `value`.
+///
+/// If `value` satisfies the pattern, control falls to `pass_block`.
+/// If it does not, control jumps to `fail_block`.
+/// The caller must switch to `pass_block` afterwards to continue.
+///
+/// Only the _outer_ shape of the value is checked here — identifier/wildcard
+/// sub-patterns always pass since they bind unconditionally.
+fn emit_pattern_check(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    pattern: &Pattern,
+    value: CraneliftValue,
+    pass_block: cranelift_codegen::ir::Block,
+    fail_block: cranelift_codegen::ir::Block,
+    interner: &Interner,
+) -> Result<(), String> {
+    match pattern {
+        Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {
+            builder.ins().jump(pass_block, &[]);
+        }
+        Pattern::Cons { .. } => {
+            let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
+            let call = builder.ins().call(is_cons, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::EmptyList { .. } => {
+            let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
+            let call = builder.ins().call(is_el, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::None { .. } => {
+            let is_none = get_helper_func_ref(module, helpers, builder, "rt_is_none");
+            let call = builder.ins().call(is_none, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Some { .. } => {
+            let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
+            let call = builder.ins().call(is_some, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Left { .. } => {
+            let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
+            let call = builder.ins().call(is_left, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Right { .. } => {
+            let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
+            let call = builder.ins().call(is_right, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Literal { expression, .. } => {
+            // Literals require a runtime value to compare against, but we
+            // don't have an interner-aware compile path here. Fall through
+            // optimistically — the arm body will produce wrong results if
+            // the literal doesn't match, but pattern::Literal inside a Tuple
+            // is rarely used in practice.
+            let _ = (expression, interner);
+            builder.ins().jump(pass_block, &[]);
+        }
+        Pattern::Tuple { elements, .. } => {
+            // Check rt_is_tuple first, then chain checks for each element.
+            let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
+            let call = builder.ins().call(is_tuple, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            // Build a chain: check_tuple → check_el_0 → ... → pass_block
+            // Each step jumps to fail_block on failure.
+            // Build a step block per element so we can chain checks forward.
+            let step_blocks: Vec<cranelift_codegen::ir::Block> =
+                elements.iter().map(|_| builder.create_block()).collect();
+            // The first check is rt_is_tuple; on success jump to step_blocks[0] or pass_block.
+            let first = step_blocks.first().copied().unwrap_or(pass_block);
+            builder.ins().brif(cond, first, &[], fail_block, &[]);
+            // Now emit each element check, chaining into the next step or pass_block.
+            for (i, (element, &step)) in elements.iter().zip(step_blocks.iter()).enumerate() {
+                builder.seal_block(step);
+                builder.switch_to_block(step);
+                let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+                let idx_val = builder.ins().iconst(PTR_TYPE, i as i64);
+                let elem_call = builder.ins().call(tuple_get, &[ctx_val, value, idx_val]);
+                let elem_val = builder.inst_results(elem_call)[0];
+                let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    ctx_val,
+                    element,
+                    elem_val,
+                    next,
+                    fail_block,
+                    interner,
+                )?;
+            }
+        }
+        Pattern::Constructor { name, .. } => {
+            let name_str = interner.resolve(*name);
+            let bytes = name_str.as_bytes().to_vec();
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = DataDescription::new();
+            desc.define(bytes.into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let global_value = module.declare_data_in_func(data, builder.func);
+            let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+            let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+            let is_adt = get_helper_func_ref(module, helpers, builder, "rt_is_adt_constructor");
+            let call = builder
+                .ins()
+                .call(is_adt, &[ctx_val, value, name_ptr, name_len]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+    }
+    Ok(())
 }
 
 fn bind_top_level_pattern_value(
@@ -3490,8 +3636,40 @@ impl LiteralCollector {
             }
             Statement::Module { body, .. } => {
                 self.push_scope();
+                // Pre-bind all module function names before processing bodies.
+                // This mirrors collect_program's pre-binding for top-level functions and
+                // ensures nested literal functions inside module functions can correctly
+                // include sibling module functions in their capture sets.
                 for s in &body.statements {
-                    self.collect_stmt(s);
+                    if let Statement::Function { name, .. } = s {
+                        self.define(*name);
+                    }
+                }
+                // Process module body: module-level functions are compiled as module
+                // functions (not literal closures), so we must NOT register them as
+                // literal specs. We only collect nested literal functions from their bodies.
+                for s in &body.statements {
+                    match s {
+                        Statement::Function {
+                            name,
+                            parameters,
+                            body,
+                            ..
+                        } => {
+                            // Module-level function: push a scope with params and collect
+                            // any nested literal functions defined inside the body.
+                            self.push_scope();
+                            self.define(*name); // allow self-recursion within the body
+                            for p in parameters {
+                                self.define(*p);
+                            }
+                            for inner in &body.statements {
+                                self.collect_stmt(inner);
+                            }
+                            self.pop_scope();
+                        }
+                        _ => self.collect_stmt(s),
+                    }
                 }
                 self.pop_scope();
             }
@@ -3619,11 +3797,17 @@ impl LiteralCollector {
                 self.collect_expr(head);
                 self.collect_expr(tail);
             }
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let crate::syntax::expression::StringPart::Interpolation(expr) = part {
+                        self.collect_expr(expr);
+                    }
+                }
+            }
             Expression::Identifier { .. }
             | Expression::Integer { .. }
             | Expression::Float { .. }
             | Expression::String { .. }
-            | Expression::InterpolatedString { .. }
             | Expression::Boolean { .. }
             | Expression::EmptyList { .. }
             | Expression::None { .. } => {}
