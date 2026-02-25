@@ -40,6 +40,16 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E400`) in chained `with e` wrappers when callback resolves to `IO` but caller declares only `Time`
 - `23_generic_call_return_mismatch.flx`
   - Expected: compile-time failure (`E055`) for typed `let` mismatch through generic call return instantiation
+- `24_adt_guarded_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) because guarded constructor arms do not guarantee exhaustiveness
+- `25_adt_mixed_constructors_in_match.flx`
+  - Expected: compile-time failure (`E083`) when one `match` mixes constructors from different ADTs
+- `26_adt_match_constructor_arity_mismatch.flx`
+  - Expected: compile-time failure (`E082`) when constructor pattern field count mismatches declaration arity
+- `27_adt_wildcard_guard_not_catchall.flx`
+  - Expected: compile-time failure (`E015`) because `_ if ...` is guarded and does not count as a catch-all arm
+- `28_adt_nested_guard_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) when nested constructor arm is guarded and leaves constructors uncovered
 
 ## Run
 
@@ -62,6 +72,11 @@ cargo run -- --no-cache examples/type_system/failing/20_direct_builtin_missing_e
 cargo run -- --no-cache examples/type_system/failing/21_perform_unknown_operation.flx
 cargo run -- --no-cache examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx
 cargo run -- --no-cache examples/type_system/failing/23_generic_call_return_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/24_adt_guarded_non_exhaustive.flx
+cargo run -- --no-cache examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
+cargo run -- --no-cache examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx
+cargo run -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
 ```
 
 JIT (compile-time failure examples):
@@ -80,4 +95,9 @@ cargo run --features jit -- --no-cache examples/type_system/failing/20_direct_bu
 cargo run --features jit -- --no-cache examples/type_system/failing/21_perform_unknown_operation.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/23_generic_call_return_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/24_adt_guarded_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/25_adt_mixed_constructors_in_match.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx --jit
 ```
