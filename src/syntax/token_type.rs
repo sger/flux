@@ -137,5 +137,8 @@ define_tokens! {
         Right  => "Right",
         Where  => "where",
         Data   => "data",
+        Effect => "effect",
+        Handle => "handle",
+        Perform => "perform",
     }
 }

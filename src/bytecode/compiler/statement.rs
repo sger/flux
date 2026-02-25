@@ -290,6 +290,8 @@ impl Compiler {
                 Statement::Data { name, variants, .. } => {
                     self.compile_data_statement(*name, variants)?;
                 }
+                // Effect declarations are syntax only for now no bytecode emitted.
+                Statement::EffectDecl { .. } => {}
             }
             Ok(())
         })();

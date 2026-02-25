@@ -7,6 +7,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
+        effect_ops::EffectOp,
         expression::{Expression, Pattern},
         interner::Interner,
         type_expr::TypeExpr,
@@ -69,6 +70,13 @@ pub enum Statement {
         variants: Vec<DataVariant>,
         span: Span,
     },
+    /// effect Name { op: Params -> Ret, ... } - declares a user defined effect.
+    /// Syntax only for now not enforced by the compiler.
+    EffectDecl {
+        name: Identifier,
+        ops: Vec<EffectOp>,
+        span: Span,
+    },
 }
 
 impl Statement {
@@ -83,6 +91,7 @@ impl Statement {
             Statement::Module { span, .. } => span.start,
             Statement::Import { span, .. } => span.start,
             Statement::Data { span, .. } => span.start,
+            Statement::EffectDecl { span, .. } => span.start,
         }
     }
 
@@ -97,6 +106,7 @@ impl Statement {
             Statement::Module { span, .. } => *span,
             Statement::Import { span, .. } => *span,
             Statement::Data { span, .. } => *span,
+            Statement::EffectDecl { span, .. } => *span,
         }
     }
 }
@@ -232,6 +242,13 @@ impl fmt::Display for Statement {
                             v.fields.iter().map(|t| format!("{}", t)).collect();
                         write!(f, "({})", fields.join(", "))?;
                     }
+                }
+                write!(f, " }}")
+            }
+            Statement::EffectDecl { name, ops, .. } => {
+                write!(f, "effect {} {{", name)?;
+                for op in ops {
+                    write!(f, " {}: {},", op.name, op.type_expr)?;
                 }
                 write!(f, " }}")
             }
@@ -403,6 +420,18 @@ impl Statement {
                             v.fields.iter().map(|t| t.display_with(interner)).collect();
                         text.push_str(&format!("({})", fields.join(", ")));
                     }
+                }
+                text.push_str(" }");
+                text
+            }
+            Statement::EffectDecl { name, ops, .. } => {
+                let mut text = format!("effect {} {{", interner.resolve(*name));
+                for op in ops {
+                    text.push_str(&format!(
+                        " {}: {},",
+                        interner.resolve(op.name),
+                        op.type_expr.display_with(interner)
+                    ));
                 }
                 text.push_str(" }");
                 text

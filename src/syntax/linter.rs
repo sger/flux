@@ -382,6 +382,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 visit::walk_stmt(self, stmt);
             }
             Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
