@@ -23,7 +23,8 @@ use crate::{
         value::Value,
     },
     syntax::{
-        interner::Interner, pattern_validate::validate_program_patterns, program::Program,
+        effect_expr::EffectExpr, interner::Interner, pattern_validate::validate_program_patterns,
+        program::Program,
         statement::Statement, symbol::Symbol,
     },
     types::type_env::TypeEnv,
@@ -62,6 +63,8 @@ pub struct Compiler {
     pub(super) in_tail_position: bool,
     // Function parameter counts for active function scopes innermost last.
     pub(super) function_param_counts: Vec<usize>,
+    // Declared ambient effects for active function scopes innermost last.
+    pub(super) function_effects: Vec<Vec<Symbol>>,
     // For each active function scope track local indexes captured by nested closures.
     pub(super) captured_local_indices: Vec<HashSet<usize>>,
     // Program-level free-variable analysis result for the latest compile pass.
@@ -114,6 +117,7 @@ impl Compiler {
             interner,
             in_tail_position: false,
             function_param_counts: Vec::new(),
+            function_effects: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
@@ -158,6 +162,7 @@ impl Compiler {
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
+        self.function_effects.clear();
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -344,6 +349,7 @@ impl Compiler {
         self.imported_module_exclusions.clear();
         self.current_module_prefix = None;
         self.excluded_base_symbols.clear();
+        self.function_effects.clear();
         self.module_contracts.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
@@ -704,20 +710,38 @@ impl Compiler {
         result
     }
 
-    pub(super) fn with_function_context<F, R>(&mut self, num_params: usize, f: F) -> R
+    pub(super) fn with_function_context<F, R>(
+        &mut self,
+        num_params: usize,
+        effects: &[EffectExpr],
+        f: F,
+    ) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
         self.function_param_counts.push(num_params);
+        self.function_effects.push(
+            effects
+                .iter()
+                .map(|effect| match effect {
+                    EffectExpr::Named { name, .. } => *name,
+                })
+                .collect(),
+        );
         self.captured_local_indices.push(HashSet::new());
         let result = f(self);
         self.captured_local_indices.pop();
+        self.function_effects.pop();
         self.function_param_counts.pop();
         result
     }
 
     pub(super) fn current_function_param_count(&self) -> Option<usize> {
         self.function_param_counts.last().copied()
+    }
+
+    pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {
+        self.function_effects.last().map(Vec::as_slice)
     }
 
     pub(super) fn current_function_captured_locals(&self) -> Option<&HashSet<usize>> {

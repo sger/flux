@@ -42,7 +42,7 @@ fn option(t: InferType) -> InferType {
 }
 
 fn fun(params: Vec<InferType>, ret: InferType) -> InferType {
-    InferType::Fun(params, Box::new(ret))
+    InferType::Fun(params, Box::new(ret), vec![])
 }
 
 fn tuple(elems: Vec<InferType>) -> InferType {

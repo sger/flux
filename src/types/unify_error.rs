@@ -81,7 +81,7 @@ pub fn unify_with_span(
         }
 
         // Function types: same arity
-        (InferType::Fun(params1, ret1), InferType::Fun(params2, ret2))
+        (InferType::Fun(params1, ret1, _), InferType::Fun(params2, ret2, _))
             if params1.len() == params2.len() =>
         {
             let subst = unify_many(params1, params2, span)?;
@@ -164,8 +164,8 @@ mod tests {
 
     #[test]
     fn unify_function_types_propagates_param_substitution_to_return() {
-        let left = InferType::Fun(vec![infer_var(0)], Box::new(infer_var(0)));
-        let right = InferType::Fun(vec![int()], Box::new(int()));
+        let left = InferType::Fun(vec![infer_var(0)], Box::new(infer_var(0)), vec![]);
+        let right = InferType::Fun(vec![int()], Box::new(int()), vec![]);
 
         let subst = unify(&left, &right).expect("function unification should succeed");
         assert_eq!(subst.get(0), Some(&int()));

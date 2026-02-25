@@ -67,9 +67,21 @@ pub fn to_runtime_contract(contract: &FnContract, interner: &Interner) -> Option
         .as_ref()
         .and_then(|ty| convert_type_expr(ty, interner));
 
-    if params.iter().all(Option::is_none) && ret.is_none() {
+    if params.iter().all(Option::is_none) && ret.is_none() && contract.effects.is_empty() {
         return None;
     }
 
-    Some(FunctionContract { params, ret })
+    let effects = contract
+        .effects
+        .iter()
+        .map(|effect| match effect {
+            EffectExpr::Named { name, .. } => *name,
+        })
+        .collect::<Vec<_>>();
+
+    Some(FunctionContract {
+        params,
+        ret,
+        effects,
+    })
 }

@@ -18,6 +18,7 @@ use crate::{
     syntax::{
         block::Block,
         data_variant::DataVariant,
+        effect_expr::EffectExpr,
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -180,6 +181,7 @@ impl Compiler {
                     parameters,
                     parameter_types,
                     return_type,
+                    effects,
                     body,
                     span,
                     ..
@@ -205,6 +207,7 @@ impl Compiler {
                         parameters,
                         parameter_types,
                         return_type,
+                        effects,
                         body,
                         span.start,
                     )?;
@@ -305,6 +308,7 @@ impl Compiler {
         parameters: &[Symbol],
         parameter_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
+        effects: &[EffectExpr],
         body: &Block,
         position: Position,
     ) -> CompileResult<()> {
@@ -372,7 +376,7 @@ impl Compiler {
             }
         }
 
-        self.with_function_context(parameters.len(), |compiler| {
+        self.with_function_context(parameters.len(), effects, |compiler| {
             compiler.compile_block_with_tail(body)
         })?;
 
@@ -409,7 +413,7 @@ impl Compiler {
             let contract = crate::bytecode::compiler::contracts::FnContract {
                 params: parameter_types.to_vec(),
                 ret: return_type.clone(),
-                effects: Vec::new(),
+                effects: effects.to_vec(),
             };
             self.to_runtime_contract(&contract)
         };
@@ -555,6 +559,7 @@ impl Compiler {
                 parameters,
                 parameter_types,
                 return_type,
+                effects,
                 body: fn_body,
                 span,
                 ..
@@ -567,6 +572,7 @@ impl Compiler {
                     parameters,
                     parameter_types,
                     return_type,
+                    effects,
                     fn_body,
                     position,
                 ) {

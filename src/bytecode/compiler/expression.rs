@@ -22,6 +22,7 @@ use crate::{
         LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH, UNKNOWN_BASE_MEMBER,
         UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR, diag_enhanced,
+        types::ErrorType,
         position::{Position, Span},
     },
     primop::resolve_primop_call,
@@ -232,11 +233,17 @@ impl Compiler {
                 parameters,
                 parameter_types,
                 return_type,
-                effects: _,
+                effects,
                 body,
                 ..
             } => {
-                self.compile_function_literal(parameters, parameter_types, return_type, body)?;
+                self.compile_function_literal(
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    body,
+                )?;
             }
             Expression::ListLiteral { elements, .. } => {
                 // Lower list literals through base `list(...)` to avoid deep
@@ -519,6 +526,40 @@ impl Compiler {
             return Ok(());
         };
 
+        if !contract.effects.is_empty() {
+            let Some(ambient_effects) = self.current_function_effects() else {
+                return Ok(());
+            };
+            for required in &contract.effects {
+                let required_name = match required {
+                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                };
+                if !ambient_effects.contains(&required_name) {
+                    let function_name = match function {
+                        Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+                        Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
+                        _ => "<call>".to_string(),
+                    };
+                    let missing = self.sym(required_name).to_string();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E400",
+                            "MISSING EFFECT",
+                            ErrorType::Compiler,
+                            format!(
+                                "Call to `{}` requires effect `{}` in this function signature.",
+                                function_name, missing
+                            ),
+                            Some(format!("Add `with {}` to the enclosing function.", missing)),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effectful call occurs here"),
+                    ));
+                }
+            }
+        }
+
         for (index, argument) in arguments.iter().enumerate() {
             let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
                 continue;
@@ -671,6 +712,7 @@ impl Compiler {
         parameters: &[Symbol],
         parameters_types: &[Option<TypeExpr>],
         return_type: &Option<TypeExpr>,
+        effects: &[crate::syntax::effect_expr::EffectExpr],
         body: &Block,
     ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
@@ -694,7 +736,7 @@ impl Compiler {
             }
         }
 
-        self.with_function_context(parameters.len(), |compiler| {
+        self.with_function_context(parameters.len(), effects, |compiler| {
             compiler.compile_block_with_tail(body)
         })?;
 
@@ -732,7 +774,7 @@ impl Compiler {
             let contract = FnContract {
                 params: parameters_types.to_vec(),
                 ret: return_type.clone(),
-                effects: Vec::new(),
+                effects: effects.to_vec(),
             };
             self.to_runtime_contract(&contract)
         };
@@ -1564,7 +1606,13 @@ impl Compiler {
             };
 
             // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(&params, &vec![None; params.len()], &None, &arm_block)?;
+            self.compile_function_literal(
+                &params,
+                &vec![None; params.len()],
+                &None,
+                &[],
+                &arm_block,
+            )?;
         }
 
         // Build HandlerDescriptor and emit OpHandle

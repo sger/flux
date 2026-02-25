@@ -2,7 +2,10 @@
 
 use std::{collections::HashSet, fmt};
 
-use crate::types::{TypeVarId, type_constructor::TypeConstructor, type_subst::TypeSubst};
+use crate::{
+    syntax::Identifier,
+    types::{TypeVarId, type_constructor::TypeConstructor, type_subst::TypeSubst},
+};
 
 /// The compile-time type representation used by the HM type checker.
 ///
@@ -16,8 +19,8 @@ pub enum InferType {
     Con(TypeConstructor),
     /// Type application: `List<T>`, `Map<K, V>`, `Option<T>`, `Adt<T>`.
     App(TypeConstructor, Vec<InferType>),
-    /// Function type: `(T, U) -> V`.
-    Fun(Vec<InferType>, Box<InferType>),
+    /// Function type: `(T, U) -> V with E1, E2`.
+    Fun(Vec<InferType>, Box<InferType>, Vec<Identifier>),
     /// Tuple type: `(Int, String)`.
     Tuple(Vec<InferType>),
 }
@@ -41,7 +44,7 @@ impl InferType {
                     arg.collect_free_vars(acc);
                 }
             }
-            InferType::Fun(params, ret) => {
+            InferType::Fun(params, ret, _) => {
                 for param in params {
                     param.collect_free_vars(acc);
                 }
@@ -73,12 +76,13 @@ impl InferType {
                     .map(|a| a.apply_type_subst(type_subst))
                     .collect(),
             ),
-            InferType::Fun(params, ret) => InferType::Fun(
+            InferType::Fun(params, ret, effects) => InferType::Fun(
                 params
                     .iter()
                     .map(|p| p.apply_type_subst(type_subst))
                     .collect(),
                 Box::new(ret.apply_type_subst(type_subst)),
+                effects.clone(),
             ),
             InferType::Tuple(elements) => InferType::Tuple(
                 elements
@@ -115,7 +119,7 @@ impl fmt::Display for InferType {
                 }
                 write!(f, ">")
             }
-            InferType::Fun(params, ret) => {
+            InferType::Fun(params, ret, effects) => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -123,7 +127,18 @@ impl fmt::Display for InferType {
                     }
                     write!(f, "{p}")?;
                 }
-                write!(f, ") -> {ret}")
+                if effects.is_empty() {
+                    write!(f, ") -> {ret}")
+                } else {
+                    write!(f, ") -> {ret} with ")?;
+                    for (i, effect) in effects.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{effect}")?;
+                    }
+                    Ok(())
+                }
             }
             InferType::Tuple(elements) => {
                 write!(f, "(")?;
@@ -163,6 +178,7 @@ mod tests {
                 InferType::App(TypeConstructor::List, vec![infer_var(2)]),
             ],
             Box::new(infer_var(1)),
+            vec![],
         );
 
         let got = infer_type.free_vars();
@@ -175,6 +191,7 @@ mod tests {
         let infer_type = InferType::Fun(
             vec![infer_var(0), InferType::Tuple(vec![infer_var(2)])],
             Box::new(InferType::App(TypeConstructor::Option, vec![infer_var(1)])),
+            vec![],
         );
 
         let mut type_subst = TypeSubst::empty();
@@ -189,6 +206,7 @@ mod tests {
                 InferType::Tuple(vec![InferType::Con(TypeConstructor::Bool)]),
             ],
             Box::new(InferType::App(TypeConstructor::Option, vec![int()])),
+            vec![],
         );
         assert_eq!(applied, expected);
     }
@@ -199,7 +217,7 @@ mod tests {
         assert!(concrete.is_concrete());
         assert!(!concrete.is_any());
 
-        let not_concrete = InferType::Fun(vec![infer_var(0)], Box::new(int()));
+        let not_concrete = InferType::Fun(vec![infer_var(0)], Box::new(int()), vec![]);
         assert!(!not_concrete.is_concrete());
 
         let any = InferType::Con(TypeConstructor::Any);
@@ -218,6 +236,7 @@ mod tests {
                 TypeConstructor::Map,
                 vec![InferType::Con(TypeConstructor::String), int()],
             )),
+            vec![],
         );
 
         assert_eq!(

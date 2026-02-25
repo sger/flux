@@ -137,6 +137,7 @@ mod tests {
                 InferType::Tuple(vec![infer_var(1), infer_var(2)]),
             ],
             Box::new(infer_var(0)),
+            vec![],
         );
 
         let scheme = generalize(&infer_type, &HashSet::new());
@@ -148,7 +149,7 @@ mod tests {
         let scheme = Scheme {
             forall: vec![0],
             // ?1 is free in the scheme body (not quantified) and must remain unchanged.
-            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1))),
+            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
         };
 
         let mut counter = 10;
@@ -158,7 +159,7 @@ mod tests {
         assert_eq!(counter, 11);
         assert_eq!(
             instantiated,
-            InferType::Fun(vec![infer_var(10)], Box::new(infer_var(1)))
+            InferType::Fun(vec![infer_var(10)], Box::new(infer_var(1)), vec![])
         );
     }
 
@@ -166,7 +167,7 @@ mod tests {
     fn instantiate_produces_distinct_fresh_vars_per_call() {
         let scheme = Scheme {
             forall: vec![0, 1],
-            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1))),
+            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
         };
 
         let mut counter = 20;
@@ -180,11 +181,11 @@ mod tests {
         assert_eq!(counter, 24);
         assert_eq!(
             first,
-            InferType::Fun(vec![infer_var(20)], Box::new(infer_var(21)))
+            InferType::Fun(vec![infer_var(20)], Box::new(infer_var(21)), vec![])
         );
         assert_eq!(
             second,
-            InferType::Fun(vec![infer_var(22)], Box::new(infer_var(23)))
+            InferType::Fun(vec![infer_var(22)], Box::new(infer_var(23)), vec![])
         );
     }
 
@@ -193,6 +194,7 @@ mod tests {
         let infer_type = InferType::Fun(
             vec![infer_var(0), infer_var(1), int()],
             Box::new(infer_var(2)),
+            vec![],
         );
         let env_free_vars = HashSet::from([1, 42]);
 
