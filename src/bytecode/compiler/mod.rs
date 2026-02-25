@@ -23,9 +23,15 @@ use crate::{
         value::Value,
     },
     syntax::{
-        effect_expr::EffectExpr, interner::Interner, pattern_validate::validate_program_patterns,
+        block::Block,
+        effect_expr::EffectExpr,
+        expression::{Expression, StringPart},
+        interner::Interner,
+        pattern_validate::validate_program_patterns,
         program::Program,
-        statement::Statement, symbol::Symbol,
+        statement::Statement,
+        symbol::Symbol,
+        type_expr::TypeExpr,
     },
     types::type_env::TypeEnv,
 };
@@ -41,6 +47,17 @@ mod statement;
 mod suggestions;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
+
+#[derive(Debug, Clone)]
+struct FunctionEffectSeed {
+    key: ContractKey,
+    module_name: Option<Symbol>,
+    parameter_types: Vec<Option<TypeExpr>>,
+    return_type: Option<TypeExpr>,
+    declared_effects: HashSet<Symbol>,
+    body: Block,
+    span: Span,
+}
 
 pub struct Compiler {
     constants: Vec<Value>,
@@ -75,6 +92,7 @@ pub struct Compiler {
     pub module_contracts: ModuleContractTable,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) adt_registry: AdtRegistry,
+    pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
 }
@@ -125,6 +143,7 @@ impl Compiler {
             module_contracts: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
+            effect_ops_registry: HashMap::new(),
             type_env: TypeEnv::new(),
         }
     }
@@ -163,6 +182,7 @@ impl Compiler {
         self.static_type_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.function_effects.clear();
+        self.effect_ops_registry.clear();
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -184,6 +204,30 @@ impl Compiler {
             Statement::Module { body, .. } => {
                 for statement in &body.statements {
                     self.collect_adt_definitions_from_stmt(statement);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_effect_declarations(&mut self, program: &Program) {
+        self.effect_ops_registry.clear();
+        for statement in &program.statements {
+            self.collect_effect_declarations_from_stmt(statement);
+        }
+    }
+
+    fn collect_effect_declarations_from_stmt(&mut self, statement: &Statement) {
+        match statement {
+            Statement::EffectDecl { name, ops, .. } => {
+                let entry = self.effect_ops_registry.entry(*name).or_default();
+                for op in ops {
+                    entry.insert(op.name);
+                }
+            }
+            Statement::Module { body, .. } => {
+                for nested in &body.statements {
+                    self.collect_effect_declarations_from_stmt(nested);
                 }
             }
             _ => {}
@@ -240,6 +284,503 @@ impl Compiler {
         }
     }
 
+    fn collect_function_effect_seeds(&self, program: &Program) -> Vec<FunctionEffectSeed> {
+        let mut out = Vec::new();
+        for statement in &program.statements {
+            self.collect_function_effect_seeds_from_stmt(statement, None, &mut out);
+        }
+        out
+    }
+
+    fn collect_function_effect_seeds_from_stmt(
+        &self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+        out: &mut Vec<FunctionEffectSeed>,
+    ) {
+        match statement {
+            Statement::Function {
+                name,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                span,
+                ..
+            } => {
+                let declared_effects = effects
+                    .iter()
+                    .map(|effect| match effect {
+                        EffectExpr::Named { name, .. } => *name,
+                    })
+                    .collect();
+                out.push(FunctionEffectSeed {
+                    key: ContractKey {
+                        module_name,
+                        function_name: *name,
+                        arity: parameters.len(),
+                    },
+                    module_name,
+                    parameter_types: parameter_types.clone(),
+                    return_type: return_type.clone(),
+                    declared_effects,
+                    body: body.clone(),
+                    span: *span,
+                });
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.collect_function_effect_seeds_from_stmt(nested, Some(*name), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn infer_unannotated_function_effects(&mut self, program: &Program) {
+        let io_effect = self.interner.intern("IO");
+        let time_effect = self.interner.intern("Time");
+
+        let seeds = self.collect_function_effect_seeds(program);
+        if seeds.is_empty() {
+            return;
+        }
+
+        let mut inferred: HashMap<ContractKey, HashSet<Symbol>> = seeds
+            .iter()
+            .map(|seed| (seed.key.clone(), seed.declared_effects.clone()))
+            .collect();
+
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for seed in &seeds {
+                if !seed.declared_effects.is_empty() {
+                    continue;
+                }
+                let effects = self.infer_effects_from_block(
+                    &seed.body,
+                    seed.module_name,
+                    &inferred,
+                    io_effect,
+                    time_effect,
+                );
+                let entry = inferred.entry(seed.key.clone()).or_default();
+                if *entry != effects {
+                    *entry = effects;
+                    changed = true;
+                }
+            }
+        }
+
+        for seed in &seeds {
+            let Some(effects) = inferred.get(&seed.key) else {
+                continue;
+            };
+            if effects.is_empty() {
+                continue;
+            }
+
+            let mut sorted_effects: Vec<Symbol> = effects.iter().copied().collect();
+            sorted_effects.sort_by_key(|sym| self.sym(*sym).to_string());
+            let effect_exprs: Vec<EffectExpr> = sorted_effects
+                .into_iter()
+                .map(|name| EffectExpr::Named {
+                    name,
+                    span: seed.span,
+                })
+                .collect();
+
+            if let Some(contract) = self.module_contracts.get_mut(&seed.key) {
+                if contract.effects.is_empty() {
+                    contract.effects = effect_exprs;
+                }
+            } else {
+                self.module_contracts.insert(
+                    seed.key.clone(),
+                    FnContract {
+                        params: seed.parameter_types.clone(),
+                        ret: seed.return_type.clone(),
+                        effects: effect_exprs,
+                    },
+                );
+            }
+        }
+    }
+
+    fn infer_effects_from_block(
+        &self,
+        block: &Block,
+        current_module: Option<Symbol>,
+        inferred: &HashMap<ContractKey, HashSet<Symbol>>,
+        io_effect: Symbol,
+        time_effect: Symbol,
+    ) -> HashSet<Symbol> {
+        let mut effects = HashSet::new();
+        for statement in &block.statements {
+            effects.extend(self.infer_effects_from_statement(
+                statement,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ));
+        }
+        effects
+    }
+
+    fn infer_effects_from_statement(
+        &self,
+        statement: &Statement,
+        current_module: Option<Symbol>,
+        inferred: &HashMap<ContractKey, HashSet<Symbol>>,
+        io_effect: Symbol,
+        time_effect: Symbol,
+    ) -> HashSet<Symbol> {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => {
+                self.infer_effects_from_expr(value, current_module, inferred, io_effect, time_effect)
+            }
+            Statement::Return {
+                value: Some(value), ..
+            } => self.infer_effects_from_expr(value, current_module, inferred, io_effect, time_effect),
+            Statement::Expression { expression, .. } => {
+                self.infer_effects_from_expr(expression, current_module, inferred, io_effect, time_effect)
+            }
+            _ => HashSet::new(),
+        }
+    }
+
+    fn infer_effects_from_expr(
+        &self,
+        expr: &Expression,
+        current_module: Option<Symbol>,
+        inferred: &HashMap<ContractKey, HashSet<Symbol>>,
+        io_effect: Symbol,
+        time_effect: Symbol,
+    ) -> HashSet<Symbol> {
+        match expr {
+            Expression::Identifier { .. }
+            | Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::Boolean { .. }
+            | Expression::None { .. }
+            | Expression::EmptyList { .. } => HashSet::new(),
+
+            Expression::InterpolatedString { parts, .. } => {
+                let mut effects = HashSet::new();
+                for part in parts {
+                    if let StringPart::Interpolation(inner) = part {
+                        effects.extend(self.infer_effects_from_expr(
+                            inner,
+                            current_module,
+                            inferred,
+                            io_effect,
+                            time_effect,
+                        ));
+                    }
+                }
+                effects
+            }
+
+            Expression::Prefix { right, .. } => self.infer_effects_from_expr(
+                right,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
+            Expression::Infix { left, right, .. } => {
+                let mut effects =
+                    self.infer_effects_from_expr(left, current_module, inferred, io_effect, time_effect);
+                effects.extend(self.infer_effects_from_expr(
+                    right,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                ));
+                effects
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                let mut effects = self.infer_effects_from_expr(
+                    condition,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
+                effects.extend(self.infer_effects_from_block(
+                    consequence,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                ));
+                if let Some(alt) = alternative {
+                    effects.extend(self.infer_effects_from_block(
+                        alt,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects
+            }
+            Expression::DoBlock { block, .. } => self.infer_effects_from_block(
+                block,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
+            Expression::Function { .. } => HashSet::new(),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                let mut effects = self.infer_effects_from_expr(
+                    function,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
+                for arg in arguments {
+                    effects.extend(self.infer_effects_from_expr(
+                        arg,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects.extend(self.infer_call_effects(
+                    function,
+                    arguments.len(),
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                ));
+                effects
+            }
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
+                let mut effects = HashSet::new();
+                for element in elements {
+                    effects.extend(self.infer_effects_from_expr(
+                        element,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects
+            }
+            Expression::Index { left, index, .. } => {
+                let mut effects =
+                    self.infer_effects_from_expr(left, current_module, inferred, io_effect, time_effect);
+                effects.extend(self.infer_effects_from_expr(
+                    index,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                ));
+                effects
+            }
+            Expression::Hash { pairs, .. } => {
+                let mut effects = HashSet::new();
+                for (k, v) in pairs {
+                    effects.extend(self.infer_effects_from_expr(
+                        k,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                    effects.extend(self.infer_effects_from_expr(
+                        v,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects
+            }
+            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+                self.infer_effects_from_expr(object, current_module, inferred, io_effect, time_effect)
+            }
+            Expression::Match { scrutinee, arms, .. } => {
+                let mut effects = self.infer_effects_from_expr(
+                    scrutinee,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        effects.extend(self.infer_effects_from_expr(
+                            guard,
+                            current_module,
+                            inferred,
+                            io_effect,
+                            time_effect,
+                        ));
+                    }
+                    effects.extend(self.infer_effects_from_expr(
+                        &arm.body,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects
+            }
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => self.infer_effects_from_expr(
+                value,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
+            Expression::Cons { head, tail, .. } => {
+                let mut effects =
+                    self.infer_effects_from_expr(head, current_module, inferred, io_effect, time_effect);
+                effects.extend(self.infer_effects_from_expr(
+                    tail,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                ));
+                effects
+            }
+            Expression::Perform { effect, args, .. } => {
+                let mut effects = HashSet::new();
+                for arg in args {
+                    effects.extend(self.infer_effects_from_expr(
+                        arg,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects.insert(*effect);
+                effects
+            }
+            Expression::Handle {
+                expr,
+                effect,
+                arms,
+                ..
+            } => {
+                let mut effects = self.infer_effects_from_expr(
+                    expr,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
+                effects.remove(effect);
+                for arm in arms {
+                    effects.extend(self.infer_effects_from_expr(
+                        &arm.body,
+                        current_module,
+                        inferred,
+                        io_effect,
+                        time_effect,
+                    ));
+                }
+                effects
+            }
+        }
+    }
+
+    fn infer_call_effects(
+        &self,
+        function: &Expression,
+        arity: usize,
+        current_module: Option<Symbol>,
+        inferred: &HashMap<ContractKey, HashSet<Symbol>>,
+        io_effect: Symbol,
+        time_effect: Symbol,
+    ) -> HashSet<Symbol> {
+        let mut effects = HashSet::new();
+        match function {
+            Expression::Identifier { name, .. } => {
+                let mut resolved = false;
+                if let Some(module_name) = current_module {
+                    let key = ContractKey {
+                        module_name: Some(module_name),
+                        function_name: *name,
+                        arity,
+                    };
+                    if let Some(found) = inferred.get(&key) {
+                        effects.extend(found.iter().copied());
+                        resolved = true;
+                    }
+                }
+                if !resolved {
+                    let key = ContractKey {
+                        module_name: None,
+                        function_name: *name,
+                        arity,
+                    };
+                    if let Some(found) = inferred.get(&key) {
+                        effects.extend(found.iter().copied());
+                        resolved = true;
+                    }
+                }
+                if !resolved {
+                    let name = self.sym(*name);
+                    if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
+                        effects.insert(io_effect);
+                    } else if matches!(name, "now" | "clock_now") {
+                        effects.insert(time_effect);
+                    }
+                }
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                if let Expression::Identifier {
+                    name: module_name, ..
+                } = object.as_ref()
+                {
+                    let key = ContractKey {
+                        module_name: Some(*module_name),
+                        function_name: *member,
+                        arity,
+                    };
+                    if let Some(found) = inferred.get(&key) {
+                        effects.extend(found.iter().copied());
+                    }
+                }
+            }
+            _ => {}
+        }
+        effects
+    }
+
     #[inline]
     pub(super) fn sym(&self, s: Symbol) -> &str {
         self.interner.resolve(s)
@@ -270,6 +811,10 @@ impl Compiler {
         }
 
         self.lookup_contract(None, function_name, arity)
+    }
+
+    pub(super) fn effect_declared_ops(&self, effect: Symbol) -> Option<&HashSet<Symbol>> {
+        self.effect_ops_registry.get(&effect)
     }
 
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
@@ -351,11 +896,14 @@ impl Compiler {
         self.excluded_base_symbols.clear();
         self.function_effects.clear();
         self.module_contracts.clear();
+        self.effect_ops_registry.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.process_base_directives(program);
         self.collect_module_contracts(program);
+        self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);
+        self.collect_effect_declarations(program);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion

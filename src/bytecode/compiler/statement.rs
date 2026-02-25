@@ -202,12 +202,20 @@ impl Compiler {
                             Some("Use a different name or remove the previous definition"),
                         )));
                     }
+                    let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
+                        if effects.is_empty() {
+                            self.lookup_unqualified_contract(name, parameters.len())
+                                .map(|contract| contract.effects.clone())
+                                .unwrap_or_default()
+                        } else {
+                            effects.clone()
+                        };
                     self.compile_function_statement(
                         name,
                         parameters,
                         parameter_types,
                         return_type,
-                        effects,
+                        &effective_effects,
                         body,
                         span.start,
                     )?;
@@ -567,12 +575,20 @@ impl Compiler {
             {
                 let position = span.start;
                 let qualified_name = self.interner.intern_join(binding_name, *fn_name);
+                let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
+                    if effects.is_empty() {
+                        self.lookup_contract(Some(binding_name), *fn_name, parameters.len())
+                            .map(|contract| contract.effects.clone())
+                            .unwrap_or_default()
+                    } else {
+                        effects.clone()
+                    };
                 if let Err(err) = self.compile_function_statement(
                     qualified_name,
                     parameters,
                     parameter_types,
                     return_type,
-                    effects,
+                    &effective_effects,
                     fn_body,
                     position,
                 ) {

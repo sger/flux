@@ -1,0 +1,13 @@
+// E402: handler is missing one or more declared effect operations.
+
+effect Console {
+    print: String -> ()
+    read: () -> String
+}
+
+perform Console.print("hello") handle Console {
+    print(resume, msg) -> do {
+        print(msg)
+        resume(())
+    }
+}

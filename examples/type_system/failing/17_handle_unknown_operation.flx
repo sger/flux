@@ -1,0 +1,9 @@
+// E401: handler arm references an operation not declared by the effect.
+
+effect Console {
+    print: String -> ()
+}
+
+perform Console.print("hello") handle Console {
+    read(resume) -> resume("x")
+}

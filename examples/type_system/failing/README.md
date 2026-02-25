@@ -24,6 +24,12 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E055`) on typed `let` from typed call return (`Int` annotated, `String` return)
 - `15_effect_missing_from_caller.flx`
   - Expected: compile-time failure (`E400`) when a typed-pure caller invokes a `with IO` function
+- `16_inferred_effect_missing_on_typed_caller.flx`
+  - Expected: compile-time failure (`E400`) when caller declares `with Time` but invokes an IO function
+- `17_handle_unknown_operation.flx`
+  - Expected: compile-time failure (`E401`) when a `handle` arm names an operation not declared by the effect
+- `18_handle_incomplete_operation_set.flx`
+  - Expected: compile-time failure (`E402`) when a `handle` block misses declared effect operations
 
 ## Run
 
@@ -38,6 +44,9 @@ cargo run -- --no-cache examples/type_system/failing/07_typed_let_float_into_int
 cargo run -- --no-cache examples/type_system/failing/08_compile_identifier_type_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/09_compile_typed_call_return_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/15_effect_missing_from_caller.flx
+cargo run -- --no-cache examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx
+cargo run -- --no-cache examples/type_system/failing/17_handle_unknown_operation.flx
+cargo run -- --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx
 ```
 
 JIT (compile-time failure examples):
@@ -48,4 +57,7 @@ cargo run --features jit -- --no-cache examples/type_system/failing/07_typed_let
 cargo run --features jit -- --no-cache examples/type_system/failing/08_compile_identifier_type_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/09_compile_typed_call_return_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/15_effect_missing_from_caller.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/17_handle_unknown_operation.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx --jit
 ```
