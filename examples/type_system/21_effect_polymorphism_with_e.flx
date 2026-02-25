@@ -18,4 +18,6 @@ fn run() with IO {
     print(to_string(apply_twice(log_inc, 3)))
 }
 
-run()
+fn main() with IO {
+    run()
+}
