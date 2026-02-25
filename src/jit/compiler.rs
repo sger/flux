@@ -309,6 +309,39 @@ impl JitCompiler {
                 }
             }
 
+            // Entry-point convention: if `fn main()` exists and there is no explicit
+            // top-level `main()` call, invoke it once after top-level initialization.
+            let main_meta = scope
+                .functions
+                .iter()
+                .find_map(|(name, meta)| (interner.resolve(*name) == "main").then_some(*meta));
+            let has_explicit_top_level_main_call = program.statements.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Statement::Expression {
+                        expression: Expression::Call { function, arguments, .. },
+                        ..
+                    } if matches!(function.as_ref(), Expression::Identifier { name, .. } if interner.resolve(*name) == "main")
+                        && arguments.is_empty()
+                )
+            });
+            if let Some(meta) = main_meta && !has_explicit_top_level_main_call {
+                let main_result = compile_user_function_call(
+                    module,
+                    helpers,
+                    &mut builder,
+                    &mut scope,
+                    ctx_val,
+                    None,
+                    None,
+                    meta,
+                    crate::diagnostics::position::Span::default(),
+                    &[],
+                    interner,
+                )?;
+                last_val = Some(main_result);
+            }
+
             // Return the last expression value, or None
             let ret = match last_val {
                 Some(v) => v,

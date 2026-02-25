@@ -5,9 +5,8 @@ effect Console {
     read: () -> String
 }
 
-perform Console.print("hello") handle Console {
-    print(resume, msg) -> do {
-        print(msg)
-        resume(())
+fn main() with Console {
+    perform Console.print("hello") handle Console {
+        print(resume, _msg) -> resume(())
     }
 }
