@@ -29,6 +29,9 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `21_effect_polymorphism_with_e.flx` - effect polymorphism in higher-order functions (`with e`)
 - `22_handle_discharges_effect.flx` - static `handle` coverage discharges required effects for wrapped calls
 - `23_effect_polymorphism_chain_with_e.flx` - chained higher-order wrappers preserve `with e` effects
+- `24_unit_return_effectful.flx` - `Unit` return in an effectful function (`with IO`)
+- `25_none_return_compat.flx` - `None` return (currently accepted as unit-like)
+- `26_any_boundary_success.flx` - `Any` flowing through dynamic code and printed safely
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -54,6 +57,9 @@ cargo run -- examples/type_system/20_effect_inference_unannotated.flx
 cargo run -- examples/type_system/21_effect_polymorphism_with_e.flx
 cargo run -- examples/type_system/22_handle_discharges_effect.flx
 cargo run -- examples/type_system/23_effect_polymorphism_chain_with_e.flx
+cargo run -- examples/type_system/24_unit_return_effectful.flx
+cargo run -- examples/type_system/25_none_return_compat.flx
+cargo run -- examples/type_system/26_any_boundary_success.flx
 ```
 
 JIT:
@@ -68,6 +74,9 @@ cargo run --features jit -- examples/type_system/20_effect_inference_unannotated
 cargo run --features jit -- examples/type_system/21_effect_polymorphism_with_e.flx --jit
 cargo run --features jit -- examples/type_system/22_handle_discharges_effect.flx --jit
 cargo run --features jit -- examples/type_system/23_effect_polymorphism_chain_with_e.flx --jit
+cargo run --features jit -- examples/type_system/24_unit_return_effectful.flx --jit
+cargo run --features jit -- examples/type_system/25_none_return_compat.flx --jit
+cargo run --features jit -- examples/type_system/26_any_boundary_success.flx --jit
 ```
 
 Run everything:

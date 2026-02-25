@@ -331,7 +331,9 @@ impl JitCompiler {
                         && arguments.is_empty()
                 )
             });
-            if let Some(meta) = main_meta && !has_explicit_top_level_main_call {
+            if let Some(meta) = main_meta
+                && !has_explicit_top_level_main_call
+            {
                 let main_result = compile_user_function_call(
                     module,
                     helpers,
@@ -2402,11 +2404,9 @@ fn compile_jit_perform(
     let op_val = builder.ins().iconst(PTR_TYPE, op.as_u32() as i64);
 
     // Leak the name strings as stable pointers for the JIT runtime error messages.
-    let effect_str: &'static str =
-        Box::leak(interner.resolve(effect).to_owned().into_boxed_str());
+    let effect_str: &'static str = Box::leak(interner.resolve(effect).to_owned().into_boxed_str());
     let op_str: &'static str = Box::leak(interner.resolve(op).to_owned().into_boxed_str());
-    let effect_name_ptr =
-        builder.ins().iconst(PTR_TYPE, effect_str.as_ptr() as i64);
+    let effect_name_ptr = builder.ins().iconst(PTR_TYPE, effect_str.as_ptr() as i64);
     let effect_name_len = builder.ins().iconst(PTR_TYPE, effect_str.len() as i64);
     let op_name_ptr = builder.ins().iconst(PTR_TYPE, op_str.as_ptr() as i64);
     let op_name_len = builder.ins().iconst(PTR_TYPE, op_str.len() as i64);
@@ -2417,9 +2417,17 @@ fn compile_jit_perform(
     let call = builder.ins().call(
         rt_perform,
         &[
-            ctx_val, effect_val, op_val, args_ptr, nargs_val,
-            effect_name_ptr, effect_name_len, op_name_ptr, op_name_len,
-            line_val, col_val,
+            ctx_val,
+            effect_val,
+            op_val,
+            args_ptr,
+            nargs_val,
+            effect_name_ptr,
+            effect_name_len,
+            op_name_ptr,
+            op_name_len,
+            line_val,
+            col_val,
         ],
     );
     let result = builder.inst_results(call)[0];
@@ -2952,7 +2960,10 @@ fn validate_pattern_constructors_for_jit(
     match pattern {
         Pattern::Constructor { name, fields, .. } => {
             let Some(expected_arity) = scope.adt_constructors.get(name).copied() else {
-                return Err(format!("Unknown constructor `{}`.", interner.resolve(*name)));
+                return Err(format!(
+                    "Unknown constructor `{}`.",
+                    interner.resolve(*name)
+                ));
             };
             if fields.len() != expected_arity {
                 return Err(format!(

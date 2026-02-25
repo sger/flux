@@ -50,6 +50,10 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E015`) because `_ if ...` is guarded and does not count as a catch-all arm
 - `28_adt_nested_guard_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) when nested constructor arm is guarded and leaves constructors uncovered
+- `29_strict_missing_main.flx`
+  - Expected: compile-time failure (`E415`) in `--strict` mode because all strict programs require `fn main`
+- `30_strict_public_unannotated_effectful.flx`
+  - Expected: compile-time failure (`E416`, `E417`, `E418`) in `--strict` mode because a public effectful function must annotate params/return/effects
 
 ## Run
 
@@ -77,6 +81,8 @@ cargo run -- --no-cache examples/type_system/failing/25_adt_mixed_constructors_i
 cargo run -- --no-cache examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx
 cargo run -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
+cargo run -- --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx
+cargo run -- --no-cache --strict examples/type_system/failing/30_strict_public_unannotated_effectful.flx
 ```
 
 JIT (compile-time failure examples):
@@ -100,4 +106,6 @@ cargo run --features jit -- --no-cache examples/type_system/failing/25_adt_mixed
 cargo run --features jit -- --no-cache examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/30_strict_public_unannotated_effectful.flx --jit
 ```

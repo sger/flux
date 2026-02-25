@@ -1,0 +1,7 @@
+fn log(msg) {
+    print(msg)
+}
+
+fn main() -> Unit with IO {
+    log("strict mode")
+}
