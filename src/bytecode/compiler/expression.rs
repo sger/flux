@@ -22,8 +22,8 @@ use crate::{
         LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH, UNKNOWN_BASE_MEMBER,
         UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR, diag_enhanced,
-        types::ErrorType,
         position::{Position, Span},
+        types::ErrorType,
     },
     primop::{PrimEffect, resolve_primop_call},
     runtime::{
@@ -773,7 +773,9 @@ impl Compiler {
                     None
                 };
                 module_name
-                    .and_then(|module_name| self.lookup_contract(Some(module_name), *member, expected_arity))
+                    .and_then(|module_name| {
+                        self.lookup_contract(Some(module_name), *member, expected_arity)
+                    })
                     .map(|contract| {
                         contract
                             .effects
@@ -909,7 +911,8 @@ impl Compiler {
                 let name_str = self.sym(*name);
                 if args.is_empty() {
                     if let Some(expected_runtime) = convert_type_expr(expected, &self.interner) {
-                        return Self::runtime_types_compatible(&expected_runtime, actual).then_some(());
+                        return Self::runtime_types_compatible(&expected_runtime, actual)
+                            .then_some(());
                     }
                     // Treat unresolved named type in this position as a generic variable.
                     if let Some(bound) = substitutions.get(name) {
@@ -1863,7 +1866,9 @@ impl Compiler {
             PrimEffect::Time => Some("Time"),
             PrimEffect::Control | PrimEffect::Pure => None,
         };
-        if let Some(required_name) = required_name && !self.is_effect_available_name(required_name) {
+        if let Some(required_name) = required_name
+            && !self.is_effect_available_name(required_name)
+        {
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E400",
@@ -1955,7 +1960,9 @@ impl Compiler {
             .current_span
             .unwrap_or_else(|| Span::new(Position::default(), Position::default()));
 
-        let Some(has_operation) = self.effect_declared_ops(effect).map(|ops| ops.contains(&op))
+        let Some(has_operation) = self
+            .effect_declared_ops(effect)
+            .map(|ops| ops.contains(&op))
         else {
             let effect_name = self.sym(effect).to_string();
             return Err(Self::boxed(
@@ -2002,7 +2009,10 @@ impl Compiler {
                         self.sym(op),
                         effect_name
                     ),
-                    Some(format!("Add `with {}` to the enclosing function.", effect_name)),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        effect_name
+                    )),
                     self.file_path.clone(),
                     span,
                 )
@@ -2055,7 +2065,10 @@ impl Compiler {
                                 "Handler for `{}` includes unknown operation `{}`.",
                                 effect_name, op_name
                             ),
-                            Some("Add this operation to the effect declaration or remove the arm.".to_string()),
+                            Some(
+                                "Add this operation to the effect declaration or remove the arm."
+                                    .to_string(),
+                            ),
                             self.file_path.clone(),
                             arm.span,
                         )
@@ -2083,7 +2096,10 @@ impl Compiler {
                             "Handler for `{}` is missing operations: {}.",
                             effect_name, missing_names
                         ),
-                        Some("Add handler arms for all declared operations of the effect.".to_string()),
+                        Some(
+                            "Add handler arms for all declared operations of the effect."
+                                .to_string(),
+                        ),
                         self.file_path.clone(),
                         expr.span(),
                     )
@@ -2131,7 +2147,9 @@ impl Compiler {
         self.emit(OpCode::OpHandle, &[desc_idx]);
 
         // Compile the handled expression with the effect available in scope.
-        self.with_handled_effect(effect, |compiler| compiler.compile_non_tail_expression(expr))?;
+        self.with_handled_effect(effect, |compiler| {
+            compiler.compile_non_tail_expression(expr)
+        })?;
 
         // Remove the handler frame
         self.emit(OpCode::OpEndHandle, &[]);
@@ -2480,7 +2498,8 @@ impl Compiler {
                             first_adt, mixed_adt
                         ))
                         .with_hint_text(
-                            "Use constructors from a single ADT in a given match expression.".to_string(),
+                            "Use constructors from a single ADT in a given match expression."
+                                .to_string(),
                         ),
                 ));
             }

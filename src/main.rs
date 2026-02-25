@@ -50,6 +50,7 @@ fn main() {
     let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
+    let strict_mode = args.iter().any(|arg| arg == "--strict");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -91,6 +92,9 @@ fn main() {
     if test_mode {
         args.retain(|arg| arg != "--test");
     }
+    if strict_mode {
+        args.retain(|arg| arg != "--strict");
+    }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
         None => return,
@@ -125,6 +129,7 @@ fn main() {
                 gc_threshold,
                 use_jit,
                 test_filter.as_deref(),
+                strict_mode,
             );
         } else {
             run_file(
@@ -143,6 +148,7 @@ fn main() {
                 gc_telemetry,
                 use_jit,
                 show_stats,
+                strict_mode,
             );
         }
         return;
@@ -174,6 +180,7 @@ fn main() {
                     gc_threshold,
                     use_jit,
                     test_filter.as_deref(),
+                    strict_mode,
                 );
             } else {
                 run_file(
@@ -192,6 +199,7 @@ fn main() {
                     gc_telemetry,
                     use_jit,
                     show_stats,
+                    strict_mode,
                 );
             }
         }
@@ -211,7 +219,13 @@ fn main() {
                 eprintln!("Usage: flux bytecode <file.flx>");
                 return;
             }
-            show_bytecode(&args[2], enable_optimize, enable_analyze, max_errors);
+            show_bytecode(
+                &args[2],
+                enable_optimize,
+                enable_analyze,
+                max_errors,
+                strict_mode,
+            );
         }
         "lint" => {
             if args.len() < 3 {
@@ -302,6 +316,7 @@ Flags:
   --roots-only       Use only explicitly provided --root values
   --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
   --stats            Print execution analytics (parse/compile/execute times, module info)
+  --strict           Enable strict type/effect boundary checks
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -329,6 +344,7 @@ fn run_file(
     gc_telemetry: bool,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     show_stats: bool,
+    strict_mode: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -336,7 +352,13 @@ fn run_file(
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
             let roots_hash = roots_cache_hash(&roots);
-            let cache_key = hash_cache_key(&source_hash, &roots_hash);
+            let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
+            let strict_hash = hash_bytes(if strict_mode {
+                b"strict=1"
+            } else {
+                b"strict=0"
+            });
+            let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
             if !no_cache && !use_jit {
                 if let Some(bytecode) =
@@ -444,6 +466,7 @@ fn run_file(
             // --- Compile valid modules, suppress cascade ---
             let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+            compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
             for node in graph.topo_order() {
                 // Skip entry if it had parse errors (it is in topo_order but
@@ -670,6 +693,7 @@ fn run_test_file(
     gc_threshold: Option<usize>,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     test_filter: Option<&str>,
+    strict_mode: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -725,6 +749,7 @@ fn run_test_file(
 
     // --- Compile ---
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+    compiler.set_strict_mode(strict_mode);
     for node in graph.topo_order() {
         if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
             continue;
@@ -1124,7 +1149,13 @@ fn show_tokens(path: &str) {
     }
 }
 
-fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_errors: usize) {
+fn show_bytecode(
+    path: &str,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    max_errors: usize,
+    strict_mode: bool,
+) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1158,6 +1189,7 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
+            compiler.set_strict_mode(strict_mode);
             if let Err(diags) =
                 compiler.compile_with_opts(&program, enable_optimize, enable_analyze)
             {

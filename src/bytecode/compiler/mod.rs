@@ -98,6 +98,7 @@ pub struct Compiler {
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
+    strict_mode: bool,
 }
 
 #[cfg(test)]
@@ -149,6 +150,7 @@ impl Compiler {
             adt_registry: AdtRegistry::new(),
             effect_ops_registry: HashMap::new(),
             type_env: TypeEnv::new(),
+            strict_mode: false,
         }
     }
 
@@ -188,6 +190,10 @@ impl Compiler {
         self.function_effects.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
+    }
+
+    pub fn set_strict_mode(&mut self, strict_mode: bool) {
+        self.strict_mode = strict_mode;
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -364,8 +370,8 @@ impl Compiler {
                 if !seed.declared_effects.is_empty() {
                     continue;
                 }
-                let is_fully_unannotated = !seed.parameter_types.iter().any(Option::is_some)
-                    && seed.return_type.is_none();
+                let is_fully_unannotated =
+                    !seed.parameter_types.iter().any(Option::is_some) && seed.return_type.is_none();
                 if !is_fully_unannotated {
                     continue;
                 }
@@ -456,15 +462,29 @@ impl Compiler {
         match statement {
             Statement::Let { value, .. }
             | Statement::LetDestructure { value, .. }
-            | Statement::Assign { value, .. } => {
-                self.infer_effects_from_expr(value, current_module, inferred, io_effect, time_effect)
-            }
+            | Statement::Assign { value, .. } => self.infer_effects_from_expr(
+                value,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
             Statement::Return {
                 value: Some(value), ..
-            } => self.infer_effects_from_expr(value, current_module, inferred, io_effect, time_effect),
-            Statement::Expression { expression, .. } => {
-                self.infer_effects_from_expr(expression, current_module, inferred, io_effect, time_effect)
-            }
+            } => self.infer_effects_from_expr(
+                value,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
+            Statement::Expression { expression, .. } => self.infer_effects_from_expr(
+                expression,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
             _ => HashSet::new(),
         }
     }
@@ -510,8 +530,13 @@ impl Compiler {
                 time_effect,
             ),
             Expression::Infix { left, right, .. } => {
-                let mut effects =
-                    self.infer_effects_from_expr(left, current_module, inferred, io_effect, time_effect);
+                let mut effects = self.infer_effects_from_expr(
+                    left,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
                 effects.extend(self.infer_effects_from_expr(
                     right,
                     current_module,
@@ -607,8 +632,13 @@ impl Compiler {
                 effects
             }
             Expression::Index { left, index, .. } => {
-                let mut effects =
-                    self.infer_effects_from_expr(left, current_module, inferred, io_effect, time_effect);
+                let mut effects = self.infer_effects_from_expr(
+                    left,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
                 effects.extend(self.infer_effects_from_expr(
                     index,
                     current_module,
@@ -638,10 +668,17 @@ impl Compiler {
                 }
                 effects
             }
-            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
-                self.infer_effects_from_expr(object, current_module, inferred, io_effect, time_effect)
-            }
-            Expression::Match { scrutinee, arms, .. } => {
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => self.infer_effects_from_expr(
+                object,
+                current_module,
+                inferred,
+                io_effect,
+                time_effect,
+            ),
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
                 let mut effects = self.infer_effects_from_expr(
                     scrutinee,
                     current_module,
@@ -679,8 +716,13 @@ impl Compiler {
                 time_effect,
             ),
             Expression::Cons { head, tail, .. } => {
-                let mut effects =
-                    self.infer_effects_from_expr(head, current_module, inferred, io_effect, time_effect);
+                let mut effects = self.infer_effects_from_expr(
+                    head,
+                    current_module,
+                    inferred,
+                    io_effect,
+                    time_effect,
+                );
                 effects.extend(self.infer_effects_from_expr(
                     tail,
                     current_module,
@@ -705,10 +747,7 @@ impl Compiler {
                 effects
             }
             Expression::Handle {
-                expr,
-                effect,
-                arms,
-                ..
+                expr, effect, arms, ..
             } => {
                 let mut effects = self.infer_effects_from_expr(
                     expr,
@@ -849,7 +888,9 @@ impl Compiler {
                 );
             }
 
-            if let Some(ret) = return_type && !Self::is_unit_type_annotation(ret, &self.interner) {
+            if let Some(ret) = return_type
+                && !Self::is_unit_type_annotation(ret, &self.interner)
+            {
                 self.errors.push(
                     Diagnostic::make_error_dynamic(
                         "E412",
@@ -895,13 +936,17 @@ impl Compiler {
                 Statement::Expression {
                     expression, span, ..
                 } => (
-                    self.infer_effects_from_expr(expression, None, &inferred, io_effect, time_effect),
+                    self.infer_effects_from_expr(
+                        expression,
+                        None,
+                        &inferred,
+                        io_effect,
+                        time_effect,
+                    ),
                     *span,
                 ),
                 Statement::Let { value, span, .. }
-                | Statement::LetDestructure {
-                    value, span, ..
-                }
+                | Statement::LetDestructure { value, span, .. }
                 | Statement::Assign { value, span, .. } => (
                     self.infer_effects_from_expr(value, None, &inferred, io_effect, time_effect),
                     *span,
@@ -950,13 +995,173 @@ impl Compiler {
                         "MISSING MAIN FUNCTION",
                         ErrorType::Compiler,
                         "Effectful program is missing `fn main` root effect handler.",
-                        Some("Define `fn main() with ... { ... }` and move execution there.".to_string()),
+                        Some(
+                            "Define `fn main() with ... { ... }` and move execution there."
+                                .to_string(),
+                        ),
                         self.file_path.clone(),
                         span,
                     )
                     .with_primary_label(span, "effectful top-level execution"),
                 );
                 missing_root_reported = true;
+            }
+        }
+    }
+
+    fn validate_strict_mode(&mut self, program: &Program, has_main: bool) {
+        if !self.strict_mode {
+            return;
+        }
+
+        if !has_main {
+            self.errors.push(
+                Diagnostic::make_error_dynamic(
+                    "E415",
+                    "MISSING MAIN FUNCTION (STRICT)",
+                    ErrorType::Compiler,
+                    "Strict mode requires `fn main()` for all programs.",
+                    Some("Add `fn main() { ... }` as the program entrypoint.".to_string()),
+                    self.file_path.clone(),
+                    program.span,
+                )
+                .with_primary_label(program.span, "no `main` entrypoint found"),
+            );
+        }
+
+        for statement in &program.statements {
+            self.validate_strict_mode_statement(statement, None);
+        }
+    }
+
+    fn validate_strict_mode_statement(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
+        match statement {
+            Statement::Function {
+                name,
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                span,
+                ..
+            } => {
+                if self.is_public_function_name(*name) {
+                    if parameter_types.iter().any(Option::is_none) {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E416",
+                                "STRICT FUNCTION ANNOTATION REQUIRED",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Public function `{}` must annotate all parameters in strict mode.",
+                                    self.sym(*name)
+                                ),
+                                Some("Add explicit parameter types to the function signature.".to_string()),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_primary_label(*span, "missing parameter type annotations"),
+                        );
+                    }
+
+                    if return_type.is_none() {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E417",
+                                "STRICT RETURN ANNOTATION REQUIRED",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Public function `{}` must declare a return type in strict mode.",
+                                    self.sym(*name)
+                                ),
+                                Some("Add `-> Type` to the function signature.".to_string()),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_primary_label(*span, "missing return type annotation"),
+                        );
+                    }
+
+                    let is_effectful = self
+                        .lookup_contract(module_name, *name, parameters.len())
+                        .is_some_and(|contract| !contract.effects.is_empty());
+                    if is_effectful && effects.is_empty() {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E418",
+                                "STRICT EFFECT ANNOTATION REQUIRED",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Public effectful function `{}` must declare `with ...` in strict mode.",
+                                    self.sym(*name)
+                                ),
+                                Some("Add explicit `with EffectName` to the function signature.".to_string()),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_primary_label(*span, "missing explicit effect annotation"),
+                        );
+                    }
+                }
+
+                for ty in parameter_types.iter().flatten() {
+                    self.warn_on_any_type_expr_in_strict(ty);
+                }
+                if let Some(ret) = return_type {
+                    self.warn_on_any_type_expr_in_strict(ret);
+                }
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.validate_strict_mode_statement(nested, Some(*name));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn is_public_function_name(&self, name: Symbol) -> bool {
+        !self.sym(name).starts_with('_')
+    }
+
+    fn warn_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
+        if !Self::type_expr_contains_any(ty, &self.interner) {
+            return;
+        }
+
+        let span = ty.span();
+        self.errors.push(
+            Diagnostic::make_warning(
+                "W610",
+                "STRICT ANY TYPE",
+                "Using `Any` in strict mode weakens static guarantees.",
+                self.file_path.clone(),
+                span,
+            )
+            .with_primary_label(span, "`Any` used here"),
+        );
+    }
+
+    fn type_expr_contains_any(ty: &TypeExpr, interner: &Interner) -> bool {
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                interner.resolve(*name) == "Any"
+                    || args
+                        .iter()
+                        .any(|arg| Self::type_expr_contains_any(arg, interner))
+            }
+            TypeExpr::Tuple { elements, .. } => elements
+                .iter()
+                .any(|elem| Self::type_expr_contains_any(elem, interner)),
+            TypeExpr::Function { params, ret, .. } => {
+                params
+                    .iter()
+                    .any(|param| Self::type_expr_contains_any(param, interner))
+                    || Self::type_expr_contains_any(ret, interner)
             }
         }
     }
@@ -1127,6 +1332,7 @@ impl Compiler {
         self.collect_effect_declarations(program);
         let has_main = self.validate_main_entrypoint(program);
         self.validate_top_level_effectful_code(program, has_main);
+        self.validate_strict_mode(program, has_main);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion

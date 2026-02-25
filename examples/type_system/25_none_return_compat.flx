@@ -1,0 +1,10 @@
+// `None` return: currently accepted as unit-like.
+
+fn no_result() -> None {
+    None
+}
+
+fn main() -> Unit with IO {
+    no_result()
+    print("none return example")
+}

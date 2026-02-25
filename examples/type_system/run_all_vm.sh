@@ -15,6 +15,11 @@ examples=(
   "examples/type_system/19_effect_call_propagation.flx"
   "examples/type_system/20_effect_inference_unannotated.flx"
   "examples/type_system/21_effect_polymorphism_with_e.flx"
+  "examples/type_system/22_handle_discharges_effect.flx"
+  "examples/type_system/23_effect_polymorphism_chain_with_e.flx"
+  "examples/type_system/24_unit_return_effectful.flx"
+  "examples/type_system/25_none_return_compat.flx"
+  "examples/type_system/26_any_boundary_success.flx"
 )
 
 for file in "${examples[@]}"; do

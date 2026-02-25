@@ -891,7 +891,10 @@ impl Parser {
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
-        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
+        let effect = self
+            .lexer
+            .interner_mut()
+            .intern(&self.current_token.literal);
 
         // `.`
         if !self.expect_peek(TokenType::Dot) {
@@ -902,7 +905,10 @@ impl Parser {
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
-        let operation = self.lexer.interner_mut().intern(&self.current_token.literal);
+        let operation = self
+            .lexer
+            .interner_mut()
+            .intern(&self.current_token.literal);
 
         // `(`
         if !self.expect_peek(TokenType::LParen) {
@@ -930,7 +936,10 @@ impl Parser {
         if !self.expect_peek(TokenType::Ident) {
             return None;
         }
-        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
+        let effect = self
+            .lexer
+            .interner_mut()
+            .intern(&self.current_token.literal);
 
         // Expect `{`
         if !self.expect_peek(TokenType::LBrace) {

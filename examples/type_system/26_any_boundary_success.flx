@@ -1,0 +1,10 @@
+// `Any` usage: value stays dynamic and is consumed by dynamic-friendly code.
+
+fn identity(x: Any) -> Any {
+    x
+}
+
+fn main() -> Unit with IO {
+    let value = identity(42)
+    print(to_string(value))
+}
