@@ -39,6 +39,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
+    types::type_env::TypeEnv,
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -570,7 +571,24 @@ impl Compiler {
             Expression::String { .. } | Expression::InterpolatedString { .. } => {
                 Some(RuntimeType::String)
             }
-            Expression::Identifier { name, .. } => self.lookup_static_type(*name),
+            Expression::Identifier { name, .. } => {
+                // 1. Annotated types (from contract collection) have highest priority.
+                if let Some(rt) = self.lookup_static_type(*name) {
+                    return Some(rt);
+                }
+                // 2. Fall back to HM-inferred types for unannotated let/fn bindings.
+                //    Only use monomorphic (non-generic), non-Any results to avoid
+                //    false confidence on unresolved type variables.
+                if let Some(scheme) = self.type_env.lookup(*name) {
+                    if scheme.forall.is_empty() {
+                        let rt = TypeEnv::to_runtime(&scheme.infer_type, &Default::default());
+                        if rt != RuntimeType::Any {
+                            return Some(rt);
+                        }
+                    }
+                }
+                None
+            }
             Expression::Call {
                 function,
                 arguments,

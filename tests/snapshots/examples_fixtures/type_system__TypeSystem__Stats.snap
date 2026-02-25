@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/TypeSystem/Stats.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `TypeSystem.Stats` doesn't match file path `examples/type_system/TypeSystem/Stats.flx`.
+
+  --> examples/type_system/TypeSystem/Stats.flx:9:1
+  |
+9 | module TypeSystem.Stats {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

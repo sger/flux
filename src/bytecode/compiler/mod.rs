@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::{TailCall, collect_free_vars_in_program, find_tail_calls},
+    ast::{TailCall, collect_free_vars_in_program, find_tail_calls, type_infer::infer_program},
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -26,6 +26,7 @@ use crate::{
         interner::Interner, pattern_validate::validate_program_patterns, program::Program,
         statement::Statement, symbol::Symbol,
     },
+    types::type_env::TypeEnv,
 };
 
 mod adt_definition;
@@ -71,6 +72,8 @@ pub struct Compiler {
     pub module_contracts: ModuleContractTable,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) adt_registry: AdtRegistry,
+    /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
+    pub(super) type_env: TypeEnv,
 }
 
 #[cfg(test)]
@@ -118,6 +121,7 @@ impl Compiler {
             module_contracts: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
+            type_env: TypeEnv::new(),
         }
     }
 
@@ -153,6 +157,7 @@ impl Compiler {
         self.module_contracts.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
+        self.type_env = TypeEnv::new();
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -378,6 +383,22 @@ impl Compiler {
             }
         }
 
+        // HM type inference pass — runs after predeclaration, before code generation.
+        // The resulting TypeEnv is used by `static_expr_type` to enrich identifier
+        // type lookup for unannotated bindings.
+        //
+        // Diagnostics from this pass are guarded by a concrete-types-only filter
+        // inside `unify_reporting`: only errors where *both* conflicting types are
+        // fully resolved (no free type variables) are emitted. This prevents
+        // spurious failures in partially-typed programs where base-function return
+        // types are not yet registered in the inference environment.
+        let hm_diagnostics = {
+            let (type_env, diags) =
+                infer_program(program, &self.interner, Some(self.file_path.clone()));
+            self.type_env = type_env;
+            diags
+        };
+
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
         self.errors.extend(validate_program_patterns(
@@ -391,6 +412,11 @@ impl Compiler {
                 self.errors.push(*err);
             }
         }
+
+        // HM diagnostics appended after bytecode errors so that specific,
+        // actionable errors (e.g. E077 legacy list tail, E055 contract mismatch)
+        // surface first in the error list.
+        self.errors.extend(hm_diagnostics);
 
         // Return all errors at the end
         if !self.errors.is_empty() {

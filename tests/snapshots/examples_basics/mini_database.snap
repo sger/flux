@@ -3,8 +3,65 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/mini_database.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Unit with Bool.
+
+  --> examples/basics/mini_database.flx:45:9
+   |
+45 |         if opt_eq(record["id"], id) {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+46 |             record;
+   | ^^^^^^^^^^^^^^^^^^^
+47 |         } else {
+   | ^^^^^^^^^^^^^^^^
+48 |             findById(rest(records), id);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+49 |         };
+   | ^^^^^^^^^
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Unit with Bool.
+
+  --> examples/basics/mini_database.flx:62:9
+   |
+62 |         if opt_eq(record["name"], name) {
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+63 |             record;
+   | ^^^^^^^^^^^^^^^^^^^
+64 |         } else {
+   | ^^^^^^^^^^^^^^^^
+65 |             findByName(rest(records), name);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+66 |         };
+   | ^^^^^^^^^
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/basics/mini_database.flx:70:15
+   |
+70 | let charlie = findByName(db, "Charlie");
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |               ------------------------- expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/basics/mini_database.flx:77:14
+   |
+77 | let nobody = findByName(db, "Nobody");
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^
+   |              ------------------------ expected Int, found String
+
+Found 4 errors.
 == stdout ==
 <not executed>

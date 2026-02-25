@@ -1,0 +1,67 @@
+// Generic collection utilities module with typed higher-order functions.
+// Demonstrates: typed modules, generic functions, HOF, recursive typed functions.
+
+module TypeSystem.Collections {
+
+    // Generic map over a typed list.
+    fn map_list<T, U>(xs: List<T>, f: (T) -> U) -> List<U> {
+        match xs {
+            [h | t] -> [f(h) | map_list(t, f)],
+            _ -> []
+        }
+    }
+
+    // Generic filter with a typed predicate.
+    fn filter_list<T>(xs: List<T>, pred: (T) -> Bool) -> List<T> {
+        match xs {
+            [h | t] -> if pred(h) {
+                [h | filter_list(t, pred)]
+            } else {
+                filter_list(t, pred)
+            },
+            _ -> []
+        }
+    }
+
+    // Generic fold (left).
+    fn fold_list<T, U>(xs: List<T>, acc: U, f: (U, T) -> U) -> U {
+        match xs {
+            [h | t] -> fold_list(t, f(acc, h), f),
+            _ -> acc
+        }
+    }
+
+    // Generic zip — pairs elements from two lists.
+    fn zip_lists<A, B>(xs: List<A>, ys: List<B>) -> List<(A, B)> {
+        match (xs, ys) {
+            ([x | xt], [y | yt]) -> [(x, y) | zip_lists(xt, yt)],
+            _ -> []
+        }
+    }
+
+    // Take the first n elements.
+    fn take<T>(xs: List<T>, n: Int) -> List<T> {
+        if n <= 0 {
+            []
+        } else {
+            match xs {
+                [h | t] -> [h | take(t, n - 1)],
+                _ -> []
+            }
+        }
+    }
+
+    // Sum a list of integers.
+    fn sum_ints(xs: List<Int>) -> Int {
+        fold_list(xs, 0, \(acc, x) -> acc + x)
+    }
+
+    // Concatenate a list of strings with a separator.
+    fn join_strings(xs: List<String>, sep: String) -> String {
+        fn step(acc: String, s: String) -> String { acc + sep + s }
+        match xs {
+            [h | t] -> fold_list(t, h, step),
+            _ -> ""
+        }
+    }
+}

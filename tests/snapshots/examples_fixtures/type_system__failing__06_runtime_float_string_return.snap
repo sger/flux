@@ -5,6 +5,17 @@ Fixture: examples/type_system/failing/06_runtime_float_string_return.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Float.
+
+  --> examples/type_system/failing/06_runtime_float_string_return.flx:1:22
+  |
+1 | fn compute_rate() -> Float {
+  |                      ^^^^^
+  |                      ----- expected String, found Float
+
+
 --> compiler error[E055]: TYPE MISMATCH
 
 Expected Float, got String.
@@ -17,5 +28,7 @@ Expected Float, got String.
 
 Help:
   return expression type does not match the declared return type
+
+Found 2 errors.
 == stdout ==
 <not executed>
