@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     diagnostics::{
         Diagnostic,
-        compiler_errors::{OCCURS_CHECK_FAILURE, TYPE_UNIFICATION_ERROR},
+        compiler_errors::{occurs_check_failure, type_unification_error},
         position::Span,
     },
     syntax::{
@@ -54,6 +54,25 @@ impl<'a> InferCtx<'a> {
 
     // ── Unification with error recovery ──────────────────────────────────────
 
+    /// Join two types for branch contexts (if/else, match arms).
+    ///
+    /// Unlike `unify_reporting`, this does NOT add substitution constraints —
+    /// it only compares the already-resolved types.  When the resolved types
+    /// agree exactly, the common type is returned.  When they differ, `Any` is
+    /// returned without modifying the substitution.
+    ///
+    /// This models Flux's gradual type system where different branches may
+    /// legitimately produce values of different types (union falls back to Any).
+    fn join_types(&mut self, t1: &InferType, t2: &InferType) -> InferType {
+        let t1_sub = t1.apply_type_subst(&self.subst);
+        let t2_sub = t2.apply_type_subst(&self.subst);
+        if t1_sub == t2_sub {
+            t1_sub
+        } else {
+            InferType::Con(TypeConstructor::Any)
+        }
+    }
+
     /// Unify `t1` with `t2`, composing the result into `self.subst`.
     ///
     /// On success, returns the resolved first type.
@@ -69,30 +88,34 @@ impl<'a> InferCtx<'a> {
                 t1_sub.apply_type_subst(&self.subst)
             }
             Err(e) => {
-                let file = self.file_path.clone();
-                let diag = match e.kind {
-                    UnifyErrorKind::OccursCheck(v) => {
-                        let v_str = format!("t{v}");
-                        let ty_str = e.actual.to_string();
-                        Diagnostic::make_error(
-                            &OCCURS_CHECK_FAILURE,
-                            &[&v_str, &ty_str],
-                            file,
-                            span,
-                        )
-                    }
-                    UnifyErrorKind::Mismatch => {
-                        let exp_str = e.expected.to_string();
-                        let act_str = e.actual.to_string();
-                        Diagnostic::make_error(
-                            &TYPE_UNIFICATION_ERROR,
-                            &[&exp_str, &act_str],
-                            file,
-                            span,
-                        )
-                    }
-                };
-                self.errors.push(diag);
+                // Only emit a diagnostic when both conflicting types are fully
+                // concrete (no unresolved type variables) and neither is `Any`.
+                //
+                // This prevents false positives in gradual / partially-typed code
+                // where a fresh variable from an uninferred base-function call
+                // collides with a known type — those conflicts resolve to `Any`
+                // once the base-function signature is known.
+                let should_emit = e.expected.is_concrete()
+                    && e.actual.is_concrete()
+                    && !e.expected.is_any()
+                    && !e.actual.is_any();
+
+                if should_emit {
+                    let file = self.file_path.clone();
+                    let diag = match e.kind {
+                        UnifyErrorKind::OccursCheck(v) => {
+                            let v_str = format!("t{v}");
+                            let ty_str = e.actual.to_string();
+                            occurs_check_failure(file, span, &v_str, &ty_str)
+                        }
+                        UnifyErrorKind::Mismatch => {
+                            let exp_str = e.expected.to_string();
+                            let act_str = e.actual.to_string();
+                            type_unification_error(file, span, &exp_str, &act_str)
+                        }
+                    };
+                    self.errors.push(diag);
+                }
                 InferType::Con(TypeConstructor::Any)
             }
         }
@@ -361,7 +384,9 @@ impl<'a> InferCtx<'a> {
                 match alternative {
                     Some(alt) => {
                         let else_ty = self.infer_block(alt);
-                        self.unify_reporting(&then_ty, &else_ty, *span)
+                        // In Flux's gradual type system branches may legitimately
+                        // return different types — the result is `Any`.  No E300.
+                        self.join_types(&then_ty, &else_ty)
                     }
                     None => then_ty,
                 }
@@ -402,7 +427,8 @@ impl<'a> InferCtx<'a> {
                     }
                     let arm_ty = self.infer_expr(&arm.body);
                     self.env.leave_scope();
-                    result_ty = self.unify_reporting(&result_ty, &arm_ty, *span);
+                    // Same gradual-typing rationale as if/else: arms may differ.
+                    result_ty = self.join_types(&result_ty, &arm_ty);
                 }
                 result_ty
             }
@@ -484,19 +510,29 @@ impl<'a> InferCtx<'a> {
                 }
             }
 
-            Expression::ArrayLiteral { elements, span } => {
+            Expression::ArrayLiteral { elements, .. } => {
+                // Flux arrays (`[| |]`) are heterogeneous at runtime (Array<Any>).
+                // Infer each element for substitution side-effects, then return
+                // Array<T> when all elements agree on T, or Array<Any> otherwise.
                 if elements.is_empty() {
                     InferType::App(TypeConstructor::Array, vec![self.env.fresh_infer_type()])
                 } else {
                     let first = self.infer_expr(&elements[0]);
+                    let mut homogeneous = true;
                     for e in elements.iter().skip(1) {
                         let t = self.infer_expr(e);
-                        self.unify_reporting(&first, &t, *span);
+                        let t_r = t.apply_type_subst(&self.subst);
+                        let f_r = first.apply_type_subst(&self.subst);
+                        if t_r != f_r {
+                            homogeneous = false;
+                        }
                     }
-                    InferType::App(
-                        TypeConstructor::Array,
-                        vec![first.apply_type_subst(&self.subst)],
-                    )
+                    let elem_ty = if homogeneous {
+                        first.apply_type_subst(&self.subst)
+                    } else {
+                        InferType::Con(TypeConstructor::Any)
+                    };
+                    InferType::App(TypeConstructor::Array, vec![elem_ty])
                 }
             }
 
@@ -558,10 +594,17 @@ impl<'a> InferCtx<'a> {
         let lt = self.infer_expr(left);
         let rt = self.infer_expr(right);
         match op {
-            // Arithmetic — operands must agree; result has the same type.
+            // Arithmetic — Flux allows mixed Int/Float arithmetic (e.g. `1 + 2.5`).
+            // We do NOT require operand agreement; instead we propagate the concrete
+            // type when both sides agree, and fall back to Any for mixed or unknown.
             "+" | "-" | "*" | "/" | "%" => {
-                self.unify_reporting(&lt, &rt, span);
-                lt.apply_type_subst(&self.subst)
+                let lt_r = lt.apply_type_subst(&self.subst);
+                let rt_r = rt.apply_type_subst(&self.subst);
+                if lt_r == rt_r {
+                    lt_r
+                } else {
+                    InferType::Con(TypeConstructor::Any)
+                }
             }
             // Comparisons — operands must agree; result is Bool.
             "==" | "!=" | "<" | "<=" | ">" | ">=" => {

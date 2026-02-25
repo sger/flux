@@ -1,0 +1,92 @@
+// Complete typed program: student grade report generator.
+//
+// Demonstrates:
+//   - Data ADTs (Grade, Summary) inside a typed module — used as opaque values
+//   - Grade values flow between module functions without exposing constructors
+//   - Summary ADT accessed via typed accessor functions
+//   - grade_distribution returns a typed tuple using the Grade ADT internally
+//   - Typed higher-order functions across two modules (Stats, Collections)
+
+import TypeSystem.Stats as Stats
+import TypeSystem.Collections as C
+
+// ── Data ─────────────────────────────────────────────────────────────────
+
+let students: List<(String, Int)> = list(
+    ("Alice",   92),
+    ("Bob",     75),
+    ("Charlie", 58),
+    ("Dana",    88),
+    ("Eve",     63),
+    ("Frank",   97),
+    ("Grace",   44),
+    ("Henry",   81)
+)
+
+let scores: List<Int> = C.map_list(students, \(p: (String, Int)) -> p.1)
+
+// ── Summary ADT — all fields via typed accessors ──────────────────────────
+
+let stats: Summary = Stats.summarize(scores)
+
+// ── Report: per-student lines ─────────────────────────────────────────────
+
+fn report_line(name: String, score: Int) -> String {
+    // score_to_grade returns an opaque Grade ADT value.
+    // We pass it to grade_to_string / grade_points — Grade stays inside Stats.
+    let g = Stats.score_to_grade(score)
+    "  " + name + ": " + to_string(score) +
+    " (" + Stats.grade_to_string(g) + ")" +
+    " [" + to_string(Stats.grade_points(g)) + " pts]"
+}
+
+print("=== Grade Report ===")
+print("")
+print("Scores by student:")
+C.fold_list(students, (), \(_, p: (String, Int)) ->
+    print(report_line(p.0, p.1))
+)
+
+// ── Statistics via Summary ADT ────────────────────────────────────────────
+
+print("")
+print("=== Statistics ===")
+Stats.summary_print(stats)
+
+let passing: List<Int> = Stats.keep_above(scores, 59)
+let failing: List<Int> = Stats.keep_below(scores, 60)
+print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+
+// ── Ranking ───────────────────────────────────────────────────────────────
+
+print("")
+print("=== Ranking (best to worst) ===")
+let ranked: List<(String, Int)> = Stats.rank(students)
+C.fold_list(ranked, 1, \(pos: Int, p: (String, Int)) -> do {
+    print("  #" + to_string(pos) + "  " + p.0 + "  " + to_string(p.1))
+    pos + 1
+})
+
+// ── Grade Distribution — ADT used internally, result is a plain tuple ─────
+
+print("")
+print("=== Grade Distribution ===")
+let dist: (Int, Int, Int, Int, Int) = Stats.grade_distribution(scores)
+print("  A (4pts): " + to_string(dist.0))
+print("  B (3pts): " + to_string(dist.1))
+print("  C (2pts): " + to_string(dist.2))
+print("  D (1pts): " + to_string(dist.3))
+print("  F (0pts): " + to_string(dist.4))
+
+// ── GPA per Student — Grade as opaque value flowing through stats functions ─
+
+print("")
+print("=== GPA per Student ===")
+C.fold_list(students, (), \(_, p: (String, Int)) -> do {
+    let g = Stats.score_to_grade(p.1)
+    let letter: String = Stats.grade_to_string(g)
+    let gpa: Int       = Stats.grade_points(g)
+    let status: String = if Stats.grade_passed(g) { "PASS" } else { "FAIL" }
+    print("  " + p.0 + ": " + letter + " (GPA " + to_string(gpa) + ") — " + status)
+})

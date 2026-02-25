@@ -863,3 +863,35 @@ pub fn unclosed_delimiter(
     }
     diag
 }
+
+// Type Inference Errors (E300–E399)
+
+/// Create a type unification error (E300) with a source snippet at `span`.
+///
+/// Used by the HM inference pass when two concrete types cannot be unified,
+/// e.g. `Int` vs `String` at a function call site.
+pub fn type_unification_error(
+    file: String,
+    span: Span,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(span)
+        .with_message(format!("Cannot unify {expected} with {actual}."))
+        .with_primary_label(span, format!("expected {expected}, found {actual}"))
+}
+
+/// Create an occurs-check failure (E301) with a source snippet at `span`.
+///
+/// Fires when a type variable would be bound to a type that contains itself,
+/// creating an infinite recursive type.
+pub fn occurs_check_failure(file: String, span: Span, var: &str, ty: &str) -> Diagnostic {
+    diag_enhanced(&OCCURS_CHECK_FAILURE)
+        .with_file(file)
+        .with_span(span)
+        .with_message(format!(
+            "Infinite type: type variable {var} occurs in {ty}."
+        ))
+}

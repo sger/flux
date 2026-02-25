@@ -3,8 +3,51 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/type_builtins.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/basics/type_builtins.flx:101:7
+    |
+101 | print(safeAdd(1, "hello"));
+    |       ^^^^^^^^^^^^^^^^^^^
+    |       ------------------- expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/basics/type_builtins.flx:120:7
+    |
+120 | print(describe("hello"));
+    |       ^^^^^^^^^^^^^^^^^
+    |       ----------------- expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Array<Int>.
+
+  --> examples/basics/type_builtins.flx:121:7
+    |
+121 | print(describe([|1, 2, 3|]));
+    |       ^^^^^^^^^^^^^^^^^^^^^
+    |       --------------------- expected Int, found Array<Int>
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/basics/type_builtins.flx:132:7
+    |
+132 | print(requireInt("age", "old"));
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |       ------------------------ expected Int, found String
+
+Found 4 errors.
 == stdout ==
 <not executed>

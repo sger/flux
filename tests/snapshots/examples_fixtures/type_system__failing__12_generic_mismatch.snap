@@ -1,0 +1,18 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/12_generic_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/12_generic_mismatch.flx:7:1
+  |
+7 | both(42, "hello")
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- expected Int, found String
+== stdout ==
+<not executed>
