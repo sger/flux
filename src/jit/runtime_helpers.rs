@@ -14,7 +14,9 @@ use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
+use crate::jit::context::{JitHandlerArm, JitHandlerFrame};
 use crate::primop::{PrimOp, execute_primop};
+use crate::runtime::RuntimeContext;
 use crate::runtime::{
     base::get_base_function_by_index,
     gc::{
@@ -1056,6 +1058,129 @@ pub extern "C" fn rt_adt_field(
 }
 
 // ---------------------------------------------------------------------------
+// Algebraic effects: handler push / pop / perform
+// ---------------------------------------------------------------------------
+
+/// Push an effect handler frame onto the JIT context's handler stack.
+///
+/// `ops_ptr` points to `narms` i64 values (symbol IDs for each op name).
+/// `closures_ptr` points to `narms` `*mut Value` pointers (arm closure Values).
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_push_handler(
+    ctx: *mut JitContext,
+    effect_id: i64,
+    ops_ptr: *const i64,
+    closures_ptr: *const *mut Value,
+    narms: i64,
+) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let narms = narms as usize;
+    let mut arms = Vec::with_capacity(narms);
+    for i in 0..narms {
+        let op = unsafe { *ops_ptr.add(i) } as u32;
+        let closure_val = unsafe { (*closures_ptr.add(i)).as_ref().unwrap().clone() };
+        arms.push(JitHandlerArm {
+            op,
+            closure: closure_val,
+        });
+    }
+    ctx.handler_stack.push(JitHandlerFrame {
+        effect: effect_id as u32,
+        arms,
+    });
+}
+
+/// Pop the top handler frame from the JIT context's handler stack.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_pop_handler(ctx: *mut JitContext) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    ctx.handler_stack.pop();
+}
+
+/// Perform an effect operation.
+///
+/// Searches the handler stack (from top) for a frame matching `effect_id`,
+/// then finds the arm matching `op_id`. Calls the arm synchronously, passing
+/// a shallow `resume` closure (identity: returns its argument) as the first
+/// argument followed by the operation arguments.
+///
+/// Returns null (and sets `ctx.error`) if no matching handler is found.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_perform(
+    ctx: *mut JitContext,
+    effect_id: i64,
+    op_id: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+) -> *mut Value {
+    let effect_u32 = effect_id as u32;
+    let op_u32 = op_id as u32;
+    let nargs = nargs as usize;
+
+    // Find matching handler (search from top of stack)
+    let arm_closure = {
+        let ctx_mut = unsafe { ctx_ref(ctx) };
+        let mut found: Option<Value> = None;
+        for frame in ctx_mut.handler_stack.iter().rev() {
+            if frame.effect == effect_u32 {
+                for arm in &frame.arms {
+                    if arm.op == op_u32 {
+                        found = Some(arm.closure.clone());
+                        break;
+                    }
+                }
+                if found.is_some() {
+                    break;
+                }
+                // Found effect but no matching op — error
+                ctx_mut.error = Some(format!(
+                    "unhandled operation in handler for effect {}",
+                    effect_u32
+                ));
+                return ptr::null_mut();
+            }
+        }
+        match found {
+            Some(c) => c,
+            None => {
+                ctx_mut.error = Some(format!(
+                    "unhandled effect: {} (no matching handle block)",
+                    effect_u32
+                ));
+                return ptr::null_mut();
+            }
+        }
+    };
+
+    // Collect operation arguments
+    let mut call_args: Vec<Value> = Vec::with_capacity(1 + nargs);
+
+    // Build the resume value: a JitClosure wrapping the identity function.
+    // `identity_fn_index == usize::MAX` means not yet compiled (shouldn't happen).
+    let identity_idx = unsafe { (*ctx).identity_fn_index };
+    let resume_val = Value::JitClosure(Rc::new(JitClosure::new(identity_idx, vec![])));
+    call_args.push(resume_val);
+
+    for i in 0..nargs {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            unsafe { ctx_ref(ctx) }.error = Some(format!("perform arg {} is null", i));
+            return ptr::null_mut();
+        }
+        call_args.push(unsafe { (*arg_ptr).clone() });
+    }
+
+    let ctx_mut = unsafe { ctx_ref(ctx) };
+    match ctx_mut.invoke_value(arm_closure, call_args) {
+        Ok(result) => ctx_mut.alloc(result),
+        Err(msg) => {
+            ctx_mut.error = Some(msg);
+            ptr::null_mut()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -1133,5 +1258,9 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_adt", rt_make_adt as *const u8),
         ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
         ("rt_adt_field", rt_adt_field as *const u8),
+        // Algebraic effects
+        ("rt_push_handler", rt_push_handler as *const u8),
+        ("rt_pop_handler", rt_pop_handler as *const u8),
+        ("rt_perform", rt_perform as *const u8),
     ]
 }

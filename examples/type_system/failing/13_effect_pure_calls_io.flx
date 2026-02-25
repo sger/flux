@@ -1,0 +1,12 @@
+// E400: annotated-pure function calls an IO effect.
+//
+// `compute` has a return-type annotation (`-> Int`) but no `with IO`.
+// It is treated as explicitly pure. Calling `print` inside its body
+// violates that guarantee.
+
+fn compute(x: Int) -> Int {
+    print(x)
+    x * 2
+}
+
+compute(5)
