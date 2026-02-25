@@ -1,4 +1,4 @@
-use crate::runtime::{RuntimeContext, value::Value};
+use crate::runtime::{RuntimeContext, base::helpers::check_arity_range, value::Value};
 
 use super::helpers::{arg_array, arg_int, arg_string, check_arity, format_hint};
 
@@ -150,35 +150,41 @@ pub(super) fn base_substring(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 3, "substring", "substring(s, start, end)")?;
+    check_arity_range(&args, 2, 3, "substring", "substring(s, start[,end])")?;
     let s = arg_string(
         &args,
         0,
         "substring",
         "first argument",
-        "substring(s, start, end)",
+        "substring(s, start[,end])",
     )?;
     let start = arg_int(
         &args,
         1,
         "substring",
         "second argument",
-        "substring(s, start, end)",
-    )?;
-    let end = arg_int(
-        &args,
-        2,
-        "substring",
-        "third argument",
-        "substring(s, start, end)",
+        "substring(s, start[,end])",
     )?;
     let chars: Vec<char> = s.chars().collect();
     let len = chars.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
-    let end = if end > len {
-        len as usize
+    let end = if args.len() == 3 {
+        let e = arg_int(
+            &args,
+            2,
+            "substring",
+            "third argument",
+            "substring(s, start[,end])",
+        )?;
+        if e < 0 {
+            0
+        } else if e > len {
+            len as usize
+        } else {
+            e as usize
+        }
     } else {
-        end as usize
+        len as usize
     };
     if start >= end || start >= chars.len() {
         Ok(Value::String(String::new().into()))
