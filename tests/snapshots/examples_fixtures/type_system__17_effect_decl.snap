@@ -1,0 +1,29 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/17_effect_decl.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found effect.
+
+  --> examples/type_system/17_effect_decl.flx:4:1
+  |
+4 | effect Console {
+  | ^^^^^^
+
+
+--> compiler error[E031]: EXPECTED EXPRESSION
+
+Expected expression, found effect.
+
+  --> examples/type_system/17_effect_decl.flx:9:1
+  |
+9 | effect State {
+  | ^^^^^^
+
+Found 2 errors.
+== stdout ==
+<not executed>

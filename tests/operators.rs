@@ -77,6 +77,7 @@ enum ExprShape {
     Call,
     Index,
     MemberAccess,
+    Handle,
 }
 
 fn expression_shape(expr: &Expression) -> ExprShape {
@@ -85,6 +86,7 @@ fn expression_shape(expr: &Expression) -> ExprShape {
         Expression::Call { .. } => ExprShape::Call,
         Expression::Index { .. } => ExprShape::Index,
         Expression::MemberAccess { .. } => ExprShape::MemberAccess,
+        Expression::Handle { .. } => ExprShape::Handle,
         other => panic!("unexpected expression shape in operator test: {:?}", other),
     }
 }
@@ -344,6 +346,8 @@ fn generic_infix_dispatch_is_in_sync_with_operator_registry() {
         .iter()
         .filter(|op| op.fixity == Fixity::Infix)
         .filter(|op| op.token != TokenType::Pipe)
+        // `handle` has specialized parsing (requires a `{ ... }` block), not generic infix.
+        .filter(|op| op.token != TokenType::Handle)
         .map(|op| op.token)
         .collect::<Vec<_>>();
     registry_generic.sort_by_key(|token| token.as_usize());
@@ -386,6 +390,10 @@ fn parser_dispatch_is_compatible_with_registered_infix_and_postfix_operators() {
     {
         let (src, expected_shape) = match op.token {
             TokenType::Pipe => ("a |> f;", ExprShape::Call), // lowered by specialized branch
+            TokenType::Handle => (
+                "a handle Console { print(resume, x) -> x };",
+                ExprShape::Handle,
+            ), // specialized parsing
             TokenType::Or => ("a || b;", ExprShape::Infix),
             TokenType::And => ("a && b;", ExprShape::Infix),
             TokenType::Eq => ("a == b;", ExprShape::Infix),

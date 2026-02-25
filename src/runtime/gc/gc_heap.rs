@@ -291,6 +291,29 @@ impl GcHeap {
                             i += 1;
                         }
                     }
+                    Value::Continuation(cont_rc) => {
+                        let cont = cont_rc.borrow();
+                        // Trace captured stack values
+                        for v in &cont.stack {
+                            worklist.push(WorkItem::Value(v.clone()));
+                        }
+                        // Trace free vars in captured frames' closures
+                        for frame in &cont.frames {
+                            for v in &frame.closure.free {
+                                worklist.push(WorkItem::Value(v.clone()));
+                            }
+                        }
+                        // Trace free vars in inner handlers' arm closures
+                        for hf in &cont.inner_handlers {
+                            for arm in &hf.arms {
+                                for v in &arm.closure.free {
+                                    worklist.push(WorkItem::Value(v.clone()));
+                                }
+                            }
+                        }
+                    }
+                    // Internal constant-pool values: no GC references
+                    Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {}
                     // Leaf types: no GC references
                     Value::Uninit
                     | Value::Integer(_)

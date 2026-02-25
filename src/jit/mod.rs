@@ -52,6 +52,7 @@ pub fn jit_compile(
     ctx.set_jit_functions(compiler.jit_function_entries());
     ctx.set_named_functions(compiler.named_functions());
     ctx.set_source_context(options.source_file.clone(), options.source_text.clone());
+    ctx.identity_fn_index = compiler.identity_fn_index;
 
     if options.no_gc {
         ctx.gc_heap.set_enabled(false);

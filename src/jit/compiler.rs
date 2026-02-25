@@ -160,6 +160,9 @@ pub struct JitCompiler {
     helpers: HelperFuncs,
     jit_functions: Vec<JitFunctionCompileEntry>,
     named_functions: HashMap<String, usize>,
+    /// Index in `jit_functions` of the compiled identity function used as
+    /// the `resume` value for shallow JIT handlers.
+    pub identity_fn_index: usize,
 }
 
 struct JitFunctionCompileEntry {
@@ -202,6 +205,7 @@ impl JitCompiler {
             },
             jit_functions: Vec::new(),
             named_functions: HashMap::new(),
+            identity_fn_index: usize::MAX,
         };
 
         compiler.declare_helpers()?;
@@ -326,7 +330,52 @@ impl JitCompiler {
             .define_function(main_id, &mut ctx)
             .map_err(|e| format!("define flux_main: {}", e))?;
 
+        // Compile the identity function used as the `resume` value in JIT shallow handlers.
+        self.identity_fn_index = self.compile_identity_function()?;
+
         Ok(main_id)
+    }
+
+    /// Compile a trivial `identity(ctx, args_ptr, nargs, captures_ptr, ncaptures) -> args_ptr[0]`
+    /// JIT function. Its function_index is stored in `self.identity_fn_index` and exposed
+    /// to the JIT context so `rt_perform` can build a callable `resume` closure.
+    fn compile_identity_function(&mut self) -> Result<usize, String> {
+        let sig = self.user_function_signature();
+        let func_id = self
+            .module
+            .declare_function("__flux_identity", cranelift_module::Linkage::Local, &sig)
+            .map_err(|e| format!("declare __flux_identity: {}", e))?;
+
+        let mut func = Function::with_name_signature(UserFuncName::default(), sig);
+        {
+            let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            // args_ptr is the second parameter (index 1). Load args_ptr[0].
+            let args_ptr = builder.block_params(entry)[1];
+            let first_arg = builder
+                .ins()
+                .load(PTR_TYPE, MemFlags::trusted(), args_ptr, 0);
+            builder.ins().return_(&[first_arg]);
+            builder.finalize();
+        }
+
+        let mut ctx = cranelift_codegen::Context::new();
+        ctx.func = func;
+        self.module
+            .define_function(func_id, &mut ctx)
+            .map_err(|e| format!("define __flux_identity: {}", e))?;
+
+        let function_index = self.jit_functions.len();
+        self.jit_functions.push(JitFunctionCompileEntry {
+            id: func_id,
+            num_params: 1,
+            contract: None,
+        });
+        Ok(function_index)
     }
 
     pub fn named_functions(&self) -> HashMap<String, usize> {
@@ -1378,6 +1427,10 @@ fn compile_statement(
             // ADT declarations are no-ops at runtime; constructors are called directly.
             Ok(StmtOutcome::None)
         }
+        Statement::EffectDecl { .. } => {
+            // Effect declarations are syntax-only; no JIT code emitted.
+            Ok(StmtOutcome::None)
+        }
     }
 }
 
@@ -2218,7 +2271,203 @@ fn compile_expression(
                 }
             }
         }
+        Expression::Perform {
+            effect,
+            operation,
+            args,
+            ..
+        } => compile_jit_perform(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            *effect,
+            *operation,
+            args,
+            interner,
+        ),
+        Expression::Handle {
+            expr, effect, arms, ..
+        } => compile_jit_handle(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            expr,
+            *effect,
+            arms,
+            interner,
+        ),
     }
+}
+
+/// Compile `perform Effect.op(args)` in JIT mode.
+#[allow(clippy::too_many_arguments)]
+fn compile_jit_perform(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    effect: crate::syntax::symbol::Symbol,
+    op: crate::syntax::symbol::Symbol,
+    args: &[Expression],
+    interner: &Interner,
+) -> Result<CraneliftValue, String> {
+    let mut arg_vals: Vec<CraneliftValue> = Vec::new();
+    for arg in args {
+        let val = compile_expression(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            arg,
+            interner,
+        )?;
+        arg_vals.push(val);
+    }
+
+    let nargs = arg_vals.len();
+    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (nargs.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, val) in arg_vals.iter().enumerate() {
+        builder.ins().stack_store(*val, slot, (i * 8) as i32);
+    }
+    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+    let op_val = builder.ins().iconst(PTR_TYPE, op.as_u32() as i64);
+
+    let rt_perform = get_helper_func_ref(module, helpers, builder, "rt_perform");
+    let call = builder.ins().call(
+        rt_perform,
+        &[ctx_val, effect_val, op_val, args_ptr, nargs_val],
+    );
+    let result = builder.inst_results(call)[0];
+
+    // Null result means rt_perform set an error in the context; propagate upward.
+    emit_return_on_null_value(builder, result);
+    Ok(result)
+}
+
+/// Compile `expr handle Effect { arms... }` in JIT mode.
+#[allow(clippy::too_many_arguments)]
+fn compile_jit_handle(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    expr: &Expression,
+    effect: crate::syntax::symbol::Symbol,
+    arms: &[crate::syntax::expression::HandleArm],
+    interner: &Interner,
+) -> Result<CraneliftValue, String> {
+    let num_arms = arms.len();
+    let mut op_sym_vals: Vec<CraneliftValue> = Vec::new();
+    let mut closure_vals: Vec<CraneliftValue> = Vec::new();
+
+    for arm in arms {
+        op_sym_vals.push(
+            builder
+                .ins()
+                .iconst(PTR_TYPE, arm.operation_name.as_u32() as i64),
+        );
+
+        // Build a synthetic Function expression for the arm body
+        let mut params = vec![arm.resume_param];
+        params.extend_from_slice(&arm.params);
+        let arm_span = arm.body.span();
+        let arm_fn_expr = Expression::Function {
+            parameters: params,
+            parameter_types: vec![None; 1 + arm.params.len()],
+            return_type: None,
+            effects: vec![],
+            body: crate::syntax::block::Block {
+                statements: vec![crate::syntax::statement::Statement::Expression {
+                    expression: arm.body.clone(),
+                    has_semicolon: false,
+                    span: arm_span,
+                }],
+                span: arm_span,
+            },
+            span: arm.span,
+        };
+        let cv = compile_function_literal(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            &arm_fn_expr,
+            interner,
+        )?;
+        closure_vals.push(cv);
+    }
+
+    // Store op symbols in a stack slot
+    let ops_slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (num_arms.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, ov) in op_sym_vals.iter().enumerate() {
+        builder.ins().stack_store(*ov, ops_slot, (i * 8) as i32);
+    }
+    let ops_ptr = builder.ins().stack_addr(PTR_TYPE, ops_slot, 0);
+
+    // Store closures in a stack slot
+    let cls_slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (num_arms.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, cv) in closure_vals.iter().enumerate() {
+        builder.ins().stack_store(*cv, cls_slot, (i * 8) as i32);
+    }
+    let closures_ptr = builder.ins().stack_addr(PTR_TYPE, cls_slot, 0);
+
+    let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+    let narms_val = builder.ins().iconst(PTR_TYPE, num_arms as i64);
+
+    let rt_push_handler = get_helper_func_ref(module, helpers, builder, "rt_push_handler");
+    builder.ins().call(
+        rt_push_handler,
+        &[ctx_val, effect_val, ops_ptr, closures_ptr, narms_val],
+    );
+
+    let result = compile_expression(
+        module,
+        helpers,
+        builder,
+        scope,
+        ctx_val,
+        return_block,
+        tail_call,
+        expr,
+        interner,
+    )?;
+
+    let rt_pop_handler = get_helper_func_ref(module, helpers, builder, "rt_pop_handler");
+    builder.ins().call(rt_pop_handler, &[ctx_val]);
+
+    Ok(result)
 }
 
 fn collect_adt_definitions(program: &Program, scope: &mut Scope, interner: &Interner) {
@@ -2705,14 +2954,7 @@ fn emit_pattern_check(
                 let elem_val = builder.inst_results(elem_call)[0];
                 let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
                 emit_pattern_check(
-                    module,
-                    helpers,
-                    builder,
-                    ctx_val,
-                    element,
-                    elem_val,
-                    next,
-                    fail_block,
+                    module, helpers, builder, ctx_val, element, elem_val, next, fail_block,
                     interner,
                 )?;
             }
@@ -3675,6 +3917,7 @@ impl LiteralCollector {
             }
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
@@ -3802,6 +4045,36 @@ impl LiteralCollector {
                     if let crate::syntax::expression::StringPart::Interpolation(expr) = part {
                         self.collect_expr(expr);
                     }
+                }
+            }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.collect_expr(arg);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.collect_expr(expr);
+                for arm in arms {
+                    // Build the same synthetic Function expression used by compile_jit_handle,
+                    // so each arm closure is pre-compiled as a literal function spec.
+                    let mut params = vec![arm.resume_param];
+                    params.extend_from_slice(&arm.params);
+                    let arm_fn_expr = Expression::Function {
+                        parameters: params.clone(),
+                        parameter_types: vec![None; params.len()],
+                        return_type: None,
+                        effects: vec![],
+                        body: crate::syntax::block::Block {
+                            statements: vec![crate::syntax::statement::Statement::Expression {
+                                expression: arm.body.clone(),
+                                has_semicolon: false,
+                                span: arm.body.span(),
+                            }],
+                            span: arm.body.span(),
+                        },
+                        span: arm.span,
+                    };
+                    self.collect_expr(&arm_fn_expr);
                 }
             }
             Expression::Identifier { .. }
@@ -4304,6 +4577,31 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_adt_field",
             HelperSig {
                 num_params: 3,
+                has_return: true,
+            },
+        ),
+        // Algebraic effects
+        // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms) -> void
+        (
+            "rt_push_handler",
+            HelperSig {
+                num_params: 5,
+                has_return: false,
+            },
+        ),
+        // rt_pop_handler(ctx) -> void
+        (
+            "rt_pop_handler",
+            HelperSig {
+                num_params: 1,
+                has_return: false,
+            },
+        ),
+        // rt_perform(ctx, effect_id, op_id, args_ptr, nargs) -> *mut Value
+        (
+            "rt_perform",
+            HelperSig {
+                num_params: 5,
                 has_return: true,
             },
         ),

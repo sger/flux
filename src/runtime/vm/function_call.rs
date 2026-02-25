@@ -8,6 +8,11 @@ use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;
 
+// OpPerform instruction size: opcode (1) + const_idx (1) + arity (1) = 3 bytes.
+// This constant is used during continuation resume to advance the captured frame's IP past OpPerform.
+// We don't need it here since the IP is already advanced during capture, but kept for documentation.
+const _OP_PERFORM_SIZE: usize = 3;
+
 impl VM {
     #[inline]
     fn check_closure_contract_stack_args(
@@ -84,7 +89,8 @@ impl VM {
             "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with" | "has_key"
             | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put" | "get" | "range"
             | "split_ints" | "assert_eq" | "assert_neq" => Some(2),
-            "replace" | "substring" | "fold" => Some(3),
+            "replace" | "fold" => Some(3),
+            "substring" => None, // accepts 2 or 3 args
             "read_stdin" => Some(0),
             "assert_true" | "assert_false" => Some(1),
             // Variadic / optional arity Base functions remain on generic path.
@@ -268,6 +274,71 @@ impl VM {
             }
             _ => Err("not a function".to_string()),
         }
+    }
+
+    /// Resume a captured continuation.
+    ///
+    /// Called from the OpCall dispatch when the callee is `Value::Continuation`.
+    /// `num_args` must be 1 (the resume value). Returns `Ok(())` with the VM
+    /// state restored to the captured continuation; ip_delta of 0 is returned by
+    /// the OpCall arm so the restored frame's IP is left unchanged.
+    pub(super) fn execute_resume(&mut self, num_args: usize) -> Result<(), String> {
+        if num_args != 1 {
+            return Err(format!("resume expects 1 argument, got {}", num_args));
+        }
+        let resume_val = self.pop_untracked()?;
+        let cont_val = self.pop_untracked()?; // the callee (Continuation)
+
+        let cont_rc = match cont_val {
+            Value::Continuation(rc) => rc,
+            _ => unreachable!("execute_resume called with non-Continuation callee"),
+        };
+
+        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers) = {
+            let mut cont = cont_rc.borrow_mut();
+            if cont.used {
+                return Err("continuation already resumed (one-shot)".to_string());
+            }
+            cont.used = true;
+            (
+                cont.entry_frame_index,
+                cont.entry_sp,
+                cont.frames.clone(),
+                cont.stack.clone(),
+                cont.sp,
+                cont.inner_handlers.clone(),
+            )
+        };
+
+        // Unwind all frames above the handler boundary.
+        self.frame_index = entry_frame_index;
+
+        // Reset stack to handler boundary.
+        self.reset_sp(entry_sp)?;
+
+        // Restore inner handlers that were nested inside the captured region.
+        for h in inner_handlers {
+            self.handler_stack.push(h);
+        }
+
+        // Restore the captured stack slice.
+        let stack_len = stack.len();
+        self.ensure_stack_capacity(entry_sp + stack_len + 1)?;
+        for (i, v) in stack.into_iter().enumerate() {
+            self.stack[entry_sp + i] = v;
+        }
+
+        // Place the resume value at the position corresponding to the result
+        // of the perform expression (= captured_sp, right after the saved stack).
+        self.stack[captured_sp] = resume_val;
+        self.sp = captured_sp + 1;
+
+        // Restore captured frames above the handler boundary.
+        for frame in frames {
+            self.push_frame(frame);
+        }
+
+        Ok(())
     }
 
     /// Invokes a callable Value (closure or Base function) with the given arguments

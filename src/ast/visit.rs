@@ -280,6 +280,17 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_expr(head);
             visitor.visit_expr(tail);
         }
+        Expression::Perform { args, .. } => {
+            for arg in args {
+                visitor.visit_expr(arg);
+            }
+        }
+        Expression::Handle { expr, arms, .. } => {
+            visitor.visit_expr(expr);
+            for arm in arms {
+                visitor.visit_expr(&arm.body);
+            }
+        }
     }
 }
 
