@@ -13,4 +13,6 @@ fn bad() -> Int with Time {
     apply_twice(log_inc, 3)
 }
 
-bad()
+fn main() with Time {
+    bad()
+}
