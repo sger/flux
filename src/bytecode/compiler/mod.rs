@@ -817,6 +817,13 @@ impl Compiler {
         self.effect_ops_registry.get(&effect)
     }
 
+    pub(super) fn is_effect_variable(&self, effect: Symbol) -> bool {
+        self.sym(effect)
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase())
+    }
+
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
         to_runtime_contract(contract, &self.interner)
     }

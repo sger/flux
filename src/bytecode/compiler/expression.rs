@@ -530,10 +530,22 @@ impl Compiler {
             let Some(ambient_effects) = self.current_function_effects() else {
                 return Ok(());
             };
+            let effect_var_bindings = self.bind_effect_vars_for_call(contract, arguments);
+            let mut required_effects: HashSet<Symbol> = HashSet::new();
             for required in &contract.effects {
                 let required_name = match required {
                     crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
                 };
+                if self.is_effect_variable(required_name) {
+                    if let Some(bound) = effect_var_bindings.get(&required_name) {
+                        required_effects.extend(bound.iter().copied());
+                    }
+                } else {
+                    required_effects.insert(required_name);
+                }
+            }
+
+            for required_name in required_effects {
                 if !ambient_effects.contains(&required_name) {
                     let function_name = match function {
                         Expression::Identifier { name, .. } => self.sym(*name).to_string(),
@@ -591,6 +603,98 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn bind_effect_vars_for_call(
+        &self,
+        contract: &FnContract,
+        arguments: &[Expression],
+    ) -> HashMap<Symbol, HashSet<Symbol>> {
+        let mut bindings: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+
+        for (idx, argument) in arguments.iter().enumerate() {
+            let Some(Some(TypeExpr::Function {
+                params,
+                effects: param_effects,
+                ..
+            })) = contract.params.get(idx)
+            else {
+                continue;
+            };
+
+            let arg_effects = self.infer_argument_function_effects(argument, params.len());
+            if arg_effects.is_empty() {
+                continue;
+            }
+
+            for effect in param_effects {
+                let effect_name = match effect {
+                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                };
+                if self.is_effect_variable(effect_name) {
+                    bindings
+                        .entry(effect_name)
+                        .or_default()
+                        .extend(arg_effects.iter().copied());
+                }
+            }
+        }
+
+        bindings
+    }
+
+    fn infer_argument_function_effects(
+        &self,
+        argument: &Expression,
+        expected_arity: usize,
+    ) -> HashSet<Symbol> {
+        match argument {
+            Expression::Function { effects, .. } => effects
+                .iter()
+                .map(|effect| match effect {
+                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                })
+                .collect(),
+            Expression::Identifier { name, .. } => self
+                .lookup_unqualified_contract(*name, expected_arity)
+                .map(|contract| {
+                    contract
+                        .effects
+                        .iter()
+                        .map(|effect| match effect {
+                            crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Expression::MemberAccess { object, member, .. } => {
+                let Expression::Identifier { name, .. } = object.as_ref() else {
+                    return HashSet::new();
+                };
+                let module_name = if let Some(target) = self.import_aliases.get(name) {
+                    Some(*target)
+                } else if self.imported_modules.contains(name)
+                    || self.current_module_prefix == Some(*name)
+                {
+                    Some(*name)
+                } else {
+                    None
+                };
+                module_name
+                    .and_then(|module_name| self.lookup_contract(Some(module_name), *member, expected_arity))
+                    .map(|contract| {
+                        contract
+                            .effects
+                            .iter()
+                            .map(|effect| match effect {
+                                crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            _ => HashSet::new(),
+        }
     }
 
     fn resolve_call_contract<'a>(
