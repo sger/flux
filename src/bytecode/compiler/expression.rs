@@ -28,6 +28,8 @@ use crate::{
     runtime::{
         base::{BaseModule, is_base_fastcall_allowlisted},
         compiled_function::CompiledFunction,
+        handler_descriptor::HandlerDescriptor,
+        perform_descriptor::PerformDescriptor,
         runtime_type::RuntimeType,
         value::Value,
     },
@@ -1505,6 +1507,31 @@ impl Compiler {
         Ok(true)
     }
 
+    /// Compile `perform Effect.op(args)` — push args, then `OpPerform`.
+    fn compile_perform(
+        &mut self,
+        effect: Symbol,
+        op: Symbol,
+        args: &[Expression],
+    ) -> CompileResult<()> {
+        for arg in args {
+            self.compile_non_tail_expression(arg)?;
+        }
+
+        let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
+        let op_name = self.interner.resolve(op).to_string().into_boxed_str();
+        let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
+            effect,
+            op,
+            effect_name,
+            op_name,
+        }));
+        let const_idx = self.add_constant(desc);
+        self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+
+        Ok(())
+    }
+
     /// Compile `expr handle Effect { op(resume, args) -> body, ... }`.
     ///
     /// Emits one `OpClosure` per arm (leaving closures on the stack in order),
@@ -1541,8 +1568,19 @@ impl Compiler {
         }
 
         // Build HandlerDescriptor and emit OpHandle
-        // let desc = Value::HandleDescriptor()
+        let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
+            effect,
+            ops: operations,
+        }));
 
+        let desc_idx = self.add_constant(desc);
+        self.emit(OpCode::OpHandle, &[desc_idx]);
+
+        // Compile the handled expression
+        self.compile_non_tail_expression(expr)?;
+
+        // Remove the handler frame
+        self.emit(OpCode::OpEndHandle, &[]);
         Ok(())
     }
 
@@ -1732,6 +1770,18 @@ impl Compiler {
             Expression::Cons { head, tail, .. } => {
                 self.collect_consumable_param_uses(head, counts);
                 self.collect_consumable_param_uses(tail, counts);
+            }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.collect_consumable_param_uses(arg, counts);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.collect_consumable_param_uses(expr, counts);
+
+                for arm in arms {
+                    self.collect_consumable_param_uses(&arm.body, counts);
+                }
             }
             Expression::Function { .. }
             | Expression::Integer { .. }

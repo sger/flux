@@ -89,6 +89,19 @@ pub enum OpCode {
     /// Extract a field from a `Value::Adt` by index.
     /// Operand: `[field_idx: u8]`. Replaces top-of-stack with `fields[field_idx]`.
     OpAdtField = 66,
+    /// Install a handler for an effect.
+    /// Operand: `[const_idx: u8]` — index of a `Value::HandlerDescriptor` in constants.
+    /// Pushes a `HandlerFrame` onto the handler stack and falls through to the handled expression.
+    OpHandle = 67,
+    /// Remove the innermost handler frame.
+    /// No operands. Pops one `HandlerFrame` from the handler stack.
+    OpEndHandle = 68,
+    /// Perform an effect operation (suspends the current computation).
+    /// Operands: `[const_idx: u8, arity: u8]`.
+    /// `constants[const_idx]` is a `Value::PerformDescriptor`.
+    /// Pops `arity` arguments from the stack, searches handler_stack for a matching handler,
+    /// captures a continuation, and calls the matching handler arm.
+    OpPerform = 69,
 }
 
 impl From<u8> for OpCode {
@@ -161,6 +174,9 @@ impl From<u8> for OpCode {
             64 => OpCode::OpMakeAdt,
             65 => OpCode::OpIsAdt,
             66 => OpCode::OpAdtField,
+            67 => OpCode::OpHandle,
+            68 => OpCode::OpEndHandle,
+            69 => OpCode::OpPerform,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -202,6 +218,10 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpMakeAdt => vec![2, 1], // const_idx: u16, arity: u8
         OpCode::OpIsAdt => vec![2],      // const_idx: u16
         OpCode::OpAdtField => vec![1],   // field_idx: u8
+        // Effect handler opcodes
+        OpCode::OpHandle => vec![1],     // const_idx: u8
+        OpCode::OpEndHandle => vec![],   // no operands
+        OpCode::OpPerform => vec![1, 1], // const_idx: u8, arity: u8
         _ => vec![],
     }
 }
