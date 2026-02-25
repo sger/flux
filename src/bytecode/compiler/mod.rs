@@ -1195,6 +1195,8 @@ impl Compiler {
             self.emit_main_entry_call();
         }
 
+        self.suppress_redundant_type_mismatch_diagnostics(&hm_diagnostics);
+
         // HM diagnostics appended after bytecode errors so that specific,
         // actionable errors (e.g. E077 legacy list tail, E055 contract mismatch)
         // surface first in the error list.
@@ -1206,6 +1208,41 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn suppress_redundant_type_mismatch_diagnostics(&mut self, hm_diagnostics: &[Diagnostic]) {
+        let hm_unify_locs: Vec<(String, usize)> = hm_diagnostics
+            .iter()
+            .filter(|diag| diag.code() == Some("E300"))
+            .filter_map(|diag| {
+                let span = diag.span()?;
+                let file = diag
+                    .file()
+                    .map(|f| f.to_string())
+                    .unwrap_or_else(|| self.file_path.clone());
+                Some((file, span.start.line))
+            })
+            .collect();
+        if hm_unify_locs.is_empty() {
+            return;
+        }
+
+        let default_file = self.file_path.clone();
+        self.errors.retain(|diag| {
+            if diag.code() != Some("E055") {
+                return true;
+            }
+            let Some(span) = diag.span() else {
+                return true;
+            };
+            let file = diag
+                .file()
+                .map(|f| f.to_string())
+                .unwrap_or_else(|| default_file.clone());
+            !hm_unify_locs
+                .iter()
+                .any(|(hm_file, hm_line)| hm_file == &file && *hm_line == span.start.line)
+        });
     }
 
     // Module Constants helper to emit any Value as a constant
