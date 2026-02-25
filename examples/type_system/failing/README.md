@@ -39,7 +39,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `22_effect_polymorphism_chain_missing_effect.flx`
   - Expected: compile-time failure (`E400`) in chained `with e` wrappers when callback resolves to `IO` but caller declares only `Time`
 - `23_generic_call_return_mismatch.flx`
-  - Expected: compile-time failure (`E055`) for typed `let` mismatch through generic call return instantiation
+  - Expected: compile-time failure (`E300`) for generic typed `let` mismatch (deduplicated against boundary `E055`)
 - `24_adt_guarded_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) because guarded constructor arms do not guarantee exhaustiveness
 - `25_adt_mixed_constructors_in_match.flx`
