@@ -14,6 +14,7 @@ examples=(
   "examples/type_system/10_boundary_runtime_success.flx"
   "examples/type_system/19_effect_call_propagation.flx"
   "examples/type_system/20_effect_inference_unannotated.flx"
+  "examples/type_system/21_effect_polymorphism_with_e.flx"
 )
 
 for file in "${examples[@]}"; do
