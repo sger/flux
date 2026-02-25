@@ -32,6 +32,10 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E402`) when a `handle` block misses declared effect operations
 - `19_effect_polymorphism_missing_effect.flx`
   - Expected: compile-time failure (`E400`) when `with e` resolves to `IO` but caller declares only `Time`
+- `20_direct_builtin_missing_effect.flx`
+  - Expected: compile-time failure (`E400`) when `with Time` function directly calls IO builtin (`print`)
+- `21_perform_unknown_operation.flx`
+  - Expected: compile-time failure (`E404`) when `perform` references an operation not declared by the effect
 
 ## Run
 
@@ -50,6 +54,8 @@ cargo run -- --no-cache examples/type_system/failing/16_inferred_effect_missing_
 cargo run -- --no-cache examples/type_system/failing/17_handle_unknown_operation.flx
 cargo run -- --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx
 cargo run -- --no-cache examples/type_system/failing/19_effect_polymorphism_missing_effect.flx
+cargo run -- --no-cache examples/type_system/failing/20_direct_builtin_missing_effect.flx
+cargo run -- --no-cache examples/type_system/failing/21_perform_unknown_operation.flx
 ```
 
 JIT (compile-time failure examples):
@@ -64,4 +70,6 @@ cargo run --features jit -- --no-cache examples/type_system/failing/16_inferred_
 cargo run --features jit -- --no-cache examples/type_system/failing/17_handle_unknown_operation.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/19_effect_polymorphism_missing_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/20_direct_builtin_missing_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/21_perform_unknown_operation.flx --jit
 ```

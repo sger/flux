@@ -529,9 +529,6 @@ impl Compiler {
         };
 
         if !contract.effects.is_empty() {
-            let Some(ambient_effects) = self.current_function_effects() else {
-                return Ok(());
-            };
             let effect_var_bindings = self.bind_effect_vars_for_call(contract, arguments);
             let mut required_effects: HashSet<Symbol> = HashSet::new();
             for required in &contract.effects {
@@ -548,7 +545,7 @@ impl Compiler {
             }
 
             for required_name in required_effects {
-                if !ambient_effects.contains(&required_name) {
+                if !self.is_effect_available(required_name) {
                     let function_name = match function {
                         Expression::Identifier { name, .. } => self.sym(*name).to_string(),
                         Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
@@ -625,14 +622,7 @@ impl Compiler {
             return Ok(());
         };
 
-        let Some(ambient_effects) = self.current_function_effects() else {
-            return Ok(());
-        };
-
-        let has_required = ambient_effects
-            .iter()
-            .any(|effect| self.sym(*effect) == required_name);
-        if has_required {
+        if self.is_effect_available_name(required_name) {
             return Ok(());
         }
 
@@ -1680,35 +1670,31 @@ impl Compiler {
             return Ok(false);
         };
 
-        if let Some(ambient_effects) = self.current_function_effects() {
-            let required_name = match primop.effect_kind() {
-                PrimEffect::Io => Some("IO"),
-                PrimEffect::Time => Some("Time"),
-                PrimEffect::Control | PrimEffect::Pure => None,
-            };
-            let missing_required = required_name.filter(|required_name| {
-                !ambient_effects
-                    .iter()
-                    .any(|effect| self.sym(*effect) == *required_name)
-            });
-            if let Some(missing) = missing_required {
-                return Err(Self::boxed(
-                    Diagnostic::make_error_dynamic(
-                        "E400",
-                        "MISSING EFFECT",
-                        ErrorType::Compiler,
-                        format!(
-                            "Call to `{}` requires effect `{}` in this function signature.",
-                            self.sym(*name),
-                            missing
-                        ),
-                        Some(format!("Add `with {}` to the enclosing function.", missing)),
-                        self.file_path.clone(),
-                        function.span(),
-                    )
-                    .with_primary_label(function.span(), "effectful call occurs here"),
-                ));
-            }
+        let required_name = match primop.effect_kind() {
+            PrimEffect::Io => Some("IO"),
+            PrimEffect::Time => Some("Time"),
+            PrimEffect::Control | PrimEffect::Pure => None,
+        };
+        if let Some(required_name) = required_name && !self.is_effect_available_name(required_name) {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        self.sym(*name),
+                        required_name
+                    ),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        required_name
+                    )),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effectful call occurs here"),
+            ));
         }
 
         for argument in arguments {
@@ -1741,10 +1727,7 @@ impl Compiler {
         }
 
         if let Some(required_name) = self.required_effect_for_base_name(base_name.as_str())
-            && let Some(ambient_effects) = self.current_function_effects()
-            && !ambient_effects
-                .iter()
-                .any(|effect| self.sym(*effect) == required_name)
+            && !self.is_effect_available_name(required_name)
         {
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
@@ -1780,6 +1763,65 @@ impl Compiler {
         op: Symbol,
         args: &[Expression],
     ) -> CompileResult<()> {
+        let span = self
+            .current_span
+            .unwrap_or_else(|| Span::new(Position::default(), Position::default()));
+
+        let Some(has_operation) = self.effect_declared_ops(effect).map(|ops| ops.contains(&op))
+        else {
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E403",
+                    "UNKNOWN EFFECT",
+                    ErrorType::Compiler,
+                    format!("Effect `{}` is not declared.", effect_name),
+                    Some("Declare the effect before using `perform`.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown effect in perform"),
+            ));
+        };
+        if !has_operation {
+            let effect_name = self.sym(effect).to_string();
+            let op_name = self.sym(op).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E404",
+                    "UNKNOWN EFFECT OPERATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` has no declared operation `{}`.",
+                        effect_name, op_name
+                    ),
+                    Some("Add the operation to the effect declaration or rename it.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown operation in perform"),
+            ));
+        }
+        if !self.is_effect_available(effect) {
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Performing `{}` requires effect `{}` in this function signature.",
+                        self.sym(op),
+                        effect_name
+                    ),
+                    Some(format!("Add `with {}` to the enclosing function.", effect_name)),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "effectful perform occurs here"),
+            ));
+        }
+
         for arg in args {
             self.compile_non_tail_expression(arg)?;
         }
@@ -1900,8 +1942,8 @@ impl Compiler {
         let desc_idx = self.add_constant(desc);
         self.emit(OpCode::OpHandle, &[desc_idx]);
 
-        // Compile the handled expression
-        self.compile_non_tail_expression(expr)?;
+        // Compile the handled expression with the effect available in scope.
+        self.with_handled_effect(effect, |compiler| compiler.compile_non_tail_expression(expr))?;
 
         // Remove the handler frame
         self.emit(OpCode::OpEndHandle, &[]);
