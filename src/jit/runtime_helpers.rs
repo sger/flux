@@ -1112,10 +1112,30 @@ pub extern "C" fn rt_perform(
     op_id: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
+    effect_name_ptr: *const u8,
+    effect_name_len: i64,
+    op_name_ptr: *const u8,
+    op_name_len: i64,
+    line: i64,
+    column: i64,
 ) -> *mut Value {
     let effect_u32 = effect_id as u32;
     let op_u32 = op_id as u32;
     let nargs = nargs as usize;
+    let effect_name = unsafe {
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            effect_name_ptr,
+            effect_name_len as usize,
+        ))
+    };
+    let op_name = unsafe {
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            op_name_ptr,
+            op_name_len as usize,
+        ))
+    };
+    let line = line as usize;
+    let column = column as usize;
 
     // Find matching handler (search from top of stack)
     let arm_closure = {
@@ -1133,9 +1153,12 @@ pub extern "C" fn rt_perform(
                     break;
                 }
                 // Found effect but no matching op — error
-                ctx_mut.error = Some(format!(
-                    "unhandled operation in handler for effect {}",
-                    effect_u32
+                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                    "EXXX",
+                    "UNHANDLED OPERATION",
+                    &format!("unhandled operation: {}.{}", effect_name, op_name),
+                    line,
+                    column,
                 ));
                 return ptr::null_mut();
             }
@@ -1143,9 +1166,15 @@ pub extern "C" fn rt_perform(
         match found {
             Some(c) => c,
             None => {
-                ctx_mut.error = Some(format!(
-                    "unhandled effect: {} (no matching handle block)",
-                    effect_u32
+                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                    "EXXX",
+                    "UNHANDLED EFFECT",
+                    &format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    ),
+                    line,
+                    column,
                 ));
                 return ptr::null_mut();
             }

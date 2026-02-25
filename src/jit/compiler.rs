@@ -2275,7 +2275,7 @@ fn compile_expression(
             effect,
             operation,
             args,
-            ..
+            span,
         } => compile_jit_perform(
             module,
             helpers,
@@ -2288,6 +2288,7 @@ fn compile_expression(
             *operation,
             args,
             interner,
+            *span,
         ),
         Expression::Handle {
             expr, effect, arms, ..
@@ -2321,6 +2322,7 @@ fn compile_jit_perform(
     op: crate::syntax::symbol::Symbol,
     args: &[Expression],
     interner: &Interner,
+    span: crate::diagnostics::position::Span,
 ) -> Result<CraneliftValue, String> {
     let mut arg_vals: Vec<CraneliftValue> = Vec::new();
     for arg in args {
@@ -2352,10 +2354,26 @@ fn compile_jit_perform(
     let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
     let op_val = builder.ins().iconst(PTR_TYPE, op.as_u32() as i64);
 
+    // Leak the name strings as stable pointers for the JIT runtime error messages.
+    let effect_str: &'static str =
+        Box::leak(interner.resolve(effect).to_owned().into_boxed_str());
+    let op_str: &'static str = Box::leak(interner.resolve(op).to_owned().into_boxed_str());
+    let effect_name_ptr =
+        builder.ins().iconst(PTR_TYPE, effect_str.as_ptr() as i64);
+    let effect_name_len = builder.ins().iconst(PTR_TYPE, effect_str.len() as i64);
+    let op_name_ptr = builder.ins().iconst(PTR_TYPE, op_str.as_ptr() as i64);
+    let op_name_len = builder.ins().iconst(PTR_TYPE, op_str.len() as i64);
+    let line_val = builder.ins().iconst(PTR_TYPE, span.start.line as i64);
+    let col_val = builder.ins().iconst(PTR_TYPE, span.start.column as i64);
+
     let rt_perform = get_helper_func_ref(module, helpers, builder, "rt_perform");
     let call = builder.ins().call(
         rt_perform,
-        &[ctx_val, effect_val, op_val, args_ptr, nargs_val],
+        &[
+            ctx_val, effect_val, op_val, args_ptr, nargs_val,
+            effect_name_ptr, effect_name_len, op_name_ptr, op_name_len,
+            line_val, col_val,
+        ],
     );
     let result = builder.inst_results(call)[0];
 
@@ -4597,11 +4615,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
                 has_return: false,
             },
         ),
-        // rt_perform(ctx, effect_id, op_id, args_ptr, nargs) -> *mut Value
+        // rt_perform(ctx, effect_id, op_id, args_ptr, nargs,
+        //            effect_name_ptr, effect_name_len, op_name_ptr, op_name_len,
+        //            line, column) -> *mut Value
         (
             "rt_perform",
             HelperSig {
-                num_params: 5,
+                num_params: 11,
                 has_return: true,
             },
         ),

@@ -154,6 +154,7 @@ impl Parser {
             TokenType::Left => self.parse_left(),
             TokenType::Right => self.parse_right(),
             TokenType::Match => self.parse_match_expression(),
+            TokenType::Perform => self.parse_perform_expression(),
             TokenType::LParen => self.parse_grouped_expression(),
             TokenType::LBracket => self.parse_list_literal(),
             TokenType::Hash => self.parse_array_literal_prefixed(),
@@ -878,6 +879,45 @@ impl Parser {
         Some(Expression::DoBlock {
             block,
             span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    /// Parses `perform Effect.op(arg1, arg2)`.
+    /// `current_token` is `Perform` on entry.
+    pub(super) fn parse_perform_expression(&mut self) -> Option<Expression> {
+        let start = self.current_token.position;
+
+        // Effect name (Ident)
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
+
+        // `.`
+        if !self.expect_peek(TokenType::Dot) {
+            return None;
+        }
+
+        // Operation name (Ident)
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+        let operation = self.lexer.interner_mut().intern(&self.current_token.literal);
+
+        // `(`
+        if !self.expect_peek(TokenType::LParen) {
+            return None;
+        }
+
+        let open_pos = self.current_token.position;
+        let args = self.parse_expression_list(TokenType::RParen, open_pos)?;
+        let end = self.current_token.end_position;
+
+        Some(Expression::Perform {
+            effect,
+            operation,
+            args,
+            span: Span::new(start, end),
         })
     }
 
