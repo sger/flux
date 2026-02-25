@@ -33,7 +33,7 @@ use crate::{
     },
     syntax::{
         block::Block,
-        expression::{Expression, MatchArm, Pattern, StringPart},
+        expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
@@ -489,6 +489,19 @@ impl Compiler {
                 self.compile_non_tail_expression(head)?;
                 self.compile_non_tail_expression(tail)?;
                 self.emit(OpCode::OpCons, &[]);
+            }
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                self.compile_perform(*effect, *operation, args)?;
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                self.compile_handle(expr, *effect, arms)?;
             }
         }
         self.current_span = previous_span;
@@ -1490,6 +1503,47 @@ impl Compiler {
         }
         self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
+    }
+
+    /// Compile `expr handle Effect { op(resume, args) -> body, ... }`.
+    ///
+    /// Emits one `OpClosure` per arm (leaving closures on the stack in order),
+    /// then `OpHandle desc_idx`, then the handled `expr`, then `OpEndHandle`.
+    fn compile_handle(
+        &mut self,
+        expr: &Expression,
+        effect: Symbol,
+        arms: &[HandleArm],
+    ) -> CompileResult<()> {
+        let mut operations = Vec::new();
+
+        for arm in arms {
+            operations.push(arm.operation_name);
+
+            // Build parameter list: [resume_param, param0, param1, ...]
+            let mut params: Vec<Symbol> = Vec::with_capacity(1 + arm.params.len());
+            params.push(arm.resume_param);
+            params.extend_from_slice(&arm.params);
+
+            // Wrap arm body in a synthetic block for compile_function_literal
+            let arm_span = arm.body.span();
+            let arm_block = Block {
+                statements: vec![Statement::Expression {
+                    expression: arm.body.clone(),
+                    has_semicolon: false,
+                    span: arm_span,
+                }],
+                span: arm_span,
+            };
+
+            // compile_function_literal emits OpClosure, leaving a closure on the stack
+            self.compile_function_literal(&params, &vec![None; params.len()], &None, &arm_block)?;
+        }
+
+        // Build HandlerDescriptor and emit OpHandle
+        // let desc = Value::HandleDescriptor()
+
+        Ok(())
     }
 
     fn compile_non_tail_expression(&mut self, expression: &Expression) -> CompileResult<()> {
