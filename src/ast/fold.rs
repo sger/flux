@@ -164,6 +164,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             variants,
             span,
         },
+        Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
     }
 }
 

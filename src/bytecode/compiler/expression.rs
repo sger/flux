@@ -1576,6 +1576,7 @@ impl Compiler {
             }
             Statement::Import { .. } => {}
             Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
