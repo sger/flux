@@ -15,7 +15,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     diagnostics::{
-        CIRCULAR_DEPENDENCY, Diagnostic, ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
+        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, ErrorType, UNKNOWN_BASE_MEMBER,
+        lookup_error_code,
         position::{Position, Span},
     },
     runtime::{
@@ -359,6 +360,11 @@ impl Compiler {
                 if !seed.declared_effects.is_empty() {
                     continue;
                 }
+                let is_fully_unannotated = !seed.parameter_types.iter().any(Option::is_some)
+                    && seed.return_type.is_none();
+                if !is_fully_unannotated {
+                    continue;
+                }
                 let effects = self.infer_effects_from_block(
                     &seed.body,
                     seed.module_name,
@@ -375,6 +381,11 @@ impl Compiler {
         }
 
         for seed in &seeds {
+            let is_fully_unannotated =
+                !seed.parameter_types.iter().any(Option::is_some) && seed.return_type.is_none();
+            if !is_fully_unannotated {
+                continue;
+            }
             let Some(effects) = inferred.get(&seed.key) else {
                 continue;
             };
@@ -781,6 +792,233 @@ impl Compiler {
         effects
     }
 
+    fn validate_main_entrypoint(&mut self, program: &Program) {
+        let main_symbol = self.interner.intern("main");
+        let mut mains: Vec<(Span, usize, Option<TypeExpr>)> = Vec::new();
+
+        for statement in &program.statements {
+            if let Statement::Function {
+                name,
+                parameters,
+                return_type,
+                span,
+                ..
+            } = statement
+                && *name == main_symbol
+            {
+                mains.push((*span, parameters.len(), return_type.clone()));
+            }
+        }
+
+        if mains.len() > 1 {
+            let (first_span, _, _) = mains[0].clone();
+            for (span, _, _) in mains.iter().skip(1) {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E410",
+                        "DUPLICATE MAIN FUNCTION",
+                        ErrorType::Compiler,
+                        "Program can contain only one top-level `fn main`.",
+                        Some("Keep a single `fn main` entry point.".to_string()),
+                        self.file_path.clone(),
+                        *span,
+                    )
+                    .with_primary_label(*span, "duplicate `main` declaration")
+                    .with_note_label(first_span, "first `main` declared here"),
+                );
+            }
+        }
+
+        if let Some((main_span, param_count, return_type)) = mains.first() {
+            if *param_count != 0 {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E411",
+                        "INVALID MAIN SIGNATURE",
+                        ErrorType::Compiler,
+                        "`fn main` cannot take parameters.",
+                        Some("Define `fn main()` with zero parameters.".to_string()),
+                        self.file_path.clone(),
+                        *main_span,
+                    )
+                    .with_primary_label(*main_span, "`main` declared with parameters"),
+                );
+            }
+
+            if let Some(ret) = return_type && !Self::is_unit_type_annotation(ret, &self.interner) {
+                self.errors.push(
+                    Diagnostic::make_error_dynamic(
+                        "E412",
+                        "INVALID MAIN RETURN TYPE",
+                        ErrorType::Compiler,
+                        "`fn main` must return `Unit` (or omit return type).",
+                        Some("Change signature to `fn main() { ... }` or `-> Unit`.".to_string()),
+                        self.file_path.clone(),
+                        ret.span(),
+                    )
+                    .with_primary_label(ret.span(), "invalid `main` return type"),
+                );
+            }
+        }
+    }
+
+    fn validate_top_level_effectful_code(&mut self, program: &Program) {
+        for statement in &program.statements {
+            match statement {
+                Statement::Expression {
+                    expression, span, ..
+                } => {
+                    if Self::contains_perform_expression(expression) {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E413",
+                                "TOP-LEVEL EFFECT",
+                                ErrorType::Compiler,
+                                "Effectful operation is not allowed at top level.",
+                                Some("Move this code into `fn main() with ... { ... }`.".to_string()),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_primary_label(*span, "top-level effectful expression"),
+                        );
+                    }
+                }
+                Statement::Let { value, span, .. }
+                | Statement::LetDestructure {
+                    value, span, ..
+                }
+                | Statement::Assign { value, span, .. } => {
+                    if Self::contains_perform_expression(value) {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E413",
+                                "TOP-LEVEL EFFECT",
+                                ErrorType::Compiler,
+                                "Effectful operation is not allowed at top level.",
+                                Some("Move this code into `fn main() with ... { ... }`.".to_string()),
+                                self.file_path.clone(),
+                                *span,
+                            )
+                            .with_primary_label(*span, "top-level effectful expression"),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn contains_perform_expression(expr: &Expression) -> bool {
+        match expr {
+            Expression::Perform { .. } => true,
+            Expression::Prefix { right, .. } => Self::contains_perform_expression(right),
+            Expression::Infix { left, right, .. } => {
+                Self::contains_perform_expression(left) || Self::contains_perform_expression(right)
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                if Self::contains_perform_expression(condition) {
+                    return true;
+                }
+                if consequence
+                    .statements
+                    .iter()
+                    .any(Self::statement_contains_perform)
+                {
+                    return true;
+                }
+                alternative
+                    .as_ref()
+                    .is_some_and(|alt| alt.statements.iter().any(Self::statement_contains_perform))
+            }
+            Expression::DoBlock { block, .. } => {
+                block.statements.iter().any(Self::statement_contains_perform)
+            }
+            Expression::Function { body, .. } => {
+                body.statements.iter().any(Self::statement_contains_perform)
+            }
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                Self::contains_perform_expression(function)
+                    || arguments.iter().any(Self::contains_perform_expression)
+            }
+            Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. }
+            | Expression::TupleLiteral { elements, .. } => {
+                elements.iter().any(Self::contains_perform_expression)
+            }
+            Expression::Index { left, index, .. } => {
+                Self::contains_perform_expression(left) || Self::contains_perform_expression(index)
+            }
+            Expression::Hash { pairs, .. } => pairs.iter().any(|(k, v)| {
+                Self::contains_perform_expression(k) || Self::contains_perform_expression(v)
+            }),
+            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+                Self::contains_perform_expression(object)
+            }
+            Expression::Match { scrutinee, arms, .. } => {
+                Self::contains_perform_expression(scrutinee)
+                    || arms.iter().any(|arm| {
+                        arm.guard
+                            .as_ref()
+                            .is_some_and(Self::contains_perform_expression)
+                            || Self::contains_perform_expression(&arm.body)
+                    })
+            }
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => Self::contains_perform_expression(value),
+            Expression::Cons { head, tail, .. } => {
+                Self::contains_perform_expression(head) || Self::contains_perform_expression(tail)
+            }
+            Expression::Handle { expr, arms, .. } => {
+                Self::contains_perform_expression(expr)
+                    || arms.iter().any(|arm| Self::contains_perform_expression(&arm.body))
+            }
+            Expression::Identifier { .. }
+            | Expression::Integer { .. }
+            | Expression::Float { .. }
+            | Expression::String { .. }
+            | Expression::InterpolatedString { .. }
+            | Expression::Boolean { .. }
+            | Expression::None { .. }
+            | Expression::EmptyList { .. } => false,
+        }
+    }
+
+    fn statement_contains_perform(statement: &Statement) -> bool {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => Self::contains_perform_expression(value),
+            Statement::Return {
+                value: Some(value), ..
+            } => Self::contains_perform_expression(value),
+            Statement::Expression { expression, .. } => Self::contains_perform_expression(expression),
+            Statement::Function { body, .. } | Statement::Module { body, .. } => {
+                body.statements.iter().any(Self::statement_contains_perform)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_unit_type_annotation(ty: &TypeExpr, interner: &Interner) -> bool {
+        match ty {
+            TypeExpr::Named { name, args, .. } if args.is_empty() => {
+                matches!(interner.resolve(*name), "Unit" | "None")
+            }
+            TypeExpr::Tuple { elements, .. } => elements.is_empty(),
+            _ => false,
+        }
+    }
+
     #[inline]
     pub(super) fn sym(&self, s: Symbol) -> &str {
         self.interner.resolve(s)
@@ -911,6 +1149,8 @@ impl Compiler {
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);
         self.collect_effect_declarations(program);
+        self.validate_main_entrypoint(program);
+        self.validate_top_level_effectful_code(program);
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion

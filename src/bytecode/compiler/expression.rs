@@ -25,7 +25,7 @@ use crate::{
         types::ErrorType,
         position::{Position, Span},
     },
-    primop::resolve_primop_call,
+    primop::{PrimEffect, resolve_primop_call},
     runtime::{
         base::{BaseModule, is_base_fastcall_allowlisted},
         compiled_function::CompiledFunction,
@@ -518,10 +518,12 @@ impl Compiler {
     }
 
     fn check_static_contract_call(
-        &self,
+        &mut self,
         function: &Expression,
         arguments: &[Expression],
     ) -> CompileResult<()> {
+        self.check_direct_builtin_effect_call(function)?;
+
         let Some(contract) = self.resolve_call_contract(function, arguments.len()) else {
             return Ok(());
         };
@@ -603,6 +605,67 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
+        let required_name = match function {
+            Expression::Identifier { name, .. } => {
+                let Some(binding) = self.resolve_visible_symbol(*name) else {
+                    return Ok(());
+                };
+                if binding.symbol_scope != SymbolScope::Base {
+                    return Ok(());
+                }
+                self.required_effect_for_base_name(self.sym(*name))
+            }
+            _ => None,
+        };
+
+        let Some(required_name) = required_name else {
+            return Ok(());
+        };
+
+        let Some(ambient_effects) = self.current_function_effects() else {
+            return Ok(());
+        };
+
+        let has_required = ambient_effects
+            .iter()
+            .any(|effect| self.sym(*effect) == required_name);
+        if has_required {
+            return Ok(());
+        }
+
+        let function_name = match function {
+            Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+            _ => "<call>".to_string(),
+        };
+        Err(Self::boxed(
+            Diagnostic::make_error_dynamic(
+                "E400",
+                "MISSING EFFECT",
+                ErrorType::Compiler,
+                format!(
+                    "Call to `{}` requires effect `{}` in this function signature.",
+                    function_name, required_name
+                ),
+                Some(format!(
+                    "Add `with {}` to the enclosing function.",
+                    required_name
+                )),
+                self.file_path.clone(),
+                function.span(),
+            )
+            .with_primary_label(function.span(), "effectful call occurs here"),
+        ))
+    }
+
+    fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
+        match base_name {
+            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
+            "now" | "clock_now" => Some("Time"),
+            _ => None,
+        }
     }
 
     fn bind_effect_vars_for_call(
@@ -1617,6 +1680,37 @@ impl Compiler {
             return Ok(false);
         };
 
+        if let Some(ambient_effects) = self.current_function_effects() {
+            let required_name = match primop.effect_kind() {
+                PrimEffect::Io => Some("IO"),
+                PrimEffect::Time => Some("Time"),
+                PrimEffect::Control | PrimEffect::Pure => None,
+            };
+            let missing_required = required_name.filter(|required_name| {
+                !ambient_effects
+                    .iter()
+                    .any(|effect| self.sym(*effect) == *required_name)
+            });
+            if let Some(missing) = missing_required {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E400",
+                        "MISSING EFFECT",
+                        ErrorType::Compiler,
+                        format!(
+                            "Call to `{}` requires effect `{}` in this function signature.",
+                            self.sym(*name),
+                            missing
+                        ),
+                        Some(format!("Add `with {}` to the enclosing function.", missing)),
+                        self.file_path.clone(),
+                        function.span(),
+                    )
+                    .with_primary_label(function.span(), "effectful call occurs here"),
+                ));
+            }
+        }
+
         for argument in arguments {
             self.compile_non_tail_expression(argument)?;
         }
@@ -1634,8 +1728,8 @@ impl Compiler {
             return Ok(false);
         };
 
-        let base_name = self.sym(*name);
-        if !is_base_fastcall_allowlisted(base_name) {
+        let base_name = self.sym(*name).to_string();
+        if !is_base_fastcall_allowlisted(base_name.as_str()) {
             return Ok(false);
         }
 
@@ -1644,6 +1738,32 @@ impl Compiler {
         };
         if symbol.symbol_scope != SymbolScope::Base {
             return Ok(false);
+        }
+
+        if let Some(required_name) = self.required_effect_for_base_name(base_name.as_str())
+            && let Some(ambient_effects) = self.current_function_effects()
+            && !ambient_effects
+                .iter()
+                .any(|effect| self.sym(*effect) == required_name)
+        {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        base_name, required_name
+                    ),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        required_name
+                    )),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effectful call occurs here"),
+            ));
         }
 
         for argument in arguments {
