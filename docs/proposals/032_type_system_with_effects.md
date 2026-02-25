@@ -608,10 +608,10 @@ fn say_hello() with IO {
 
 ### 9.6 Effect Inference
 
-When type annotations are omitted, effects are **inferred** from the function body (Option B):
+Effects are inferred only for **fully unannotated** functions (no parameter types, no return type, no `with` clause):
 
 ```flux
-// Effect inferred as IO because print is an IO operation
+// Fully unannotated => effect inferred as IO because print is an IO operation
 fn say_hello() {
     print("hello")
 }
@@ -622,7 +622,7 @@ fn square(x) { x * x }
 // Inferred signature: fn square(x: Any) -> Any
 ```
 
-When you **explicitly annotate** a function as pure but use effects, you get a compile error:
+If a function has any type annotation but omits `with`, it is treated as explicitly pure. Using effects then is a compile error:
 
 ```flux
 fn add(a: Int, b: Int) -> Int {
@@ -1073,7 +1073,7 @@ fn main() with IO {
 ### Phase 4: Effect Checking
 - Track effects through function calls (effect set rule)
 - Verify `handle` blocks cover all required effects
-- Effect inference for unannotated functions (Option B)
+- Effect inference for fully unannotated functions (Option B)
 - Effect polymorphism: single effect variable `e` for HOFs
 - Validate `fn main` as root effect handler
 - Compile error for effectful top-level code

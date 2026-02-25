@@ -1,0 +1,10 @@
+// E400: direct builtin effect call inside a function with incompatible ambient effects.
+//
+// `tick` allows only Time, but `print` requires IO.
+
+fn tick() -> Int with Time {
+    print("tick")
+    1
+}
+
+tick()
