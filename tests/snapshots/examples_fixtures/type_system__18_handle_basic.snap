@@ -3,37 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/18_handle_basic.flx
 == compile ==
-failed (parse)
+ok
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found effect.
-
-  --> examples/type_system/18_handle_basic.flx:1:1
-  |
-1 | effect Console {
-  | ^^^^^^
-
-
---> compiler error[E076]: UNCLOSED DELIMITER
-
-Expected a closing `}` to match this opening `{`.
-
-  --> examples/type_system/18_handle_basic.flx:5:16
-  |
-5 | fn greet(name) {
-  |                ^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found perform.
-
-  --> examples/type_system/18_handle_basic.flx:6:5
-  |
-6 |     perform Console.print(name)
-  |     ^^^^^^^
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

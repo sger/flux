@@ -1,8 +1,8 @@
 use crate::{
     diagnostics::{DiagnosticBuilder, unexpected_token, unknown_keyword},
     syntax::{
-        data_variant::DataVariant, precedence::Precedence, statement::Statement,
-        token_type::TokenType,
+        data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
+        statement::Statement, token_type::TokenType,
     },
 };
 
@@ -49,6 +49,7 @@ impl Parser {
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
             TokenType::Data => self.parse_data_statement(),
+            TokenType::Effect => self.parse_effect_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
                 self.parse_function_statement()
             }
@@ -591,6 +592,79 @@ impl Parser {
             name,
             type_params,
             variants,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parses `effect Name { op: TypeExpr, ... }`.
+    /// current_token is `effect` on entry.
+    pub(super) fn parse_effect_statement(&mut self) -> Option<Statement> {
+        let start = self.current_token.position;
+
+        // Effect name
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+
+        // `{`
+        if !self.expect_peek(TokenType::LBrace) {
+            return None;
+        }
+        self.next_token(); // move past `{`
+
+        let mut ops: Vec<EffectOp> = Vec::new();
+
+        while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
+            // Optional `fn` keyword prefix (e.g. `fn print: String -> ()`)
+            if self.is_current_token(TokenType::Fn) {
+                self.next_token(); // skip `fn`
+            }
+
+            if self.current_token.token_type != TokenType::Ident {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    format!(
+                        "Expected operation name in `effect` declaration, got {}.",
+                        self.current_token.token_type
+                    ),
+                ));
+                return None;
+            }
+            let op_start = self.current_token.position;
+            let op_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+
+            // `:` before the type expression
+            if !self.expect_peek(TokenType::Colon) {
+                return None;
+            }
+            self.next_token(); // move to start of TypeExpr
+
+            let type_expr = self.parse_type_expr()?;
+            let op_end = self.current_token.span().end;
+
+            ops.push(EffectOp {
+                name: op_name,
+                type_expr,
+                span: crate::diagnostics::position::Span::new(op_start, op_end),
+            });
+
+            // Optional comma or newline separator
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token(); // consume ','
+            }
+            self.next_token(); // advance to next op or `}`
+        }
+
+        Some(Statement::EffectDecl {
+            name,
+            ops,
             span: self.span_from(start),
         })
     }

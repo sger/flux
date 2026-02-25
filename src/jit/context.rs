@@ -3,7 +3,7 @@ use crate::runtime::{
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{Diagnostic, DiagnosticsAggregator, RUNTIME_TYPE_ERROR},
+    diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorType, RUNTIME_TYPE_ERROR},
 };
 use std::collections::HashMap;
 
@@ -89,6 +89,40 @@ impl JitContext {
         let col0 = column_1_based.saturating_sub(1);
         let span = Span::new(Position::new(line, col0), Position::new(line, col0));
         self.render_runtime_type_error(expected, actual, Some(span))
+    }
+
+    /// Render a generic runtime error through the diagnostics system.
+    /// `line` is 1-based; `column` is 1-based.
+    /// Produces the same formatted output (colour, source snippet) as VM runtime errors.
+    pub(crate) fn render_runtime_error(
+        &self,
+        code: &str,
+        title: &str,
+        message: &str,
+        line: usize,
+        column: usize,
+    ) -> String {
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        let col0 = column.saturating_sub(1);
+        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        let diag = Diagnostic::make_error_dynamic(
+            code,
+            title,
+            ErrorType::Runtime,
+            message,
+            None,
+            file.clone(),
+            span,
+        );
+        let mut agg =
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
+        if let Some(src) = &self.source_text {
+            agg = agg.with_source(file, src.clone());
+        }
+        agg.report().rendered
     }
 
     pub(crate) fn check_contract_arg(
