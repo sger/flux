@@ -168,6 +168,13 @@ pub const OPERATOR_TABLE: &[OpInfo] = &[
         associativity: Assoc::Left,
         fixity: Fixity::Postfix,
     },
+    // handle - infix postfix form lowest precedence same as pipe operator
+    OpInfo {
+        token: TokenType::Handle,
+        precedence: Precedence::Pipe,
+        associativity: Assoc::Left,
+        fixity: Fixity::Infix,
+    },
     // Prefix operators
     OpInfo {
         token: TokenType::Bang,
