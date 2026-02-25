@@ -134,6 +134,10 @@ struct Scope {
     literal_captures: HashMap<LiteralKey, Vec<Identifier>>,
     /// Maps ADT constructor name (interned) → arity. Used to route constructor calls.
     adt_constructors: HashMap<Identifier, usize>,
+    /// Maps ADT constructor name (interned) → owning ADT name.
+    adt_constructor_owner: HashMap<Identifier, Identifier>,
+    /// Maps ADT name → constructor names.
+    adt_variants: HashMap<Identifier, Vec<Identifier>>,
 }
 
 impl Scope {
@@ -150,6 +154,8 @@ impl Scope {
             literal_functions: HashMap::new(),
             literal_captures: HashMap::new(),
             adt_constructors: HashMap::new(),
+            adt_constructor_owner: HashMap::new(),
+            adt_variants: HashMap::new(),
         }
     }
 }
@@ -2542,13 +2548,17 @@ fn collect_adt_definitions_from_stmt(
 ) {
     let _ = interner;
     match statement {
-        Statement::Data { variants, .. } => {
+        Statement::Data { name, variants, .. } => {
+            let mut constructor_names = Vec::with_capacity(variants.len());
             for variant in variants {
                 let name_sym = variant.name;
                 scope
                     .adt_constructors
                     .insert(name_sym, variant.fields.len());
+                scope.adt_constructor_owner.insert(name_sym, *name);
+                constructor_names.push(name_sym);
             }
+            scope.adt_variants.insert(*name, constructor_names);
         }
         Statement::Module { body, .. } => {
             for statement in &body.statements {
@@ -2577,6 +2587,8 @@ fn compile_match_expression(
         return Ok(builder.inst_results(call)[0]);
     }
 
+    validate_jit_match_arms(scope, arms, interner)?;
+
     let scrutinee_val = compile_expression(
         module,
         helpers,
@@ -2600,6 +2612,8 @@ fn compile_match_expression(
             break;
         };
         builder.switch_to_block(test_block);
+
+        validate_pattern_constructors_for_jit(&arm.pattern, scope, interner)?;
 
         let arm_block = builder.create_block();
         let mut next_test: Option<cranelift_codegen::ir::Block> = None;
@@ -2832,6 +2846,148 @@ fn compile_match_expression(
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
     Ok(builder.block_params(merge_block)[0])
+}
+
+fn validate_jit_match_arms(
+    scope: &Scope,
+    arms: &[crate::syntax::expression::MatchArm],
+    interner: &Interner,
+) -> Result<(), String> {
+    let all_constructor_names: Vec<Identifier> = arms
+        .iter()
+        .filter_map(|arm| match &arm.pattern {
+            Pattern::Constructor { name, .. } => Some(*name),
+            _ => None,
+        })
+        .collect();
+    if all_constructor_names.is_empty() {
+        return Ok(());
+    }
+
+    let constructor_names: Vec<Identifier> = arms
+        .iter()
+        .filter_map(|arm| {
+            if arm.guard.is_none() {
+                if let Pattern::Constructor { name, .. } = &arm.pattern {
+                    return Some(*name);
+                }
+            }
+            None
+        })
+        .collect();
+
+    let first = all_constructor_names[0];
+    let Some(first_adt) = scope.adt_constructor_owner.get(&first).copied() else {
+        return Err(format!(
+            "Unknown constructor `{}`.",
+            interner.resolve(first)
+        ));
+    };
+    for constructor in &all_constructor_names {
+        let Some(owner) = scope.adt_constructor_owner.get(constructor).copied() else {
+            return Err(format!(
+                "Unknown constructor `{}`.",
+                interner.resolve(*constructor)
+            ));
+        };
+        if owner != first_adt {
+            return Err(format!(
+                "Match arms mix constructors from different ADTs: `{}` and `{}`.",
+                interner.resolve(first_adt),
+                interner.resolve(owner)
+            ));
+        }
+    }
+
+    let has_catch_all = arms.iter().any(|arm| {
+        arm.guard.is_none()
+            && matches!(
+                arm.pattern,
+                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+            )
+    });
+    if has_catch_all {
+        return Ok(());
+    }
+
+    let Some(variants) = scope.adt_variants.get(&first_adt) else {
+        return Ok(());
+    };
+
+    if constructor_names.is_empty() {
+        let all = variants
+            .iter()
+            .map(|name| interner.resolve(*name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Match on `{}` is non-exhaustive because all constructor arms are guarded. Missing: {}.",
+            interner.resolve(first_adt),
+            all
+        ));
+    }
+
+    let covered: HashSet<Identifier> = constructor_names.into_iter().collect();
+    let missing = variants
+        .iter()
+        .filter(|name| !covered.contains(name))
+        .map(|name| interner.resolve(*name))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "Match on `{}` is missing constructors: {}.",
+            interner.resolve(first_adt),
+            missing.join(", ")
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_pattern_constructors_for_jit(
+    pattern: &Pattern,
+    scope: &Scope,
+    interner: &Interner,
+) -> Result<(), String> {
+    match pattern {
+        Pattern::Constructor { name, fields, .. } => {
+            let Some(expected_arity) = scope.adt_constructors.get(name).copied() else {
+                return Err(format!("Unknown constructor `{}`.", interner.resolve(*name)));
+            };
+            if fields.len() != expected_arity {
+                return Err(format!(
+                    "Constructor `{}` expects {} argument(s) but got {}.",
+                    interner.resolve(*name),
+                    expected_arity,
+                    fields.len()
+                ));
+            }
+            for field in fields {
+                validate_pattern_constructors_for_jit(field, scope, interner)?;
+            }
+            Ok(())
+        }
+        Pattern::Some { pattern, .. }
+        | Pattern::Left { pattern, .. }
+        | Pattern::Right { pattern, .. } => {
+            validate_pattern_constructors_for_jit(pattern, scope, interner)
+        }
+        Pattern::Cons { head, tail, .. } => {
+            validate_pattern_constructors_for_jit(head, scope, interner)?;
+            validate_pattern_constructors_for_jit(tail, scope, interner)
+        }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                validate_pattern_constructors_for_jit(element, scope, interner)?;
+            }
+            Ok(())
+        }
+        Pattern::Wildcard { .. }
+        | Pattern::Identifier { .. }
+        | Pattern::Literal { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. } => Ok(()),
+    }
 }
 
 fn bind_pattern_value(

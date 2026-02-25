@@ -1,0 +1,16 @@
+// E083: wildcard with guard is not an unconditional catch-all.
+
+data Color {
+    Red,
+    Blue,
+}
+
+fn classify(c: Color) -> Int {
+    match c {
+        _ if true -> 1,
+    }
+}
+
+fn main() {
+    classify(Red)
+}
