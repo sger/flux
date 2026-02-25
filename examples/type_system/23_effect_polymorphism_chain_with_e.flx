@@ -1,0 +1,18 @@
+// Effect polymorphism across chained higher-order wrappers.
+
+fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(x)
+}
+
+fn wrap_apply(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    apply_once(f, x)
+}
+
+fn io_inc(x: Int) -> Int with IO {
+    print("x=#{to_string(x)}")
+    x + 1
+}
+
+fn main() with IO {
+    print(to_string(wrap_apply(io_inc, 41)))
+}

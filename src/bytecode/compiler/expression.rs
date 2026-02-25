@@ -530,13 +530,14 @@ impl Compiler {
 
         if !contract.effects.is_empty() {
             let effect_var_bindings = self.bind_effect_vars_for_call(contract, arguments);
+            let resolved_bindings = self.resolve_effect_var_bindings(&effect_var_bindings);
             let mut required_effects: HashSet<Symbol> = HashSet::new();
             for required in &contract.effects {
                 let required_name = match required {
                     crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
                 };
                 if self.is_effect_variable(required_name) {
-                    if let Some(bound) = effect_var_bindings.get(&required_name) {
+                    if let Some(bound) = resolved_bindings.get(&required_name) {
                         required_effects.extend(bound.iter().copied());
                     }
                 } else {
@@ -696,6 +697,44 @@ impl Compiler {
         bindings
     }
 
+    fn resolve_effect_var_bindings(
+        &self,
+        bindings: &HashMap<Symbol, HashSet<Symbol>>,
+    ) -> HashMap<Symbol, HashSet<Symbol>> {
+        let mut resolved: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+        for var in bindings.keys().copied() {
+            let mut out = HashSet::new();
+            let mut visiting = HashSet::new();
+            self.collect_resolved_effect_atoms(var, bindings, &mut visiting, &mut out);
+            resolved.insert(var, out);
+        }
+        resolved
+    }
+
+    fn collect_resolved_effect_atoms(
+        &self,
+        current: Symbol,
+        bindings: &HashMap<Symbol, HashSet<Symbol>>,
+        visiting: &mut HashSet<Symbol>,
+        out: &mut HashSet<Symbol>,
+    ) {
+        if !visiting.insert(current) {
+            return;
+        }
+        let Some(bound) = bindings.get(&current) else {
+            visiting.remove(&current);
+            return;
+        };
+        for effect in bound {
+            if self.is_effect_variable(*effect) {
+                self.collect_resolved_effect_atoms(*effect, bindings, visiting, out);
+            } else {
+                out.insert(*effect);
+            }
+        }
+        visiting.remove(&current);
+    }
+
     fn infer_argument_function_effects(
         &self,
         argument: &Expression,
@@ -808,8 +847,7 @@ impl Compiler {
                 ..
             } => {
                 let contract = self.resolve_call_contract(function, arguments.len())?;
-                let ret = contract.ret.as_ref()?;
-                convert_type_expr(ret, &self.interner)
+                self.infer_call_return_type(contract, arguments)
             }
             Expression::TupleLiteral { elements, .. } => Some(RuntimeType::Tuple(
                 elements
@@ -832,6 +870,120 @@ impl Compiler {
                 }
             }
             _ => None,
+        }
+    }
+
+    fn infer_call_return_type(
+        &self,
+        contract: &FnContract,
+        arguments: &[Expression],
+    ) -> Option<RuntimeType> {
+        let ret = contract.ret.as_ref()?;
+        // Fast path for non-generic returns.
+        if let Some(rt) = convert_type_expr(ret, &self.interner) {
+            return Some(rt);
+        }
+
+        let mut substitutions: HashMap<Symbol, RuntimeType> = HashMap::new();
+        for (idx, argument) in arguments.iter().enumerate() {
+            let Some(param_ty) = contract.params.get(idx).and_then(|p| p.as_ref()) else {
+                continue;
+            };
+            let Some(actual_ty) = self.static_expr_type(argument) else {
+                continue;
+            };
+            self.match_type_expr_to_runtime(param_ty, &actual_ty, &mut substitutions)?;
+        }
+
+        self.instantiate_type_expr(ret, &substitutions)
+    }
+
+    fn match_type_expr_to_runtime(
+        &self,
+        expected: &TypeExpr,
+        actual: &RuntimeType,
+        substitutions: &mut HashMap<Symbol, RuntimeType>,
+    ) -> Option<()> {
+        match expected {
+            TypeExpr::Named { name, args, .. } => {
+                let name_str = self.sym(*name);
+                if args.is_empty() {
+                    if let Some(expected_runtime) = convert_type_expr(expected, &self.interner) {
+                        return Self::runtime_types_compatible(&expected_runtime, actual).then_some(());
+                    }
+                    // Treat unresolved named type in this position as a generic variable.
+                    if let Some(bound) = substitutions.get(name) {
+                        return Self::runtime_types_compatible(bound, actual).then_some(());
+                    }
+                    substitutions.insert(*name, actual.clone());
+                    return Some(());
+                }
+
+                match (name_str, args.len(), actual) {
+                    ("Option", 1, RuntimeType::Option(inner)) => {
+                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
+                    }
+                    ("Array", 1, RuntimeType::Array(inner)) => {
+                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
+                    }
+                    ("Map", 2, RuntimeType::Map(k, v)) => {
+                        self.match_type_expr_to_runtime(&args[0], k, substitutions)?;
+                        self.match_type_expr_to_runtime(&args[1], v, substitutions)
+                    }
+                    _ => None,
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => {
+                let RuntimeType::Tuple(actual_elements) = actual else {
+                    return None;
+                };
+                if elements.len() != actual_elements.len() {
+                    return None;
+                }
+                for (expected_elem, actual_elem) in elements.iter().zip(actual_elements.iter()) {
+                    self.match_type_expr_to_runtime(expected_elem, actual_elem, substitutions)?;
+                }
+                Some(())
+            }
+            TypeExpr::Function { .. } => None,
+        }
+    }
+
+    fn instantiate_type_expr(
+        &self,
+        ty: &TypeExpr,
+        substitutions: &HashMap<Symbol, RuntimeType>,
+    ) -> Option<RuntimeType> {
+        if let Some(runtime) = convert_type_expr(ty, &self.interner) {
+            return Some(runtime);
+        }
+        match ty {
+            TypeExpr::Named { name, args, .. } => {
+                if args.is_empty() {
+                    return substitutions.get(name).cloned();
+                }
+                let name_str = self.sym(*name);
+                match (name_str, args.len()) {
+                    ("Option", 1) => Some(RuntimeType::Option(Box::new(
+                        self.instantiate_type_expr(&args[0], substitutions)?,
+                    ))),
+                    ("Array", 1) => Some(RuntimeType::Array(Box::new(
+                        self.instantiate_type_expr(&args[0], substitutions)?,
+                    ))),
+                    ("Map", 2) => Some(RuntimeType::Map(
+                        Box::new(self.instantiate_type_expr(&args[0], substitutions)?),
+                        Box::new(self.instantiate_type_expr(&args[1], substitutions)?),
+                    )),
+                    _ => None,
+                }
+            }
+            TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
+                elements
+                    .iter()
+                    .map(|elem| self.instantiate_type_expr(elem, substitutions))
+                    .collect::<Option<Vec<_>>>()?,
+            )),
+            TypeExpr::Function { .. } => None,
         }
     }
 
