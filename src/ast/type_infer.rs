@@ -47,7 +47,11 @@ struct InferCtx<'a> {
 }
 
 impl<'a> InferCtx<'a> {
-    fn new(interner: &'a Interner, file_path: String) -> Self {
+    fn new(
+        interner: &'a Interner,
+        file_path: String,
+        preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    ) -> Self {
         InferCtx {
             env: TypeEnv::new(),
             interner,
@@ -57,7 +61,7 @@ impl<'a> InferCtx<'a> {
             next_expr_id: 0,
             expr_ptr_to_id: HashMap::new(),
             expr_types: HashMap::new(),
-            module_member_schemes: HashMap::new(),
+            module_member_schemes: preloaded_module_member_schemes,
         }
     }
 
@@ -818,9 +822,10 @@ pub fn infer_program(
     program: &Program,
     interner: &Interner,
     file_path: Option<String>,
+    preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
 ) -> InferProgramResult {
     let file = file_path.unwrap_or_default();
-    let mut ctx = InferCtx::new(interner, file);
+    let mut ctx = InferCtx::new(interner, file, preloaded_module_member_schemes);
     ctx.infer_program(program);
     InferProgramResult {
         type_env: ctx.env,

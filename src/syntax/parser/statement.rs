@@ -48,6 +48,7 @@ impl Parser {
             TokenType::Import => self.parse_import_statement(),
             TokenType::Let => self.parse_let_statement(),
             TokenType::Return => self.parse_return_statement(),
+            TokenType::Type => self.parse_type_adt_statement(),
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
@@ -595,6 +596,135 @@ impl Parser {
                 self.next_token(); // consume ','
             }
             self.next_token(); // advance to next variant or '}'
+        }
+
+        Some(Statement::Data {
+            name,
+            type_params,
+            variants,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parses ADT sugar:
+    /// `type Result<T, E> = Ok(T) | Err(E)`
+    ///
+    /// This desugars directly into `Statement::Data`.
+    pub(super) fn parse_type_adt_statement(&mut self) -> Option<Statement> {
+        let start = self.current_token.position;
+
+        // current: 'type' — advance to type name
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+
+        // Optional generic type parameters <T, U, ...>
+        let mut type_params = Vec::new();
+        if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // consume '<'
+            loop {
+                if !self.expect_peek(TokenType::Ident) {
+                    return None;
+                }
+                type_params.push(
+                    self.current_token
+                        .symbol
+                        .expect("ident token should have symbol"),
+                );
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token(); // consume ','
+                } else {
+                    break;
+                }
+            }
+            if !self.expect_peek(TokenType::Gt) {
+                return None;
+            }
+        }
+
+        // Expect '='
+        if !self.expect_peek(TokenType::Assign) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                "Expected `=` after `type` declaration name.".to_string(),
+            ));
+            return None;
+        }
+        self.next_token(); // move past '=' to first constructor token
+
+        let mut variants = Vec::new();
+        loop {
+            let var_start = self.current_token.position;
+            if self.current_token.token_type != TokenType::Ident {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    format!(
+                        "Expected constructor name in `type` declaration, got {}",
+                        self.current_token.token_type
+                    ),
+                ));
+                return None;
+            }
+            let var_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+
+            let mut fields = Vec::new();
+            if self.is_peek_token(TokenType::LParen) {
+                self.next_token(); // move to '('
+                // Empty Variant()
+                if !self.consume_if_peek(TokenType::RParen) {
+                    self.next_token(); // first field type
+                    loop {
+                        if self.is_current_token(TokenType::RParen)
+                            || self.is_current_token(TokenType::Eof)
+                        {
+                            break;
+                        }
+                        let Some(ty) = self.parse_type_expr() else {
+                            return None;
+                        };
+                        fields.push(ty);
+                        self.next_token(); // past field type
+                        match self.current_token.token_type {
+                            TokenType::Comma => self.next_token(),
+                            TokenType::RParen | TokenType::Eof => break,
+                            _ => {
+                                self.errors.push(unexpected_token(
+                                    self.current_token.span(),
+                                    format!(
+                                        "Expected `,` or `)` in constructor fields, got {}.",
+                                        self.current_token.token_type
+                                    ),
+                                ));
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+
+            variants.push(DataVariant {
+                name: var_name,
+                fields,
+                span: self.span_from(var_start),
+            });
+
+            // Continue on '|', stop at statement end.
+            if self.is_peek_token(TokenType::Bar) {
+                self.next_token(); // consume '|'
+                self.next_token(); // next constructor start
+                continue;
+            }
+            if self.is_peek_token(TokenType::Semicolon) {
+                self.next_token(); // consume ';'
+            }
+            break;
         }
 
         Some(Statement::Data {

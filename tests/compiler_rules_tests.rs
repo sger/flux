@@ -257,6 +257,34 @@ fn match_non_exhaustive_error() {
 }
 
 #[test]
+fn match_bool_exhaustive_without_catchall_ok() {
+    compile_ok_in(
+        "test.flx",
+        "let x = true; match x { true -> 1, false -> 0 };",
+    );
+}
+
+#[test]
+fn match_list_exhaustive_without_catchall_ok() {
+    compile_ok_in(
+        "test.flx",
+        "let xs = [1, 2]; match xs { [] -> 0, [h | t] -> h };",
+    );
+}
+
+#[test]
+fn match_guarded_wildcard_only_non_exhaustive_error() {
+    let code = compile_err("let x = 2; match x { _ if x > 0 -> 1 }");
+    assert_eq!(code, "E015");
+}
+
+#[test]
+fn match_tuple_without_catchall_is_conservatively_non_exhaustive() {
+    let code = compile_err("let t = (1, true); match t { (1, true) -> 1, (2, false) -> 2 }");
+    assert_eq!(code, "E015");
+}
+
+#[test]
 fn match_identifier_non_last_error() {
     let code = compile_err("let x = 2; match x { y -> 1, _ -> 2 }");
     assert_eq!(code, "E016");

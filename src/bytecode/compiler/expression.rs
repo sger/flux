@@ -22,8 +22,9 @@ use crate::{
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
         ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, UNKNOWN_BASE_MEMBER,
+        UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::type_unification_error,
         diag_enhanced,
         position::{Position, Span},
@@ -50,6 +51,16 @@ use crate::{
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneralCoverageDomain {
+    Bool,
+    Option,
+    Either,
+    ListLike,
+    Tuple(usize),
+    Unknown,
+}
 
 impl Compiler {
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
@@ -1248,8 +1259,8 @@ impl Compiler {
         arms: &[MatchArm],
         match_span: Span,
     ) -> CompileResult<()> {
-        // Exhaustiveness check for ADT patterns (before compiling arms)
-        self.check_match_exhaustiveness(arms, match_span)?;
+        // Exhaustiveness check before compiling arms.
+        self.check_match_exhaustiveness(scrutinee, arms, match_span)?;
         // Compile scrutinee once and store it in a temp symbol.
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
         self.compile_non_tail_expression(scrutinee)?;
@@ -2491,7 +2502,284 @@ impl Compiler {
         Ok(true)
     }
 
-    fn check_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
+    fn check_match_exhaustiveness(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> CompileResult<()> {
+        let has_constructor_arms = arms
+            .iter()
+            .any(|arm| matches!(arm.pattern, Pattern::Constructor { .. }));
+        if has_constructor_arms {
+            return self.check_adt_match_exhaustiveness(arms, span);
+        }
+
+        self.check_general_match_exhaustiveness(scrutinee, arms, span)
+    }
+
+    fn check_general_match_exhaustiveness(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> CompileResult<()> {
+        if arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        }) {
+            return Ok(());
+        }
+
+        let domain = self.infer_general_match_domain(scrutinee, arms);
+        match domain {
+            GeneralCoverageDomain::Bool => {
+                let mut seen_true = false;
+                let mut seen_false = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    if let Pattern::Literal { expression, .. } = &arm.pattern
+                        && let Expression::Boolean { value, .. } = expression
+                    {
+                        if *value {
+                            seen_true = true;
+                        } else {
+                            seen_false = true;
+                        }
+                    }
+                }
+                if seen_true && seen_false {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_true {
+                    missing.push("true");
+                }
+                if !seen_false {
+                    missing.push("false");
+                }
+                let missing_text = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Bool case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing boolean arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ));
+            }
+            GeneralCoverageDomain::Option => {
+                let mut seen_none = false;
+                let mut seen_some = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::None { .. } => seen_none = true,
+                        Pattern::Some { .. } => seen_some = true,
+                        _ => {}
+                    }
+                }
+                if seen_none && seen_some {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_none {
+                    missing.push("None");
+                }
+                if !seen_some {
+                    missing.push("Some(_)");
+                }
+                let missing_text = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Option case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing Option arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ));
+            }
+            GeneralCoverageDomain::Either => {
+                let mut seen_left = false;
+                let mut seen_right = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::Left { .. } => seen_left = true,
+                        Pattern::Right { .. } => seen_right = true,
+                        _ => {}
+                    }
+                }
+                if seen_left && seen_right {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_left {
+                    missing.push("Left(_)");
+                }
+                if !seen_right {
+                    missing.push("Right(_)");
+                }
+                let missing_text = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Either case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing Either arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ));
+            }
+            GeneralCoverageDomain::ListLike => {
+                let mut seen_empty = false;
+                let mut seen_cons = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::EmptyList { .. } => seen_empty = true,
+                        Pattern::Cons { .. } => seen_cons = true,
+                        _ => {}
+                    }
+                }
+                if seen_empty && seen_cons {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_empty {
+                    missing.push("[]");
+                }
+                if !seen_cons {
+                    missing.push("[h | t]");
+                }
+                let missing_text = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing list case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing list arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ));
+            }
+            GeneralCoverageDomain::Tuple(_) | GeneralCoverageDomain::Unknown => {
+                return Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(
+                            "Match is non-exhaustive without an unguarded catch-all arm."
+                                .to_string(),
+                        )
+                        .with_hint_text(
+                            "Add an unguarded `_ -> ...` arm for conservative exhaustive coverage."
+                                .to_string(),
+                        ),
+                ));
+            }
+        }
+    }
+
+    fn infer_general_match_domain(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+    ) -> GeneralCoverageDomain {
+        if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(ty) =
+            self.hm_expr_type_strict_path(scrutinee)
+            && let Some(domain) = Self::domain_from_infer_type(&ty)
+        {
+            return domain;
+        }
+        Self::domain_from_unguarded_patterns(arms)
+    }
+
+    fn domain_from_infer_type(ty: &InferType) -> Option<GeneralCoverageDomain> {
+        match ty {
+            InferType::Con(crate::types::type_constructor::TypeConstructor::Bool) => {
+                Some(GeneralCoverageDomain::Bool)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::Option, _) => {
+                Some(GeneralCoverageDomain::Option)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::Either, _) => {
+                Some(GeneralCoverageDomain::Either)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::List, _)
+            | InferType::App(crate::types::type_constructor::TypeConstructor::Array, _) => {
+                Some(GeneralCoverageDomain::ListLike)
+            }
+            InferType::Tuple(elements) => Some(GeneralCoverageDomain::Tuple(elements.len())),
+            _ => None,
+        }
+    }
+
+    fn domain_from_unguarded_patterns(arms: &[MatchArm]) -> GeneralCoverageDomain {
+        let patterns: Vec<&Pattern> = arms
+            .iter()
+            .filter(|arm| arm.guard.is_none())
+            .map(|arm| &arm.pattern)
+            .collect();
+        if patterns.is_empty() {
+            return GeneralCoverageDomain::Unknown;
+        }
+
+        if patterns.iter().all(|p| {
+            matches!(
+                p,
+                Pattern::Literal {
+                    expression: Expression::Boolean { .. },
+                    ..
+                }
+            )
+        }) {
+            return GeneralCoverageDomain::Bool;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::None { .. } | Pattern::Some { .. }))
+        {
+            return GeneralCoverageDomain::Option;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Left { .. } | Pattern::Right { .. }))
+        {
+            return GeneralCoverageDomain::Either;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::EmptyList { .. } | Pattern::Cons { .. }))
+        {
+            return GeneralCoverageDomain::ListLike;
+        }
+        if let Some(tuple_arity) = patterns.iter().find_map(|p| match p {
+            Pattern::Tuple { elements, .. } => Some(elements.len()),
+            _ => None,
+        }) && patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_arity))
+        {
+            return GeneralCoverageDomain::Tuple(tuple_arity);
+        }
+
+        GeneralCoverageDomain::Unknown
+    }
+
+    fn check_adt_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
         // Collect constructor patterns:
         // - `all_constructor_names`: any constructor arm (guarded or unguarded)
         // - `constructor_names`: unguarded constructor arms only (these can prove coverage)

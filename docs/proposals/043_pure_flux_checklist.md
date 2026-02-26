@@ -28,6 +28,11 @@ v0.0.4 critical-path hardening continues under the same truth model for:
 - Post-cutover hardening restores precise HM projection typing for
   `Index`/`TupleFieldAccess` and locks pointer-identity invariants for
   ExprTypeMap lookup consistency.
+- General non-ADT `match` exhaustiveness hardening now uses compile-time
+  coverage analysis (`E015`) for Bool/list/sum-like spaces with guarded-arm
+  deterministic behavior.
+- ADT post-sugar semantic hardening is tracked separately in
+  `047_adt_semantics_deepening.md`.
 
 It is intentionally implementation-focused (pass/fail criteria), not a new language design.
 

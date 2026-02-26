@@ -65,6 +65,7 @@ Feature state is evidence-driven:
 | 040 | [040_macro_system.md](040_macro_system.md) | Draft | gap | proposal-only | canonical macro proposal going forward |
 | 041 | [041_nan_boxing_runtime_optimization.md](041_nan_boxing_runtime_optimization.md) | Proposed | gap | proposal-only | keep in runtime perf backlog |
 | 045 | [045_gc.md](045_gc.md) | Draft | gap | proposal-only (renamed from `010_gc.md`) | continue as canonical GC proposal |
+| 047 | [047_adt_semantics_deepening.md](047_adt_semantics_deepening.md) | Draft | gap | proposal-only | post-sugar ADT semantic hardening track |
 
 ## Superseded Historical Docs
 

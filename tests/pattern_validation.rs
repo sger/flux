@@ -153,12 +153,11 @@ match x { 1 -> 10 };
         parser_errors
     );
 
-    let compile_diags = compile_result.expect_err("expected E015 from pattern validation");
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert_eq!(diag.title(), "NON-EXHAUSTIVE MATCH");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("must end with a `_` or identifier arm")),
+        diag.message().is_some_and(|m| m.contains("non-exhaustive")),
         "unexpected E015 message: {:?}",
         diag.message()
     );
@@ -181,7 +180,7 @@ match x { _ if true -> 1 };
         parser_errors
     );
 
-    let compile_diags = compile_result.expect_err("expected E015 from pattern validation");
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
     let codes = diag_codes(&compile_diags);
     assert!(
         codes.iter().any(|c| c == "E015"),
@@ -326,8 +325,8 @@ match x { 1 -> 10 };
         codes
     );
     assert!(
-        codes.iter().any(|c| c == "E015"),
-        "expected E015 (non-exhaustive), got: {:?}",
+        !codes.iter().any(|c| c == "E015"),
+        "pattern-only validation should not emit E015 directly, got: {:?}",
         codes
     );
 }

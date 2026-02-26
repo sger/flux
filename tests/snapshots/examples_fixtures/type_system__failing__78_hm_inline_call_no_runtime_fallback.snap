@@ -14,5 +14,22 @@ Cannot unify Int with String.
 4 |     let _x: String = (/(n: Int) -> n)(1)
   |             ^^^^^^
   |             ------ expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:4:23
+  |
+4 |     let _x: String = (/(n: Int) -> n)(1)
+  |                       ^^^^^^^^^^^^^^^^^^
+  |                       ------------------ expected String, found Int
+  |                       ------------------ initializer type is known at compile time
+
+Help:
+  binding initializer does not match type annotation
+
+Found 2 errors.
 == stdout ==
 <not executed>

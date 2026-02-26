@@ -1,0 +1,9 @@
+// Guarded arm does not close coverage; unguarded fallback does.
+let n = 3;
+
+let out = match n {
+    x if x > 10 -> 1,
+    _ -> 0
+};
+
+out;

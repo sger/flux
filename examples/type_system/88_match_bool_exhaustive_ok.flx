@@ -1,0 +1,9 @@
+// General match exhaustiveness: Bool domain is exhaustive without catch-all.
+let b = true;
+
+let out = match b {
+    true -> 1,
+    false -> 0
+};
+
+out;

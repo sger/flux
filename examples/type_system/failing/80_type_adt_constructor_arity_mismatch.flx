@@ -1,0 +1,13 @@
+// E082: constructor arity mismatch using `type ... = ... | ...` ADT sugar.
+
+type PairI = Pair(Int, Int)
+
+fn bad(x: PairI) -> Int {
+    match x {
+        Pair(a) -> a,
+    }
+}
+
+fn main() {
+    bad(Pair(1, 2))
+}
