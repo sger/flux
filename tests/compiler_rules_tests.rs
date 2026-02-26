@@ -436,6 +436,94 @@ fn main() -> Unit {
 }
 
 #[test]
+fn perform_arg_type_mismatch_fails_compile_e300() {
+    let code = compile_err(
+        r#"
+effect Console {
+    print: String -> Unit
+}
+fn main() -> Unit with IO {
+    let _x = (perform Console.print(1)) handle Console {
+        print(_resume, _msg) -> None
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn perform_wrong_arity_fails_compile_e300() {
+    let code = compile_err(
+        r#"
+effect Console {
+    print: String -> Unit
+}
+fn main() -> Unit with IO {
+    (perform Console.print()) handle Console {
+        print(resume, _msg) -> resume(())
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn handle_arm_param_mismatch_fails_compile_e300() {
+    let code = compile_err(
+        r#"
+effect Console {
+    print: String -> Unit
+}
+fn main() -> Unit with Console {
+    1 handle Console {
+        print(resume) -> resume(())
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn handle_arm_result_mismatch_fails_compile_e300() {
+    let code = compile_err(
+        r#"
+effect Console {
+    print: String -> Unit
+}
+fn main() -> Unit with Console {
+    1 handle Console {
+        print(resume, _msg) -> "oops"
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn valid_handle_with_resume_and_correct_types_compiles() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+effect Console {
+    print: String -> Int
+}
+fn run() -> Int with Console {
+    perform Console.print("x")
+}
+fn main() -> Unit with IO {
+    let _ = run() handle Console {
+        print(resume, _msg) -> resume(1)
+    }
+}
+"#,
+    );
+}
+
+#[test]
 fn strict_member_access_non_module_path_reports_unresolved_boundary() {
     let code = compile_err_strict(
         r#"

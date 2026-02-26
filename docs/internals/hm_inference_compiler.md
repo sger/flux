@@ -88,7 +88,7 @@ Precision that is used downstream by typed validation includes:
 Intentional fallback zones (current behavior):
 - branch disagreement (`if`/`match`) joins through `join_types`, which may return `Any`,
 - `MemberAccess` on non-module values falls back to `Any`,
-- `Perform` and `Handle` in HM `infer_expr` currently infer subexpressions but return `Any`.
+- unresolved/unsupported effect-operation signatures in `Perform`/`Handle` still degrade to `Any`.
 
 ## Worked Example: How Types Are Inferred
 
@@ -179,8 +179,8 @@ Also relevant:
 
 Current split of responsibilities:
 - HM type unification includes function effect-set compatibility.
-- Full call-site effect enforcement lives in compiler effect checks (`expression.rs` and `mod.rs`), not in HM expression inference.
-- `Perform`/`Handle` in HM expression inference currently produce `Any`, so strict effect obligations are enforced via compiler validation layers.
+- Compiler effect checks enforce ambient-effect availability and effect-row constraints.
+- HM expression inference now uses declared effect operation signatures to type `Perform` and `Handle` expressions where signatures are resolvable.
 
 ## Test Anchors
 

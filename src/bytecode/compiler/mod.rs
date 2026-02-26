@@ -112,6 +112,7 @@ pub struct Compiler {
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
+    pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprNodeId, crate::types::infer_type::InferType>,
@@ -170,6 +171,7 @@ impl Compiler {
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
             effect_ops_registry: HashMap::new(),
+            effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
             expr_ptr_to_id: HashMap::new(),
@@ -217,6 +219,7 @@ impl Compiler {
         self.function_effects.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
     }
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
@@ -254,6 +257,7 @@ impl Compiler {
 
     fn collect_effect_declarations(&mut self, program: &Program) {
         self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
         for statement in &program.statements {
             self.collect_effect_declarations_from_stmt(statement);
         }
@@ -265,6 +269,7 @@ impl Compiler {
                 let entry = self.effect_ops_registry.entry(*name).or_default();
                 for op in ops {
                     entry.insert(op.name);
+                    self.effect_op_signatures.insert((*name, op.name), op.type_expr.clone());
                 }
             }
             Statement::Module { body, .. } => {
@@ -1664,6 +1669,10 @@ impl Compiler {
         self.effect_ops_registry.get(&effect)
     }
 
+    pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&TypeExpr> {
+        self.effect_op_signatures.get(&(effect, op))
+    }
+
     pub(super) fn is_effect_variable(&self, effect: Symbol) -> bool {
         self.sym(effect)
             .chars()
@@ -1792,6 +1801,7 @@ impl Compiler {
         self.function_effects.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.effect_alias_scopes.clear();
@@ -1865,6 +1875,7 @@ impl Compiler {
                 &self.interner,
                 Some(self.file_path.clone()),
                 preloaded_member_schemes,
+                self.effect_op_signatures.clone(),
             );
             self.type_env = hm.type_env;
             self.hm_expr_types = hm.expr_types;

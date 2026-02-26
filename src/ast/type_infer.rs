@@ -44,6 +44,7 @@ struct InferCtx<'a> {
     expr_ptr_to_id: HashMap<usize, ExprNodeId>,
     expr_types: HashMap<ExprNodeId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -51,6 +52,7 @@ impl<'a> InferCtx<'a> {
         interner: &'a Interner,
         file_path: String,
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+        preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ) -> Self {
         InferCtx {
             env: TypeEnv::new(),
@@ -62,7 +64,32 @@ impl<'a> InferCtx<'a> {
             expr_ptr_to_id: HashMap::new(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
+            effect_op_signatures: preloaded_effect_op_signatures,
         }
+    }
+
+    fn effect_op_signature_types(
+        &self,
+        effect: Identifier,
+        operation: Identifier,
+    ) -> Option<(Vec<InferType>, InferType)> {
+        let type_expr = self.effect_op_signatures.get(&(effect, operation))?;
+        let TypeExpr::Function {
+            params,
+            ret,
+            effects: _,
+            span: _,
+        } = type_expr
+        else {
+            return None;
+        };
+        let tp_map: HashMap<Identifier, TypeVarId> = HashMap::new();
+        let param_tys = params
+            .iter()
+            .map(|p| TypeEnv::infer_type_from_type_expr(p, &tp_map, self.interner))
+            .collect::<Option<Vec<_>>>()?;
+        let ret_ty = TypeEnv::infer_type_from_type_expr(ret, &tp_map, self.interner)?;
+        Some((param_tys, ret_ty))
     }
 
     fn node_id_for_expr(&mut self, expr: &Expression) -> ExprNodeId {
@@ -673,18 +700,58 @@ impl<'a> InferCtx<'a> {
                     _ => InferType::Con(TypeConstructor::Any),
                 }
             }
-            Expression::Perform { args, .. } => {
-                for arg in args {
-                    self.infer_expr(arg);
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                span,
+            } => {
+                let arg_tys: Vec<InferType> = args.iter().map(|arg| self.infer_expr(arg)).collect();
+                if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(*effect, *operation)
+                {
+                    if arg_tys.len() == param_tys.len() {
+                        for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
+                            self.unify_reporting(actual, expected, *span);
+                        }
+                        ret_ty.apply_type_subst(&self.subst)
+                    } else {
+                        InferType::Con(TypeConstructor::Any)
+                    }
+                } else {
+                    for arg in args {
+                        self.infer_expr(arg);
+                    }
+                    InferType::Con(TypeConstructor::Any)
                 }
-                InferType::Con(TypeConstructor::Any)
             }
-            Expression::Handle { expr, arms, .. } => {
-                self.infer_expr(expr);
+            Expression::Handle {
+                expr,
+                effect,
+                arms,
+                span,
+            } => {
+                let handled_ty = self.infer_expr(expr);
+                let mut arm_result: Option<InferType> = None;
                 for arm in arms {
-                    self.infer_expr(&arm.body);
+                    self.env.enter_scope();
+                    if let Some((param_tys, _ret_ty)) =
+                        self.effect_op_signature_types(*effect, arm.operation_name)
+                    {
+                        for (param_name, param_ty) in arm.params.iter().zip(param_tys.iter()) {
+                            self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
+                        }
+                    }
+                    let body_ty = self.infer_expr(&arm.body);
+                    self.env.leave_scope();
+                    arm_result = Some(match arm_result {
+                        Some(prev) => self.join_types(&prev, &body_ty),
+                        None => body_ty,
+                    });
                 }
-                InferType::Con(TypeConstructor::Any)
+
+                let arm_ty = arm_result.unwrap_or_else(|| InferType::Con(TypeConstructor::Any));
+                let _ = span;
+                self.join_types(&handled_ty, &arm_ty)
             }
         };
         let resolved = inferred.apply_type_subst(&self.subst);
@@ -911,9 +978,15 @@ pub fn infer_program(
     interner: &Interner,
     file_path: Option<String>,
     preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
 ) -> InferProgramResult {
     let file = file_path.unwrap_or_default();
-    let mut ctx = InferCtx::new(interner, file, preloaded_module_member_schemes);
+    let mut ctx = InferCtx::new(
+        interner,
+        file,
+        preloaded_module_member_schemes,
+        preloaded_effect_op_signatures,
+    );
     ctx.infer_program(program);
     InferProgramResult {
         type_env: ctx.env,

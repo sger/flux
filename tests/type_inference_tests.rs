@@ -2,6 +2,10 @@
 // ============================================================================
 // Helper constructors
 // ============================================================================
+use std::collections::HashMap;
+
+use flux::ast::type_infer::infer_program;
+use flux::syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement};
 use flux::types::infer_type::InferType;
 use flux::types::scheme::{Scheme, generalize};
 use flux::types::type_constructor::TypeConstructor;
@@ -55,6 +59,188 @@ fn fun_with_effects(
 
 fn tuple(elems: Vec<InferType>) -> InferType {
     InferType::Tuple(elems)
+}
+
+fn infer_program_from_source(
+    source: &str,
+) -> (
+    flux::ast::type_infer::InferProgramResult,
+    flux::syntax::program::Program,
+) {
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut effect_op_sigs = HashMap::new();
+    fn collect_effect_sigs(
+        statements: &[Statement],
+        out: &mut HashMap<(flux::syntax::Identifier, flux::syntax::Identifier), flux::syntax::type_expr::TypeExpr>,
+    ) {
+        for statement in statements {
+            match statement {
+                Statement::EffectDecl { name, ops, .. } => {
+                    for op in ops {
+                        out.insert((*name, op.name), op.type_expr.clone());
+                    }
+                }
+                Statement::Module { body, .. } => collect_effect_sigs(&body.statements, out),
+                _ => {}
+            }
+        }
+    }
+    collect_effect_sigs(&program.statements, &mut effect_op_sigs);
+    let result = infer_program(
+        &program,
+        &interner,
+        Some("<test>".to_string()),
+        HashMap::new(),
+        effect_op_sigs,
+    );
+    (result, program)
+}
+
+fn first_perform_expr(program: &flux::syntax::program::Program) -> Option<&Expression> {
+    fn walk_expr(expr: &Expression) -> Option<&Expression> {
+        match expr {
+            Expression::Perform { .. } => Some(expr),
+            Expression::Prefix { right, .. } => walk_expr(right),
+            Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => walk_expr(condition)
+                .or_else(|| walk_block(consequence))
+                .or_else(|| alternative.as_ref().and_then(walk_block)),
+            Expression::DoBlock { block, .. } => walk_block(block),
+            Expression::Function { body, .. } => walk_block(body),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::TupleLiteral { elements, .. }
+            | Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
+            Expression::Hash { pairs, .. } => pairs
+                .iter()
+                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
+            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+                walk_expr(object)
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => walk_expr(scrutinee).or_else(|| {
+                arms.iter().find_map(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .and_then(walk_expr)
+                        .or_else(|| walk_expr(&arm.body))
+                })
+            }),
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => walk_expr(value),
+            Expression::Cons { head, tail, .. } => walk_expr(head).or_else(|| walk_expr(tail)),
+            Expression::Handle { expr, arms, .. } => walk_expr(expr).or_else(|| {
+                arms.iter().find_map(|arm| walk_expr(&arm.body))
+            }),
+            _ => None,
+        }
+    }
+
+    fn walk_stmt(statement: &Statement) -> Option<&Expression> {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => walk_expr(value),
+            Statement::Return { value, .. } => value.as_ref().and_then(walk_expr),
+            Statement::Expression { expression, .. } => walk_expr(expression),
+            Statement::Function { body, .. } | Statement::Module { body, .. } => walk_block(body),
+            _ => None,
+        }
+    }
+
+    fn walk_block(block: &flux::syntax::block::Block) -> Option<&Expression> {
+        block.statements.iter().find_map(walk_stmt)
+    }
+
+    program.statements.iter().find_map(walk_stmt)
+}
+
+fn first_handle_expr(program: &flux::syntax::program::Program) -> Option<&Expression> {
+    fn walk_expr(expr: &Expression) -> Option<&Expression> {
+        match expr {
+            Expression::Handle { .. } => Some(expr),
+            Expression::Prefix { right, .. } => walk_expr(right),
+            Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => walk_expr(condition)
+                .or_else(|| walk_block(consequence))
+                .or_else(|| alternative.as_ref().and_then(walk_block)),
+            Expression::DoBlock { block, .. } => walk_block(block),
+            Expression::Function { body, .. } => walk_block(body),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::TupleLiteral { elements, .. }
+            | Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
+            Expression::Hash { pairs, .. } => pairs
+                .iter()
+                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
+            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
+                walk_expr(object)
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => walk_expr(scrutinee).or_else(|| {
+                arms.iter().find_map(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .and_then(walk_expr)
+                        .or_else(|| walk_expr(&arm.body))
+                })
+            }),
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => walk_expr(value),
+            Expression::Cons { head, tail, .. } => walk_expr(head).or_else(|| walk_expr(tail)),
+            _ => None,
+        }
+    }
+
+    fn walk_stmt(statement: &Statement) -> Option<&Expression> {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => walk_expr(value),
+            Statement::Return { value, .. } => value.as_ref().and_then(walk_expr),
+            Statement::Expression { expression, .. } => walk_expr(expression),
+            Statement::Function { body, .. } | Statement::Module { body, .. } => walk_block(body),
+            _ => None,
+        }
+    }
+
+    fn walk_block(block: &flux::syntax::block::Block) -> Option<&Expression> {
+        block.statements.iter().find_map(walk_stmt)
+    }
+
+    program.statements.iter().find_map(walk_stmt)
 }
 
 // ============================================================================
@@ -172,6 +358,107 @@ fn unify_fun_effect_mismatch_fails() {
     let right = fun_with_effects(vec![int()], int(), vec![time]);
     let err = unify(&left, &right).unwrap_err();
     assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+}
+
+#[test]
+fn infer_perform_returns_declared_op_return_type() {
+    let (result, program) = infer_program_from_source(
+        r#"
+effect Console {
+    read: String -> Int
+}
+fn main() -> Unit with Console {
+    let x = perform Console.read("name")
+}
+"#,
+    );
+    let perform = first_perform_expr(&program).expect("expected perform expression");
+    let key = perform as *const Expression as usize;
+    let node_id = result
+        .expr_ptr_to_id
+        .get(&key)
+        .expect("expected expr node id for perform");
+    let ty = result
+        .expr_types
+        .get(node_id)
+        .expect("expected inferred type for perform expression");
+    assert_eq!(*ty, int());
+}
+
+#[test]
+fn infer_perform_arg_type_mismatch_reports_e300() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Console {
+    print: String -> Unit
+}
+fn main() -> Unit with Console {
+    perform Console.print(1)
+}
+"#,
+    );
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|d| d.code().is_some_and(|code| code == "E300")),
+        "expected E300 diagnostics for perform arg mismatch, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_handle_result_matches_handled_expression_type() {
+    let (result, program) = infer_program_from_source(
+        r#"
+effect Console {
+    print: String -> Int
+}
+fn main() -> Unit with Console {
+    let x = (perform Console.print("x")) handle Console {
+        print(resume, _msg) -> 1
+    }
+}
+"#,
+    );
+    let handle = first_handle_expr(&program).expect("expected handle expression");
+    let key = handle as *const Expression as usize;
+    let node_id = result
+        .expr_ptr_to_id
+        .get(&key)
+        .expect("expected expr node id for handle");
+    let ty = result
+        .expr_types
+        .get(node_id)
+        .expect("expected inferred type for handle expression");
+    assert_eq!(*ty, int());
+}
+
+#[test]
+fn infer_handle_arms_bind_declared_param_types() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Console {
+    print: String -> Int
+}
+fn main() -> Unit with Console {
+    let _ = (perform Console.print("x")) handle Console {
+        print(resume, msg) -> msg + 1
+    }
+}
+"#,
+    );
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .any(|d| d.code().is_some_and(|code| code == "E300")),
+        "expected E300 diagnostics for handler param type usage mismatch"
+    );
 }
 
 #[test]

@@ -69,11 +69,13 @@ Primary anchors:
 - `perform Effect.op(...)`:
   - unknown effect -> `E403`
   - unknown operation -> `E404`
+  - operation argument type/arity mismatch -> `E300`
   - missing ambient effect -> `E400`
 - `expr handle Effect { ... }`:
   - unknown effect -> `E405`
   - unknown handler operation -> `E401`
   - missing declared operations -> `E402`
+  - handler arm arity/type compatibility mismatches -> `E300`
   - handled effect discharges from enclosing call chain where modeled.
 
 Primary anchors:
