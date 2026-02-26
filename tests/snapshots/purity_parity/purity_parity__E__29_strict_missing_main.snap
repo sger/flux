@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/29_strict_missing_main.flx
+Category: E
+Strict: true
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E415 | MISSING MAIN FUNCTION (STRICT) | 
+
+== jit tuples ==
+- E415 | MISSING MAIN FUNCTION (STRICT) | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

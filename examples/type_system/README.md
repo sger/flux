@@ -119,3 +119,17 @@ Run everything:
 bash examples/type_system/run_all_vm.sh
 bash examples/type_system/run_all_jit.sh
 ```
+
+## G Backend Parity (VM/JIT)
+
+Run the curated purity-critical parity suite:
+
+```bash
+cargo test --all --all-features purity_vm_jit_parity_snapshots
+```
+
+Update parity snapshots intentionally:
+
+```bash
+INSTA_UPDATE=always cargo test --all --all-features purity_vm_jit_parity_snapshots
+```

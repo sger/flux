@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/17_handle_unknown_operation.flx
+Category: B
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/17_handle_unknown_operation.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/17_handle_unknown_operation.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E401 | UNKNOWN HANDLER OPERATION | unknown operation arm
+
+== jit tuples ==
+- E401 | UNKNOWN HANDLER OPERATION | unknown operation arm
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>
