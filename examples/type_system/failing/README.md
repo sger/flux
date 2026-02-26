@@ -84,6 +84,16 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E400`) when nested polymorphic wrappers resolve `e` to `IO` but caller declares only `Time`
 - `45_effect_row_subtract_missing_io.flx`
   - Expected: compile-time failure (`E400`) when row subtraction leaves `IO` required but caller declares only `Time`
+- `46_duplicate_main_function.flx`
+  - Expected: compile-time failure (`E410`) when more than one top-level `fn main` exists
+- `47_main_with_parameters.flx`
+  - Expected: compile-time failure (`E411`) when `fn main` declares parameters
+- `48_main_invalid_return_type.flx`
+  - Expected: compile-time failure (`E412`) when `fn main` declares non-`Unit` return type
+- `49_top_level_effect_with_existing_main.flx`
+  - Expected: compile-time failure (`E413`) for effectful top-level execution even if `fn main` exists
+- `50_invalid_main_signature_no_root_discharge_noise.flx`
+  - Expected: compile-time failure (`E412`) without redundant `E406` root-discharge cascade
 
 ## A3 Pure-Context Matrix
 
@@ -130,6 +140,19 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 | Nested HOF wrappers resolve `e` to `IO` in `with Time` caller | Reject (`E400`) | `44_effect_poly_hof_nested_missing_effect.flx` |
 | Explicit row subtraction (`IO + Console - Console`) still requires `IO` | Reject (`E400`) | `45_effect_row_subtract_missing_io.flx` |
 
+## D Entry-Point Policy Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| Duplicate top-level `fn main` | Reject (`E410`) | `46_duplicate_main_function.flx` |
+| `fn main` with parameters | Reject (`E411`) | `47_main_with_parameters.flx` |
+| `fn main` with non-`Unit` return type | Reject (`E412`) | `48_main_invalid_return_type.flx` |
+| Effectful top-level expression, no `main` | Reject (`E413`, `E414`) | `38_top_level_effect_rejected.flx` |
+| Effectful top-level expression, valid `main` present | Reject (`E413` only) | `49_top_level_effect_with_existing_main.flx` |
+| `fn main` with invalid signature and custom root effect | Reject (`E412`), no redundant `E406` | `50_invalid_main_signature_no_root_discharge_noise.flx` |
+| Custom effect escapes valid `main` boundary | Reject (`E406`) | `43_main_unhandled_custom_effect.flx` |
+| Strict mode without `main` | Reject (`E415`) | `29_strict_missing_main.flx` |
+
 ## Run
 
 ```bash
@@ -173,6 +196,11 @@ cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.fl
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
 cargo run -- --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx
+cargo run -- --no-cache examples/type_system/failing/46_duplicate_main_function.flx
+cargo run -- --no-cache examples/type_system/failing/47_main_with_parameters.flx
+cargo run -- --no-cache examples/type_system/failing/48_main_invalid_return_type.flx
+cargo run -- --no-cache examples/type_system/failing/49_top_level_effect_with_existing_main.flx
+cargo run -- --no-cache examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx
 ```
 
 JIT (compile-time failure examples):
@@ -213,4 +241,9 @@ cargo run --features jit -- --no-cache examples/type_system/failing/42_handle_un
 cargo run --features jit -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/46_duplicate_main_function.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/47_main_with_parameters.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/48_main_invalid_return_type.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/49_top_level_effect_with_existing_main.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx --jit
 ```

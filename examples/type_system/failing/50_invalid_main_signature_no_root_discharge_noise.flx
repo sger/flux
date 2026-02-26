@@ -1,0 +1,10 @@
+// E412 only: invalid main signature should suppress root-discharge noise (no E406 cascade).
+
+effect Console {
+    print: String -> ()
+}
+
+fn main() -> Int with Console {
+    perform Console.print("hi")
+    1
+}
