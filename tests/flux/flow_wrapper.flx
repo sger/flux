@@ -9,7 +9,7 @@ fn test_flow_wrappers() {
     Test.throws(\x -> x, "wrong number of arguments")
 }
 
-fn test_flow_helpers() {
+fn test_flow_helpers() with IO {
     let cases = [1, 2, 3]
 
     Test.for_each(cases, \x -> Test.is_true(x > 0))

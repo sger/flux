@@ -3,8 +3,231 @@ source: tests/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:28:1
+   |
+28 | print("Pipeline with base functions:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/advanced/functional_pipeline.flx:28:1
+   |
+28 | print("Pipeline with base functions:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:32:1
+   |
+32 | print(greeting);
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:35:1
+   |
+35 | print(shouting);
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:41:1
+   |
+41 | print("Higher-order functions with lambdas:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:47:1
+   |
+47 | print("Doubled: " + to_string(doubled));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:51:1
+   |
+51 | print("Filtered: " + to_string(bigNums));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:55:1
+   |
+55 | print("Sum: " + to_string(total));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:59:1
+   |
+59 | print("Product: " + to_string(totalProduct));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:65:1
+   |
+65 | print("Function composition:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:80:1
+   |
+80 | print("Result: " + to_string(transform(5)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:86:1
+   |
+86 | print("Data pipeline:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:93:1
+   |
+93 | print(name1);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:96:1
+   |
+96 | print(name2);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:102:1
+    |
+102 | print("Complex pipeline:");
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/advanced/functional_pipeline.flx:108:1
+    |
+108 | print(to_string(uppercased));
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 16 errors.
 == stdout ==
 <not executed>

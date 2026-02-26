@@ -3,8 +3,63 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/12_adt_nested.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/12_adt_nested.flx:40:1
+   |
+40 | print(contains(t, 3))
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/12_adt_nested.flx:40:1
+   |
+40 | print(contains(t, 3))
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/12_adt_nested.flx:41:1
+   |
+41 | print(contains(t, 4))
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/12_adt_nested.flx:42:1
+   |
+42 | print(inorder(t))
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 4 errors.
 == stdout ==
 <not executed>

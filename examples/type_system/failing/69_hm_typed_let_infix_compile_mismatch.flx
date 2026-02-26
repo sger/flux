@@ -1,0 +1,11 @@
+// HM hardening: known invalid infix in typed let should fail at compile time.
+
+fn old(v) {
+    v
+}
+
+fn main() {
+    let x = old("oops")
+    let y: Int = x + 1
+    y
+}

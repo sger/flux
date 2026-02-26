@@ -1,0 +1,51 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `sink` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:8:5
+  |
+8 |     sink("hello")
+  |     ^^^^
+  |     ---- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+   |
+12 | typed_time_only()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+   |
+12 | typed_time_only()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+Found 3 errors.
+== stdout ==
+<not executed>

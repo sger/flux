@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+
+Match is non-exhaustive: nested `ResultI` patterns under constructor `Pair` field #1 miss constructors: ErrI.
+
+  --> examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx:14:5
+   |
+14 |     match w {
+   |     ^^^^^^^^^
+15 |         Pair(OkI(v), _) -> v,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |         Empty -> 0,
+   | ^^^^^^^^^^^^^^^^^^^
+17 |     }
+   | ^^^^^
+
+Hint:
+  Add nested arms for ErrI or use a nested catch-all (`_`).
+== stdout ==
+<not executed>

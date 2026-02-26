@@ -1,0 +1,21 @@
+data ResultI {
+    OkI(Int),
+    ErrI(Int),
+}
+
+data Wrap2 {
+    Pair(ResultI, ResultI),
+    Empty,
+}
+
+fn score(w: Wrap2) -> Int {
+    match w {
+        Pair(OkI(v), _) -> v,
+        Pair(ErrI(_), _) -> 0,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    print(to_string(score(Empty)))
+}

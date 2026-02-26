@@ -2,6 +2,33 @@
 source: tests/regression_snapshots.rs
 ---
 $ flux --no-cache tests/fixtures/nested/nested_lambdas_precedence.flx
-exit_code: 0
+exit_code: 1
 
-5
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> tests/fixtures/nested/nested_lambdas_precedence.flx:2:1
+  |
+2 | print(f(1)(2));
+  | ^^^^^^^^^^^^^^^
+  | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> tests/fixtures/nested/nested_lambdas_precedence.flx:2:1
+  |
+2 | print(f(1)(2));
+  | ^^^^^^^^^^^^^^^
+  | --------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+Found 2 errors.

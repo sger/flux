@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/23_generic_call_return_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/type_system/failing/23_generic_call_return_mismatch.flx:5:8
+  |
+5 | let x: Int = identity("hello")
+  |        ^^^
+  |        --- expected String, found Int
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/23_generic_call_return_mismatch.flx:5:14
+  |
+5 | let x: Int = identity("hello")
+  |              ^^^^^^^^^^^^^^^^^
+  |              ----------------- expected Int, found String
+  |              ----------------- initializer type is known at compile time
+
+Help:
+  binding initializer does not match type annotation
+
+Found 2 errors.
+== stdout ==
+<not executed>

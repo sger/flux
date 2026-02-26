@@ -168,7 +168,7 @@ let x: Int = y
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Expected Int, got Float."),
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Float with Int."),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -188,8 +188,47 @@ let x: Int = make()
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("Expected Int, got Float."),
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Float with Int."),
         "unexpected diagnostics:\n{}",
         rendered
+    );
+}
+
+#[test]
+fn typed_let_module_member_call_uses_hm_strict_path() {
+    let (program, interner) = parse_program(
+        r#"
+module Local {
+    public fn make_float() -> Float { 1.5 }
+}
+
+fn main() -> Unit {
+    let x: Int = Local.make_float()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected HM strict-path mismatch for module member call");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_inference_path_does_not_use_runtime_compat_fallback_helpers() {
+    let source = include_str!("statement.rs");
+    assert!(
+        !source.contains("self.hm_expr_type_compat(value)"),
+        "typed let inference must not use hm_expr_type_compat fallback"
+    );
+    assert!(
+        !source.contains("self.runtime_boundary_expr_type(value)"),
+        "typed let inference must not use runtime_boundary_expr_type fallback"
     );
 }

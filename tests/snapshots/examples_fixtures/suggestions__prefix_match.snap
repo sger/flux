@@ -5,6 +5,34 @@ Fixture: examples/suggestions/prefix_match.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/suggestions/prefix_match.flx:8:1
+  |
+8 | print(conf);
+  | ^^^^^^^^^^^^
+  | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/suggestions/prefix_match.flx:8:1
+  |
+8 | print(conf);
+  | ^^^^^^^^^^^^
+  | ------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `conf`.
@@ -20,5 +48,7 @@ Hint:
 
 Help:
   Did you mean one of: `config`, `configured`, `configuration`?
+
+Found 3 errors.
 == stdout ==
 <not executed>

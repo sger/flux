@@ -5,6 +5,7 @@ expression: output
 Program {
     statements: [
         Function {
+            is_public: false,
             name: Symbol(
                 0,
             ),

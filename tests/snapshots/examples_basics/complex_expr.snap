@@ -3,8 +3,105 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/complex_expr.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:14:1
+   |
+14 | print(a * a);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/complex_expr.flx:14:1
+   |
+14 | print(a * a);
+   | ^^^^^^^^^^^^^
+   | ------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:15:1
+   |
+15 | print(a * b);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:16:1
+   |
+16 | print(b * b);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:18:1
+   |
+18 | print(a < b);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:19:1
+   |
+19 | print(a > b);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/complex_expr.flx:22:1
+   |
+22 | print(result);
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 7 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,22 @@
+// E083: nested constructor coverage must be complete for unary wrapper constructors.
+
+data ResultI {
+    OkI(Int),
+    ErrI(Int),
+}
+
+data Wrap {
+    Boxed(ResultI),
+    Empty,
+}
+
+fn score(w: Wrap) -> Int {
+    match w {
+        Boxed(OkI(v)) -> v,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    score(Empty)
+}

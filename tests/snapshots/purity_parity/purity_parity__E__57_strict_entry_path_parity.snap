@@ -16,9 +16,11 @@ exit_code: 1
 
 == vm tuples ==
 - E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == jit tuples ==
 - E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == parity ==
 match

@@ -9,9 +9,8 @@ use crate::{
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
+        DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
         INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
-        TYPE_MISMATCH,
         position::{Position, Span},
     },
     runtime::{compiled_function::CompiledFunction, value::Value},
@@ -24,6 +23,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
+    types::type_env::TypeEnv,
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -74,34 +74,38 @@ impl Compiler {
                     }
 
                     let symbol = self.symbol_table.define(name, *span);
-                    if let Some(annotation) = type_annotation
-                        && let Some(expected) = convert_type_expr(annotation, &self.interner)
-                        && let Some(actual) = self.static_expr_type(value)
-                        && !Self::runtime_types_compatible(&expected, &actual)
-                    {
-                        let expected = expected.type_name();
-                        let actual = actual.type_name();
-                        return Err(Self::boxed(
-                            Diagnostic::make_error(
-                                &TYPE_MISMATCH,
-                                &[&expected, &actual],
-                                self.file_path.clone(),
-                                value.span(),
-                            )
-                            .with_primary_label(
-                                value.span(),
+                    if let Some(annotation) = type_annotation {
+                        if let Some(expected_infer) = TypeEnv::infer_type_from_type_expr(
+                            annotation,
+                            &Default::default(),
+                            &self.interner,
+                        ) {
+                            self.validate_expr_expected_type_with_policy(
+                                &expected_infer,
+                                value,
                                 "initializer type is known at compile time",
-                            )
-                            .with_help("binding initializer does not match type annotation"),
-                        ));
+                                "binding initializer does not match type annotation".to_string(),
+                                "typed let initializer",
+                                true,
+                            )?;
+                        } else if self.strict_mode {
+                            return Err(Self::boxed(
+                                self.unresolved_boundary_error(value, "typed let initializer"),
+                            ));
+                        }
                     }
                     self.compile_expression(value)?;
                     if let Some(annotation) = type_annotation
                         && let Some(ty) = convert_type_expr(annotation, &self.interner)
                     {
                         self.bind_static_type(name, ty);
-                    } else if let Some(inferred) = self.static_expr_type(value) {
-                        self.bind_static_type(name, inferred);
+                    } else if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(inferred) =
+                        self.hm_expr_type_strict_path(value)
+                    {
+                        let runtime = TypeEnv::to_runtime(&inferred, &Default::default());
+                        if runtime != crate::runtime::runtime_type::RuntimeType::Any {
+                            self.bind_static_type(name, runtime);
+                        }
                     }
 
                     // Track aliases of effectful base functions so indirect calls
@@ -359,33 +363,26 @@ impl Compiler {
         // Compile-time return type check: if the declared return type and the static type of
         // the tail expression are both known, verify they're compatible.
         if let Some(ret_annotation) = return_type
-            && let Some(expected_ret) = convert_type_expr(ret_annotation, &self.interner)
+            && let Some(expected_ret) = TypeEnv::infer_type_from_type_expr(
+                ret_annotation,
+                &Default::default(),
+                &self.interner,
+            )
             && self.block_has_value_tail(body)
-        {
-            if let Some(Statement::Expression {
+            && let Some(Statement::Expression {
                 expression,
                 has_semicolon: false,
                 ..
             }) = body.statements.last()
-                && let Some(actual_ret) = self.static_expr_type(expression)
-                && !Self::runtime_types_compatible(&expected_ret, &actual_ret)
-            {
-                let expected_str = expected_ret.type_name();
-                let actual_str = actual_ret.type_name();
-                return Err(Self::boxed(
-                    Diagnostic::make_error(
-                        &TYPE_MISMATCH,
-                        &[&expected_str, &actual_str],
-                        self.file_path.clone(),
-                        expression.span(),
-                    )
-                    .with_primary_label(
-                        expression.span(),
-                        "return expression type is known at compile time",
-                    )
-                    .with_help("return expression type does not match the declared return type"),
-                ));
-            }
+        {
+            self.validate_expr_expected_type_with_policy(
+                &expected_ret,
+                expression,
+                "return expression type is known at compile time",
+                "return expression type does not match the declared return type".to_string(),
+                "function return expression",
+                true,
+            )?;
         }
 
         self.with_function_context(parameters.len(), effects, |compiler| {
@@ -423,6 +420,7 @@ impl Compiler {
 
         let runtime_contract = {
             let contract = crate::bytecode::compiler::contracts::FnContract {
+                type_params: vec![],
                 params: parameter_types.to_vec(),
                 ret: return_type.clone(),
                 effects: effects.to_vec(),

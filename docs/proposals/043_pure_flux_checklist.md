@@ -16,6 +16,14 @@ This document is an execution checklist mapped to:
 - `042_effect_rows_and_constraints.md`
 - `docs/internals/type_system_effects.md` (canonical implementation semantics)
 
+v0.0.4 critical-path hardening continues under the same truth model for:
+- core HM inference quality gates,
+- nominal generic ADT coverage,
+- stronger (nested) exhaustiveness regression coverage.
+- HM validator architecture hardening uses strict HM typed validation as the
+  only typed-path authority.
+- 0.0.4 HM hardening gate is zero-fallback for typed/inferred validation paths.
+
 It is intentionally implementation-focused (pass/fail criteria), not a new language design.
 
 ---
@@ -167,6 +175,7 @@ Pass criteria:
 
 Status:
 - Completed with explicit `public fn` visibility as the strict API boundary, underscore naming treated as style-only, and module-scoped public/private fixture coverage.
+- 0.0.4 module ADT boundary is factory-only: cross-module code uses `public fn` factories/accessors, not direct module-qualified constructor calls.
 
 ---
 

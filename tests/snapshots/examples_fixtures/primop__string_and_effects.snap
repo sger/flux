@@ -3,8 +3,147 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/string_and_effects.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:4:1
+  |
+4 | print(string_len(s));
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/primop/string_and_effects.flx:4:1
+  |
+4 | print(string_len(s));
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:5:1
+  |
+5 | print(string_concat("hello", " world"));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:6:1
+  |
+6 | print(string_slice(s, 0, 5));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:7:1
+  |
+7 | print(string_slice(s, 6, 10));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/primop/string_and_effects.flx:9:1
+  |
+9 | let t0 = clock_now();
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/primop/string_and_effects.flx:11:1
+   |
+11 | let t1 = clock_now();
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:12:1
+   |
+12 | print(t1 >= t0);
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:15:1
+   |
+15 | let content = read_file("examples/io/input.txt");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/string_and_effects.flx:16:1
+   |
+16 | print(string_len(content) > 0);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 10 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,17 @@
+// E083: nested list pattern set must cover empty and non-empty branches.
+
+data WrapList {
+    Boxed(List<Int>),
+    Empty,
+}
+
+fn size_hint(w: WrapList) -> Int {
+    match w {
+        Boxed([]) -> 0,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    size_hint(Empty)
+}

@@ -3,8 +3,59 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day2_part1.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day2_part1.flx:49:1
+   |
+49 | let range_tokens = read_file("examples/io/aoc_day2.txt")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+50 |     |> trim
+   | ^^^^^^^^^^^
+51 |     |> split(",")
+   | ^^^^^^^^^^^^^^^^^
+52 |     |> filter(/t -> trim(t) != "")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/io/aoc_day2_part1.flx:49:1
+   |
+49 | let range_tokens = read_file("examples/io/aoc_day2.txt")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+50 |     |> trim
+   | ^^^^^^^^^^^
+51 |     |> split(",")
+   | ^^^^^^^^^^^^^^^^^
+52 |     |> filter(/t -> trim(t) != "")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day2_part1.flx:68:1
+   |
+68 | print(total)
+   | ^^^^^^^^^^^^
+   | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

@@ -3,8 +3,49 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/01_typed_let_and_functions.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/01_typed_let_and_functions.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/01_typed_let_and_functions.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/01_typed_let_and_functions.flx:15:1
+   |
+15 | print(distance_tag(point))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

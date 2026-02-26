@@ -5,6 +5,34 @@ Fixture: examples/namespaces/namespace_missing_import_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/namespaces/namespace_missing_import_error.flx:1:1
+  |
+1 | print(Modules.Data.MyFile.value());
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/namespaces/namespace_missing_import_error.flx:1:1
+  |
+1 | print(Modules.Data.MyFile.value());
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
 --> compiler error[E013]: MODULE NOT IMPORTED
 
 Module `Modules.Data.MyFile` is not imported.
@@ -16,5 +44,7 @@ Module `Modules.Data.MyFile` is not imported.
 
 Hint:
   Add an import statement at the top of your file: `import Modules.Data.MyFile`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+
+Found 3 errors.
 == stdout ==
 <not executed>

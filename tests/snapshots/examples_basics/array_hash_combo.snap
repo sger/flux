@@ -3,8 +3,140 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/array_hash_combo.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:41:1
+   |
+41 | print(first_name);
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/array_hash_combo.flx:41:1
+   |
+41 | print(first_name);
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:43:1
+   |
+43 | match first_name {
+   | ^^^^^^^^^^^^^^^^^^
+44 |   Some(v) -> print("unwrap value #{v}"),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+45 |   None -> print("unknown"),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+46 |   _ -> print("unknown"),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+47 | };
+   | ^^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:50:1
+   |
+50 | print(second_name);
+   | ^^^^^^^^^^^^^^^^^^^
+   | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:51:1
+   |
+51 | print(first_age);
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:52:1
+   |
+52 | print(second_age);
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:70:1
+   |
+70 | print(first_lang);
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:71:1
+   |
+71 | print(second_lang);
+   | ^^^^^^^^^^^^^^^^^^^
+   | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_hash_combo.flx:72:1
+   |
+72 | print(skills["count"]);
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 9 errors.
 == stdout ==
 <not executed>

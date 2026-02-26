@@ -110,8 +110,7 @@ fn test_float_arithmetic() {
     assert_eq!(run("1.5 + 2.25;"), Value::Float(3.75));
     assert_eq!(run("2.0 * 3.5;"), Value::Float(7.0));
     assert_eq!(run("-0.5;"), Value::Float(-0.5));
-    assert_eq!(run("1 + 2.5;"), Value::Float(3.5));
-    assert_eq!(run("2.5 + 1;"), Value::Float(3.5));
+    // Mixed Int/Float arithmetic is now rejected statically by HM validation.
 }
 
 #[test]
@@ -167,7 +166,7 @@ fn test_closures() {
 #[test]
 fn runtime_contract_checks_dynamic_boundary_arguments() {
     // HM inference can now infer `x`'s type (String) from the call to old("oops"),
-    // so this may be caught at compile time (E055) or runtime (E1004) depending
+    // so this may be caught at compile time (E300/E055) or runtime (E1004) depending
     // on inference depth.  Either way the type mismatch must be reported.
     let err = run_any_error(
         r#"
@@ -178,12 +177,12 @@ typed_add(x, 1)
 "#,
     );
     assert!(
-        err.contains("[E055]") || err.contains("[E1004]"),
-        "expected type error E055 or E1004, got:\n{}",
+        err.contains("[E300]") || err.contains("[E055]") || err.contains("[E1004]"),
+        "expected type error E300, E055 or E1004, got:\n{}",
         err
     );
     assert!(
-        err.contains("Expected Int, got String."),
+        err.contains("Expected Int, got String.") || err.contains("Cannot unify Int with String."),
         "expected contract mismatch details, got:\n{}",
         err
     );

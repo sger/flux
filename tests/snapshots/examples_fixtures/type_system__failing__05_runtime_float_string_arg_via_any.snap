@@ -16,14 +16,15 @@ Cannot unify Float with String.
    | ------------- expected Float, found String
 
 
---> compiler error[E055]: TYPE MISMATCH
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Expected Float, got String.
+Cannot unify Float with String.
 
   --> examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:6
    |
 12 | area(dynamic)
    |      ^^^^^^^
+   |      ------- expected Float, found String
    |      ------- argument type is known at compile time
 
 Help:

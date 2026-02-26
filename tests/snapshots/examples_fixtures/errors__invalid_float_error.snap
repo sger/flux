@@ -3,8 +3,35 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/errors/invalid_float_error.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/invalid_float_error.flx:4:1
+  |
+4 | print(x);
+  | ^^^^^^^^^
+  | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/errors/invalid_float_error.flx:4:1
+  |
+4 | print(x);
+  | ^^^^^^^^^
+  | --------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+Found 2 errors.
 == stdout ==
 <not executed>

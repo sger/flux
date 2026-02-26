@@ -5,6 +5,44 @@ Fixture: examples/errors/pattern_validation_error_path.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/pattern_validation_error_path.flx:9:1
+   |
+ 9 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^^^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/errors/pattern_validation_error_path.flx:9:1
+   |
+ 9 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^^^
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
 Match expressions must end with a `_` or identifier arm.
@@ -37,6 +75,25 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/pattern_validation_error_path.flx:14:1
+   |
+14 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^^^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
 Match expressions must end with a `_` or identifier arm.
@@ -56,6 +113,20 @@ Hint:
   Add a catch-all pattern: _ -> default_value
 
 
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/pattern_validation_error_path.flx:19:1
+   |
+19 | print(match value { });
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
 --> compiler error[E014]: EMPTY MATCH
 
 Match expression must have at least one arm.
@@ -68,6 +139,6 @@ Match expression must have at least one arm.
 Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
-Found 4 errors.
+Found 8 errors.
 == stdout ==
 <not executed>

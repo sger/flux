@@ -1,0 +1,7 @@
+fn bad(a: Int, b: Bool) -> Bool {
+    a && b
+}
+
+fn main() -> Unit with IO {
+    print(to_string(bad(1, true)))
+}

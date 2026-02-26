@@ -5,6 +5,34 @@ Fixture: examples/errors/undefined_variable.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/undefined_variable.flx:6:1
+  |
+6 | print(nonexistent_variable)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/errors/undefined_variable.flx:6:1
+  |
+6 | print(nonexistent_variable)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | --------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `nonexistent_variable`.
@@ -16,5 +44,7 @@ I can't find a value named `nonexistent_variable`.
 
 Hint:
   Define it first: let nonexistent_variable = ...;
+
+Found 3 errors.
 == stdout ==
 <not executed>
