@@ -39,6 +39,10 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `31_effect_poly_partial_handle_ok.flx` - polymorphic wrapper + custom effect discharged via `handle`
 - `32_effect_poly_mixed_io_time_ok.flx` - mixed `IO`/`Time` context with polymorphic callback
 - `33_effect_row_subtract_surface_syntax.flx` - explicit row syntax using subtraction (`with IO + Console - Console`)
+- `58_strict_private_unannotated_allowed.flx` - strict mode allows private/internal `fn`; strict API checks target `public fn`
+- `59_strict_underscore_public_still_checked.flx` - underscore naming is style-only; `public fn` remains strict API boundary
+- `60_strict_module_public_checked.flx` - module-scoped `public fn` participates in strict API checks
+- `61_strict_module_private_unannotated_allowed.flx` - module private helper `fn` remains internal and strict-allowed
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -75,6 +79,10 @@ cargo run -- examples/type_system/30_effect_poly_hof_nested_ok.flx
 cargo run -- examples/type_system/31_effect_poly_partial_handle_ok.flx
 cargo run -- examples/type_system/32_effect_poly_mixed_io_time_ok.flx
 cargo run -- examples/type_system/33_effect_row_subtract_surface_syntax.flx
+cargo run -- --no-cache --strict examples/type_system/58_strict_private_unannotated_allowed.flx
+cargo run -- --no-cache --strict examples/type_system/59_strict_underscore_public_still_checked.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/60_strict_module_public_checked.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx
 ```
 
 JIT:
@@ -99,6 +107,10 @@ cargo run --features jit -- examples/type_system/30_effect_poly_hof_nested_ok.fl
 cargo run --features jit -- examples/type_system/31_effect_poly_partial_handle_ok.flx --jit
 cargo run --features jit -- examples/type_system/32_effect_poly_mixed_io_time_ok.flx --jit
 cargo run --features jit -- examples/type_system/33_effect_row_subtract_surface_syntax.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/58_strict_private_unannotated_allowed.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/59_strict_underscore_public_still_checked.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/60_strict_module_public_checked.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx --jit
 ```
 
 Run everything:

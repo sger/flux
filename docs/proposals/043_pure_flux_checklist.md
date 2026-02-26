@@ -131,27 +131,33 @@ D verification matrix:
 
 ### E. Strict Mode as Purity Profile (032 / Phase 6)
 
-- [ ] E1. `--strict` enforces annotation discipline for exported/public APIs.
-- [ ] E2. `Any` usage under `--strict` follows explicit policy:
+- [x] E1. `--strict` enforces annotation discipline for exported/public APIs.
+- [x] E2. `Any` usage under `--strict` follows explicit policy:
   - warning-only (current), or
   - error in pure profile (future tightening)
-- [ ] E3. Strict-mode cache identity is isolated from non-strict builds.
-- [ ] E4. Strict checks apply uniformly to run/test/bytecode entry paths.
+- [x] E3. Strict-mode cache identity is isolated from non-strict builds.
+- [x] E4. Strict checks apply uniformly to run/test/bytecode entry paths.
 
 Pass criteria:
 - Strict fixtures pass/fail exactly as documented.
 - Same file compiled in strict vs non-strict never reuses incompatible cache artifacts.
 
+Status:
+- Completed with explicit `public fn` API visibility for strict enforcement, strict `Any` rejection (`E423`), cache-key separation checks (`strict=1/0`), and entry-path parity coverage for `run`, `--test`, and `bytecode`.
+
 ---
 
 ### F. Public API Boundary Semantics (follow-up after strict baseline)
 
-- [ ] F1. Replace naming-convention heuristics with explicit visibility (`pub`) or equivalent.
-- [ ] F2. Strict checks target real exported surface only.
+- [x] F1. Replace naming-convention heuristics with explicit visibility (`public fn`) or equivalent.
+- [x] F2. Strict checks target real exported surface only.
 
 Pass criteria:
-- `pub` boundary fixtures exist for pass/fail cases.
+- `public fn` boundary fixtures exist for pass/fail cases.
 - Non-exported helper functions are not over-constrained by strict API rules.
+
+Status:
+- Completed with explicit `public fn` visibility as the strict API boundary, underscore naming treated as style-only, and module-scoped public/private fixture coverage.
 
 ---
 

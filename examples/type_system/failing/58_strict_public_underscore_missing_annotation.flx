@@ -1,0 +1,8 @@
+// `_` prefix does not make a function private in strict mode.
+
+public fn _foo(x) -> Int {
+    x
+}
+
+fn main() -> Unit {
+}

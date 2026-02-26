@@ -224,6 +224,58 @@ fn parses_typed_function_signature_with_effects() {
 }
 
 #[test]
+fn parses_public_function_statement() {
+    let (program, interner) = parse_ok("public fn add(a: Int, b: Int) -> Int { a + b }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function {
+            is_public, name, ..
+        } => {
+            assert!(*is_public);
+            assert_eq!(interner.resolve(*name), "add");
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_private_function_statement_by_default() {
+    let (program, interner) = parse_ok("fn helper(x: Int) -> Int { x }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function {
+            is_public, name, ..
+        } => {
+            assert!(!*is_public);
+            assert_eq!(interner.resolve(*name), "helper");
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_module_with_public_and_private_functions() {
+    let (program, _interner) = parse_ok(
+        "module Math { public fn add(x: Int, y: Int) -> Int { x + y } fn sub(x: Int, y: Int) -> Int { x - y } }",
+    );
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Module { body, .. } => {
+            assert_eq!(body.statements.len(), 2);
+            match &body.statements[0] {
+                Statement::Function { is_public, .. } => assert!(*is_public),
+                _ => panic!("expected public function statement"),
+            }
+            match &body.statements[1] {
+                Statement::Function { is_public, .. } => assert!(!*is_public),
+                _ => panic!("expected private function statement"),
+            }
+        }
+        _ => panic!("expected module statement"),
+    }
+}
+
+#[test]
 fn parses_typed_function_signature_with_effect_row_ops() {
     let (program, interner) = parse_ok("fn run() -> Int with IO + Console - Console, Time { 1 }");
     assert_eq!(program.statements.len(), 1);

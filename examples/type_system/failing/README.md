@@ -94,6 +94,24 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E413`) for effectful top-level execution even if `fn main` exists
 - `50_invalid_main_signature_no_root_discharge_noise.flx`
   - Expected: compile-time failure (`E412`) without redundant `E406` root-discharge cascade
+- `51_strict_public_missing_param_annotation.flx`
+  - Expected: compile-time failure (`E416`) because `public fn` must annotate all parameters in `--strict`
+- `52_strict_public_missing_return_annotation.flx`
+  - Expected: compile-time failure (`E417`) because `public fn` must declare return type in `--strict`
+- `53_strict_public_effectful_missing_with.flx`
+  - Expected: compile-time failure (`E418`) because effectful `public fn` must declare explicit `with ...` in `--strict`
+- `54_strict_any_param_rejected.flx`
+  - Expected: compile-time failure (`E423`) because `Any` is rejected in `--strict`
+- `55_strict_any_return_rejected.flx`
+  - Expected: compile-time failure (`E423`) because `Any` is rejected in `--strict`
+- `56_strict_any_nested_rejected.flx`
+  - Expected: compile-time failure (`E423`) because nested `Any` is rejected in `--strict`
+- `57_strict_entry_path_parity.flx`
+  - Expected: compile-time failure (`E416`) consistently across `run`, `--test`, and `bytecode` strict paths
+- `58_strict_public_underscore_missing_annotation.flx`
+  - Expected: compile-time failure (`E416`) because underscore naming is style-only and `public fn` still enforces strict API annotations
+- `59_strict_module_public_effect_missing_with.flx`
+  - Expected: compile-time failure (`E400`) because strict/pure context rejects effectful body without matching effect annotation
 
 ## A3 Pure-Context Matrix
 
@@ -153,6 +171,32 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 | Custom effect escapes valid `main` boundary | Reject (`E406`) | `43_main_unhandled_custom_effect.flx` |
 | Strict mode without `main` | Reject (`E415`) | `29_strict_missing_main.flx` |
 
+## E Strict Mode Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| `--strict` missing `main` | Reject (`E415`) | `29_strict_missing_main.flx` |
+| `public fn` missing parameter annotations | Reject (`E416`) | `51_strict_public_missing_param_annotation.flx` |
+| `public fn` missing return annotation | Reject (`E417`) | `52_strict_public_missing_return_annotation.flx` |
+| effectful `public fn` missing `with` annotation | Reject (`E418`) | `53_strict_public_effectful_missing_with.flx` |
+| `Any` in strict annotations (param/return/nested) | Reject (`E423`) | `54_strict_any_param_rejected.flx`, `55_strict_any_return_rejected.flx`, `56_strict_any_nested_rejected.flx` |
+| strict checks across run/test/bytecode | Same diagnostic (`E416`) | `57_strict_entry_path_parity.flx` |
+| private/internal `fn` allowed in strict API checks | Allow | `../58_strict_private_unannotated_allowed.flx` |
+
+## F Public API Boundary Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| underscore prefix on `public fn` does not make it private | Reject (`E416`) | `58_strict_public_underscore_missing_annotation.flx` |
+| effectful `public fn` missing `with` | Reject (`E400`) | `59_strict_module_public_effect_missing_with.flx` |
+| strict `public fn` with underscore and full annotations | Allow | `../59_strict_underscore_public_still_checked.flx` |
+| strict module `public fn` fully annotated | Allow | `../60_strict_module_public_checked.flx` |
+| strict module private helper unannotated | Allow | `../61_strict_module_private_unannotated_allowed.flx` |
+
+Note:
+- Visibility is explicit (`public fn`).
+- `_name` is style-only and has no strict/public semantics.
+
 ## Run
 
 ```bash
@@ -201,6 +245,15 @@ cargo run -- --no-cache examples/type_system/failing/47_main_with_parameters.flx
 cargo run -- --no-cache examples/type_system/failing/48_main_invalid_return_type.flx
 cargo run -- --no-cache examples/type_system/failing/49_top_level_effect_with_existing_main.flx
 cargo run -- --no-cache examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx
+cargo run -- --no-cache --strict examples/type_system/failing/51_strict_public_missing_param_annotation.flx
+cargo run -- --no-cache --strict examples/type_system/failing/52_strict_public_missing_return_annotation.flx
+cargo run -- --no-cache --strict examples/type_system/failing/53_strict_public_effectful_missing_with.flx
+cargo run -- --no-cache --strict examples/type_system/failing/54_strict_any_param_rejected.flx
+cargo run -- --no-cache --strict examples/type_system/failing/55_strict_any_return_rejected.flx
+cargo run -- --no-cache --strict examples/type_system/failing/56_strict_any_nested_rejected.flx
+cargo run -- --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx
+cargo run -- --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+cargo run -- --no-cache --strict examples/type_system/failing/59_strict_module_public_effect_missing_with.flx
 ```
 
 JIT (compile-time failure examples):
@@ -246,4 +299,13 @@ cargo run --features jit -- --no-cache examples/type_system/failing/47_main_with
 cargo run --features jit -- --no-cache examples/type_system/failing/48_main_invalid_return_type.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/49_top_level_effect_with_existing_main.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/51_strict_public_missing_param_annotation.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/52_strict_public_missing_return_annotation.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/53_strict_public_effectful_missing_with.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/54_strict_any_param_rejected.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/55_strict_any_return_rejected.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/56_strict_any_nested_rejected.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
+cargo run --features jit -- --no-cache --strict examples/type_system/failing/59_strict_module_public_effect_missing_with.flx --jit
 ```

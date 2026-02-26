@@ -121,6 +121,7 @@ define_tokens! {
         Let    => "let",
         Do     => "do",
         Fn     => "fn",
+        Public => "public",
         With   => "with",
         If     => "if",
         Else   => "else",

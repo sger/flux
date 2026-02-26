@@ -1,0 +1,9 @@
+public fn bad(x) -> Int {
+    x
+}
+
+fn test_should_fail() -> Unit {
+}
+
+fn main() -> Unit {
+}

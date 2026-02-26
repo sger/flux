@@ -108,6 +108,7 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     strict_mode: bool,
+    strict_require_main: bool,
 }
 
 #[cfg(test)]
@@ -161,6 +162,7 @@ impl Compiler {
             effect_ops_registry: HashMap::new(),
             type_env: TypeEnv::new(),
             strict_mode: false,
+            strict_require_main: true,
         }
     }
 
@@ -205,6 +207,10 @@ impl Compiler {
 
     pub fn set_strict_mode(&mut self, strict_mode: bool) {
         self.strict_mode = strict_mode;
+    }
+
+    pub fn set_strict_require_main(&mut self, strict_require_main: bool) {
+        self.strict_require_main = strict_require_main;
     }
 
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
@@ -269,6 +275,7 @@ impl Compiler {
     ) {
         match statement {
             Statement::Function {
+                is_public: _,
                 name,
                 parameters,
                 parameter_types,
@@ -320,6 +327,7 @@ impl Compiler {
     ) {
         match statement {
             Statement::Function {
+                is_public: _,
                 name,
                 parameters,
                 parameter_types,
@@ -1203,7 +1211,7 @@ impl Compiler {
             return;
         }
 
-        if !has_main {
+        if self.strict_require_main && !has_main {
             self.errors.push(
                 Diagnostic::make_error_dynamic(
                     "E415",
@@ -1230,6 +1238,7 @@ impl Compiler {
     ) {
         match statement {
             Statement::Function {
+                is_public,
                 name,
                 parameters,
                 parameter_types,
@@ -1238,7 +1247,7 @@ impl Compiler {
                 span,
                 ..
             } => {
-                if self.is_public_function_name(*name) {
+                if *is_public {
                     if parameter_types.iter().any(Option::is_none) {
                         self.errors.push(
                             Diagnostic::make_error_dynamic(
@@ -1298,10 +1307,10 @@ impl Compiler {
                 }
 
                 for ty in parameter_types.iter().flatten() {
-                    self.warn_on_any_type_expr_in_strict(ty);
+                    self.error_on_any_type_expr_in_strict(ty);
                 }
                 if let Some(ret) = return_type {
-                    self.warn_on_any_type_expr_in_strict(ret);
+                    self.error_on_any_type_expr_in_strict(ret);
                 }
             }
             Statement::Module { name, body, .. } => {
@@ -1313,21 +1322,19 @@ impl Compiler {
         }
     }
 
-    fn is_public_function_name(&self, name: Symbol) -> bool {
-        !self.sym(name).starts_with('_')
-    }
-
-    fn warn_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
+    fn error_on_any_type_expr_in_strict(&mut self, ty: &TypeExpr) {
         if !Self::type_expr_contains_any(ty, &self.interner) {
             return;
         }
 
         let span = ty.span();
         self.errors.push(
-            Diagnostic::make_warning(
-                "W610",
+            Diagnostic::make_error_dynamic(
+                "E423",
                 "STRICT ANY TYPE",
+                ErrorType::Compiler,
                 "Using `Any` in strict mode weakens static guarantees.",
+                Some("Replace `Any` with explicit concrete types in strict mode.".to_string()),
                 self.file_path.clone(),
                 span,
             )
