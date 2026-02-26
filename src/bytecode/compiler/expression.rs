@@ -64,6 +64,62 @@ enum GeneralCoverageDomain {
 }
 
 impl Compiler {
+    fn effect_operation_function_parts<'a>(
+        &'a self,
+        effect: Symbol,
+        op: Symbol,
+        span: Span,
+        context: &str,
+    ) -> CompileResult<(&'a [TypeExpr], &'a TypeExpr)> {
+        let Some(signature) = self.effect_op_signature(effect, op) else {
+            let effect_name = self.sym(effect).to_string();
+            let op_name = self.sym(op).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E404",
+                    "UNKNOWN EFFECT OPERATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` has no declared operation `{}`.",
+                        effect_name, op_name
+                    ),
+                    Some("Add the operation to the effect declaration or rename it.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown operation in effect declaration lookup"),
+            ));
+        };
+
+        let TypeExpr::Function {
+            params,
+            ret,
+            effects: _,
+            span: _,
+        } = signature
+        else {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E300",
+                    "TYPE UNIFICATION ERROR",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect operation `{}` in `{}` must use a function type declaration for {}.",
+                        self.sym(op),
+                        self.sym(effect),
+                        context
+                    ),
+                    Some("Declare operations as function types (for example `op: A -> B`).".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "invalid effect operation signature"),
+            ));
+        };
+
+        Ok((params, ret))
+    }
+
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(expression.span());
@@ -2055,6 +2111,44 @@ impl Compiler {
                 .with_primary_label(span, "unknown operation in perform"),
             ));
         }
+        let (op_params, _op_ret) =
+            self.effect_operation_function_parts(effect, op, span, "perform checks")?;
+        if args.len() != op_params.len() {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E300",
+                    "TYPE UNIFICATION ERROR",
+                    ErrorType::Compiler,
+                    format!(
+                        "`perform {}.{}` expects {} argument(s), got {}.",
+                        self.sym(effect),
+                        self.sym(op),
+                        op_params.len(),
+                        args.len()
+                    ),
+                    Some("Pass arguments that match the effect operation signature.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "perform argument count mismatch"),
+            ));
+        }
+
+        for (arg, expected_ty) in args.iter().zip(op_params.iter()) {
+            let Some(expected) =
+                TypeEnv::infer_type_from_type_expr(expected_ty, &Default::default(), &self.interner)
+            else {
+                continue;
+            };
+            self.validate_expr_expected_type(
+                &expected,
+                arg,
+                "perform argument type is known at compile time",
+                "argument does not match effect operation signature".to_string(),
+                "perform argument",
+            )?;
+        }
+
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
             return Err(Self::boxed(
@@ -2183,13 +2277,62 @@ impl Compiler {
             ));
         }
 
+        let handled_expression_type = match self.hm_expr_type_strict_path(expr) {
+            crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(ty) => Some(ty),
+            _ => None,
+        };
+
         for arm in arms {
+            let (op_params, _op_ret) = self.effect_operation_function_parts(
+                effect,
+                arm.operation_name,
+                arm.span,
+                "handle arm checks",
+            )?;
+            if arm.params.len() != op_params.len() {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E300",
+                        "TYPE UNIFICATION ERROR",
+                        ErrorType::Compiler,
+                        format!(
+                            "Handle arm `{}` expects {} parameter(s), got {}.",
+                            self.sym(arm.operation_name),
+                            op_params.len(),
+                            arm.params.len()
+                        ),
+                        Some(
+                            "Adjust handler arm parameters to match the effect operation signature."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        arm.span,
+                    )
+                    .with_primary_label(arm.span, "handler arm parameter mismatch"),
+                ));
+            }
+
+            if let Some(expected_handled_ty) = handled_expression_type.as_ref() {
+                self.validate_expr_expected_type(
+                    expected_handled_ty,
+                    &arm.body,
+                    "handler arm result type is known at compile time",
+                    "handler arm result should match the handled expression type".to_string(),
+                    "handle arm result",
+                )?;
+            }
+
             operations.push(arm.operation_name);
 
             // Build parameter list: [resume_param, param0, param1, ...]
             let mut params: Vec<Symbol> = Vec::with_capacity(1 + arm.params.len());
             params.push(arm.resume_param);
             params.extend_from_slice(&arm.params);
+            let mut parameter_types: Vec<Option<TypeExpr>> = Vec::with_capacity(1 + op_params.len());
+            parameter_types.push(None);
+            for ty in op_params {
+                parameter_types.push(Some(ty.clone()));
+            }
 
             // Wrap arm body in a synthetic block for compile_function_literal
             let arm_span = arm.body.span();
@@ -2205,7 +2348,7 @@ impl Compiler {
             // compile_function_literal emits OpClosure, leaving a closure on the stack
             self.compile_function_literal(
                 &params,
-                &vec![None; params.len()],
+                &parameter_types,
                 &None,
                 &[],
                 &arm_block,

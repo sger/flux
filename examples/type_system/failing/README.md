@@ -162,6 +162,8 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E015`) because guarded wildcard is not unconditional coverage
 - `84_match_tuple_gap_no_fallback.flx`
   - Expected: compile-time failure (`E015`) because tuple match without unguarded fallback is conservatively non-exhaustive
+- `88_effect_op_signature_argument_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because `perform` argument type does not match the declared effect operation signature
 
 ## A3 Pure-Context Matrix
 
@@ -335,6 +337,7 @@ cargo run -- --no-cache examples/type_system/failing/81_match_bool_missing_false
 cargo run -- --no-cache examples/type_system/failing/82_match_list_missing_empty.flx
 cargo run -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx
 cargo run -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
+cargo run -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -428,4 +431,5 @@ cargo run --features jit -- --no-cache examples/type_system/failing/81_match_boo
 cargo run --features jit -- --no-cache examples/type_system/failing/82_match_list_missing_empty.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx --jit
 ```

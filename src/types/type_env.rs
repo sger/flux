@@ -137,6 +137,9 @@ impl TypeEnv {
                 Some(InferType::App(con, args_tys?))
             }
             TypeExpr::Tuple { elements, .. } => {
+                if elements.is_empty() {
+                    return Some(InferType::Con(TypeConstructor::Unit));
+                }
                 let elem_tys: Option<Vec<InferType>> = elements
                     .iter()
                     .map(|e| Self::infer_type_from_type_expr(e, type_params, interner))
