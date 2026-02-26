@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/18_handle_incomplete_operation_set.flx
+Category: B
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/18_handle_incomplete_operation_set.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E402 | INCOMPLETE EFFECT HANDLER | handled expression
+
+== jit tuples ==
+- E402 | INCOMPLETE EFFECT HANDLER | handled expression
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

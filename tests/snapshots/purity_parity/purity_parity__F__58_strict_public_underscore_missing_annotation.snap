@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+Category: F
+Strict: true
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+
+== jit tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

@@ -40,6 +40,9 @@ jobs:
       - name: Tests
         run: cargo test --all --all-features
 
+      - name: Purity VM/JIT parity snapshots
+        run: cargo test --all --all-features purity_vm_jit_parity_snapshots
+
       - name: Build (debug)
         run: cargo build --all --all-features
 

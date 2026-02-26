@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/57_strict_entry_path_parity.flx
+Category: E
+Strict: true
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+
+== jit tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

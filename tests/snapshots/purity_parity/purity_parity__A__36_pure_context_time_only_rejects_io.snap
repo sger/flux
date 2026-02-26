@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/36_pure_context_time_only_rejects_io.flx
+Category: A
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== jit tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>
