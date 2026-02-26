@@ -31,6 +31,9 @@ Feature state is evidence-driven:
 | 043 | [043_pure_flux_checklist.md](043_pure_flux_checklist.md) | Implemented | have | `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`, A-G fixtures | keep as closure evidence |
 | 044 | [044_compiler_phase_pipeline_refactor.md](044_compiler_phase_pipeline_refactor.md) | Draft | gap | proposal-only | next architecture/perf workstream |
 | 046 | [046_typed_ast_hm_architecture.md](046_typed_ast_hm_architecture.md) | Draft | gap | proposal-only | post-0.0.4 HM architecture deepening |
+| 049 | [049_effect_rows_completeness.md](049_effect_rows_completeness.md) | Draft | gap | proposal-only | complete row solver semantics and deterministic diagnostics after 042 baseline |
+| 050 | [050_totality_and_exhaustiveness_hardening.md](050_totality_and_exhaustiveness_hardening.md) | Draft | gap | proposal-only | harden exhaustive/total match guarantees across supported domains |
+| 051 | [051_any_fallback_reduction.md](051_any_fallback_reduction.md) | Draft | gap | proposal-only | reduce accidental `Any` fallback in typed/HM-known paths with staged rollout |
 
 ## Backlog (Draft / Proposed)
 
