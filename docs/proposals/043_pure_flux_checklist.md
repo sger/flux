@@ -85,17 +85,20 @@ Status:
 
 ### C. Effect Polymorphism Completion (042)
 
-- [ ] C1. `with e` resolution is solver-level (not just syntax + ad hoc propagation).
-- [ ] C2. Higher-order chains preserve effect variables across wrappers/composition.
-- [ ] C3. Row operations are supported for constrained polymorphism:
+- [x] C1. `with e` resolution is solver-level (not just syntax + ad hoc propagation).
+- [x] C2. Higher-order chains preserve effect variables across wrappers/composition.
+- [x] C3. Row operations are supported for constrained polymorphism:
   - extension (`e + IO`)
   - subtraction/discharge (`e - Console`)
   - subset constraints (`e1 ⊆ e2`) or equivalent internal model
-- [ ] C4. Diagnostics explain unresolved/ambiguous effect variables clearly.
+- [x] C4. Diagnostics explain unresolved/ambiguous effect variables clearly.
 
 Pass criteria:
 - Add fixture matrix for nested HOF + partial handling + mixed effects.
 - No false-positive "missing effect" in valid polymorphic programs from 042 examples.
+
+Status:
+- Completed with row-constraint solving for call-site effect-variable resolution, nested HOF propagation fixtures, partial-handle discharge coverage, mixed `IO`/`Time` row-extension coverage, explicit row surface syntax (`with ... + ... - ...`), and row-specific diagnostics for unresolved/ambiguous/constraint failures.
 
 ---
 

@@ -9,6 +9,9 @@ use crate::{
         compiler::{
             Compiler,
             contracts::{FnContract, convert_type_expr},
+            effect_rows::{
+                EffectRow, RowConstraint, RowConstraintViolation, solve_row_constraints,
+            },
         },
         debug_info::FunctionDebugInfo,
         op_code::OpCode,
@@ -529,23 +532,73 @@ impl Compiler {
         };
 
         if !contract.effects.is_empty() {
-            let effect_var_bindings = self.bind_effect_vars_for_call(contract, arguments);
-            let resolved_bindings = self.resolve_effect_var_bindings(&effect_var_bindings);
-            let mut required_effects: HashSet<Symbol> = HashSet::new();
-            for required in &contract.effects {
-                let required_name = match required {
-                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                };
-                if self.is_effect_variable(required_name) {
-                    if let Some(bound) = resolved_bindings.get(&required_name) {
-                        required_effects.extend(bound.iter().copied());
-                    }
-                } else {
-                    required_effects.insert(required_name);
+            let required_row = EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                self.is_effect_variable(effect)
+            });
+            let constraints = self.collect_effect_row_constraints(contract, arguments);
+            let solution = solve_row_constraints(&constraints);
+
+            if let Some(first_violation) = solution.violations.first() {
+                return Err(Self::boxed(
+                    self.diagnostic_for_row_violation(function, first_violation),
+                ));
+            }
+
+            if !constraints.is_empty() {
+                let unresolved: Vec<Symbol> = required_row
+                    .unresolved_vars(&solution)
+                    .into_iter()
+                    .filter(|effect_var| !self.is_effect_available(*effect_var))
+                    .collect();
+
+                if unresolved.len() == 1 {
+                    let effect_name = self.sym(unresolved[0]).to_string();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E419",
+                            "UNRESOLVED EFFECT VARIABLE",
+                            ErrorType::Compiler,
+                            format!(
+                                "Cannot resolve effect variable `{}` for this call.",
+                                effect_name
+                            ),
+                            Some(format!(
+                                "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
+                                effect_name
+                            )),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effect variable is unconstrained"),
+                    ));
+                } else if unresolved.len() > 1 {
+                    let mut names: Vec<String> = unresolved
+                        .iter()
+                        .map(|symbol| self.sym(*symbol).to_string())
+                        .collect();
+                    names.sort();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E420",
+                            "AMBIGUOUS EFFECT VARIABLES",
+                            ErrorType::Compiler,
+                            format!(
+                                "Call leaves multiple effect variables unresolved: {}.",
+                                names.join(", ")
+                            ),
+                            Some(
+                                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effect variables are ambiguous"),
+                    ));
                 }
             }
 
-            for required_name in required_effects {
+            for required_name in required_row.concrete_effects(&solution) {
                 if !self.is_effect_available(required_name) {
                     let function_name = match function {
                         Expression::Identifier { name, .. } => self.sym(*name).to_string(),
@@ -603,6 +656,57 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn diagnostic_for_row_violation(
+        &self,
+        function: &Expression,
+        violation: &RowConstraintViolation,
+    ) -> Diagnostic {
+        match violation {
+            RowConstraintViolation::InvalidSubtract { atom } => {
+                let effect_name = self.sym(*atom).to_string();
+                Diagnostic::make_error_dynamic(
+                    "E421",
+                    "INVALID EFFECT SUBTRACTION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Cannot subtract effect `{}` from a row that does not contain it.",
+                        effect_name
+                    ),
+                    Some(
+                        "Handle or include this effect before subtracting it from an effect row."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effect row constraint failed")
+            }
+            RowConstraintViolation::UnsatisfiedSubset { missing } => {
+                let mut names: Vec<String> = missing
+                    .iter()
+                    .map(|effect| self.sym(*effect).to_string())
+                    .collect();
+                names.sort();
+                Diagnostic::make_error_dynamic(
+                    "E422",
+                    "UNSATISFIED EFFECT SUBSET",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect row is missing required effects: {}.",
+                        names.join(", ")
+                    ),
+                    Some(
+                        "Add missing effects to the enclosing function or handle them before this call."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effect row constraint failed")
+            }
+        }
     }
 
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
@@ -664,12 +768,12 @@ impl Compiler {
         }
     }
 
-    fn bind_effect_vars_for_call(
+    fn collect_effect_row_constraints(
         &self,
         contract: &FnContract,
         arguments: &[Expression],
-    ) -> HashMap<Symbol, HashSet<Symbol>> {
-        let mut bindings: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+    ) -> Vec<RowConstraint> {
+        let mut constraints = Vec::new();
 
         for (idx, argument) in arguments.iter().enumerate() {
             let Some(Some(TypeExpr::Function {
@@ -681,87 +785,40 @@ impl Compiler {
                 continue;
             };
 
-            let arg_effects = self.infer_argument_function_effects(argument, params.len());
-            if arg_effects.is_empty() {
+            let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
+                self.is_effect_variable(effect)
+            });
+            let actual = self.infer_argument_function_effect_row(argument, params.len());
+
+            // Keep current permissive behavior when argument effect info is unavailable.
+            if actual.atoms.is_empty() && actual.vars.is_empty() {
                 continue;
             }
 
-            for effect in param_effects {
-                let effect_name = match effect {
-                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                };
-                if self.is_effect_variable(effect_name) {
-                    bindings
-                        .entry(effect_name)
-                        .or_default()
-                        .extend(arg_effects.iter().copied());
-                }
+            constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
+            for required_atom in expected.atoms {
+                constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
             }
         }
 
-        bindings
+        constraints
     }
 
-    fn resolve_effect_var_bindings(
-        &self,
-        bindings: &HashMap<Symbol, HashSet<Symbol>>,
-    ) -> HashMap<Symbol, HashSet<Symbol>> {
-        let mut resolved: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
-        for var in bindings.keys().copied() {
-            let mut out = HashSet::new();
-            let mut visiting = HashSet::new();
-            self.collect_resolved_effect_atoms(var, bindings, &mut visiting, &mut out);
-            resolved.insert(var, out);
-        }
-        resolved
-    }
-
-    fn collect_resolved_effect_atoms(
-        &self,
-        current: Symbol,
-        bindings: &HashMap<Symbol, HashSet<Symbol>>,
-        visiting: &mut HashSet<Symbol>,
-        out: &mut HashSet<Symbol>,
-    ) {
-        if !visiting.insert(current) {
-            return;
-        }
-        let Some(bound) = bindings.get(&current) else {
-            visiting.remove(&current);
-            return;
-        };
-        for effect in bound {
-            if self.is_effect_variable(*effect) {
-                self.collect_resolved_effect_atoms(*effect, bindings, visiting, out);
-            } else {
-                out.insert(*effect);
-            }
-        }
-        visiting.remove(&current);
-    }
-
-    fn infer_argument_function_effects(
+    fn infer_argument_function_effect_row(
         &self,
         argument: &Expression,
         expected_arity: usize,
-    ) -> HashSet<Symbol> {
+    ) -> EffectRow {
         match argument {
-            Expression::Function { effects, .. } => effects
-                .iter()
-                .map(|effect| match effect {
-                    crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                })
-                .collect(),
+            Expression::Function { effects, .. } => {
+                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
+            }
             Expression::Identifier { name, .. } => self
                 .lookup_unqualified_contract(*name, expected_arity)
                 .map(|contract| {
-                    contract
-                        .effects
-                        .iter()
-                        .map(|effect| match effect {
-                            crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                        })
-                        .collect()
+                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                        self.is_effect_variable(effect)
+                    })
                 })
                 .unwrap_or_default(),
             Expression::MemberAccess { object, member, .. } => {
@@ -771,17 +828,13 @@ impl Compiler {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
                     })
                     .map(|contract| {
-                        contract
-                            .effects
-                            .iter()
-                            .map(|effect| match effect {
-                                crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                            })
-                            .collect()
+                        EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                            self.is_effect_variable(effect)
+                        })
                     })
                     .unwrap_or_default()
             }
-            _ => HashSet::new(),
+            _ => EffectRow::default(),
         }
     }
 

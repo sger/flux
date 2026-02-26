@@ -42,6 +42,7 @@ mod adt_registry;
 mod builder;
 mod constructor_info;
 mod contracts;
+mod effect_rows;
 mod errors;
 mod expression;
 mod statement;
@@ -323,9 +324,7 @@ impl Compiler {
             } => {
                 let declared_effects = effects
                     .iter()
-                    .map(|effect| match effect {
-                        EffectExpr::Named { name, .. } => *name,
-                    })
+                    .flat_map(EffectExpr::normalized_names)
                     .collect();
                 out.push(FunctionEffectSeed {
                     key: ContractKey {
@@ -609,7 +608,7 @@ impl Compiler {
                 }
                 effects.extend(self.infer_call_effects(
                     function,
-                    arguments.len(),
+                    arguments,
                     current_module,
                     inferred,
                     io_effect,
@@ -775,13 +774,14 @@ impl Compiler {
     fn infer_call_effects(
         &self,
         function: &Expression,
-        arity: usize,
+        arguments: &[Expression],
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
         io_effect: Symbol,
         time_effect: Symbol,
     ) -> HashSet<Symbol> {
         let mut effects = HashSet::new();
+        let arity = arguments.len();
         match function {
             Expression::Identifier { name, .. } => {
                 let mut resolved = false;
@@ -792,7 +792,11 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(found.iter().copied());
+                        effects.extend(self.resolve_call_effect_row_with_args(
+                            found,
+                            self.lookup_contract(Some(module_name), *name, arity),
+                            arguments,
+                        ));
                         resolved = true;
                     }
                 }
@@ -803,7 +807,11 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(found.iter().copied());
+                        effects.extend(self.resolve_call_effect_row_with_args(
+                            found,
+                            self.lookup_unqualified_contract(*name, arity),
+                            arguments,
+                        ));
                         resolved = true;
                     }
                 }
@@ -824,13 +832,125 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(found.iter().copied());
+                        effects.extend(self.resolve_call_effect_row_with_args(
+                            found,
+                            self.lookup_contract(Some(module_name), *member, arity),
+                            arguments,
+                        ));
                     }
                 }
             }
             _ => {}
         }
         effects
+    }
+
+    fn resolve_call_effect_row_with_args(
+        &self,
+        raw_effects: &HashSet<Symbol>,
+        contract: Option<&FnContract>,
+        arguments: &[Expression],
+    ) -> HashSet<Symbol> {
+        use crate::bytecode::compiler::effect_rows::{
+            EffectRow, RowConstraint, solve_row_constraints,
+        };
+
+        let mut effects_as_expr = Vec::new();
+        for effect in raw_effects {
+            effects_as_expr.push(EffectExpr::Named {
+                name: *effect,
+                span: Span::default(),
+            });
+        }
+        let required = EffectRow::from_effect_exprs(&effects_as_expr, |effect| {
+            self.is_effect_variable(effect)
+        });
+
+        let mut constraints = Vec::new();
+        if let Some(contract) = contract {
+            for (idx, argument) in arguments.iter().enumerate() {
+                let Some(Some(TypeExpr::Function {
+                    params,
+                    effects: param_effects,
+                    ..
+                })) = contract.params.get(idx)
+                else {
+                    continue;
+                };
+
+                let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
+                    self.is_effect_variable(effect)
+                });
+                let actual = self.infer_argument_effect_row_for_inference(
+                    argument,
+                    params.len(),
+                    raw_effects,
+                    arguments,
+                );
+                if actual.atoms.is_empty() && actual.vars.is_empty() {
+                    continue;
+                }
+                constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
+                for required_atom in expected.atoms {
+                    constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+                }
+            }
+        }
+
+        let solved = solve_row_constraints(&constraints);
+        required.concrete_effects(&solved)
+    }
+
+    fn infer_argument_effect_row_for_inference(
+        &self,
+        argument: &Expression,
+        expected_arity: usize,
+        inferred_effects: &HashSet<Symbol>,
+        call_arguments: &[Expression],
+    ) -> crate::bytecode::compiler::effect_rows::EffectRow {
+        use crate::bytecode::compiler::effect_rows::EffectRow;
+
+        match argument {
+            Expression::Function { effects, .. } => {
+                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
+            }
+            Expression::Identifier { name, .. } => self
+                .lookup_unqualified_contract(*name, expected_arity)
+                .map(|contract| {
+                    let mut set: HashSet<Symbol> = contract
+                        .effects
+                        .iter()
+                        .flat_map(EffectExpr::normalized_names)
+                        .collect();
+                    if set.is_empty() {
+                        set.extend(inferred_effects.iter().copied());
+                    }
+                    let effect_exprs: Vec<EffectExpr> = set
+                        .into_iter()
+                        .map(|name| EffectExpr::Named {
+                            name,
+                            span: Span::default(),
+                        })
+                        .collect();
+                    EffectRow::from_effect_exprs(&effect_exprs, |effect| {
+                        self.is_effect_variable(effect)
+                    })
+                })
+                .unwrap_or_default(),
+            Expression::MemberAccess { object, member, .. } => self
+                .resolve_module_name_from_expr(object)
+                .and_then(|module| self.lookup_contract(Some(module), *member, expected_arity))
+                .map(|contract| {
+                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                        self.is_effect_variable(effect)
+                    })
+                })
+                .unwrap_or_default(),
+            _ => {
+                let _ = call_arguments;
+                EffectRow::default()
+            }
+        }
     }
 
     fn validate_main_entrypoint(&mut self, program: &Program) -> bool {
@@ -914,9 +1034,7 @@ impl Compiler {
                 let effects = contract
                     .effects
                     .iter()
-                    .map(|effect| match effect {
-                        EffectExpr::Named { name, .. } => *name,
-                    })
+                    .flat_map(EffectExpr::normalized_names)
                     .collect::<HashSet<_>>();
                 (key.clone(), effects)
             })
@@ -1889,9 +2007,7 @@ impl Compiler {
         self.function_effects.push(
             effects
                 .iter()
-                .map(|effect| match effect {
-                    EffectExpr::Named { name, .. } => *name,
-                })
+                .flat_map(EffectExpr::normalized_names)
                 .collect(),
         );
         self.captured_local_indices.push(HashSet::new());

@@ -224,6 +224,43 @@ fn parses_typed_function_signature_with_effects() {
 }
 
 #[test]
+fn parses_typed_function_signature_with_effect_row_ops() {
+    let (program, interner) =
+        parse_ok("fn run() -> Int with IO + Console - Console, Time { 1 }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function { effects, .. } => {
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["IO + Console - Console".to_string(), "Time".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_function_type_annotation_with_effect_row_ops() {
+    let (program, interner) =
+        parse_ok("let f: (Int) -> Int with e + IO - Console = \\(x: Int) -> x;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let {
+            type_annotation: Some(ty),
+            ..
+        } => {
+            assert_eq!(ty.display_with(&interner), "Int -> Int with e + IO - Console");
+        }
+        _ => panic!("expected typed let statement"),
+    }
+}
+
+#[test]
 fn parses_lambda_parameter_annotation() {
     let (program, interner) = parse_ok("let inc = \\(x: Int) -> x + 1;");
     assert_eq!(program.statements.len(), 1);

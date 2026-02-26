@@ -447,18 +447,8 @@ impl Parser {
         let mut effects = Vec::new();
 
         loop {
-            if !self.expect_peek(TokenType::Ident) {
-                return None;
-            }
-
-            let name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
-            effects.push(EffectExpr::Named {
-                name,
-                span: self.current_token.span(),
-            });
+            let effect = self.parse_effect_expr()?;
+            effects.push(effect);
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token();
@@ -468,6 +458,65 @@ impl Parser {
         }
 
         Some(effects)
+    }
+
+    fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
+        if !self.expect_peek(TokenType::Ident) {
+            return None;
+        }
+
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        let mut expr = EffectExpr::Named {
+            name,
+            span: self.current_token.span(),
+        };
+
+        loop {
+            let token = if self.is_peek_token(TokenType::Plus) {
+                Some(TokenType::Plus)
+            } else if self.is_peek_token(TokenType::Minus) {
+                Some(TokenType::Minus)
+            } else {
+                None
+            };
+
+            let Some(operator) = token else {
+                break;
+            };
+
+            self.next_token(); // operator
+            if !self.expect_peek(TokenType::Ident) {
+                return None;
+            }
+
+            let rhs_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let rhs = EffectExpr::Named {
+                name: rhs_name,
+                span: self.current_token.span(),
+            };
+            let span = Span::new(expr.span().start, rhs.span().end);
+            expr = match operator {
+                TokenType::Plus => EffectExpr::Add {
+                    left: Box::new(expr),
+                    right: Box::new(rhs),
+                    span,
+                },
+                TokenType::Minus => EffectExpr::Subtract {
+                    left: Box::new(expr),
+                    right: Box::new(rhs),
+                    span,
+                },
+                _ => unreachable!("only + or - are parsed here"),
+            };
+        }
+
+        Some(expr)
     }
 
     /// Parses a type expression, including function types with optional effects.
