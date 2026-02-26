@@ -3,8 +3,119 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/optimizations/desugar_demo.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:25:1
+   |
+25 | print("a (!!true):", a);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/optimizations/desugar_demo.flx:25:1
+   |
+25 | print("a (!!true):", a);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:26:1
+   |
+26 | print("b (!!!false):", b);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:27:1
+   |
+27 | print("c (!!!!5):", c);
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:28:1
+   |
+28 | print("d (!(x == y)):", d);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:29:1
+   |
+29 | print("e (!(x != y)):", e);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:30:1
+   |
+30 | print("f (!!(2 + 3)):", f);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/optimizations/desugar_demo.flx:31:1
+   |
+31 | print("g (!(!(5 == 5))):", g);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 8 errors.
 == stdout ==
 <not executed>

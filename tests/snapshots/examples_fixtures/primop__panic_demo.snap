@@ -3,8 +3,63 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/panic_demo.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/panic_demo.flx:1:1
+  |
+1 | print("== PrimOps: panic demo ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/primop/panic_demo.flx:1:1
+  |
+1 | print("== PrimOps: panic demo ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/panic_demo.flx:2:1
+  |
+2 | print("Uncomment the panic call below to see runtime panic propagation.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | -------------------------------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/panic_demo.flx:6:1
+  |
+6 | print("done");
+  | ^^^^^^^^^^^^^^
+  | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 4 errors.
 == stdout ==
 <not executed>

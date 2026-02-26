@@ -14,6 +14,7 @@ pub struct ContractKey {
 
 #[derive(Debug, Clone)]
 pub struct FnContract {
+    pub type_params: Vec<Identifier>,
     pub params: Vec<Option<TypeExpr>>,
     pub ret: Option<TypeExpr>,
     pub effects: Vec<EffectExpr>,

@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:2:8
+  |
+2 |     xs["0"]
+  |        ^^^
+  |        --- expected Int, found String
+  |        --- index expression is known at compile time
+
+Help:
+  use an Int index for Array/List/Tuple access
+== stdout ==
+<not executed>

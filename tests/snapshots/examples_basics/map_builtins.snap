@@ -3,8 +3,175 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/map_builtins.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:22:1
+   |
+22 | print(get(person, "name"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/map_builtins.flx:22:1
+   |
+22 | print(get(person, "name"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:23:1
+   |
+23 | print(get(person, "email"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:31:1
+   |
+31 | print(updated);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:32:1
+   |
+32 | print(get(updated, "email"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:39:1
+   |
+39 | print(smaller);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:45:1
+   |
+45 | print(is_map(person));
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:46:1
+   |
+46 | print(is_map([|1, 2, 3|]));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:47:1
+   |
+47 | print(is_map({}));
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:53:1
+   |
+53 | print("Immutability check:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:54:1
+   |
+54 | print(get(person, "name"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/map_builtins.flx:55:1
+   |
+55 | print(get(person, "email"));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 12 errors.
 == stdout ==
 <not executed>

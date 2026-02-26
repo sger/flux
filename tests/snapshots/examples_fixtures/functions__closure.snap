@@ -3,8 +3,49 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/functions/closure.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/closure.flx:9:1
+  |
+9 | print(closure());
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/functions/closure.flx:9:1
+  |
+9 | print(closure());
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/closure.flx:15:1
+   |
+15 | print(test_closure(100));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

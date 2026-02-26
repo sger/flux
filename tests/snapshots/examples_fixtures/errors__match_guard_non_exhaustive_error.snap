@@ -20,5 +20,35 @@ Match expressions must end with a `_` or identifier arm.
 
 Hint:
   Add a catch-all pattern: _ -> default_value
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/errors/match_guard_non_exhaustive_error.flx:7:1
+  |
+7 | print(non_exhaustive);
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/errors/match_guard_non_exhaustive_error.flx:7:1
+  |
+7 | print(non_exhaustive);
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+Found 3 errors.
 == stdout ==
 <not executed>

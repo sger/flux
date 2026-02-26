@@ -1,0 +1,21 @@
+data ResultI {
+    OkI(Int),
+    ErrI(Int),
+}
+
+data Wrap {
+    Boxed(ResultI),
+    Empty,
+}
+
+fn score(w: Wrap) -> Int {
+    match w {
+        Boxed(OkI(v)) -> v,
+        Boxed(ErrI(_)) -> 0,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    print(to_string(score(Empty)))
+}

@@ -17,11 +17,11 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `06_runtime_float_string_return.flx`
   - Expected: runtime failure (`E1004`) at typed return boundary check (`Float` expected)
 - `07_typed_let_float_into_int.flx`
-  - Expected: compile-time failure (`E055`) on typed `let` initializer mismatch (`Int` annotated, `Float` assigned)
+  - Expected: compile-time failure (`E300`) on typed `let` initializer mismatch (`Int` annotated, `Float` assigned)
 - `08_compile_identifier_type_mismatch.flx`
-  - Expected: compile-time failure (`E055`) on typed `let` from identifier (`Int` annotated, `String` value)
+  - Expected: compile-time failure (`E300`) on typed `let` from identifier (`Int` annotated, `String` value)
 - `09_compile_typed_call_return_mismatch.flx`
-  - Expected: compile-time failure (`E055`) on typed `let` from typed call return (`Int` annotated, `String` return)
+  - Expected: compile-time failure (`E300`) on typed `let` from typed call return (`Int` annotated, `String` return)
 - `15_effect_missing_from_caller.flx`
   - Expected: compile-time failure (`E400`) when a typed-pure caller invokes a `with IO` function
 - `16_inferred_effect_missing_on_typed_caller.flx`
@@ -120,6 +120,38 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: runtime failure (`E1004`) because `List<Int>` boundary receives a non-list dynamic value from module boundary
 - `63_either_boundary_runtime_violation.flx`
   - Expected: runtime failure (`E1004`) because `Either<String, Int>` boundary receives a non-Either dynamic value from module boundary
+- `64_hm_inferred_call_mismatch.flx`
+  - Expected: compile-time failure (`E300`) from HM-inferred numeric function called with `String`
+- `65_adt_nested_constructor_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) because nested constructor space under unary wrapper is not fully covered
+- `66_module_constructor_not_public_api.flx`
+  - Expected: compile-time failure (`E004`) because module ADT constructors are not part of public API in 0.0.4 (use module `public fn` factories)
+- `67_adt_multi_arity_nested_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) because nested constructor-space under multi-arity constructor is not fully covered
+- `68_adt_nested_list_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) because nested list patterns miss non-empty branch
+- `69_hm_typed_let_infix_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because typed-let infix operands are known incompatible at compile time
+- `70_hm_prefix_non_numeric_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because unary `-` operand is known non-numeric at compile time
+- `71_hm_if_known_type_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because `if` branch join is statically `String` and cannot unify with expected `Int`
+- `72_hm_match_known_type_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because `match` arm join is statically `String` and cannot unify with expected `Int`
+- `73_hm_index_non_int_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because index expression is statically non-`Int` for array/list/tuple access
+- `74_hm_index_non_indexable_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because indexed value is statically non-indexable
+- `75_hm_if_non_bool_condition_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because HM rejects non-`Bool` `if` condition (`Int` vs `Bool`)
+- `76_hm_match_guard_non_bool_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because `match` guard is statically non-`Bool`
+- `77_hm_logical_non_bool_compile_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because HM rejects non-`Bool` operand in logical expression
+- `78_hm_inline_call_no_runtime_fallback.flx`
+  - Expected: compile-time failure (`E300`) proving typed validation uses HM strict-path and does not fall back to runtime-boundary compatibility inference for inline function-expression calls
+- `79_hm_module_generic_call_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because module-qualified generic return type is inferred as `String` and cannot unify with expected `Int`
 
 ## A3 Pure-Context Matrix
 
@@ -272,6 +304,22 @@ cargo run -- --no-cache --strict examples/type_system/failing/60_public_hof_cont
 cargo run -- --no-cache --strict examples/type_system/failing/61_strict_generic_unresolved_boundary.flx
 cargo run -- --no-cache --root examples/type_system examples/type_system/failing/62_list_boundary_runtime_violation.flx
 cargo run -- --no-cache --root examples/type_system examples/type_system/failing/63_either_boundary_runtime_violation.flx
+cargo run -- --no-cache examples/type_system/failing/64_hm_inferred_call_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/65_adt_nested_constructor_non_exhaustive.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
+cargo run -- --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx
+cargo run -- --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
+cargo run -- --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -344,4 +392,20 @@ cargo run --features jit -- --no-cache --strict examples/type_system/failing/56_
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/57_strict_entry_path_parity.flx --jit
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/59_strict_module_public_effect_missing_with.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/64_hm_inferred_call_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/65_adt_nested_constructor_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx --jit
+cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx --jit
 ```

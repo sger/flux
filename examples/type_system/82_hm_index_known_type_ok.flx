@@ -1,0 +1,10 @@
+fn take(xs: List<Int>) -> Int {
+    match xs[1] {
+        Some(v) -> v,
+        _ -> 0,
+    }
+}
+
+fn main() -> Unit with IO {
+    print(to_string(take([10, 20, 30])))
+}

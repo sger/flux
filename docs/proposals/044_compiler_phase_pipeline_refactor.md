@@ -4,6 +4,9 @@
 **Date:** 2026-02-26  
 **Depends on:** `032_type_system_with_effects.md`, `043_pure_flux_checklist.md`
 
+Implementation note:
+- Phase-runner starter scaffolding has been introduced (`pipeline.rs`, `passes/prepare.rs`) with behavior-preserving delegation to the existing compile path.
+
 ---
 
 

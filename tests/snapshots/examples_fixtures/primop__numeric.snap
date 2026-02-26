@@ -3,8 +3,203 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/numeric.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:1:1
+  |
+1 | print("== PrimOps: numeric ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | -------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/primop/numeric.flx:1:1
+  |
+1 | print("== PrimOps: numeric ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | -------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:2:1
+  |
+2 | print(iadd(10, 20));
+  | ^^^^^^^^^^^^^^^^^^^^
+  | -------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:3:1
+  |
+3 | print(isub(20, 3));
+  | ^^^^^^^^^^^^^^^^^^^
+  | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:4:1
+  |
+4 | print(imul(6, 7));
+  | ^^^^^^^^^^^^^^^^^^
+  | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:5:1
+  |
+5 | print(idiv(21, 3));
+  | ^^^^^^^^^^^^^^^^^^^
+  | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:6:1
+  |
+6 | print(imod(20, 6));
+  | ^^^^^^^^^^^^^^^^^^^
+  | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:7:1
+  |
+7 | print(fadd(1.5, 2.25));
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:8:1
+  |
+8 | print(fsub(5.5, 2.0));
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:9:1
+  |
+9 | print(fmul(2.0, 4.5));
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:10:1
+   |
+10 | print(fdiv(9.0, 2.0));
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:11:1
+   |
+11 | print(abs(-10));
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:12:1
+   |
+12 | print(min(3, 7));
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/numeric.flx:13:1
+   |
+13 | print(max(3.0, 7.5));
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 14 errors.
 == stdout ==
 <not executed>

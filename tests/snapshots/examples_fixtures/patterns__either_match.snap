@@ -3,8 +3,245 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/patterns/either_match.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:13:1
+   |
+13 | print(handleResult(Left("not found")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/patterns/either_match.flx:13:1
+   |
+13 | print(handleResult(Left("not found")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:14:1
+   |
+14 | print(handleResult(Right(42)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:31:1
+   |
+31 | print(isSuccess(Right(1)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:32:1
+   |
+32 | print(isSuccess(Left("err")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:33:1
+   |
+33 | print(isFailure(Left("err")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:34:1
+   |
+34 | print(isFailure(Right(1)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:65:1
+   |
+65 | print(r3);
+   | ^^^^^^^^^^
+   | ---------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:71:1
+   |
+71 | print(e3);
+   | ^^^^^^^^^^
+   | ---------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:81:1
+   |
+81 | print(getOr(Right(42), 0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:82:1
+   |
+82 | print(getOr(Left("error"), 0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:94:1
+   |
+94 | print(doubled);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:97:1
+   |
+97 | print(failed);
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:108:1
+    |
+108 | print(swap(Left(1)));
+    | ^^^^^^^^^^^^^^^^^^^^^
+    | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:109:1
+    |
+109 | print(swap(Right(2)));
+    | ^^^^^^^^^^^^^^^^^^^^^^
+    | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:117:1
+    |
+117 | print(trailing);
+    | ^^^^^^^^^^^^^^^^
+    | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/patterns/either_match.flx:118:1
+    |
+118 | print(handleResult(Right(123),));
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 17 errors.
 == stdout ==
 <not executed>

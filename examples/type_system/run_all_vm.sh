@@ -25,11 +25,23 @@ examples=(
   "examples/type_system/29_main_handles_custom_effect.flx"
   "examples/type_system/72_list_boundary_runtime_check_ok.flx"
   "examples/type_system/73_either_boundary_runtime_check_ok.flx"
+  "examples/type_system/74_generic_adt_module_ok.flx"
+  "examples/type_system/75_hm_polymorphic_compose_ok.flx"
+  "examples/type_system/76_adt_nested_exhaustive_ok.flx"
+  "examples/type_system/77_adt_multi_arity_nested_exhaustive_ok.flx"
+  "examples/type_system/78_hm_typed_let_infix_ok.flx"
+  "examples/type_system/79_hm_prefix_numeric_ok.flx"
+  "examples/type_system/80_hm_if_known_type_ok.flx"
+  "examples/type_system/81_hm_match_known_type_ok.flx"
+  "examples/type_system/82_hm_index_known_type_ok.flx"
+  "examples/type_system/83_hm_bool_condition_and_guard_ok.flx"
+  "examples/type_system/84_hm_logical_bool_ok.flx"
+  "examples/type_system/85_hm_module_generic_call_ok.flx"
 )
 
 for file in "${examples[@]}"; do
   echo "== $file =="
-  if [[ "$file" == *"07_modules_and_hof.flx" ]]; then
+  if [[ "$file" == *"07_modules_and_hof.flx" || "$file" == *"74_generic_adt_module_ok.flx" || "$file" == *"85_hm_module_generic_call_ok.flx" ]]; then
     cargo run -- --root examples/type_system "$file"
   else
     cargo run -- "$file"

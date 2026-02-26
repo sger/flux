@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/69_real_program_public_api_test.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `Flow.FTest` to import.
+
+  --> examples/type_system/69_real_program_public_api_test.flx:1:1
+  |
+1 | import Flow.FTest as Test
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `Flow.FTest.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `Flow.FTest` under roots: examples/type_system, src (imported from examples/type_system/69_real_program_public_api_test.flx).
+== stdout ==
+<not executed>

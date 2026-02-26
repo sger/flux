@@ -12,6 +12,10 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - boundary-first contract style
 - higher-order functions (including module-based usage)
 
+Policy (0.0.4): for module ADTs, external callers should use module `public fn`
+factories/accessors; direct `Module.Ctor(...)` usage is not part of the stable
+API boundary.
+
 ## Files
 
 - `01_typed_let_and_functions.flx` - basic typed bindings and function signatures
@@ -55,6 +59,18 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `71_real_program_base_interop_module_test.flx` - Flow.FTest unit tests for base-interop wrapper module behavior
 - `72_list_boundary_runtime_check_ok.flx` - runtime boundary check for `List<Int>` accepts valid list elements
 - `73_either_boundary_runtime_check_ok.flx` - runtime boundary check for `Either<String, Int>` accepts valid payloads
+- `74_generic_adt_module_ok.flx` - module-qualified nominal generic ADTs (`Result<T, E>`, `Tree<T>`) with constructor/match flow
+- `75_hm_polymorphic_compose_ok.flx` - HM inference through unannotated `id`/`compose`/numeric composition
+- `76_adt_nested_exhaustive_ok.flx` - nested constructor-space match coverage accepted as exhaustive
+- `77_adt_multi_arity_nested_exhaustive_ok.flx` - multi-arity constructor with nested constructor-space coverage accepted as exhaustive
+- `78_hm_typed_let_infix_ok.flx` - HM typed-let path catches/accepts infix operand types at compile time
+- `79_hm_prefix_numeric_ok.flx` - unary numeric prefix is accepted and stays compile-time typed
+- `80_hm_if_known_type_ok.flx` - HM static typing joins `if` branches and validates typed-call boundaries
+- `81_hm_match_known_type_ok.flx` - HM static typing joins `match` arm results and validates typed-call boundaries
+- `82_hm_index_known_type_ok.flx` - HM static typing validates known index paths and option-typed index results
+- `83_hm_bool_condition_and_guard_ok.flx` - HM static typing accepts boolean `if` conditions and `match` guards
+- `84_hm_logical_bool_ok.flx` - HM static typing validates boolean logical operators (`&&`, `||`)
+- `85_hm_module_generic_call_ok.flx` - HM infers module-qualified generic call returns deterministically
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -102,6 +118,18 @@ cargo run -- --root examples/type_system examples/type_system/65_real_program_pr
 cargo run -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx
 cargo run -- examples/type_system/72_list_boundary_runtime_check_ok.flx
 cargo run -- examples/type_system/73_either_boundary_runtime_check_ok.flx
+cargo run -- --root examples/type_system examples/type_system/74_generic_adt_module_ok.flx
+cargo run -- examples/type_system/75_hm_polymorphic_compose_ok.flx
+cargo run -- examples/type_system/76_adt_nested_exhaustive_ok.flx
+cargo run -- examples/type_system/77_adt_multi_arity_nested_exhaustive_ok.flx
+cargo run -- examples/type_system/78_hm_typed_let_infix_ok.flx
+cargo run -- examples/type_system/79_hm_prefix_numeric_ok.flx
+cargo run -- examples/type_system/80_hm_if_known_type_ok.flx
+cargo run -- examples/type_system/81_hm_match_known_type_ok.flx
+cargo run -- examples/type_system/82_hm_index_known_type_ok.flx
+cargo run -- examples/type_system/83_hm_bool_condition_and_guard_ok.flx
+cargo run -- examples/type_system/84_hm_logical_bool_ok.flx
+cargo run -- --root examples/type_system examples/type_system/85_hm_module_generic_call_ok.flx
 ```
 
 JIT:
@@ -137,6 +165,18 @@ cargo run --features jit -- --root examples/type_system examples/type_system/65_
 cargo run --features jit -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx --jit
 cargo run --features jit -- examples/type_system/72_list_boundary_runtime_check_ok.flx --jit
 cargo run --features jit -- examples/type_system/73_either_boundary_runtime_check_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/74_generic_adt_module_ok.flx --jit
+cargo run --features jit -- examples/type_system/75_hm_polymorphic_compose_ok.flx --jit
+cargo run --features jit -- examples/type_system/76_adt_nested_exhaustive_ok.flx --jit
+cargo run --features jit -- examples/type_system/77_adt_multi_arity_nested_exhaustive_ok.flx --jit
+cargo run --features jit -- examples/type_system/78_hm_typed_let_infix_ok.flx --jit
+cargo run --features jit -- examples/type_system/79_hm_prefix_numeric_ok.flx --jit
+cargo run --features jit -- examples/type_system/80_hm_if_known_type_ok.flx --jit
+cargo run --features jit -- examples/type_system/81_hm_match_known_type_ok.flx --jit
+cargo run --features jit -- examples/type_system/82_hm_index_known_type_ok.flx --jit
+cargo run --features jit -- examples/type_system/83_hm_bool_condition_and_guard_ok.flx --jit
+cargo run --features jit -- examples/type_system/84_hm_logical_bool_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/85_hm_module_generic_call_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

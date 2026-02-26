@@ -22,6 +22,7 @@ Canonical implementation reference now lives in:
 - Closure evidence, fixture coverage, and backend parity status are tracked in `docs/proposals/043_pure_flux_checklist.md`.
 - Row-constraint deepening and advanced effect-row follow-up are tracked in `docs/proposals/042_effect_rows_and_constraints.md`.
 - Runtime boundary enforcement currently includes concrete primitive/composite subsets (including `List<T>` and `Either<L, R>`), while function-typed runtime boundary contracts remain explicitly unsupported in strict/public boundaries.
+- v0.0.4 hardening track focuses on code-backed baseline verification for HM inference, generic ADTs, and stronger exhaustiveness checks (see `docs/internals/type_system_effects.md` and `docs/proposals/043_pure_flux_checklist.md`).
 
 ## 1. Motivation
 
@@ -859,12 +860,12 @@ v1 exhaustiveness checking is deliberately scoped to be useful without becoming 
 - **Option:** `Some(_)` and `None` must both be covered (or wildcard)
 - **Either:** `Left(_)` and `Right(_)` must both be covered (or wildcard)
 
-### 12.2 What v1 Does NOT Check
+### 12.2 Current Limits (0.0.4)
 
-- **Guard reasoning:** Guards (`if expr`) are treated as "may fail" — they never satisfy exhaustiveness on their own
-- **Nested patterns:** Only top-level constructor is checked. Nested patterns are not analyzed for exhaustiveness.
-- **Tuple exhaustiveness:** Tuples are structural, not checked for exhaustiveness in v1. Use `_` as a catch-all.
-- **Integer/String ranges:** Not checked. Always require a wildcard arm.
+- **Guard reasoning:** Guards (`if expr`) are treated as "may fail" — they never satisfy exhaustiveness on their own.
+- **Nested patterns:** Nested constructor-space checks are implemented for supported shapes and continue to be hardened (see 043 + fixture matrix).
+- **Tuple/list pattern-space explosion:** Coverage is intentionally conservative where full Cartesian reasoning would be too expensive; `_` catch-all remains recommended for complex spaces.
+- **Integer/String ranges:** Not checked; require a wildcard arm for numeric/string partitions.
 
 ### 12.3 Example
 

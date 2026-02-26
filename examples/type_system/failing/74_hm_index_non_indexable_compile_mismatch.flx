@@ -1,0 +1,7 @@
+fn bad(x: Int) -> Int {
+    x[0]
+}
+
+fn main() -> Unit with IO {
+    print(to_string(bad(7)))
+}

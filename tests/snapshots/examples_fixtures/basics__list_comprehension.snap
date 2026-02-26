@@ -3,8 +3,175 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/list_comprehension.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:9:1
+  |
+9 | print([x * 2 | x <- nums])
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/list_comprehension.flx:9:1
+  |
+9 | print([x * 2 | x <- nums])
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | -------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:12:1
+   |
+12 | print([x | x <- nums, x % 2 == 0])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:15:1
+   |
+15 | print([x * x | x <- nums, x > 2])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:18:1
+   |
+18 | print([x | x <- r, x > 3, x < 8])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:23:1
+   |
+23 | print([color + "-" + size | color <- colors, size <- sizes])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:27:1
+   |
+27 | print([x * y | x <- small, y <- small])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:30:1
+   |
+30 | print([to_string(x) + "+" + to_string(y) | x <- small, y <- small, x + y > 4])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------------------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:35:1
+   |
+35 | print(triples)
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:40:1
+   |
+40 | print([a + b | a <- ps, b <- qs])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:41:1
+   |
+41 | print([a * b | a <- ps, a > 1, b <- qs])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_comprehension.flx:42:1
+   |
+42 | print([x | x <- nums, x > 1, x < 5])
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 12 errors.
 == stdout ==
 <not executed>

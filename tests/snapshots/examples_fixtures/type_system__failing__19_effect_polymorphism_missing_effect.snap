@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/19_effect_polymorphism_missing_effect.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `apply_twice` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/19_effect_polymorphism_missing_effect.flx:13:5
+   |
+13 |     apply_twice(log_inc, 3)
+   |     ^^^^^^^^^^^
+   |     ----------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>
