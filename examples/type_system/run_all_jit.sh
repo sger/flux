@@ -22,6 +22,7 @@ examples=(
   "examples/type_system/26_any_boundary_success.flx"
   "examples/type_system/27_top_level_pure_ok.flx"
   "examples/type_system/28_effect_inside_main_allowed.flx"
+  "examples/type_system/29_main_handles_custom_effect.flx"
 )
 
 for file in "${examples[@]}"; do
