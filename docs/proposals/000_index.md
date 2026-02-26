@@ -30,6 +30,7 @@ Feature state is evidence-driven:
 | 042 | [042_effect_rows_and_constraints.md](042_effect_rows_and_constraints.md) | In Progress | partial | effect-row fixtures `examples/type_system/30..45`, compiler effect solver paths in `src/bytecode/compiler/*` | continue row hardening |
 | 043 | [043_pure_flux_checklist.md](043_pure_flux_checklist.md) | Implemented | have | `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`, A-G fixtures | keep as closure evidence |
 | 044 | [044_compiler_phase_pipeline_refactor.md](044_compiler_phase_pipeline_refactor.md) | Draft | gap | proposal-only | next architecture/perf workstream |
+| 046 | [046_typed_ast_hm_architecture.md](046_typed_ast_hm_architecture.md) | Draft | gap | proposal-only | post-0.0.4 HM architecture deepening |
 
 ## Backlog (Draft / Proposed)
 

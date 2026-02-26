@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::{TailCall, collect_free_vars_in_program, find_tail_calls, type_infer::infer_program},
+    ast::{
+        TailCall, collect_free_vars_in_program, find_tail_calls,
+        type_infer::{ExprNodeId, infer_program},
+    },
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -109,6 +112,8 @@ pub struct Compiler {
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
+    pub(super) hm_expr_types: HashMap<ExprNodeId, crate::types::infer_type::InferType>,
+    pub(super) expr_ptr_to_id: HashMap<usize, ExprNodeId>,
     strict_mode: bool,
     strict_require_main: bool,
 }
@@ -163,6 +168,8 @@ impl Compiler {
             adt_registry: AdtRegistry::new(),
             effect_ops_registry: HashMap::new(),
             type_env: TypeEnv::new(),
+            hm_expr_types: HashMap::new(),
+            expr_ptr_to_id: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
         }
@@ -202,6 +209,8 @@ impl Compiler {
         self.effect_alias_scopes.clear();
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.expr_ptr_to_id.clear();
         self.function_effects.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
@@ -1626,6 +1635,11 @@ impl Compiler {
         optimize: bool,
         analyze: bool,
     ) -> Result<(), Vec<Diagnostic>> {
+        // Pointer-identity invariant for HM ExprTypeMap:
+        // HM expression IDs are keyed by expression allocation addresses from the
+        // Program passed to `compile`. Any AST rewrites must happen before this call.
+        // `program_to_compile` is therefore the single transformed Program consumed by
+        // both HM inference and PASS 2 codegen validation in one invocation.
         // Apply optimizations if requested
         let program_to_compile = if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
@@ -1721,16 +1735,20 @@ impl Compiler {
         // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
         // type lookup for unannotated bindings.
         //
+        // Invariant: `infer_program` and PASS 2 must use the same Program allocation so
+        // pointer-keyed expression IDs remain stable.
+        //
         // Diagnostics from this pass are guarded by a concrete-types-only filter
         // inside `unify_reporting`: only errors where *both* conflicting types are
         // fully resolved (no free type variables) are emitted. This prevents
         // spurious failures in partially-typed programs where base-function return
         // types are not yet registered in the inference environment.
         let hm_diagnostics = {
-            let (type_env, diags) =
-                infer_program(program, &self.interner, Some(self.file_path.clone()));
-            self.type_env = type_env;
-            diags
+            let hm = infer_program(program, &self.interner, Some(self.file_path.clone()));
+            self.type_env = hm.type_env;
+            self.hm_expr_types = hm.expr_types;
+            self.expr_ptr_to_id = hm.expr_ptr_to_id;
+            hm.diagnostics
         };
 
         // PASS 2: Compile all statements
