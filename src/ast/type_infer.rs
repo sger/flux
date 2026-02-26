@@ -40,6 +40,10 @@ struct InferCtx<'a> {
     /// are solved.  Apply this to any `Ty` retrieved from the env to obtain
     /// its most-resolved form.
     subst: TypeSubst,
+    next_expr_id: u32,
+    expr_ptr_to_id: HashMap<usize, ExprNodeId>,
+    expr_types: HashMap<ExprNodeId, InferType>,
+    module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -50,7 +54,22 @@ impl<'a> InferCtx<'a> {
             errors: Vec::new(),
             file_path,
             subst: TypeSubst::empty(),
+            next_expr_id: 0,
+            expr_ptr_to_id: HashMap::new(),
+            expr_types: HashMap::new(),
+            module_member_schemes: HashMap::new(),
         }
+    }
+
+    fn node_id_for_expr(&mut self, expr: &Expression) -> ExprNodeId {
+        let key = expr as *const Expression as usize;
+        if let Some(id) = self.expr_ptr_to_id.get(&key) {
+            return *id;
+        }
+        let id = ExprNodeId(self.next_expr_id);
+        self.next_expr_id = self.next_expr_id.saturating_add(1);
+        self.expr_ptr_to_id.insert(key, id);
+        id
     }
 
     // ── Unification with error recovery ──────────────────────────────────────
@@ -185,13 +204,7 @@ impl<'a> InferCtx<'a> {
             Statement::Assign { value, .. } => {
                 self.infer_expr(value);
             }
-            Statement::Module { body, .. } => {
-                self.env.enter_scope();
-                for s in &body.statements {
-                    self.infer_stmt(s);
-                }
-                self.env.leave_scope();
-            }
+            Statement::Module { name, body, .. } => self.infer_module(*name, body),
             // Import, Data, Return at top-level: no HM inference needed.
             _ => {}
         }
@@ -289,6 +302,24 @@ impl<'a> InferCtx<'a> {
         self.env.bind(name, scheme);
     }
 
+    fn infer_module(&mut self, module_name: Identifier, body: &Block) {
+        self.env.enter_scope();
+        for stmt in &body.statements {
+            self.infer_stmt(stmt);
+            if let Statement::Function {
+                is_public: true,
+                name,
+                ..
+            } = stmt
+                && let Some(scheme) = self.env.lookup(*name).cloned()
+            {
+                self.module_member_schemes
+                    .insert((module_name, *name), scheme);
+            }
+        }
+        self.env.leave_scope();
+    }
+
     // ── Block inference ───────────────────────────────────────────────────────
 
     /// Infer the type of a block: the type of the last value-producing
@@ -324,7 +355,8 @@ impl<'a> InferCtx<'a> {
     // ── Expression inference ──────────────────────────────────────────────────
 
     fn infer_expr(&mut self, expr: &Expression) -> InferType {
-        match expr {
+        let node_id = self.node_id_for_expr(expr);
+        let inferred = match expr {
             // ── Literals ──────────────────────────────────────────────────────
             Expression::Integer { .. } => InferType::Con(TypeConstructor::Int),
             Expression::Float { .. } => InferType::Con(TypeConstructor::Float),
@@ -578,19 +610,68 @@ impl<'a> InferCtx<'a> {
                 list_ty.apply_type_subst(&self.subst)
             }
 
-            // ── Member / index access: return Any (gradual) ───────────────────
+            // ── Member / index access ─────────────────────────────────────────
             Expression::Index { left, index, .. } => {
-                self.infer_expr(left);
-                self.infer_expr(index);
-                InferType::Con(TypeConstructor::Any)
+                let left_ty = self.infer_expr(left);
+                let _index_ty = self.infer_expr(index);
+                let left_resolved = left_ty.apply_type_subst(&self.subst);
+                match left_resolved {
+                    InferType::App(TypeConstructor::Array, args)
+                    | InferType::App(TypeConstructor::List, args)
+                        if args.len() == 1 =>
+                    {
+                        InferType::App(TypeConstructor::Option, vec![args[0].clone()])
+                    }
+                    InferType::App(TypeConstructor::Map, args) if args.len() == 2 => {
+                        InferType::App(TypeConstructor::Option, vec![args[1].clone()])
+                    }
+                    InferType::Tuple(elements) => {
+                        if let Expression::Integer { value, .. } = index.as_ref()
+                            && *value >= 0
+                            && let Some(elem) = elements.get(*value as usize)
+                        {
+                            InferType::App(
+                                TypeConstructor::Option,
+                                vec![elem.clone().apply_type_subst(&self.subst)],
+                            )
+                        } else {
+                            let joined = elements.iter().skip(1).fold(
+                                elements
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or(InferType::Con(TypeConstructor::Any)),
+                                |acc, ty| self.join_types(&acc, ty),
+                            );
+                            InferType::App(TypeConstructor::Option, vec![joined])
+                        }
+                    }
+                    _ => InferType::Con(TypeConstructor::Any),
+                }
             }
-            Expression::MemberAccess { object, .. } => {
-                self.infer_expr(object);
-                InferType::Con(TypeConstructor::Any)
+            Expression::MemberAccess { object, member, .. } => {
+                if let Expression::Identifier {
+                    name: module_name, ..
+                } = object.as_ref()
+                    && let Some(scheme) = self
+                        .module_member_schemes
+                        .get(&(*module_name, *member))
+                        .cloned()
+                {
+                    let (ty, _) = scheme.instantiate(&mut self.env.counter);
+                    ty
+                } else {
+                    self.infer_expr(object);
+                    InferType::Con(TypeConstructor::Any)
+                }
             }
-            Expression::TupleFieldAccess { object, .. } => {
-                self.infer_expr(object);
-                InferType::Con(TypeConstructor::Any)
+            Expression::TupleFieldAccess { object, index, .. } => {
+                match self.infer_expr(object).apply_type_subst(&self.subst) {
+                    InferType::Tuple(elements) => elements
+                        .get(*index)
+                        .cloned()
+                        .unwrap_or(InferType::Con(TypeConstructor::Any)),
+                    _ => InferType::Con(TypeConstructor::Any),
+                }
             }
             Expression::Perform { args, .. } => {
                 for arg in args {
@@ -605,7 +686,10 @@ impl<'a> InferCtx<'a> {
                 }
                 InferType::Con(TypeConstructor::Any)
             }
-        }
+        };
+        let resolved = inferred.apply_type_subst(&self.subst);
+        self.expr_types.insert(node_id, resolved.clone());
+        resolved
     }
 
     // ── Infix operator typing ─────────────────────────────────────────────────
@@ -734,9 +818,25 @@ pub fn infer_program(
     program: &Program,
     interner: &Interner,
     file_path: Option<String>,
-) -> (TypeEnv, Vec<Diagnostic>) {
+) -> InferProgramResult {
     let file = file_path.unwrap_or_default();
     let mut ctx = InferCtx::new(interner, file);
     ctx.infer_program(program);
-    (ctx.env, ctx.errors)
+    InferProgramResult {
+        type_env: ctx.env,
+        diagnostics: ctx.errors,
+        expr_types: ctx.expr_types,
+        expr_ptr_to_id: ctx.expr_ptr_to_id,
+    }
 }
+
+#[derive(Debug)]
+pub struct InferProgramResult {
+    pub type_env: TypeEnv,
+    pub diagnostics: Vec<Diagnostic>,
+    pub expr_types: HashMap<ExprNodeId, InferType>,
+    pub expr_ptr_to_id: HashMap<usize, ExprNodeId>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExprNodeId(pub u32);
