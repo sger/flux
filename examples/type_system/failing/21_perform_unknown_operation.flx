@@ -8,6 +8,8 @@ fn bad() -> Unit with Console {
     perform Console.read("x")
 }
 
-fn main() with Console {
-    bad()
+fn main() -> Unit with IO {
+    bad() handle Console {
+        print(resume, _msg) -> resume(())
+    };
 }

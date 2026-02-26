@@ -59,14 +59,27 @@ Status:
 
 ### B. Handle/Perform Static Correctness (032 / Phase 4)
 
-- [ ] B1. `perform Effect.op(...)` validates declared effect and operation at compile time.
-- [ ] B2. `handle Effect { ... }` validates unknown/missing operations statically.
-- [ ] B3. Handlers statically discharge required effects in call chains where modeled.
-- [ ] B4. Runtime unhandled-effect error remains fallback only.
+- [x] B1. `perform Effect.op(...)` validates declared effect and operation at compile time.
+- [x] B2. `handle Effect { ... }` validates unknown/missing operations statically.
+- [x] B3. Handlers statically discharge required effects in call chains where modeled.
+- [x] B4. Runtime unhandled-effect error remains fallback only.
 
 Pass criteria:
 - Existing handle/perform failing fixtures fail at compile-time.
 - Valid handler fixtures compile and execute on VM and JIT with matching behavior.
+
+B verification matrix:
+
+| Context | Expected |
+|---|---|
+| `perform` unknown effect/op | Reject (`E403`/`E404`) |
+| `handle` unknown effect | Reject (`E405`) |
+| `handle` unknown/missing operations | Reject (`E401`/`E402`) |
+| Custom effect reaches `main` undischarged | Reject (`E406`) |
+| Custom effect discharged by `handle` before root return | Allow |
+
+Status:
+- Completed with compile-time checks for unknown handle effects and root-boundary undischarged custom effects, plus VM/JIT fixture parity.
 
 ---
 
