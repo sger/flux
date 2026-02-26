@@ -22,9 +22,10 @@ use crate::{
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
         ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, TYPE_MISMATCH, UNKNOWN_BASE_MEMBER,
-        UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR, diag_enhanced,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
+        compiler_errors::type_unification_error,
+        diag_enhanced,
         position::{Position, Span},
         types::ErrorType,
     },
@@ -45,7 +46,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::type_env::TypeEnv,
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -139,6 +140,7 @@ impl Compiler {
             Expression::Prefix {
                 operator, right, ..
             } => {
+                self.validate_prefix_operator_types(operator, right)?;
                 self.compile_non_tail_expression(right)?;
                 match operator.as_str() {
                     "!" => self.emit(OpCode::OpBang, &[]),
@@ -159,6 +161,8 @@ impl Compiler {
                 right,
                 ..
             } => {
+                self.validate_infix_operator_types(left, operator, right)?;
+
                 if operator == "<" {
                     self.compile_non_tail_expression(right)?;
                     self.compile_non_tail_expression(left)?;
@@ -294,6 +298,7 @@ impl Compiler {
                 self.emit_hash_count(pairs.len() * 2);
             }
             Expression::Index { left, index, .. } => {
+                self.validate_index_expression_types(left, index)?;
                 self.compile_non_tail_expression(left)?;
                 self.compile_non_tail_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
@@ -655,27 +660,15 @@ impl Compiler {
                 }
                 continue;
             };
-            let Some(actual_runtime) = self.static_expr_type(argument) else {
-                continue;
-            };
-            if !Self::runtime_types_compatible(&expected_runtime, &actual_runtime) {
-                let expected = expected_runtime.type_name();
-                let actual = actual_runtime.type_name();
-
-                return Err(Self::boxed(
-                    Diagnostic::make_error(
-                        &TYPE_MISMATCH,
-                        &[&expected, &actual],
-                        self.file_path.clone(),
-                        argument.span(),
-                    )
-                    .with_primary_label(argument.span(), "argument type is known at compile time")
-                    .with_help(format!(
-                        "argument #{} does not match function contract",
-                        index + 1
-                    )),
-                ));
-            }
+            let expected_infer = TypeEnv::infer_type_from_runtime(&expected_runtime);
+            self.validate_expr_expected_type_with_policy(
+                &expected_infer,
+                argument,
+                "argument type is known at compile time",
+                format!("argument #{} does not match function contract", index + 1),
+                "function contract argument",
+                true,
+            )?;
         }
 
         Ok(())
@@ -861,7 +854,7 @@ impl Compiler {
         }
     }
 
-    fn resolve_call_contract<'a>(
+    pub(super) fn resolve_call_contract<'a>(
         &'a self,
         function: &Expression,
         arity: usize,
@@ -876,233 +869,187 @@ impl Compiler {
         }
     }
 
-    pub(super) fn static_expr_type(&self, expression: &Expression) -> Option<RuntimeType> {
-        match expression {
-            Expression::Integer { .. } => Some(RuntimeType::Int),
-            Expression::Float { .. } => Some(RuntimeType::Float),
-            Expression::Boolean { .. } => Some(RuntimeType::Bool),
-            Expression::String { .. } | Expression::InterpolatedString { .. } => {
-                Some(RuntimeType::String)
+    pub(super) fn validate_runtime_expected_type(
+        &self,
+        expected: &RuntimeType,
+        expression: &Expression,
+        primary_label: &str,
+        help: String,
+    ) -> CompileResult<()> {
+        let expected_infer = TypeEnv::infer_type_from_runtime(expected);
+        self.validate_expr_expected_type(
+            &expected_infer,
+            expression,
+            primary_label,
+            help,
+            "runtime-typed expectation",
+        )
+    }
+
+    fn validate_infix_operator_types(
+        &self,
+        left: &Expression,
+        operator: &str,
+        right: &Expression,
+    ) -> CompileResult<()> {
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+            self.hm_expr_type_strict_path(left)
+        else {
+            return Ok(());
+        };
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(right_ty) =
+            self.hm_expr_type_strict_path(right)
+        else {
+            return Ok(());
+        };
+        let is_num = |ty: &InferType| {
+            matches!(
+                ty,
+                InferType::Con(
+                    crate::types::type_constructor::TypeConstructor::Int
+                        | crate::types::type_constructor::TypeConstructor::Float
+                )
+            )
+        };
+        let is_bool = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Bool)
+        };
+        let is_int = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+        };
+        let is_float = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Float)
+        };
+        let is_string = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::String)
+        };
+        let op_compatible = match operator {
+            "+" => {
+                (is_int(&left_ty) && is_int(&right_ty))
+                    || (is_float(&left_ty) && is_float(&right_ty))
+                    || (is_string(&left_ty) && is_string(&right_ty))
             }
-            Expression::Identifier { name, .. } => {
-                // 1. Annotated types (from contract collection) have highest priority.
-                if let Some(rt) = self.lookup_static_type(*name) {
-                    return Some(rt);
+            "-" | "*" | "/" | "%" => is_num(&left_ty) && is_num(&right_ty),
+            "&&" | "||" => is_bool(&left_ty) && is_bool(&right_ty),
+            _ => true,
+        };
+        if op_compatible {
+            return Ok(());
+        }
+
+        let expected = match operator {
+            "+" => "matching '+' operands (Int+Int, Float+Float, or String+String)".to_string(),
+            "-" | "*" | "/" | "%" => "numeric operands (Int or Float)".to_string(),
+            "&&" | "||" => "Bool operands".to_string(),
+            _ => return Ok(()),
+        };
+        let actual = format!(
+            "{} and {}",
+            TypeEnv::to_runtime(&left_ty, &TypeSubst::empty()).type_name(),
+            TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name()
+        );
+        let op_span = Span::new(left.span().start, right.span().end);
+
+        Err(Self::boxed(
+            type_unification_error(self.file_path.clone(), op_span, &expected, &actual)
+                .with_secondary_label(op_span, "operator operands are known at compile time")
+                .with_help("adjust operand types or add explicit conversion"),
+        ))
+    }
+
+    fn validate_prefix_operator_types(
+        &self,
+        operator: &str,
+        right: &Expression,
+    ) -> CompileResult<()> {
+        if operator != "-" {
+            return Ok(());
+        }
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(right_ty) =
+            self.hm_expr_type_strict_path(right)
+        else {
+            return Ok(());
+        };
+        if matches!(
+            right_ty,
+            InferType::Con(
+                crate::types::type_constructor::TypeConstructor::Int
+                    | crate::types::type_constructor::TypeConstructor::Float
+            )
+        ) {
+            return Ok(());
+        }
+
+        let actual = TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name();
+        Err(Self::boxed(
+            type_unification_error(
+                self.file_path.clone(),
+                right.span(),
+                "numeric operand (Int or Float)",
+                &actual,
+            )
+            .with_secondary_label(right.span(), "unary '-' operand is known at compile time")
+            .with_help("use a numeric operand or convert the value before applying unary '-'"),
+        ))
+    }
+
+    fn validate_index_expression_types(
+        &self,
+        left: &Expression,
+        index: &Expression,
+    ) -> CompileResult<()> {
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+            self.hm_expr_type_strict_path(left)
+        else {
+            return Ok(());
+        };
+        let index_known = matches!(
+            self.hm_expr_type_strict_path(index),
+            crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(_)
+        );
+
+        match left_ty {
+            InferType::App(
+                crate::types::type_constructor::TypeConstructor::Array
+                | crate::types::type_constructor::TypeConstructor::List,
+                _,
+            )
+            | InferType::Tuple(_) => {
+                if index_known {
+                    self.validate_runtime_expected_type(
+                        &RuntimeType::Int,
+                        index,
+                        "index expression is known at compile time",
+                        "use an Int index for Array/List/Tuple access".to_string(),
+                    )?;
                 }
-                // 2. Fall back to HM-inferred types for unannotated let/fn bindings.
-                //    Only use monomorphic (non-generic), non-Any results to avoid
-                //    false confidence on unresolved type variables.
-                if let Some(scheme) = self.type_env.lookup(*name) {
-                    if scheme.forall.is_empty() {
-                        let rt = TypeEnv::to_runtime(&scheme.infer_type, &Default::default());
-                        if rt != RuntimeType::Any {
-                            return Some(rt);
-                        }
-                    }
-                }
-                None
+                Ok(())
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
-                let contract = self.resolve_call_contract(function, arguments.len())?;
-                self.infer_call_return_type(contract, arguments)
-            }
-            Expression::TupleLiteral { elements, .. } => Some(RuntimeType::Tuple(
-                elements
-                    .iter()
-                    .map(|e| self.static_expr_type(e))
-                    .collect::<Option<Vec<_>>>()?,
+            InferType::App(crate::types::type_constructor::TypeConstructor::Map, _) => Ok(()),
+            other => Err(Self::boxed(
+                type_unification_error(
+                    self.file_path.clone(),
+                    left.span(),
+                    "indexable value (Array/List/Tuple/Map)",
+                    &TypeEnv::to_runtime(&other, &TypeSubst::empty()).type_name(),
+                )
+                .with_secondary_label(left.span(), "indexed value is known at compile time")
+                .with_help("index only arrays, lists, tuples, or maps"),
             )),
-            Expression::ArrayLiteral { elements, .. } => {
-                if elements.is_empty() {
-                    return Some(RuntimeType::Array(Box::new(RuntimeType::Any)));
-                }
-                let first = self.static_expr_type(&elements[0])?;
-                if elements[1..]
-                    .iter()
-                    .all(|e| self.static_expr_type(e).is_some_and(|t| t == first))
-                {
-                    Some(RuntimeType::Array(Box::new(first)))
-                } else {
-                    None
-                }
-            }
-            _ => None,
         }
     }
 
-    fn infer_call_return_type(
+    fn validate_boolean_expression(
         &self,
-        contract: &FnContract,
-        arguments: &[Expression],
-    ) -> Option<RuntimeType> {
-        let ret = contract.ret.as_ref()?;
-        // Fast path for non-generic returns.
-        if let Some(rt) = convert_type_expr(ret, &self.interner) {
-            return Some(rt);
-        }
-
-        let mut substitutions: HashMap<Symbol, RuntimeType> = HashMap::new();
-        for (idx, argument) in arguments.iter().enumerate() {
-            let Some(param_ty) = contract.params.get(idx).and_then(|p| p.as_ref()) else {
-                continue;
-            };
-            let Some(actual_ty) = self.static_expr_type(argument) else {
-                continue;
-            };
-            self.match_type_expr_to_runtime(param_ty, &actual_ty, &mut substitutions)?;
-        }
-
-        self.instantiate_type_expr(ret, &substitutions)
-    }
-
-    fn match_type_expr_to_runtime(
-        &self,
-        expected: &TypeExpr,
-        actual: &RuntimeType,
-        substitutions: &mut HashMap<Symbol, RuntimeType>,
-    ) -> Option<()> {
-        match expected {
-            TypeExpr::Named { name, args, .. } => {
-                let name_str = self.sym(*name);
-                if args.is_empty() {
-                    if let Some(expected_runtime) = convert_type_expr(expected, &self.interner) {
-                        return Self::runtime_types_compatible(&expected_runtime, actual)
-                            .then_some(());
-                    }
-                    // Treat unresolved named type in this position as a generic variable.
-                    if let Some(bound) = substitutions.get(name) {
-                        return Self::runtime_types_compatible(bound, actual).then_some(());
-                    }
-                    substitutions.insert(*name, actual.clone());
-                    return Some(());
-                }
-
-                match (name_str, args.len(), actual) {
-                    ("Option", 1, RuntimeType::Option(inner)) => {
-                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
-                    }
-                    ("List", 1, RuntimeType::List(inner)) => {
-                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
-                    }
-                    ("Either", 2, RuntimeType::Either(left, right)) => {
-                        self.match_type_expr_to_runtime(&args[0], left, substitutions)?;
-                        self.match_type_expr_to_runtime(&args[1], right, substitutions)
-                    }
-                    ("Array", 1, RuntimeType::Array(inner)) => {
-                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
-                    }
-                    ("Map", 2, RuntimeType::Map(k, v)) => {
-                        self.match_type_expr_to_runtime(&args[0], k, substitutions)?;
-                        self.match_type_expr_to_runtime(&args[1], v, substitutions)
-                    }
-                    _ => None,
-                }
-            }
-            TypeExpr::Tuple { elements, .. } => {
-                let RuntimeType::Tuple(actual_elements) = actual else {
-                    return None;
-                };
-                if elements.len() != actual_elements.len() {
-                    return None;
-                }
-                for (expected_elem, actual_elem) in elements.iter().zip(actual_elements.iter()) {
-                    self.match_type_expr_to_runtime(expected_elem, actual_elem, substitutions)?;
-                }
-                Some(())
-            }
-            TypeExpr::Function { .. } => None,
-        }
-    }
-
-    fn instantiate_type_expr(
-        &self,
-        ty: &TypeExpr,
-        substitutions: &HashMap<Symbol, RuntimeType>,
-    ) -> Option<RuntimeType> {
-        if let Some(runtime) = convert_type_expr(ty, &self.interner) {
-            return Some(runtime);
-        }
-        match ty {
-            TypeExpr::Named { name, args, .. } => {
-                if args.is_empty() {
-                    return substitutions.get(name).cloned();
-                }
-                let name_str = self.sym(*name);
-                match (name_str, args.len()) {
-                    ("Option", 1) => Some(RuntimeType::Option(Box::new(
-                        self.instantiate_type_expr(&args[0], substitutions)?,
-                    ))),
-                    ("List", 1) => Some(RuntimeType::List(Box::new(
-                        self.instantiate_type_expr(&args[0], substitutions)?,
-                    ))),
-                    ("Either", 2) => Some(RuntimeType::Either(
-                        Box::new(self.instantiate_type_expr(&args[0], substitutions)?),
-                        Box::new(self.instantiate_type_expr(&args[1], substitutions)?),
-                    )),
-                    ("Array", 1) => Some(RuntimeType::Array(Box::new(
-                        self.instantiate_type_expr(&args[0], substitutions)?,
-                    ))),
-                    ("Map", 2) => Some(RuntimeType::Map(
-                        Box::new(self.instantiate_type_expr(&args[0], substitutions)?),
-                        Box::new(self.instantiate_type_expr(&args[1], substitutions)?),
-                    )),
-                    _ => None,
-                }
-            }
-            TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
-                elements
-                    .iter()
-                    .map(|elem| self.instantiate_type_expr(elem, substitutions))
-                    .collect::<Option<Vec<_>>>()?,
-            )),
-            TypeExpr::Function { .. } => None,
-        }
-    }
-
-    pub(super) fn runtime_types_compatible(expected: &RuntimeType, actual: &RuntimeType) -> bool {
-        match expected {
-            RuntimeType::Any => true,
-            RuntimeType::Option(inner_expected) => match actual {
-                RuntimeType::Option(inner_actual) => {
-                    Self::runtime_types_compatible(inner_expected, inner_actual)
-                }
-                _ => false,
-            },
-            RuntimeType::List(inner_expected) => match actual {
-                RuntimeType::List(inner_actual) => {
-                    Self::runtime_types_compatible(inner_expected, inner_actual)
-                }
-                _ => false,
-            },
-            RuntimeType::Either(left_expected, right_expected) => match actual {
-                RuntimeType::Either(left_actual, right_actual) => {
-                    Self::runtime_types_compatible(left_expected, left_actual)
-                        && Self::runtime_types_compatible(right_expected, right_actual)
-                }
-                _ => false,
-            },
-            RuntimeType::Array(inner_expected) => match actual {
-                RuntimeType::Array(inner_actual) => {
-                    Self::runtime_types_compatible(inner_expected, inner_actual)
-                }
-                _ => false,
-            },
-            RuntimeType::Map(_, _) => matches!(actual, RuntimeType::Map(_, _)),
-            RuntimeType::Tuple(expected_elems) => match actual {
-                RuntimeType::Tuple(actual_elems) if expected_elems.len() == actual_elems.len() => {
-                    expected_elems
-                        .iter()
-                        .zip(actual_elems.iter())
-                        .all(|(e, a)| Self::runtime_types_compatible(e, a))
-                }
-                _ => false,
-            },
-            _ => expected == actual,
-        }
+        expression: &Expression,
+        context: &str,
+    ) -> CompileResult<()> {
+        self.validate_runtime_expected_type(
+            &RuntimeType::Bool,
+            expression,
+            &format!("{context} is known at compile time"),
+            "use a Bool expression, or make the condition/guard explicitly boolean".to_string(),
+        )
     }
 
     pub(super) fn compile_function_literal(
@@ -1170,6 +1117,7 @@ impl Compiler {
 
         let runtime_contract = {
             let contract = FnContract {
+                type_params: vec![],
                 params: parameters_types.to_vec(),
                 ret: return_type.clone(),
                 effects: effects.to_vec(),
@@ -1242,6 +1190,7 @@ impl Compiler {
         consequence: &Block,
         alternative: &Option<Block>,
     ) -> CompileResult<()> {
+        self.validate_boolean_expression(condition, "if condition")?;
         self.compile_non_tail_expression(condition)?;
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
@@ -1344,6 +1293,7 @@ impl Compiler {
 
             // Guard runs only after a successful pattern match and in the arm binding scope.
             if let Some(guard) = &arm.guard {
+                self.validate_boolean_expression(guard, "match guard")?;
                 self.compile_non_tail_expression(guard)?;
                 arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
             }
@@ -2670,6 +2620,263 @@ impl Compiler {
             ));
         }
 
+        // Stronger nested check (v0.0.4 scope):
+        // For unary constructors, verify nested constructor-space coverage when
+        // arms constrain the nested field with constructor patterns.
+        self.check_nested_constructor_exhaustiveness(arms, adt_name, adt_def, span)?;
+
         Ok(())
+    }
+
+    fn check_nested_constructor_exhaustiveness(
+        &self,
+        arms: &[MatchArm],
+        _adt_name: Symbol,
+        adt_def: &crate::bytecode::compiler::adt_definition::AdtDefinition,
+        span: Span,
+    ) -> CompileResult<()> {
+        for (outer_ctor_name, outer_arity) in &adt_def.constructors {
+            let mut ctor_fields: Vec<&[Pattern]> = Vec::new();
+            for arm in arms {
+                if arm.guard.is_some() {
+                    continue;
+                }
+                let Pattern::Constructor { name, fields, .. } = &arm.pattern else {
+                    continue;
+                };
+                if name != outer_ctor_name {
+                    continue;
+                }
+                ctor_fields.push(fields.as_slice());
+            }
+
+            if ctor_fields.is_empty() || *outer_arity == 0 {
+                continue;
+            }
+
+            for field_idx in 0..*outer_arity {
+                let field_patterns: Vec<&Pattern> = ctor_fields
+                    .iter()
+                    .filter_map(|fields| fields.get(field_idx))
+                    .collect();
+                if field_patterns.is_empty() {
+                    continue;
+                }
+
+                self.check_nested_pattern_set(
+                    &field_patterns,
+                    &format!(
+                        "under constructor `{}` field #{}",
+                        self.interner.resolve(*outer_ctor_name),
+                        field_idx + 1
+                    ),
+                    span,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_nested_pattern_set(
+        &self,
+        patterns: &[&Pattern],
+        context: &str,
+        span: Span,
+    ) -> CompileResult<()> {
+        if patterns.is_empty() || patterns.iter().any(|p| self.is_irrefutable_pattern(p)) {
+            return Ok(());
+        }
+
+        let ctor_patterns: Vec<(Symbol, &[Pattern])> = patterns
+            .iter()
+            .filter_map(|p| {
+                if let Pattern::Constructor { name, fields, .. } = p {
+                    Some((*name, fields.as_slice()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // If we have constructor patterns and no irrefutable branch, attempt ADT coverage.
+        if !ctor_patterns.is_empty() {
+            if ctor_patterns.len() != patterns.len() {
+                return Ok(());
+            }
+
+            let Some(first_ctor_info) = self.adt_registry.lookup_constructor(ctor_patterns[0].0)
+            else {
+                return Ok(());
+            };
+            let nested_adt_name = first_ctor_info.adt_name;
+            let Some(nested_adt_def) = self.adt_registry.lookup_adt(nested_adt_name) else {
+                return Ok(());
+            };
+
+            for (ctor_name, _) in &ctor_patterns {
+                let Some(info) = self.adt_registry.lookup_constructor(*ctor_name) else {
+                    continue;
+                };
+                if info.adt_name != nested_adt_name {
+                    return Err(Self::boxed(
+                        diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                            .with_span(span)
+                            .with_message(format!(
+                                "Nested constructor patterns {} mix ADTs.",
+                                context
+                            ))
+                            .with_hint_text(
+                                "Use constructors from a single ADT in a nested pattern set."
+                                    .to_string(),
+                            ),
+                    ));
+                }
+            }
+
+            let covered: HashSet<Symbol> = ctor_patterns.iter().map(|(name, _)| *name).collect();
+            let missing: Vec<&str> = nested_adt_def
+                .constructors
+                .iter()
+                .filter(|(name, _)| !covered.contains(name))
+                .map(|(name, _)| self.interner.resolve(*name))
+                .collect();
+
+            if !missing.is_empty() {
+                let nested_adt = self.interner.resolve(nested_adt_name);
+                let missing_list = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested `{}` patterns {} miss constructors: {}.",
+                            nested_adt, context, missing_list
+                        ))
+                        .with_hint_text(format!(
+                            "Add nested arms for {} or use a nested catch-all (`_`).",
+                            missing_list
+                        )),
+                ));
+            }
+
+            // Recurse into constructor fields.
+            for (ctor_name, arity) in &nested_adt_def.constructors {
+                let ctor_rows: Vec<&[Pattern]> = ctor_patterns
+                    .iter()
+                    .filter_map(|(name, fields)| {
+                        if name == ctor_name {
+                            Some(*fields)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if ctor_rows.is_empty() || *arity == 0 {
+                    continue;
+                }
+                for field_idx in 0..*arity {
+                    let next: Vec<&Pattern> = ctor_rows
+                        .iter()
+                        .filter_map(|fields| fields.get(field_idx))
+                        .collect();
+                    if next.is_empty() {
+                        continue;
+                    }
+                    self.check_nested_pattern_set(
+                        &next,
+                        &format!(
+                            "{} -> `{}` field #{}",
+                            context,
+                            self.interner.resolve(*ctor_name),
+                            field_idx + 1
+                        ),
+                        span,
+                    )?;
+                }
+            }
+
+            return Ok(());
+        }
+
+        // Tuple nested coverage: recurse per position when all nested patterns are tuples
+        // with the same arity.
+        if let Some(tuple_len) = patterns.iter().find_map(|p| {
+            if let Pattern::Tuple { elements, .. } = p {
+                Some(elements.len())
+            } else {
+                None
+            }
+        }) {
+            if patterns.iter().all(
+                |p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len),
+            ) {
+                for idx in 0..tuple_len {
+                    let next: Vec<&Pattern> = patterns
+                        .iter()
+                        .filter_map(|p| match p {
+                            Pattern::Tuple { elements, .. } => elements.get(idx),
+                            _ => None,
+                        })
+                        .collect();
+                    if next.is_empty() {
+                        continue;
+                    }
+                    self.check_nested_pattern_set(
+                        &next,
+                        &format!("{} -> tuple position #{}", context, idx + 1),
+                        span,
+                    )?;
+                }
+            }
+        }
+
+        // List nested coverage: enforce empty/non-empty partition when list patterns are used.
+        let mut has_empty = false;
+        let mut has_cons = false;
+        for p in patterns {
+            match p {
+                Pattern::EmptyList { .. } => has_empty = true,
+                Pattern::Cons { .. } => has_cons = true,
+                _ => {}
+            }
+        }
+        if has_empty || has_cons {
+            if !has_empty {
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested list patterns {} miss the empty list case.",
+                            context
+                        ))
+                        .with_hint_text(
+                            "Add a `[]` nested pattern or a nested catch-all (`_`).".to_string(),
+                        ),
+                ));
+            }
+            if !has_cons {
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested list patterns {} miss non-empty list cases.",
+                            context
+                        ))
+                        .with_hint_text(
+                            "Add a `[h | t]` nested pattern or a nested catch-all (`_`)."
+                                .to_string(),
+                        ),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_irrefutable_pattern(&self, pattern: &Pattern) -> bool {
+        matches!(
+            pattern,
+            Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+        )
     }
 }

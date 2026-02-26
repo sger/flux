@@ -3,8 +3,161 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day1_timed.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/io/aoc_day1_timed.flx:61:1
+   |
+61 | let t0 = now_ms()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/io/aoc_day1_timed.flx:61:1
+   |
+61 | let t0 = now_ms()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/io/aoc_day1_timed.flx:62:1
+   |
+62 | let elapsed_via_time = time(run_day1)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:63:1
+   |
+63 | let password = run_day1()
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: Time).
+
+  --> examples/io/aoc_day1_timed.flx:64:1
+   |
+64 | let t1 = now_ms()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:66:1
+   |
+66 | print("AoC Day 1 password:")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:67:1
+   |
+67 | print(password)
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:68:1
+   |
+68 | print("elapsed (time base, ms):")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:69:1
+   |
+69 | print(elapsed_via_time)
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:70:1
+   |
+70 | print("elapsed (now_ms delta, ms):")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day1_timed.flx:71:1
+   |
+71 | print(t1 - t0)
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 11 errors.
 == stdout ==
 <not executed>

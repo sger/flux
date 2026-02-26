@@ -1,0 +1,7 @@
+fn take(xs: List<Int>) -> Option<Int> {
+    xs["0"]
+}
+
+fn main() -> Unit with IO {
+    print(to_string(take([1, 2, 3])))
+}

@@ -45,6 +45,7 @@ mod contracts;
 mod effect_rows;
 mod errors;
 mod expression;
+mod hm_expr_typer;
 mod statement;
 mod suggestions;
 
@@ -54,6 +55,7 @@ type CompileResult<T> = Result<T, Box<Diagnostic>>;
 struct FunctionEffectSeed {
     key: ContractKey,
     module_name: Option<Symbol>,
+    type_params: Vec<Symbol>,
     parameter_types: Vec<Option<TypeExpr>>,
     return_type: Option<TypeExpr>,
     declared_effects: HashSet<Symbol>,
@@ -277,6 +279,7 @@ impl Compiler {
             Statement::Function {
                 is_public: _,
                 name,
+                type_params,
                 parameters,
                 parameter_types,
                 return_type,
@@ -295,6 +298,7 @@ impl Compiler {
                             arity: parameters.len(),
                         },
                         FnContract {
+                            type_params: type_params.clone(),
                             params: parameter_types.clone(),
                             ret: return_type.clone(),
                             effects: effects.clone(),
@@ -329,6 +333,7 @@ impl Compiler {
             Statement::Function {
                 is_public: _,
                 name,
+                type_params,
                 parameters,
                 parameter_types,
                 return_type,
@@ -348,6 +353,7 @@ impl Compiler {
                         arity: parameters.len(),
                     },
                     module_name,
+                    type_params: type_params.clone(),
                     parameter_types: parameter_types.clone(),
                     return_type: return_type.clone(),
                     declared_effects,
@@ -436,6 +442,7 @@ impl Compiler {
                 self.module_contracts.insert(
                     seed.key.clone(),
                     FnContract {
+                        type_params: seed.type_params.clone(),
                         params: seed.parameter_types.clone(),
                         ret: seed.return_type.clone(),
                         effects: effect_exprs,
@@ -831,6 +838,9 @@ impl Compiler {
                     }
                 }
                 if !resolved {
+                    if self.excluded_base_symbols.contains(name) {
+                        return effects;
+                    }
                     let name = self.sym(*name);
                     if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
                         effects.insert(io_effect);
@@ -1708,7 +1718,7 @@ impl Compiler {
         }
 
         // HM type inference pass — runs after predeclaration, before code generation.
-        // The resulting TypeEnv is used by `static_expr_type` to enrich identifier
+        // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
         // type lookup for unannotated bindings.
         //
         // Diagnostics from this pass are guarded by a concrete-types-only filter
@@ -1776,6 +1786,15 @@ impl Compiler {
         let default_file = self.file_path.clone();
         self.errors.retain(|diag| {
             if diag.code() != Some("E055") {
+                return true;
+            }
+            // Keep typed-let initializer mismatches as explicit boundary diagnostics
+            // even when HM emits E300 on the same line.
+            if diag
+                .labels()
+                .iter()
+                .any(|label| label.text == "initializer type is known at compile time")
+            {
                 return true;
             }
             let Some(span) = diag.span() else {

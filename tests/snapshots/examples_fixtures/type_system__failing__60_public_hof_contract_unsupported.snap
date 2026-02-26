@@ -1,8 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
-Fixture: examples/type_system/19_effect_call_propagation.flx
+Fixture: examples/type_system/failing/60_public_hof_contract_unsupported.flx
 == compile ==
 ok
 == diagnostics ==

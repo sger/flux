@@ -8,17 +8,21 @@ Expect compile error: false
 
 == vm command ==
 $ flux --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx
-exit_code: 0
+exit_code: 1
 
 == jit command ==
 $ flux --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx --jit
-exit_code: 0
+exit_code: 1
 
 == vm tuples ==
-<none>
+- E017 | IMPORT SCOPE | 
+- E001 | DUPLICATE NAME | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == jit tuples ==
-<none>
+- E017 | IMPORT SCOPE | 
+- E001 | DUPLICATE NAME | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == parity ==
 match

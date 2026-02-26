@@ -3,8 +3,63 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day2_haskell_style.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day2_haskell_style.flx:119:1
+    |
+119 | let ranges = parse_ranges("examples/io/aoc_day2.txt")
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | ----------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/io/aoc_day2_haskell_style.flx:119:1
+    |
+119 | let ranges = parse_ranges("examples/io/aoc_day2.txt")
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | ----------------------------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day2_haskell_style.flx:127:1
+    |
+127 | print(day02a)
+    | ^^^^^^^^^^^^^
+    | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day2_haskell_style.flx:128:1
+    |
+128 | print(day02b)
+    | ^^^^^^^^^^^^^
+    | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 4 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:11:21
+   |
+11 |     print(to_string(expect_int(picked)))
+   |                     ^^^^^^^^^^^^^^^^^^
+   |                     ------------------ expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:11:32
+   |
+11 |     print(to_string(expect_int(picked)))
+   |                                ^^^^^^
+   |                                ------ expected Int, found String
+   |                                ------ argument type is known at compile time
+
+Help:
+  argument #1 does not match function contract
+
+Found 2 errors.
+== stdout ==
+<not executed>

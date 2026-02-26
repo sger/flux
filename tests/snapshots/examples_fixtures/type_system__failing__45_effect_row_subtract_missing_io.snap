@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/45_effect_row_subtract_missing_io.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `run_with_row` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/45_effect_row_subtract_missing_io.flx:17:5
+   |
+17 |     run_with_row(io_only)
+   |     ^^^^^^^^^^^^
+   |     ------------ effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

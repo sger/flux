@@ -5,20 +5,17 @@ Fixture: examples/suggestions/scoped_variables.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+--> compiler error[E400]: MISSING EFFECT
 
-I can't find a value named `localCoun`.
+Call to `print` requires effect `IO` in this function signature.
 
-  --> examples/suggestions/scoped_variables.flx:11:11
+  --> examples/suggestions/scoped_variables.flx:11:5
    |
 11 |     print(localCoun);
-   |           ^^^^^^^^^
+   |     ^^^^^
+   |     ----- effectful call occurs here
 
 Hint:
-  Define it first: let localCoun = ...;
-
-
-Help:
-  Did you mean one of: `localCount`, `globalCount`?
+  Add `with IO` to the enclosing function.
 == stdout ==
 <not executed>

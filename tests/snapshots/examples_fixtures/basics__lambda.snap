@@ -3,8 +3,161 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/lambda.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:20:1
+   |
+20 | print(double(5));
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/lambda.flx:20:1
+   |
+20 | print(double(5));
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:24:1
+   |
+24 | print(plusOne(9));
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:28:1
+   |
+28 | print(add(3, 4));
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:32:1
+   |
+32 | print(constant());
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:39:1
+   |
+39 | print(complex(5));
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:45:1
+   |
+45 | print(applyTwice(/x -> x * 2, 3));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:51:1
+   |
+51 | print("Higher-order functions:");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:64:1
+   |
+64 | print(first(tripled));
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:65:1
+   |
+65 | print(first(rest(tripled)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/lambda.flx:66:1
+   |
+66 | print(first(rest(rest(tripled))));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 11 errors.
 == stdout ==
 <not executed>

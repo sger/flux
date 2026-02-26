@@ -19,6 +19,18 @@ This file defines:
 
 Non-goal: introduce new language semantics in this document.
 
+## 1.1 0.0.4 HM/ADT/Exhaustiveness Baseline
+
+Release-critical track for v0.0.4 is:
+- Core HM inference for unannotated typed code paths.
+- User-defined nominal generic ADTs (`data T<...> { ... }`).
+- Stronger exhaustiveness (top-level constructor coverage + nested constructor-space checks for supported shapes).
+
+Truth sources for this baseline:
+- Compiler paths in `src/bytecode/compiler/mod.rs` and `src/bytecode/compiler/expression.rs`.
+- Type core in `src/types/*`.
+- Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
+
 ## 2. Semantic Model (Implemented)
 
 ### 2.1 Typed vs untyped/inferred behavior
@@ -69,7 +81,15 @@ Primary anchors:
 - `src/bytecode/compiler/mod.rs`:
   - `with_handled_effect`.
 
-### 2.4 Entry-point purity boundary (`main` hybrid policy)
+### 2.4 Module ADT boundary policy (0.0.4)
+
+- ADTs are first-class inside modules.
+- Cross-module callers are expected to use `public fn` factories/accessors to
+  construct and consume ADT values.
+- Direct module-qualified constructor calls (for example
+  `TypeSystem.Foo.Bar(...)`) are not part of the 0.0.4 stable API contract.
+
+### 2.5 Entry-point purity boundary (`main` hybrid policy)
 
 - Pure programs may omit `main`.
 - Effectful top-level execution is rejected (`E413`).
@@ -189,6 +209,7 @@ Canonical fixture references:
 | Direct effect checks and propagation | `19`, `20`, `27`, `28` | `15`, `16`, `20`, `31`, `32`, `33`, `34`, `35`, `36`, `37`, `39`, `40`, `41` |
 | Perform/handle static correctness | `18`, `22`, `29` | `17`, `18`, `21`, `42`, `43` |
 | Effect polymorphism and rows | `21`, `23`, `30`, `31`, `32`, `33` | `19`, `22`, `44`, `45` |
+| HM + ADT + nested exhaustiveness hardening | `74`, `75`, `76`, `77`, `78`, `79`, `80`, `81`, `82`, `83`, `84`, `85` | `64`, `65`, `67`, `68`, `69`, `70`, `71`, `72`, `73`, `74`, `75`, `76`, `77`, `78`, `79` |
 | Entry-point boundary | `27`, `28`, `29` | `38`, `43`, `46`, `47`, `48`, `49`, `50` |
 | Strict/public boundary | `58`, `59`, `60`, `61` | `29`, `30`, `51`, `52`, `53`, `54`, `55`, `56`, `57`, `58`, `59` |
 
@@ -201,6 +222,11 @@ Current limitations:
 - Advanced row-constraint expressiveness remains limited vs full research-grade systems.
 - Function-typed runtime boundary contracts are not enforced yet; strict/public boundary usage is rejected (`E424`).
 - In strict mode, unresolved generic runtime boundary checks are rejected (`E425`) to avoid silent skips.
+- HM expression typing uses a strict-path authority for typed validation.
+  Typed validators must not use runtime-boundary compatibility inference.
+- 0.0.4 HM gate is zero-fallback for typed/inferred validation paths:
+  typed/inferred binding and validation must not fall back to runtime-boundary
+  compatibility typing when strict HM typing is unresolved.
 - Effects remain compile-time-first enforcement; runtime effect checks are fallback-oriented.
 - Runtime boundary-enforced type subset includes `Int`, `Float`, `Bool`, `String`, `Unit`, `Option<T>`, `List<T>`, `Either<L, R>`, `Array<T>`, `Map<K, V>`, and tuples.
 - Some historical proposal text may still include broader/future claims not yet implemented.

@@ -3,8 +3,231 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/either_type.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:9:1
+  |
+9 | print(success);
+  | ^^^^^^^^^^^^^^^
+  | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/either_type.flx:9:1
+  |
+9 | print(success);
+  | ^^^^^^^^^^^^^^^
+  | --------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:10:1
+   |
+10 | print(failure);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:21:1
+   |
+21 | print(describe(success));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:22:1
+   |
+22 | print(describe(failure));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:36:1
+   |
+36 | print(result1);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:37:1
+   |
+37 | print(result2);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:40:1
+   |
+40 | match result1 {
+   | ^^^^^^^^^^^^^^^
+41 |     Left(err) -> print("Failed: " + err),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+42 |     Right(val) -> print("Result: " + to_string(val)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+43 |     _ -> print("unknown"),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+44 | }
+   | ^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:46:1
+   |
+46 | match result2 {
+   | ^^^^^^^^^^^^^^^
+47 |     Left(err) -> print("Failed: " + err),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+48 |     Right(val) -> print("Result: " + to_string(val)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+49 |     _ -> print("unknown"),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+50 | }
+   | ^
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:67:1
+   |
+67 | print(isRight(Right(1)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:68:1
+   |
+68 | print(isRight(Left("x")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:69:1
+   |
+69 | print(isLeft(Left("x")));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:70:1
+   |
+70 | print(isLeft(Right(1)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:80:1
+   |
+80 | print(getOrElse(Right(100), 0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/either_type.flx:81:1
+   |
+81 | print(getOrElse(Left("error"), 0));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 15 errors.
 == stdout ==
 <not executed>

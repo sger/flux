@@ -16,14 +16,15 @@ Cannot unify String with Float.
   |                      ----- expected String, found Float
 
 
---> compiler error[E055]: TYPE MISMATCH
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Expected Float, got String.
+Cannot unify Float with String.
 
   --> examples/type_system/failing/06_runtime_float_string_return.flx:2:5
   |
 2 |     "slow"
   |     ^^^^^^
+  |     ------ expected Float, found String
   |     ------ return expression type is known at compile time
 
 Help:

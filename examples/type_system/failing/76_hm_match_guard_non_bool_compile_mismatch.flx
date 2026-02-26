@@ -1,0 +1,10 @@
+fn pick(x: Int) -> Int {
+    match x {
+        n if 1 -> n,
+        _ -> 0,
+    }
+}
+
+fn main() -> Unit with IO {
+    print(to_string(pick(7)))
+}

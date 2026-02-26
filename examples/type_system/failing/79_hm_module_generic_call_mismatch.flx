@@ -1,0 +1,3 @@
+import TypeSystem.HmGenericModule as M
+
+let x: Int = M.id("oops")

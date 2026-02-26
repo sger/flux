@@ -3,8 +3,63 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/array_iteration.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_iteration.flx:22:1
+   |
+22 | printAll([|1, 2, 3, 4, 5|]);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/array_iteration.flx:22:1
+   |
+22 | printAll([|1, 2, 3, 4, 5|]);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_iteration.flx:33:1
+   |
+33 | print(mySum([|1, 2, 3, 4, 5|]));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/array_iteration.flx:44:1
+   |
+44 | print(count([|10, 20, 30|]));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 4 errors.
 == stdout ==
 <not executed>

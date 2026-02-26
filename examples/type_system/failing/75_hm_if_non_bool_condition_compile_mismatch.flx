@@ -1,0 +1,11 @@
+fn pick() -> Int {
+    if 1 {
+        10
+    } else {
+        20
+    }
+}
+
+fn main() -> Unit with IO {
+    print(to_string(pick()))
+}

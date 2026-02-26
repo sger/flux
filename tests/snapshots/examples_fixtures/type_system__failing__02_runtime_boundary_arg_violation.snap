@@ -16,14 +16,15 @@ Cannot unify Int with String.
    | --------------------- expected Int, found String
 
 
---> compiler error[E055]: TYPE MISMATCH
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Expected Int, got String.
+Cannot unify Int with String.
 
   --> examples/type_system/failing/02_runtime_boundary_arg_violation.flx:12:11
    |
 12 | typed_add(dynamic, 1)
    |           ^^^^^^^
+   |           ------- expected Int, found String
    |           ------- argument type is known at compile time
 
 Help:

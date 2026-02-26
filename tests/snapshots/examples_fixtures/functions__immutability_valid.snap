@@ -3,8 +3,147 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/functions/immutability_valid.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:3:1
+  |
+3 | print(y);
+  | ^^^^^^^^^
+  | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/functions/immutability_valid.flx:3:1
+  |
+3 | print(y);
+  | ^^^^^^^^^
+  | --------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:9:1
+  |
+9 | print(a3);
+  | ^^^^^^^^^^
+  | ---------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:19:1
+   |
+19 | print(counter);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:20:1
+   |
+20 | print(increment(5));
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:21:1
+   |
+21 | print(counter);
+   | ^^^^^^^^^^^^^^^
+   | --------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:32:1
+   |
+32 | print(first_doubled);
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:42:1
+   |
+42 | print(factorial(5));
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:53:1
+   |
+53 | print(add5(10));
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/functions/immutability_valid.flx:54:1
+   |
+54 | print(add5(20));
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 10 errors.
 == stdout ==
 <not executed>

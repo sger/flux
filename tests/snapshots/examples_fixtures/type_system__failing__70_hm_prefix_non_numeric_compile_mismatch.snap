@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify numeric operand (Int or Float) with String.
+
+  --> examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.flx:5:14
+  |
+5 |     let y = -x
+  |              ^
+  |              - expected numeric operand (Int or Float), found String
+  |              - unary '-' operand is known at compile time
+
+Help:
+  use a numeric operand or convert the value before applying unary '-'
+== stdout ==
+<not executed>

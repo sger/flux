@@ -3,8 +3,133 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/arrays.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:1:1
+  |
+1 | print("== PrimOps: arrays ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/primop/arrays.flx:1:1
+  |
+1 | print("== PrimOps: arrays ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:3:1
+  |
+3 | print(array_len(arr));
+  | ^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:4:1
+  |
+4 | print(array_get(arr, 1));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:6:1
+  |
+6 | print(arr2);
+  | ^^^^^^^^^^^^
+  | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:7:1
+  |
+7 | print(slice(arr2, 0, 2));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:8:1
+  |
+8 | print(concat(arr, [|40, 50|]));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:9:1
+  |
+9 | print(len(arr));
+  | ^^^^^^^^^^^^^^^^
+  | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/primop/arrays.flx:10:1
+   |
+10 | print(is_array(arr));
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 9 errors.
 == stdout ==
 <not executed>

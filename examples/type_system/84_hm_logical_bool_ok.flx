@@ -1,0 +1,7 @@
+fn both(a: Bool, b: Bool) -> Bool {
+    a && b || false
+}
+
+fn main() -> Unit with IO {
+    print(to_string(both(true, true)))
+}

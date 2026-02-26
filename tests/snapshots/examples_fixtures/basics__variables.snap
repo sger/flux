@@ -3,8 +3,105 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/variables.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:15:1
+   |
+15 | print(x);
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/variables.flx:15:1
+   |
+15 | print(x);
+   | ^^^^^^^^^
+   | --------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:18:1
+   |
+18 | print(y);
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:20:1
+   |
+20 | print(x + y);
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:23:1
+   |
+23 | print(name);
+   | ^^^^^^^^^^^^
+   | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:26:1
+   |
+26 | print(flag);
+   | ^^^^^^^^^^^^
+   | ------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/variables.flx:31:1
+   |
+31 | print(next_score);
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 7 errors.
 == stdout ==
 <not executed>

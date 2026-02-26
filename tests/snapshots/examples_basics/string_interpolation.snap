@@ -3,8 +3,291 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/string_interpolation.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:5:1
+  |
+5 | print("Hello #{name}!");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/string_interpolation.flx:5:1
+  |
+5 | print("Hello #{name}!");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:8:1
+  |
+8 | print("Sum: #{1 + 2}");
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:9:1
+  |
+9 | print("Math: #{10 * 5 + 2}");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:14:1
+   |
+14 | print("#{a} + #{b} = #{a + b}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify numeric operands (Int or Float) with String and Int.
+
+  --> examples/basics/string_interpolation.flx:18:5
+   |
+18 |     x * 2
+   |     ^^^^^
+   |     ----- expected numeric operands (Int or Float), found String and Int
+   |     ----- operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:20:1
+   |
+20 | print("Double of 5 is #{double(5)}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:24:1
+   |
+24 | print("Result: #{if flag { "yes" } else { "no" }}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:27:1
+   |
+27 | print("Tab:/there");
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:28:1
+   |
+28 | print("Newline:/nhere");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:29:1
+   |
+29 | print("Quote:/"here/"");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:32:1
+   |
+32 | print("Escaped: /#{not interpolated}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:35:1
+   |
+35 | print(to_string(42));
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:36:1
+   |
+36 | print(to_string(3.14));
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:37:1
+   |
+37 | print(to_string(true));
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:38:1
+   |
+38 | print(to_string([|1, 2, 3|]));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E001]: DUPLICATE NAME
+
+Duplicate binding: `x` is already defined.
+
+  --> examples/basics/string_interpolation.flx:41:1
+   |
+41 | let x = "value";
+   | ^^^^^^^^^^^^^^^^
+
+Hint:
+  Use a different name or remove the previous definition.
+
+   = note: first defined here
+  --> examples/basics/string_interpolation.flx:0:1
+  |
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:42:1
+   |
+42 | print("#{x}");
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:45:1
+   |
+45 | print("Flag is #{true}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/string_interpolation.flx:49:1
+   |
+49 | print("Array: #{arr}");
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 20 errors.
 == stdout ==
 <not executed>

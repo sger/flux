@@ -1,0 +1,9 @@
+fn old(v) {
+    v
+}
+
+fn main() {
+    let x = old(40)
+    let y: Int = x + 2
+    print(to_string(y))
+}

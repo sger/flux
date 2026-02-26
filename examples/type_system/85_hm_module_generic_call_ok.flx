@@ -1,0 +1,11 @@
+import TypeSystem.HmGenericModule as M
+
+fn probe() -> Int {
+    let a: Int = M.id(7)
+    let _b: String = M.id("ok")
+    a
+}
+
+fn main() -> Unit {
+    None
+}

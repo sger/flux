@@ -3,8 +3,49 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day12_refactored.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day12_refactored.flx:103:1
+    |
+103 | let input_lines = read_lines("examples/io/aoc_day12.txt")
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | --------------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/io/aoc_day12_refactored.flx:103:1
+    |
+103 | let input_lines = read_lines("examples/io/aoc_day12.txt")
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | --------------------------------------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/io/aoc_day12_refactored.flx:104:1
+    |
+104 | print(day12a(input_lines))
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 3 errors.
 == stdout ==
 <not executed>

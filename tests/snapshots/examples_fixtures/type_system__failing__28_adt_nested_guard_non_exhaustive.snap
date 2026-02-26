@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+
+Match on `Wrap` is missing constructors: Boxed.
+
+  --> examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx:14:5
+   |
+14 |     match w {
+   |     ^^^^^^^^^
+15 |         Boxed(SomeI(v)) if v > 0 -> v,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |         Empty -> 0,
+   | ^^^^^^^^^^^^^^^^^^^
+17 |     }
+   | ^^^^^
+
+Hint:
+  Add arms for Boxed or add a `_ -> ...` catch-all.
+== stdout ==
+<not executed>

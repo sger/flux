@@ -1,0 +1,14 @@
+fn pick(x: Int) -> Int {
+    if x > 0 {
+        match x {
+            n if n > 3 -> n,
+            _ -> 3,
+        }
+    } else {
+        0
+    }
+}
+
+fn main() -> Unit with IO {
+    print(to_string(pick(5)))
+}

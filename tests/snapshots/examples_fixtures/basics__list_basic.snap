@@ -3,8 +3,273 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/list_basic.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:29:1
+   |
+29 | print(xs);
+   | ^^^^^^^^^^
+   | ---------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/basics/list_basic.flx:29:1
+   |
+29 | print(xs);
+   | ^^^^^^^^^^
+   | ---------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:32:1
+   |
+32 | print(my_array);
+   | ^^^^^^^^^^^^^^^^
+   | ---------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:33:1
+   |
+33 | print(tl(to_list(my_array)));
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:39:1
+   |
+39 | print(hd(xs))
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:40:1
+   |
+40 | print(tl(xs))
+   | ^^^^^^^^^^^^^
+   | ------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:44:1
+   |
+44 | print(ys);
+   | ^^^^^^^^^^
+   | ---------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:51:1
+   |
+51 | print(is_list(xs))
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:52:1
+   |
+52 | print(is_list([|1|]))
+   | ^^^^^^^^^^^^^^^^^^^^^
+   | --------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:55:1
+   |
+55 | print(len(xs))
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:58:1
+   |
+58 | print(reverse(xs))
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:61:1
+   |
+61 | print(contains(xs, 2))
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:62:1
+   |
+62 | print(contains(xs, 9))
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:71:1
+   |
+71 | print(to_array(lst))
+   | ^^^^^^^^^^^^^^^^^^^^
+   | -------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:74:1
+   |
+74 | print(my_new_list)  
+   | ^^^^^^^^^^^^^^^^^^
+   | ------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:77:1
+   |
+77 | print(my_new_list2)
+   | ^^^^^^^^^^^^^^^^^^^
+   | ------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:79:1
+   |
+79 | print(to_list(my_new_list2))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:82:1
+   |
+82 | print(xs_list)
+   | ^^^^^^^^^^^^^^
+   | -------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/basics/list_basic.flx:84:1
+   |
+84 | print(is_list(my_new_list2))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 19 errors.
 == stdout ==
 <not executed>
