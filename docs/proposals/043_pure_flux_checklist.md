@@ -35,10 +35,10 @@ A Flux program is considered "pure by default" when:
 
 ### A. Effect Soundness (032 / Phase 4)
 
-- [ ] A1. All direct effectful builtins/primops are statically effect-checked in function bodies.
-- [ ] A2. Effect propagation through call chains is complete (typed, inferred, generic, module-qualified calls).
-- [ ] A3. Pure contexts reject effectful operations consistently.
-- [ ] A4. Top-level effectful execution is always rejected outside policy-approved entry boundary.
+- [x] A1. All direct effectful builtins/primops are statically effect-checked in function bodies.
+- [x] A2. Effect propagation through call chains is complete (typed, inferred, generic, module-qualified calls).
+- [x] A3. Pure contexts reject effectful operations consistently.
+- [x] A4. Top-level effectful execution is always rejected outside policy-approved entry boundary.
 
 Pass criteria:
 - Every `examples/type_system/failing/*effect*` fixture fails with compile-time diagnostics (not runtime fallback).
@@ -51,6 +51,9 @@ A4 verification matrix:
 | Pure top-level declarations/expressions only (no `main`) | Allow |
 | Effectful top-level expression | Reject (`E413` + `E414`) |
 | Effectful expression inside `fn main() with ...` | Allow |
+
+Status:
+- Completed with dedicated regression fixtures covering direct builtin checks, module-qualified/generic propagation, alias edge cases (`let p = print` / `let n = now_ms`), pure-context rejection matrix, and top-level policy matrix.
 
 ---
 

@@ -94,6 +94,7 @@ pub struct Compiler {
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
+    pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
     pub(super) effect_ops_registry: HashMap<Symbol, HashSet<Symbol>>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
@@ -147,6 +148,7 @@ impl Compiler {
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
+            effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
             effect_ops_registry: HashMap::new(),
             type_env: TypeEnv::new(),
@@ -185,6 +187,8 @@ impl Compiler {
         self.excluded_base_symbols.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.function_effects.clear();
         self.handled_effects.clear();
@@ -1302,6 +1306,51 @@ impl Compiler {
             .cloned()
     }
 
+    #[inline]
+    pub(super) fn bind_effect_alias(&mut self, name: Symbol, effect: Symbol) {
+        if let Some(scope) = self.effect_alias_scopes.last_mut() {
+            scope.insert(name, effect);
+        }
+    }
+
+    #[inline]
+    pub(super) fn lookup_effect_alias(&self, name: Symbol) -> Option<Symbol> {
+        self.effect_alias_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name).copied())
+    }
+
+    pub(super) fn track_effect_alias_for_binding(&mut self, binding: Symbol, value: &Expression) {
+        let Expression::Identifier { name, .. } = value else {
+            return;
+        };
+
+        if let Some(effect) = self.lookup_effect_alias(*name) {
+            self.bind_effect_alias(binding, effect);
+            return;
+        }
+
+        let Some(symbol) = self.resolve_visible_symbol(*name) else {
+            return;
+        };
+        if symbol.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base {
+            return;
+        }
+
+        let base_name = self.sym(*name).to_string();
+        let required_name = match base_name.as_str() {
+            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
+            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
+            _ => None,
+        };
+        let Some(required_name) = required_name else {
+            return;
+        };
+        let effect = self.interner.intern(required_name);
+        self.bind_effect_alias(binding, effect);
+    }
+
     /// Compile with optional optimization and analysis passes.
     ///
     /// # Parameters
@@ -1364,6 +1413,8 @@ impl Compiler {
         self.effect_ops_registry.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
         self.process_base_directives(program);
         self.collect_module_contracts(program);
         self.infer_unannotated_function_effects(program);
@@ -1554,6 +1605,7 @@ impl Compiler {
         self.scope_index += 1;
         self.symbol_table = SymbolTable::new_enclosed(self.symbol_table.clone());
         self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_scope(
@@ -1570,6 +1622,7 @@ impl Compiler {
             self.symbol_table = *outer;
         }
         let _ = self.static_type_scopes.pop();
+        let _ = self.effect_alias_scopes.pop();
 
         (
             scope.instructions,
@@ -1584,6 +1637,7 @@ impl Compiler {
         block_table.num_definitions = self.symbol_table.num_definitions;
         self.symbol_table = block_table;
         self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.push(HashMap::new());
     }
 
     pub(super) fn leave_block_scope(&mut self) {
@@ -1594,6 +1648,7 @@ impl Compiler {
             self.symbol_table = outer;
         }
         let _ = self.static_type_scopes.pop();
+        let _ = self.effect_alias_scopes.pop();
     }
 
     pub fn bytecode(&self) -> Bytecode {
