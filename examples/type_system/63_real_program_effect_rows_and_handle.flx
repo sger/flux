@@ -1,0 +1,21 @@
+import TypeSystem.RealProgramEffects as E
+
+effect Console {
+    print: String -> ()
+}
+
+fn local_step(x: Int) -> Int with Console {
+    perform Console.print("local-step")
+    x + 1
+}
+
+fn main() with IO {
+    let a = local_step(10) handle Console {
+        print(resume, _msg) -> resume(())
+    }
+
+    let b = E.run_io(20)
+    let c = E.run_with_row(E.io_only_value)
+
+    print(to_string(a + b + c))
+}

@@ -43,6 +43,16 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `59_strict_underscore_public_still_checked.flx` - underscore naming is style-only; `public fn` remains strict API boundary
 - `60_strict_module_public_checked.flx` - module-scoped `public fn` participates in strict API checks
 - `61_strict_module_private_unannotated_allowed.flx` - module private helper `fn` remains internal and strict-allowed
+- `62_real_program_module_pipeline.flx` - real program pipeline using modules, ADT classification, and typed HOF utilities
+- `63_real_program_effect_rows_and_handle.flx` - custom effect flow with handler discharge and explicit row wrapper usage
+- `64_real_program_strict_public_app.flx` - strict-friendly app that consumes `public fn` module APIs
+- `65_real_program_primop_pipeline.flx` - primop-heavy typed pipeline through module wrappers
+- `66_real_program_base_module_integration.flx` - base-interop module wrappers used in a typed app
+- `67_real_program_domain_module_test.flx` - Flow.FTest unit tests for `TypeSystem.RealProgramDomain`
+- `68_real_program_effects_module_test.flx` - Flow.FTest unit tests for `TypeSystem.RealProgramEffects`
+- `69_real_program_public_api_test.flx` - Flow.FTest unit tests for strict/public API behavior in `TypeSystem.RealProgramPublicApi`
+- `70_real_program_primops_module_test.flx` - Flow.FTest unit tests for primop wrapper module behavior
+- `71_real_program_base_interop_module_test.flx` - Flow.FTest unit tests for base-interop wrapper module behavior
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -83,6 +93,11 @@ cargo run -- --no-cache --strict examples/type_system/58_strict_private_unannota
 cargo run -- --no-cache --strict examples/type_system/59_strict_underscore_public_still_checked.flx
 cargo run -- --no-cache --strict --root examples/type_system examples/type_system/60_strict_module_public_checked.flx
 cargo run -- --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx
+cargo run -- --root examples/type_system examples/type_system/62_real_program_module_pipeline.flx
+cargo run -- --root examples/type_system examples/type_system/63_real_program_effect_rows_and_handle.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/64_real_program_strict_public_app.flx
+cargo run -- --root examples/type_system examples/type_system/65_real_program_primop_pipeline.flx
+cargo run -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx
 ```
 
 JIT:
@@ -111,6 +126,42 @@ cargo run --features jit -- --no-cache --strict examples/type_system/58_strict_p
 cargo run --features jit -- --no-cache --strict examples/type_system/59_strict_underscore_public_still_checked.flx --jit
 cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/60_strict_module_public_checked.flx --jit
 cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/61_strict_module_private_unannotated_allowed.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/62_real_program_module_pipeline.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/63_real_program_effect_rows_and_handle.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/64_real_program_strict_public_app.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/65_real_program_primop_pipeline.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx --jit
+```
+
+## Flow.FTest Unit Tests
+
+These unit fixtures target the real-program modules directly using `Flow.FTest` helpers. They run in test mode and require both library and module roots.
+
+VM:
+
+```bash
+cargo run -- --test examples/type_system/67_real_program_domain_module_test.flx --root lib --root examples/type_system
+cargo run -- --test examples/type_system/68_real_program_effects_module_test.flx --root lib --root examples/type_system
+cargo run -- --test examples/type_system/69_real_program_public_api_test.flx --root lib --root examples/type_system
+cargo run -- --test examples/type_system/70_real_program_primops_module_test.flx --root lib --root examples/type_system
+cargo run -- --test examples/type_system/71_real_program_base_interop_module_test.flx --root lib --root examples/type_system
+```
+
+JIT:
+
+```bash
+cargo run --features jit -- --test examples/type_system/67_real_program_domain_module_test.flx --root lib --root examples/type_system --jit
+cargo run --features jit -- --test examples/type_system/68_real_program_effects_module_test.flx --root lib --root examples/type_system --jit
+cargo run --features jit -- --test examples/type_system/69_real_program_public_api_test.flx --root lib --root examples/type_system --jit
+cargo run --features jit -- --test examples/type_system/70_real_program_primops_module_test.flx --root lib --root examples/type_system --jit
+cargo run --features jit -- --test examples/type_system/71_real_program_base_interop_module_test.flx --root lib --root examples/type_system --jit
+```
+
+Strict check (public API test):
+
+```bash
+cargo run -- --test examples/type_system/69_real_program_public_api_test.flx --strict --root lib --root examples/type_system
+cargo run --features jit -- --test examples/type_system/69_real_program_public_api_test.flx --strict --root lib --root examples/type_system --jit
 ```
 
 Run everything:

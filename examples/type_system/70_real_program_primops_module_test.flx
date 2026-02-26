@@ -1,0 +1,18 @@
+import Flow.FTest as Test
+import TypeSystem.RealProgramPrimops as P
+
+fn test_numeric_and_string_wrappers() {
+    Test.eq(P.norm_sum(-3, 5), 8)
+    Test.eq(P.string_len("flux"), 4)
+}
+
+fn test_array_and_map_wrappers() {
+    Test.eq(P.top_two([|3, 1, 9, 4|]), [|9, 4|])
+    let m = {"alice": 10, "bob": 22}
+    Test.eq(P.lookup_score(m, "bob"), Some(22))
+    Test.eq(P.lookup_score(m, "none"), None)
+}
+
+fn test_effectful_wrapper() with IO {
+    Test.eq(P.emit_label(42), 42)
+}

@@ -192,6 +192,84 @@ Flux reaches this milestone when:
 
 At that point, Flux is pure-by-default with explicit effect boundaries and predictable enforcement.
 
+## 5.1 Milestone Scope Freeze
+
+Milestone scope is frozen to:
+- `docs/proposals/043_pure_flux_checklist.md` sections A/B/C/D/E/G
+- parity suite and snapshots under `tests/snapshots/purity_parity`
+- CI/release parity gates in `.github/workflows/ci.yml` and `.github/workflows/release.yml`
+
+Baseline tag convention:
+- `milestone/pure-baseline-YYYYMMDD`
+- include the commit hash in milestone sign-off notes.
+
+## 5.2 Sign-Off Verification Pack
+
+Run this command pack to sign off the milestone:
+
+```bash
+cargo fmt --all -- --check
+cargo check --all --all-features
+cargo test --all --all-features purity_vm_jit_parity_snapshots
+# optional full confidence
+cargo test --all --all-features
+```
+
+Acceptance:
+- all required commands pass
+- no snapshot drift unless intentionally approved.
+
+## 5.3 Snapshot Governance (Parity Suite)
+
+Parity snapshots pin tuple-level invariants:
+- error code
+- title
+- primary label
+
+Snapshot update workflow:
+- run: `INSTA_UPDATE=always cargo test --all --all-features purity_vm_jit_parity_snapshots`
+- review every changed parity snapshot in PR
+- reject unrelated snapshot churn
+
+Expected reasons for snapshot changes:
+- intentional diagnostic code/title/label behavior changes
+- intentional fixture policy changes in the curated parity matrix.
+
+## 5.4 CI/Release Gate Rationale
+
+Mandatory sign-off gates:
+- CI includes: `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+- Release gate includes the same parity step before artifacts
+
+Rationale:
+- this parity suite is the regression guard for pure/effect diagnostics across VM and JIT.
+
+## 5.5 Milestone Closure Note
+
+Milestone reached date:
+- February 26, 2026
+
+Criteria satisfied by:
+- completed sections A/B/C/D/E/G in this checklist
+- green parity suite snapshots under `tests/snapshots/purity_parity`
+- CI/release parity steps enabled
+
+Verification reference:
+- use the command pack in section 5.2
+
+Out-of-scope reference:
+- see section 6.
+
+## 5.6 Next Phase Candidates (Non-Blocking)
+
+Post-milestone candidates:
+1. Concurrency/effects integration proposal kickoff.
+2. Diagnostic UX improvements (non-semantic).
+3. CI runtime optimization for parity suite.
+4. Optional expansion of curated parity matrix.
+
+These are explicitly non-blocking for this milestone closure.
+
 ---
 
 ## 6. Out of Scope
