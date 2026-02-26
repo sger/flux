@@ -1,0 +1,19 @@
+module TypeSystem.RealProgramEffects {
+    public fn step_io(x: Int) -> Int with IO {
+        print("step=" + to_string(x))
+        x + 1
+    }
+
+    public fn run_io(x: Int) -> Int with IO {
+        step_io(x)
+    }
+
+    public fn run_with_row(f: (() -> Int with IO + Time - Time)) -> Int with IO + Time - Time {
+        f()
+    }
+
+    public fn io_only_value() -> Int with IO {
+        print("io_only_value")
+        7
+    }
+}

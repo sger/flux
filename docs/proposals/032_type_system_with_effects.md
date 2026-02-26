@@ -1,9 +1,16 @@
 # Proposal 032: Type System with Algebraic Effects for Flux
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-02-17
 
 ---
+
+## Implementation Status
+
+This proposal is now implemented in Flux and serves as the canonical semantics narrative for the type/effect system.
+
+- Closure evidence, fixture coverage, and backend parity status are tracked in `docs/proposals/043_pure_flux_checklist.md`.
+- Row-constraint deepening and advanced effect-row follow-up are tracked in `docs/proposals/042_effect_rows_and_constraints.md`.
 
 ## 1. Motivation
 
@@ -542,7 +549,7 @@ In untyped code (no annotations), all base functions remain callable as before. 
 
 ### 9.4 The `fn main` Entry Point
 
-Effects require an explicit program entry point. `fn main` is the **root effect handler** — it implicitly handles all its declared effects by connecting to the real world.
+Effects use a hybrid entry policy. `fn main` is the root effect boundary for executed programs, while pure modules can omit `main`.
 
 ```flux
 fn main() with IO {
@@ -554,11 +561,11 @@ fn main() with IO {
 **Rules:**
 
 - Top-level code is treated as an **implicit pure module initializer**
-- Any effectful operation at top-level is a **compile error** once effects are enabled
+- Any effectful operation at top-level is a **compile error** (`E413`)
 - Pure top-level `let` bindings and pure function definitions remain valid without `fn main`
-- `fn main` can declare any combination of effects: `fn main() with IO, Error<String> { ... }`
-- The return type of `fn main` is implicitly `Unit`
-- A program must have exactly one `fn main` if it performs effects
+- A program with effectful top-level execution and no `main` is rejected (`E414`)
+- `fn main` must be unique, have no parameters, and have a compatible `Unit` return shape
+- Root effect allowlist is `IO` and `Time`; custom effects must be discharged before leaving `main` (`E406`)
 
 ```flux
 // Pure program — no main needed
@@ -643,7 +650,7 @@ performed_effects(expr) ⊆ declared_effects(enclosing_fn)
 - `resume` reinstates the continuation with a value
 - Pure (empty effect set) is a subset of every effect set — pure functions can be called anywhere
 
-### 9.8 Effect Polymorphism (v1 scope)
+### 9.8 Effect Polymorphism
 
 Higher-order functions can use a **single effect variable** `e` to be polymorphic over effects:
 
@@ -666,7 +673,9 @@ map(list(1, 2, 3), \x -> x * 2)
 map(list(1, 2, 3), \x -> { print(x); x * 2 })
 ```
 
-**v1 constraints:** Effect variables (`e`) are treated as **opaque effect sets**. No row polymorphism, effect subtraction, or presence constraints. A single `with e` means "whatever effects the callback needs." This keeps the checker simple while preserving the right surface syntax for future extension.
+Current implementation resolves `with e` at solver level (not syntax-only propagation). Effect rows support extension and subtraction constraints in the checker, including explicit surface forms such as `with e + IO - Console`. Higher-order wrappers/composition preserve effect variables through call chains.
+
+Advanced row expressiveness beyond the current subset (for example broader row constraint ergonomics) is tracked in `docs/proposals/042_effect_rows_and_constraints.md`.
 
 ### 9.9 Effect Handlers
 
@@ -674,10 +683,8 @@ Handlers give concrete implementations to abstract effects. The *caller* decides
 
 ```flux
 // Basic handler syntax
-handle expr with {
-    EffectName {
-        operation(args...) -> resume(value),
-    }
+expr handle EffectName {
+    operation(resume, args...) -> resume(value)
 }
 ```
 
@@ -694,12 +701,10 @@ fn parse_config(path: String) -> Config with IO, Error<String> {
 
 // Handle the Error effect — convert to Option
 fn main() with IO {
-    let result = handle parse_config("app.conf") with {
-        Error {
-            raise(e) -> {
-                print("Warning: " ++ e)
-                None
-            }
+    let result = parse_config("app.conf") handle Error {
+        raise(resume, e) -> {
+            print("Warning: " ++ e)
+            resume(None)
         }
     }
     // result: Option<Config>
@@ -717,11 +722,9 @@ fn fetch_user(id: Int) -> String with IO {
 }
 
 // In tests — mock the IO effect
-let user = handle fetch_user(42) with {
-    IO {
-        read_file(_) -> resume("{\"name\": \"test\"}"),
-        print(_)     -> resume(()),
-    }
+let user = fetch_user(42) handle IO {
+    read_file(resume, _) -> resume("{\"name\": \"test\"}"),
+    print(resume, _)     -> resume(()),
 }
 ```
 
@@ -815,6 +818,9 @@ In untyped code, `None` and `[]` remain interchangeable at runtime (backward com
 | ADT constructor arity | `Circle(1, 2)` when `Circle` takes one arg |
 | Non-exhaustive match (typed) | Missing constructor in `match` over ADT |
 | Top-level effect | Effectful operation outside `fn main` |
+| Unknown/missing handle coverage | `perform`/`handle` references undeclared or incomplete effect operations |
+| Strict API boundary violation | `public fn` missing required annotations/effects in `--strict` |
+| Strict `Any` usage | `Any` appears in strict-checked API types |
 
 ### 11.2 Runtime Errors
 
@@ -931,34 +937,32 @@ fn start_server(port: Int) -> Unit with IO, Logger, Config {
 
 // Production
 fn main() with IO {
-    handle start_server(8080) with {
-        Logger {
-            log(level, msg) -> {
+    start_server(8080)
+        handle Logger {
+            log(resume, level, msg) -> {
                 print("[" ++ upper(level) ++ "] " ++ msg)
                 resume(())
             }
-        },
-        Config {
-            get_config(key) -> {
+        }
+        handle Config {
+            get_config(resume, key) -> {
                 let env = read_file(".env")
                 resume(lookup(env, key))
             }
         }
-    }
 }
 
 // Testing — mock all effects
-let result = handle start_server(3000) with {
-    Logger {
-        log(_, _) -> resume(()),
-    },
-    Config {
-        get_config(_) -> resume(Some("test-host")),
-    },
-    IO {
-        print(_) -> resume(()),
+let result = start_server(3000)
+    handle Logger {
+        log(resume, _, _) -> resume(()),
     }
-}
+    handle Config {
+        get_config(resume, _) -> resume(Some("test-host")),
+    }
+    handle IO {
+        print(resume, _) -> resume(()),
+    }
 ```
 
 ---
@@ -1023,7 +1027,7 @@ fn main() with IO {
 |---|---|
 | **Pattern matching** | Exhaustiveness checking becomes type-aware for ADTs/Option/Either/Bool. Tuples add `(a, b)` patterns. |
 | **Pipe operator** | Works unchanged. Types flow through the pipe. |
-| **Modules** | Module signatures can specify types. Public functions require annotations in `--strict`. |
+| **Modules** | Module signatures can specify types. In `--strict`, explicit `public fn` API boundaries require full annotations/effect declarations. Plain `fn` remains internal by default. |
 | **Base Functions** | Get typed signatures with effect annotations. Pure base functions callable anywhere, IO base functions require `with IO`. |
 | **Closures** | Capture types inferred from context. Effect variables propagate through closures. |
 | **Cons lists** | `List<T>` is the typed cons list. `[]` is the empty list, `None` is `Option::None`. |
@@ -1036,6 +1040,7 @@ fn main() with IO {
 ## 17. Implementation Phases
 
 ### Phase 1: Type Syntax (Parser)
+Status: implemented.
 - Add type annotation parsing to `let`, `fn`, and lambda expressions
 - Parse generic parameters `<T, U>` on `fn` and `data` declarations
 - Parse tuple types `(A, B)` and tuple expressions `(a, b)`
@@ -1043,13 +1048,14 @@ fn main() with IO {
 - Parse `data` ADT declarations
 - Parse `effect` declarations
 - Parse `with` effect clauses on function signatures
-- Parse `handle ... with` expressions
+- Parse `... handle Effect { ... }` expressions
 - Parse `fn main` as program entry point
 - Parse `[]` as empty list literal (distinct from `None`)
 - **No semantic checking** — just parse and store in AST
 - All existing programs continue to work
 
 ### Phase 2: Type Representation (AST + Compiler)
+Status: implemented.
 - Add `Type` enum to AST:
   - Primitives: `TInt`, `TFloat`, `TBool`, `TString`, `TUnit`, `TNever`
   - Containers: `TOption(Box<Type>)`, `TEither(Box<Type>, Box<Type>)`, `TList(Box<Type>)`, `TArray(Box<Type>)`, `TMap(Box<Type>, Box<Type>)`
@@ -1062,6 +1068,7 @@ fn main() with IO {
 - Store type annotations in AST nodes
 
 ### Phase 3: Type Checking
+Status: implemented (with ongoing hardening tracked in 043/042).
 - Implement Hindley-Milner type inference with extensions for effects
 - Bidirectional type checking: annotations checked top-down, expressions inferred bottom-up
 - Generic instantiation and unification
@@ -1071,24 +1078,29 @@ fn main() with IO {
 - New error codes: E300-E399 for type errors
 
 ### Phase 4: Effect Checking
-- Track effects through function calls (effect set rule)
-- Verify `handle` blocks cover all required effects
-- Effect inference for fully unannotated functions (Option B)
-- Effect polymorphism: single effect variable `e` for HOFs
-- Validate `fn main` as root effect handler
-- Compile error for effectful top-level code
+Status: implemented.
+- Track effects through direct operations and function calls (effect set rule)
+- Verify `perform` and `handle` blocks statically (unknown effect/op, missing handler ops)
+- Infer effects for fully unannotated functions and propagate through typed/untyped boundaries
+- Resolve effect polymorphism through solver-level `with e` row constraints
+- Validate `fn main` as root effect boundary (signature and residual root-effect checks)
+- Emit compile errors for effectful top-level code and missing effectful entry boundary
 
 ### Phase 5: ADTs and Exhaustiveness
+Status: implemented and hardened.
 - Compile `data` declarations to tagged values
 - Exhaustive match checking for ADTs, Bool, Option, Either (v1 scope)
-- Constructor arity validation
-- Guards treated as non-exhaustive
+- Constructor arity/type validation, including mixed-constructor checks
+- Guards treated as non-exhaustive by design
+- Backend diagnostics parity expected across VM/JIT compile paths
 
 ### Phase 6: Strict Mode
-- `--strict` flag requires all public functions to be annotated
-- Warn on `Any` types in strict mode
-- Full effect tracking enforcement
-- Require `fn main` for all programs
+Status: implemented.
+- `--strict` enforces annotation/effect discipline for `public fn` API boundaries
+- `Any` in strict contexts is rejected (strict error path, including nested `Any`)
+- Strict/non-strict cache identity is separated
+- Strict checks are consistent across run/test/bytecode entry paths
+- `main` policy remains hybrid: pure programs may omit `main`; effectful top-level execution is rejected
 
 ---
 
@@ -1128,18 +1140,18 @@ data TypeName<T> {
 
 // Effect declarations
 effect EffectName<T> {
-    fn operation(args...) -> ReturnType
+    operation: ArgType -> ReturnType
 }
 
 // Effect handlers
-handle expr with {
-    EffectName {
-        operation(args...) -> resume(value),
-    }
+expr handle EffectName {
+    operation(resume, args...) -> resume(value)
 }
 
 // Effect polymorphism
 fn hof<T, U>(f: (T) -> U with e) -> U with e { ... }
+fn hof_io<T, U>(f: (T) -> U with e) -> U with e + IO { ... }
+fn hof_discharge<T, U>(f: (T) -> U with e + Console) -> U with e { ... }
 
 // Entry point
 fn main() with IO {
@@ -1187,5 +1199,5 @@ fn main() with IO {
 - **Mutable references** — Flux is immutable-first; `State` effect covers mutation
 - **Async/await** — could be modeled as an effect later, but not in this proposal
 - **Records / named fields** — structs could be a future extension, tuples cover positional data for now
-- **Full row polymorphism** — start with single effect variable `e`, extend later
+- **Advanced row-polymorphism ergonomics** — core row constraints are implemented; deeper/generalized row features remain future work (see 042)
 - **Guard exhaustiveness reasoning** — guards are always treated as "may fail" in v1

@@ -1,0 +1,18 @@
+import Flow.FTest as Test
+import TypeSystem.RealProgramPublicApi as Api
+
+fn test_transform() {
+    Test.eq(Api.transform(3), 7)
+}
+
+fn test_render() {
+    Test.eq(Api.render(3), "value=7")
+}
+
+fn test_public_composition_stable() {
+    let out = Api.render(Api.transform(4))
+    Test.eq(out, "value=19")
+}
+
+fn main() -> Unit {
+}
