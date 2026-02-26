@@ -248,9 +248,7 @@ impl<'a> InferCtx<'a> {
             .collect();
         let effect_symbols = effects
             .iter()
-            .map(|effect| match effect {
-                EffectExpr::Named { name, .. } => *name,
-            })
+            .flat_map(EffectExpr::normalized_names)
             .collect();
         let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols);
 
@@ -490,9 +488,7 @@ impl<'a> InferCtx<'a> {
 
                 let effect_symbols = effects
                     .iter()
-                    .map(|effect| match effect {
-                        EffectExpr::Named { name, .. } => *name,
-                    })
+                    .flat_map(EffectExpr::normalized_names)
                     .collect();
                 InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols)
             }

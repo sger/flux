@@ -35,6 +35,10 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `27_top_level_pure_ok.flx` - pure top-level declarations are allowed without `main`
 - `28_effect_inside_main_allowed.flx` - effectful operations are allowed inside `fn main() with ...`
 - `29_main_handles_custom_effect.flx` - custom effect is discharged by a handle in `main`
+- `30_effect_poly_hof_nested_ok.flx` - nested higher-order wrappers preserve polymorphic `with e`
+- `31_effect_poly_partial_handle_ok.flx` - polymorphic wrapper + custom effect discharged via `handle`
+- `32_effect_poly_mixed_io_time_ok.flx` - mixed `IO`/`Time` context with polymorphic callback
+- `33_effect_row_subtract_surface_syntax.flx` - explicit row syntax using subtraction (`with IO + Console - Console`)
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -66,6 +70,10 @@ cargo run -- examples/type_system/26_any_boundary_success.flx
 cargo run -- examples/type_system/27_top_level_pure_ok.flx
 cargo run -- examples/type_system/28_effect_inside_main_allowed.flx
 cargo run -- examples/type_system/29_main_handles_custom_effect.flx
+cargo run -- examples/type_system/30_effect_poly_hof_nested_ok.flx
+cargo run -- examples/type_system/31_effect_poly_partial_handle_ok.flx
+cargo run -- examples/type_system/32_effect_poly_mixed_io_time_ok.flx
+cargo run -- examples/type_system/33_effect_row_subtract_surface_syntax.flx
 ```
 
 JIT:
@@ -86,6 +94,10 @@ cargo run --features jit -- examples/type_system/26_any_boundary_success.flx --j
 cargo run --features jit -- examples/type_system/27_top_level_pure_ok.flx --jit
 cargo run --features jit -- examples/type_system/28_effect_inside_main_allowed.flx --jit
 cargo run --features jit -- examples/type_system/29_main_handles_custom_effect.flx --jit
+cargo run --features jit -- examples/type_system/30_effect_poly_hof_nested_ok.flx --jit
+cargo run --features jit -- examples/type_system/31_effect_poly_partial_handle_ok.flx --jit
+cargo run --features jit -- examples/type_system/32_effect_poly_mixed_io_time_ok.flx --jit
+cargo run --features jit -- examples/type_system/33_effect_row_subtract_surface_syntax.flx --jit
 ```
 
 Run everything:

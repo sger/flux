@@ -156,9 +156,7 @@ impl TypeEnv {
                 let ret_ty = Self::infer_type_from_type_expr(ret, type_params, interner)?;
                 let effect_symbols = effects
                     .iter()
-                    .map(|e| match e {
-                        crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-                    })
+                    .flat_map(crate::syntax::effect_expr::EffectExpr::normalized_names)
                     .collect();
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_symbols))
             }
