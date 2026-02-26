@@ -1,4 +1,4 @@
-fn log(msg) {
+public fn log(msg) {
     print(msg)
 }
 

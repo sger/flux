@@ -1,0 +1,9 @@
+// Underscore naming is style-only: visibility is explicit via `public fn`.
+
+public fn _api(x: Int) -> Int {
+    x + 1
+}
+
+fn main() -> Unit {
+    let value: Int = _api(1)
+}

@@ -500,6 +500,8 @@ fn run_file(
                 }
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
+                let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+                compiler.set_strict_require_main(is_entry_module);
                 if let Err(mut diags) =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
                 {
@@ -750,11 +752,14 @@ fn run_test_file(
     // --- Compile ---
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
     compiler.set_strict_mode(strict_mode);
+    let entry_canonical = std::fs::canonicalize(entry_path).ok();
     for node in graph.topo_order() {
         if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
             continue;
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
+        let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+        compiler.set_strict_require_main(is_entry_module);
         if let Err(mut diags) =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
         {
