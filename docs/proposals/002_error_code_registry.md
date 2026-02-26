@@ -1,5 +1,12 @@
 # Proposal 002: Error Code Registry
 
+**Status:** Implemented  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 **Status:** Approved (Enum-Based Approach)
 **Priority:** CRITICAL
 **Effort:** Small (2-3 days)

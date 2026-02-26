@@ -1,5 +1,12 @@
 # Proposal 010: Advanced Linter (Post v0.1.0)
 
+**Status:** Draft  
+**Date:** 2026-02-02  
+**Depends on:** None
+
+---
+
+
 **Status:** Draft
 **Created:** 2026-02-02
 **Target Version:** v0.2.0+
@@ -445,7 +452,7 @@ None - all new features are additive
 
 ## Related Proposals
 
-- [009_macro_system.md](009_macro_system.md) - Enables custom lint rules
+- [040_macro_system.md](040_macro_system.md) - Enables custom lint rules (`009` is superseded)
 - [002_error_code_registry.md](002_error_code_registry.md) - Unified error format
 
 ---

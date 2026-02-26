@@ -1,5 +1,12 @@
 # Proposal 005: Symbol Interning
 
+**Status:** Draft  
+**Date:** 2026-02-01  
+**Depends on:** None
+
+---
+
+
 **Status:** Draft (Phase 3)
 **Author:** @sgerokostas
 **Created:** 2026-02-01

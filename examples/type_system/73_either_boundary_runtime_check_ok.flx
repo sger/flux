@@ -1,0 +1,11 @@
+fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+    match input {
+        Left(_msg) -> 0,
+        Right(value) -> value,
+        _ -> 0
+    }
+}
+
+fn main() with IO {
+    print(to_string(unwrap_or_zero(Right(7))))
+}

@@ -1,5 +1,12 @@
 # Proposal 008: Base Functions Module Architecture
 
+**Status:** Proposed  
+**Date:** 2026-02-02  
+**Depends on:** None
+
+---
+
+
 **Status:** Planning
 **Priority:** Medium (Developer Experience)
 **Created:** 2026-02-02

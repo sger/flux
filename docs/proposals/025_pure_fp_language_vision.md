@@ -1,5 +1,12 @@
 # Proposal 025: Pure Functional Language Vision
 
+**Status:** Proposed  
+**Date:** 2026-02-12  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** High
 **Created:** 2026-02-12

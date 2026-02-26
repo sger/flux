@@ -1,5 +1,12 @@
 # Proposal 037: Flux Grammar Improvements
 
+**Status:** Draft  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 This document analyzes the current Flux grammar and proposes targeted improvements for consistency, expressiveness, and maintainability.
 
 ---

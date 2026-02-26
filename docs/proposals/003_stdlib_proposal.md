@@ -1,5 +1,12 @@
 # Flux Flow Library Proposal
 
+**Status:** Draft  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 This document outlines the plan for implementing a comprehensive standard library for Flux called **Flow**, including prerequisites, new language features, and module designs.
 
 The name "Flow" complements "Flux" (meaning continuous change/movement) - data flows through transformations in a functional style.

@@ -176,6 +176,17 @@ impl TypeEnv {
                 TypeConstructor::Option,
                 vec![Self::infer_type_from_runtime(inner)],
             ),
+            RuntimeType::List(inner) => InferType::App(
+                TypeConstructor::List,
+                vec![Self::infer_type_from_runtime(inner)],
+            ),
+            RuntimeType::Either(left, right) => InferType::App(
+                TypeConstructor::Either,
+                vec![
+                    Self::infer_type_from_runtime(left),
+                    Self::infer_type_from_runtime(right),
+                ],
+            ),
             RuntimeType::Array(inner) => InferType::App(
                 TypeConstructor::Array,
                 vec![Self::infer_type_from_runtime(inner)],
@@ -218,6 +229,13 @@ impl TypeEnv {
                 TypeConstructor::Option if args.len() == 1 => {
                     RuntimeType::Option(Box::new(Self::to_runtime(&args[0], type_subst)))
                 }
+                TypeConstructor::List if args.len() == 1 => {
+                    RuntimeType::List(Box::new(Self::to_runtime(&args[0], type_subst)))
+                }
+                TypeConstructor::Either if args.len() == 2 => RuntimeType::Either(
+                    Box::new(Self::to_runtime(&args[0], type_subst)),
+                    Box::new(Self::to_runtime(&args[1], type_subst)),
+                ),
                 TypeConstructor::Array if args.len() == 1 => {
                     RuntimeType::Array(Box::new(Self::to_runtime(&args[0], type_subst)))
                 }

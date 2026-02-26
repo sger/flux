@@ -1,0 +1,9 @@
+// E425: strict mode rejects unresolved generic runtime boundary checks.
+public fn id<T>(x: T) -> T {
+    x
+}
+
+fn main() -> Unit {
+    id(1)
+    None
+}

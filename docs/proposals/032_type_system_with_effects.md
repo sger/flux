@@ -1,5 +1,12 @@
 # Proposal 032: Type System with Algebraic Effects for Flux
 
+**Status:** Implemented  
+**Date:** 2026-02-17  
+**Depends on:** None
+
+---
+
+
 **Status:** Implemented
 **Date:** 2026-02-17
 
@@ -9,8 +16,12 @@
 
 This proposal is now implemented in Flux and serves as the canonical semantics narrative for the type/effect system.
 
+Canonical implementation reference now lives in:
+- `docs/internals/type_system_effects.md`
+
 - Closure evidence, fixture coverage, and backend parity status are tracked in `docs/proposals/043_pure_flux_checklist.md`.
 - Row-constraint deepening and advanced effect-row follow-up are tracked in `docs/proposals/042_effect_rows_and_constraints.md`.
+- Runtime boundary enforcement currently includes concrete primitive/composite subsets (including `List<T>` and `Either<L, R>`), while function-typed runtime boundary contracts remain explicitly unsupported in strict/public boundaries.
 
 ## 1. Motivation
 

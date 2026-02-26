@@ -1,5 +1,12 @@
 # 043 — Pure Flux Checklist
 
+**Status:** Implemented  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 ## 1. Goal
 
 Define a practical checklist to make Flux **pure-by-default** while preserving explicit, typed effects at boundaries.
@@ -7,6 +14,7 @@ Define a practical checklist to make Flux **pure-by-default** while preserving e
 This document is an execution checklist mapped to:
 - `032_type_system_with_effects.md`
 - `042_effect_rows_and_constraints.md`
+- `docs/internals/type_system_effects.md` (canonical implementation semantics)
 
 It is intentionally implementation-focused (pass/fail criteria), not a new language design.
 
@@ -144,6 +152,7 @@ Pass criteria:
 
 Status:
 - Completed with explicit `public fn` API visibility for strict enforcement, strict `Any` rejection (`E423`), cache-key separation checks (`strict=1/0`), and entry-path parity coverage for `run`, `--test`, and `bytecode`.
+- Boundary-soundness hardening also documents strict unsupported function-typed runtime contracts (`E424`) and strict unresolved generic runtime-boundary checks (`E425`) to avoid silent enforcement gaps.
 
 ---
 
@@ -267,6 +276,7 @@ Post-milestone candidates:
 2. Diagnostic UX improvements (non-semantic).
 3. CI runtime optimization for parity suite.
 4. Optional expansion of curated parity matrix.
+5. Compiler phase-pipeline architecture/performance track (`044_compiler_phase_pipeline_refactor.md`).
 
 These are explicitly non-blocking for this milestone closure.
 

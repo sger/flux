@@ -1,5 +1,12 @@
 # Proposal 027: Flux Language Syntax Specification
 
+**Status:** Proposed  
+**Date:** 2026-02-12  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** High
 **Created:** 2026-02-12

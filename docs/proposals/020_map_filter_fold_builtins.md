@@ -1,5 +1,12 @@
 # Proposal 020: `map` / `filter` / `fold` Base Functions
 
+**Status:** Proposed  
+**Date:** 2026-02-11  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** High (Language Ergonomics)
 **Created:** 2026-02-11

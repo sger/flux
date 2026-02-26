@@ -53,6 +53,26 @@ fn compile_err_in(file_path: &str, input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_err_strict(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    compiler.set_strict_mode(true);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    err.first()
+        .map(|d| d.code().unwrap_or("").to_string())
+        .unwrap_or_default()
+}
+
 fn compile_err_title(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
@@ -258,6 +278,34 @@ fn legacy_none_list_tail_is_compile_error() {
 fn forward_reference_simple() {
     // Function g calls function f, which is defined after g
     compile_ok_in("test.flx", "fn g() { f(); } fn f() { 1; }");
+}
+
+#[test]
+fn strict_public_function_typed_contract_is_unsupported() {
+    let code = compile_err_strict(
+        r#"
+public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
+    f(x)
+}
+fn main() -> Unit {
+    apply(\(n: Int) -> n > 0, 1)
+}
+"#,
+    );
+    assert_eq!(code, "E424");
+}
+
+#[test]
+fn strict_unresolved_generic_boundary_reports_error() {
+    let code = compile_err_strict(
+        r#"
+public fn id<T>(x: T) -> T { x }
+fn main() -> Unit {
+    id(1)
+}
+"#,
+    );
+    assert_eq!(code, "E425");
 }
 
 #[test]

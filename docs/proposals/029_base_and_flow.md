@@ -1,5 +1,13 @@
 # Proposal 029: Base + Flow — Auto-Imported Prelude and Standard Library
 
+**Status:** Superseded  
+**Date:** 2026-02-12  
+**Depends on:** None
+**Superseded by:** `028_base.md`, `030_flow.md`
+
+---
+
+
 **Status:** Historical (superseded by split proposals 028 Base + 030 Flow)
 **Priority:** High
 **Created:** 2026-02-12
