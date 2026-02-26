@@ -1007,6 +1007,58 @@ impl Compiler {
         }
     }
 
+    fn validate_main_root_effect_discharge(&mut self, program: &Program) {
+        let main_symbol = self.interner.intern("main");
+        let io_effect = self.interner.intern("IO");
+        let time_effect = self.interner.intern("Time");
+        let inferred = self.contract_effect_sets();
+
+        let mut main_body = None;
+        for statement in &program.statements {
+            if let Statement::Function { name, body, .. } = statement
+                && *name == main_symbol
+            {
+                main_body = Some(body);
+                break;
+            }
+        }
+        let Some(main_body) = main_body else {
+            return;
+        };
+
+        let residual =
+            self.infer_effects_from_block(main_body, None, &inferred, io_effect, time_effect);
+        let mut disallowed: Vec<Symbol> = residual
+            .into_iter()
+            .filter(|effect| *effect != io_effect && *effect != time_effect)
+            .collect();
+        if disallowed.is_empty() {
+            return;
+        }
+
+        disallowed.sort_by_key(|sym| self.sym(*sym).to_string());
+        let effects_text = disallowed
+            .iter()
+            .map(|effect| self.sym(*effect).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.errors.push(
+            Diagnostic::make_error_dynamic(
+                "E406",
+                "UNHANDLED ROOT EFFECT",
+                ErrorType::Compiler,
+                format!("`fn main` has undischarged effects: {}.", effects_text),
+                Some(
+                    "Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`."
+                        .to_string(),
+                ),
+                self.file_path.clone(),
+                main_body.span,
+            )
+            .with_primary_label(main_body.span, "undischarged effects at root boundary"),
+        );
+    }
+
     fn validate_strict_mode(&mut self, program: &Program, has_main: bool) {
         if !self.strict_mode {
             return;
@@ -1422,6 +1474,7 @@ impl Compiler {
         self.collect_effect_declarations(program);
         let has_main = self.validate_main_entrypoint(program);
         self.validate_top_level_effectful_code(program, has_main);
+        self.validate_main_root_effect_discharge(program);
         self.validate_strict_mode(program, has_main);
 
         // PASS 1: Predeclare all module-level function names

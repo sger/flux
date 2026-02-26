@@ -2034,61 +2034,78 @@ impl Compiler {
         let mut operations = Vec::new();
         let mut arm_ops = HashSet::new();
 
-        if let Some(declared_ops) = self.effect_declared_ops(effect) {
-            for arm in arms {
-                if !declared_ops.contains(&arm.operation_name) {
-                    let effect_name = self.sym(effect).to_string();
-                    let op_name = self.sym(arm.operation_name).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E401",
-                            "UNKNOWN HANDLER OPERATION",
-                            ErrorType::Compiler,
-                            format!(
-                                "Handler for `{}` includes unknown operation `{}`.",
-                                effect_name, op_name
-                            ),
-                            Some(
-                                "Add this operation to the effect declaration or remove the arm."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            arm.span,
-                        )
-                        .with_primary_label(arm.span, "unknown operation arm"),
-                    ));
-                }
-                arm_ops.insert(arm.operation_name);
-            }
+        let Some(declared_ops) = self.effect_declared_ops(effect) else {
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E405",
+                    "UNKNOWN HANDLER EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` is not declared for this handle block.",
+                        effect_name
+                    ),
+                    Some(
+                        "Declare the effect before using `handle`, or fix the effect name."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    expr.span(),
+                )
+                .with_primary_label(expr.span(), "unknown effect in handle"),
+            ));
+        };
 
-            let mut missing: Vec<Symbol> = declared_ops.difference(&arm_ops).copied().collect();
-            if !missing.is_empty() {
-                missing.sort_by_key(|sym| self.sym(*sym).to_string());
-                let missing_names = missing
-                    .iter()
-                    .map(|sym| self.sym(*sym).to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+        for arm in arms {
+            if !declared_ops.contains(&arm.operation_name) {
                 let effect_name = self.sym(effect).to_string();
+                let op_name = self.sym(arm.operation_name).to_string();
                 return Err(Self::boxed(
                     Diagnostic::make_error_dynamic(
-                        "E402",
-                        "INCOMPLETE EFFECT HANDLER",
+                        "E401",
+                        "UNKNOWN HANDLER OPERATION",
                         ErrorType::Compiler,
                         format!(
-                            "Handler for `{}` is missing operations: {}.",
-                            effect_name, missing_names
+                            "Handler for `{}` includes unknown operation `{}`.",
+                            effect_name, op_name
                         ),
                         Some(
-                            "Add handler arms for all declared operations of the effect."
+                            "Add this operation to the effect declaration or remove the arm."
                                 .to_string(),
                         ),
                         self.file_path.clone(),
-                        expr.span(),
+                        arm.span,
                     )
-                    .with_primary_label(expr.span(), "handled expression"),
+                    .with_primary_label(arm.span, "unknown operation arm"),
                 ));
             }
+            arm_ops.insert(arm.operation_name);
+        }
+
+        let mut missing: Vec<Symbol> = declared_ops.difference(&arm_ops).copied().collect();
+        if !missing.is_empty() {
+            missing.sort_by_key(|sym| self.sym(*sym).to_string());
+            let missing_names = missing
+                .iter()
+                .map(|sym| self.sym(*sym).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E402",
+                    "INCOMPLETE EFFECT HANDLER",
+                    ErrorType::Compiler,
+                    format!(
+                        "Handler for `{}` is missing operations: {}.",
+                        effect_name, missing_names
+                    ),
+                    Some("Add handler arms for all declared operations of the effect.".to_string()),
+                    self.file_path.clone(),
+                    expr.span(),
+                )
+                .with_primary_label(expr.span(), "handled expression"),
+            ));
         }
 
         for arm in arms {
