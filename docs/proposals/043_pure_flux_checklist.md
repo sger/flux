@@ -104,13 +104,28 @@ Status:
 
 ### D. Entry-Point Policy and Purity Boundary (032 + team decision)
 
-- [ ] D1. Enforce chosen `main` policy exactly (hybrid policy currently selected by team).
-- [ ] D2. Validate `main` signature/effect-root behavior consistently.
-- [ ] D3. Keep diagnostic messages and hints stable across VM/JIT.
+- [x] D1. Enforce chosen `main` policy exactly (hybrid policy currently selected by team).
+- [x] D2. Validate `main` signature/effect-root behavior consistently.
+- [x] D3. Keep diagnostic messages and hints stable across VM/JIT.
 
 Pass criteria:
 - Programs violating chosen policy always fail with deterministic diagnostics.
 - Programs following policy succeed without requiring runtime effect fallback.
+
+Status:
+- Completed with dedicated entry-point fixtures for duplicate/invalid `main` signatures, top-level effect rejection with and without `main`, strict missing-main enforcement, and root-discharge gating to avoid redundant `E406` cascades when `main` signature is invalid.
+
+D verification matrix:
+
+| Context | Expected |
+|---|---|
+| Duplicate top-level `fn main` | Reject (`E410`) |
+| `fn main` with parameters | Reject (`E411`) |
+| `fn main` with non-`Unit` return | Reject (`E412`) |
+| Effectful top-level, no `main` | Reject (`E413`, `E414`) |
+| Effectful top-level, valid `main` present | Reject (`E413` only) |
+| Custom effect escapes valid `main` boundary | Reject (`E406`) |
+| Strict mode without `main` | Reject (`E415`) |
 
 ---
 

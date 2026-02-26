@@ -225,8 +225,7 @@ fn parses_typed_function_signature_with_effects() {
 
 #[test]
 fn parses_typed_function_signature_with_effect_row_ops() {
-    let (program, interner) =
-        parse_ok("fn run() -> Int with IO + Console - Console, Time { 1 }");
+    let (program, interner) = parse_ok("fn run() -> Int with IO + Console - Console, Time { 1 }");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
@@ -254,7 +253,10 @@ fn parses_function_type_annotation_with_effect_row_ops() {
             type_annotation: Some(ty),
             ..
         } => {
-            assert_eq!(ty.display_with(&interner), "Int -> Int with e + IO - Console");
+            assert_eq!(
+                ty.display_with(&interner),
+                "Int -> Int with e + IO - Console"
+            );
         }
         _ => panic!("expected typed let statement"),
     }

@@ -1,0 +1,7 @@
+// E413: effectful top-level code is rejected even when main exists.
+
+print("top-level")
+
+fn main() with IO {
+    print("inside-main")
+}

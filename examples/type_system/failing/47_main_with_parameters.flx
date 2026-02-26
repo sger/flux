@@ -1,0 +1,5 @@
+// E411: main cannot declare parameters.
+
+fn main(x: Int) {
+    x
+}

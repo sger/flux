@@ -1,0 +1,5 @@
+// E412: main must return Unit (or omit return type).
+
+fn main() -> Int {
+    1
+}
