@@ -6,6 +6,13 @@
 
 ---
 
+
+**Status:** In Progress  
+**Date:** 2026-02-25  
+**Depends on:** 032_type_system_with_effects.md
+
+---
+
 ## 1. Motivation
 
 Proposal 032 introduced algebraic effects and a practical `with e` model for higher-order functions.

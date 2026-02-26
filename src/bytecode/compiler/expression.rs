@@ -630,6 +630,29 @@ impl Compiler {
                 continue;
             };
             let Some(expected_runtime) = convert_type_expr(expected_ty, &self.interner) else {
+                if self.strict_mode && !matches!(expected_ty, TypeExpr::Function { .. }) {
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E425",
+                            "STRICT UNRESOLVED BOUNDARY TYPE",
+                            ErrorType::Compiler,
+                            format!(
+                                "Strict mode cannot enforce runtime boundary check for unresolved parameter type `{}`.",
+                                expected_ty
+                            ),
+                            Some(
+                                "Use a concrete parameter type (avoid unresolved generic-only boundary types) or make this API internal."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            argument.span(),
+                        )
+                        .with_primary_label(
+                            argument.span(),
+                            "runtime boundary check is unresolved in strict mode",
+                        ),
+                    ));
+                }
                 continue;
             };
             let Some(actual_runtime) = self.static_expr_type(argument) else {
@@ -962,6 +985,13 @@ impl Compiler {
                     ("Option", 1, RuntimeType::Option(inner)) => {
                         self.match_type_expr_to_runtime(&args[0], inner, substitutions)
                     }
+                    ("List", 1, RuntimeType::List(inner)) => {
+                        self.match_type_expr_to_runtime(&args[0], inner, substitutions)
+                    }
+                    ("Either", 2, RuntimeType::Either(left, right)) => {
+                        self.match_type_expr_to_runtime(&args[0], left, substitutions)?;
+                        self.match_type_expr_to_runtime(&args[1], right, substitutions)
+                    }
                     ("Array", 1, RuntimeType::Array(inner)) => {
                         self.match_type_expr_to_runtime(&args[0], inner, substitutions)
                     }
@@ -1006,6 +1036,13 @@ impl Compiler {
                     ("Option", 1) => Some(RuntimeType::Option(Box::new(
                         self.instantiate_type_expr(&args[0], substitutions)?,
                     ))),
+                    ("List", 1) => Some(RuntimeType::List(Box::new(
+                        self.instantiate_type_expr(&args[0], substitutions)?,
+                    ))),
+                    ("Either", 2) => Some(RuntimeType::Either(
+                        Box::new(self.instantiate_type_expr(&args[0], substitutions)?),
+                        Box::new(self.instantiate_type_expr(&args[1], substitutions)?),
+                    )),
                     ("Array", 1) => Some(RuntimeType::Array(Box::new(
                         self.instantiate_type_expr(&args[0], substitutions)?,
                     ))),
@@ -1032,6 +1069,19 @@ impl Compiler {
             RuntimeType::Option(inner_expected) => match actual {
                 RuntimeType::Option(inner_actual) => {
                     Self::runtime_types_compatible(inner_expected, inner_actual)
+                }
+                _ => false,
+            },
+            RuntimeType::List(inner_expected) => match actual {
+                RuntimeType::List(inner_actual) => {
+                    Self::runtime_types_compatible(inner_expected, inner_actual)
+                }
+                _ => false,
+            },
+            RuntimeType::Either(left_expected, right_expected) => match actual {
+                RuntimeType::Either(left_actual, right_actual) => {
+                    Self::runtime_types_compatible(left_expected, left_actual)
+                        && Self::runtime_types_compatible(right_expected, right_actual)
                 }
                 _ => false,
             },

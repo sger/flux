@@ -1284,6 +1284,41 @@ impl Compiler {
                         );
                     }
 
+                    let function_contract_position = parameter_types
+                        .iter()
+                        .flatten()
+                        .find(|ty| Self::type_expr_contains_function(ty))
+                        .map(TypeExpr::span)
+                        .or_else(|| {
+                            return_type
+                                .as_ref()
+                                .filter(|ret| Self::type_expr_contains_function(ret))
+                                .map(TypeExpr::span)
+                        });
+                    if let Some(function_span) = function_contract_position {
+                        self.errors.push(
+                            Diagnostic::make_error_dynamic(
+                                "E424",
+                                "STRICT UNSUPPORTED FUNCTION CONTRACT",
+                                ErrorType::Compiler,
+                                format!(
+                                    "Public function `{}` uses function-typed boundary annotations that are not runtime-enforced yet.",
+                                    self.sym(*name)
+                                ),
+                                Some(
+                                    "Use concrete boundary types or keep this API internal/private until function-typed runtime contracts are implemented."
+                                        .to_string(),
+                                ),
+                                self.file_path.clone(),
+                                function_span,
+                            )
+                            .with_primary_label(
+                                function_span,
+                                "function-typed boundary contract is unsupported in strict mode",
+                            ),
+                        );
+                    }
+
                     let is_effectful = self
                         .lookup_contract(module_name, *name, parameters.len())
                         .is_some_and(|contract| !contract.effects.is_empty());
@@ -1358,6 +1393,16 @@ impl Compiler {
                     .iter()
                     .any(|param| Self::type_expr_contains_any(param, interner))
                     || Self::type_expr_contains_any(ret, interner)
+            }
+        }
+    }
+
+    fn type_expr_contains_function(ty: &TypeExpr) -> bool {
+        match ty {
+            TypeExpr::Function { .. } => true,
+            TypeExpr::Named { args, .. } => args.iter().any(Self::type_expr_contains_function),
+            TypeExpr::Tuple { elements, .. } => {
+                elements.iter().any(Self::type_expr_contains_function)
             }
         }
     }

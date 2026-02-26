@@ -1,5 +1,12 @@
 # Proposal 007: Visitor Pattern for Multi-Pass Compilation
 
+**Status:** Proposed  
+**Date:** 2026-02-01  
+**Depends on:** Phase 1 Module Split (Proposal 006)
+
+---
+
+
 **Status:** Planning
 **Priority:** High (Enables future type system)
 **Created:** 2026-02-01

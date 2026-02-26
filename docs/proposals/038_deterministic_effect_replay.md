@@ -1,6 +1,13 @@
 # Proposal 038: Deterministic Effect Replay
 
 **Status:** Draft  
+**Date:** 2026-02-20  
+**Depends on:** None
+
+---
+
+
+**Status:** Draft  
 **Date:** 2026-02-20
 
 ---

@@ -753,7 +753,7 @@ For-Loop Syntax (M6)     [Independent]
 - Flow.Func module (composition, etc.)
 
 ### Major Architectural Enhancement (Future)
-**Macro System** - [Proposal 009](../proposals/009_macro_system.md)
+**Macro System** - [Proposal 040](../proposals/040_macro_system.md) (supersedes Proposal 009)
 **Timeline:** 12 weeks after v0.0.3 completion
 **Prerequisites:** ✅ AST Spans (M2), ✅ Module Split (Phase 1.5)
 
@@ -833,7 +833,7 @@ This updated plan for v0.0.3 balances:
 **Key Changes from Original Plan:**
 - ✅ Added Phase 1.5: Module Split (Proposal 006) - 3 weeks
 - ✅ Extended timeline: 8 weeks → 11 weeks
-- ✅ Sets foundation for future Macro System (Proposal 009)
+- ✅ Sets foundation for future Macro System (Proposal 040, supersedes 009)
 - ✅ Improves codebase maintainability before adding complexity
 
 **The 11-week timeline** is realistic with clear milestones, dependencies, and risk mitigation strategies. Each phase delivers independently testable value.
@@ -846,4 +846,4 @@ This updated plan for v0.0.3 balances:
 - [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md) - Module organization
 - [007_visitor_pattern.md](../proposals/007_visitor_pattern.md) - Multi-pass compilation (future)
 - [008_builtins_module_architecture.md](../proposals/008_builtins_module_architecture.md) - Base organization (future)
-- [009_macro_system.md](../proposals/009_macro_system.md) - Metaprogramming foundation (future)
+- [040_macro_system.md](../proposals/040_macro_system.md) - Metaprogramming foundation (future)

@@ -112,6 +112,14 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E416`) because underscore naming is style-only and `public fn` still enforces strict API annotations
 - `59_strict_module_public_effect_missing_with.flx`
   - Expected: compile-time failure (`E400`) because strict/pure context rejects effectful body without matching effect annotation
+- `60_public_hof_contract_unsupported.flx`
+  - Expected: compile-time failure (`E424`) in `--strict` because function-typed runtime boundary contracts are not enforced yet
+- `61_strict_generic_unresolved_boundary.flx`
+  - Expected: compile-time failure (`E425`) in `--strict` when runtime boundary type resolution is generic/unresolved
+- `62_list_boundary_runtime_violation.flx`
+  - Expected: runtime failure (`E1004`) because `List<Int>` boundary receives a non-list dynamic value from module boundary
+- `63_either_boundary_runtime_violation.flx`
+  - Expected: runtime failure (`E1004`) because `Either<String, Int>` boundary receives a non-Either dynamic value from module boundary
 
 ## A3 Pure-Context Matrix
 
@@ -258,6 +266,12 @@ cargo run -- --no-cache examples/type_system/failing/38_top_level_effect_rejecte
 cargo run -- --no-cache examples/type_system/failing/39_effect_alias_print_in_pure_function.flx
 cargo run -- --no-cache examples/type_system/failing/40_effect_alias_print_in_time_function.flx
 cargo run -- --no-cache examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
+
+# Boundary-soundness additions
+cargo run -- --no-cache --strict examples/type_system/failing/60_public_hof_contract_unsupported.flx
+cargo run -- --no-cache --strict examples/type_system/failing/61_strict_generic_unresolved_boundary.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/62_list_boundary_runtime_violation.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/63_either_boundary_runtime_violation.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx

@@ -1,6 +1,13 @@
 # Proposal 039: Typed Module Contracts (Boundary-First Typing)
 
 **Status:** Draft  
+**Date:** 2026-02-20  
+**Depends on:** None
+
+---
+
+
+**Status:** Draft  
 **Date:** 2026-02-20
 
 ---

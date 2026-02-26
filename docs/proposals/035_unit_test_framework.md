@@ -1,5 +1,12 @@
 # Proposal 035: Unit Test Framework for Flux
 
+**Status:** Draft  
+**Date:** 2026-02-19  
+**Depends on:** None
+
+---
+
+
 **Status:** Draft
 **Date:** 2026-02-19
 **Scope:** CLI, runtime base functions, Flow stdlib module, VM/JIT test runner

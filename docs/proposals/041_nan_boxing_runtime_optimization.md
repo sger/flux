@@ -1,6 +1,13 @@
 # Proposal 041: NaN-boxing Runtime Optimization
 
 **Status:** Proposed  
+**Date:** 2026-02-23  
+**Depends on:** None
+
+---
+
+
+**Status:** Proposed  
 **Priority:** Medium  
 **Created:** 2026-02-23  
 **Related:** Proposal 031 (Cranelift JIT Backend), Proposal 034 (Builtin PrimOps), Proposal 038 (Deterministic Effect Replay)

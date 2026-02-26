@@ -1,5 +1,12 @@
 # Proposal 006: Phase 1 - Module Split Plan
 
+**Status:** Proposed  
+**Date:** 2026-02-01  
+**Depends on:** None
+
+---
+
+
 **Status:** Planning
 **Priority:** High (Maintainability)
 **Created:** 2026-02-01
