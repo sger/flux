@@ -1,5 +1,12 @@
 # Flux Language Features Proposal
 
+**Status:** Draft  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 This document outlines proposed language features and syntax improvements for Flux, organized by priority and implementation complexity.
 
 ---

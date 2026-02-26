@@ -1,5 +1,12 @@
 # Proposal 018: Runtime and Language Evolution Roadmap
 
+**Status:** In Progress  
+**Date:** 2026-02-08  
+**Depends on:** None
+
+---
+
+
 **Status:** Active
 **Priority:** Meta (Planning)
 **Created:** 2026-02-08

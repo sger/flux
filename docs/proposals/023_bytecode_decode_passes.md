@@ -1,5 +1,12 @@
 # Proposal 023: Bytecode Decode & Pass-Oriented Rewriting API
 
+**Status:** Proposed  
+**Date:** 2026-02-12  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** Medium
 **Created:** 2026-02-12

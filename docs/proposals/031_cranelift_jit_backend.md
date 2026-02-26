@@ -1,5 +1,12 @@
 # Proposal 031: Cranelift JIT Backend for Flux
 
+**Status:** Draft  
+**Date:** 2026-02-26  
+**Depends on:** None
+
+---
+
+
 ## Context
 
 Flux currently compiles AST to custom bytecode and interprets it in a stack-based VM. Adding a Cranelift JIT backend will eliminate the dispatch loop overhead, producing native machine code while reusing the existing runtime (Value type, GC, base functions). The JIT sits alongside the VM behind a `--jit` CLI flag, gated by a `jit` Cargo feature.

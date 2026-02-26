@@ -1,5 +1,12 @@
 # Proposal 024: Runtime Instrumentation Hooks & Value Graph Tracer
 
+**Status:** Proposed  
+**Date:** 2026-02-12  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** Medium
 **Created:** 2026-02-12

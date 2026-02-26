@@ -1,6 +1,13 @@
 # Proposal 030: Flow — Explicit Standard Library Modules
 
 **Status:** Proposed  
+**Date:** 2026-02-12  
+**Depends on:** None
+
+---
+
+
+**Status:** Proposed  
 **Priority:** High  
 **Created:** 2026-02-12  
 **Scope:** Flow stdlib module architecture (separate from Base prelude semantics)  

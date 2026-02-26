@@ -1,5 +1,12 @@
 # Proposal 017: Persistent Collections and Garbage Collection
 
+**Status:** Proposed  
+**Date:** 2026-02-08  
+**Depends on:** None
+
+---
+
+
 **Status:** Proposed
 **Priority:** High (Runtime)
 **Created:** 2026-02-08

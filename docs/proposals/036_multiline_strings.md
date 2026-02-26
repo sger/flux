@@ -1,5 +1,12 @@
 # Proposal 036: Multi-line String Literals
 
+**Status:** Draft  
+**Date:** 2026-02-20  
+**Depends on:** None
+
+---
+
+
 **Status:** Draft
 **Date:** 2026-02-20
 **Scope:** Lexer, parser (minimal), no runtime changes

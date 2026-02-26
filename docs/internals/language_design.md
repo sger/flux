@@ -8,6 +8,10 @@
 
 The name reflects data flowing through pipelines — the core of functional programming.
 
+> Canonical implementation semantics for the current type system + effects are maintained in:
+> `docs/internals/type_system_effects.md`.
+> Use this language design document as broad design context; use the canonical spec for current compiler behavior.
+
 **File extension:** `.flx`
 
 ## Goals

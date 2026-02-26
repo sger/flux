@@ -53,6 +53,8 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `69_real_program_public_api_test.flx` - Flow.FTest unit tests for strict/public API behavior in `TypeSystem.RealProgramPublicApi`
 - `70_real_program_primops_module_test.flx` - Flow.FTest unit tests for primop wrapper module behavior
 - `71_real_program_base_interop_module_test.flx` - Flow.FTest unit tests for base-interop wrapper module behavior
+- `72_list_boundary_runtime_check_ok.flx` - runtime boundary check for `List<Int>` accepts valid list elements
+- `73_either_boundary_runtime_check_ok.flx` - runtime boundary check for `Either<String, Int>` accepts valid payloads
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -98,6 +100,8 @@ cargo run -- --root examples/type_system examples/type_system/63_real_program_ef
 cargo run -- --no-cache --strict --root examples/type_system examples/type_system/64_real_program_strict_public_app.flx
 cargo run -- --root examples/type_system examples/type_system/65_real_program_primop_pipeline.flx
 cargo run -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx
+cargo run -- examples/type_system/72_list_boundary_runtime_check_ok.flx
+cargo run -- examples/type_system/73_either_boundary_runtime_check_ok.flx
 ```
 
 JIT:
@@ -131,6 +135,8 @@ cargo run --features jit -- --root examples/type_system examples/type_system/63_
 cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/64_real_program_strict_public_app.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/65_real_program_primop_pipeline.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/66_real_program_base_module_integration.flx --jit
+cargo run --features jit -- examples/type_system/72_list_boundary_runtime_check_ok.flx --jit
+cargo run --features jit -- examples/type_system/73_either_boundary_runtime_check_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

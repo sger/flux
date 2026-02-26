@@ -1,0 +1,5 @@
+module TypeSystem.BoundaryUnknown {
+    public fn dynamic_string() {
+        "oops"
+    }
+}

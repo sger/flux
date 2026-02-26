@@ -1,5 +1,12 @@
 # Proposal 001: Module Constants
 
+**Status:** Implemented  
+**Date:** 2026-01-30  
+**Depends on:** None
+
+---
+
+
 **Status:** ✅ Implemented (v0.0.2)
 **Author:** @sgerokostas
 **Created:** 2026-01-30

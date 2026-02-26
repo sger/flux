@@ -1,5 +1,12 @@
 # Proposal 034: Base PrimOps — Structured PrimOp Layer
 
+**Status:** In Progress  
+**Date:** 2026-02-19 (updated 2026-02-20)  
+**Depends on:** None
+
+---
+
+
 **Status:** In Progress (Phases 0, 1, 3, 4 implemented)  
 **Date:** 2026-02-19 (updated 2026-02-20)  
 **Scope:** Compiler lowering, bytecode VM, Cranelift JIT, runtime primop execution  

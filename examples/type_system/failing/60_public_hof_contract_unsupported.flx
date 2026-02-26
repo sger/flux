@@ -1,0 +1,13 @@
+// E424: strict mode rejects function-typed runtime boundary contracts for public APIs.
+public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
+    f(x)
+}
+
+fn is_positive(x: Int) -> Bool {
+    x > 0
+}
+
+fn main() -> Unit {
+    apply(is_positive, 1)
+    None
+}

@@ -1,6 +1,14 @@
 # Proposal 040: Hygienic Macro System for Flux
 
 **Status:** Draft  
+**Date:** 2026-02-20  
+**Depends on:** None
+**Supersedes:** `009_macro_system.md`
+
+---
+
+
+**Status:** Draft  
 **Date:** 2026-02-20
 
 ---

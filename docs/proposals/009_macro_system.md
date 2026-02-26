@@ -1,5 +1,13 @@
 # Proposal 009: Macro System for Flux
 
+**Status:** Superseded  
+**Date:** 2026-02-02  
+**Depends on:** None
+**Superseded by:** `040_macro_system.md`
+
+---
+
+
 **Status:** Planning
 **Priority:** High (Architectural Foundation)
 **Created:** 2026-02-02
