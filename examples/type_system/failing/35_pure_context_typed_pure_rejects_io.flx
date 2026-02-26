@@ -1,0 +1,10 @@
+// A3 matrix: typed pure function rejects direct IO builtin call.
+
+fn pure_double(x: Int) -> Int {
+    print(x)
+    x * 2
+}
+
+fn main() -> Unit with IO {
+    pure_double(2);
+}

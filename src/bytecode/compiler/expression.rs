@@ -654,7 +654,7 @@ impl Compiler {
     fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
         match base_name {
             "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
-            "now" | "clock_now" => Some("Time"),
+            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
             _ => None,
         }
     }
@@ -760,18 +760,7 @@ impl Compiler {
                 })
                 .unwrap_or_default(),
             Expression::MemberAccess { object, member, .. } => {
-                let Expression::Identifier { name, .. } = object.as_ref() else {
-                    return HashSet::new();
-                };
-                let module_name = if let Some(target) = self.import_aliases.get(name) {
-                    Some(*target)
-                } else if self.imported_modules.contains(name)
-                    || self.current_module_prefix == Some(*name)
-                {
-                    Some(*name)
-                } else {
-                    None
-                };
+                let module_name = self.resolve_module_name_from_expr(object);
                 module_name
                     .and_then(|module_name| {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
@@ -799,18 +788,7 @@ impl Compiler {
         match function {
             Expression::Identifier { name, .. } => self.lookup_unqualified_contract(*name, arity),
             Expression::MemberAccess { object, member, .. } => {
-                let Expression::Identifier { name, .. } = object.as_ref() else {
-                    return None;
-                };
-                let module_name = if let Some(target) = self.import_aliases.get(name) {
-                    Some(*target)
-                } else if self.imported_modules.contains(name)
-                    || self.current_module_prefix == Some(*name)
-                {
-                    Some(*name)
-                } else {
-                    None
-                }?;
+                let module_name = self.resolve_module_name_from_expr(object)?;
                 self.lookup_contract(Some(module_name), *member, arity)
             }
             _ => None,

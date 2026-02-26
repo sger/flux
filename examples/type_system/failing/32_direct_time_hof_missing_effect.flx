@@ -1,0 +1,9 @@
+// E400: `time(fn)` itself is Time-effectful.
+
+fn profiled() -> Int with IO {
+    time(\() -> 1)
+}
+
+fn main() -> Unit with IO {
+    profiled();
+}

@@ -32,6 +32,8 @@ These examples target the current typed-syntax + contract-metadata milestone:
 - `24_unit_return_effectful.flx` - `Unit` return in an effectful function (`with IO`)
 - `25_none_return_compat.flx` - `None` return (currently accepted as unit-like)
 - `26_any_boundary_success.flx` - `Any` flowing through dynamic code and printed safely
+- `27_top_level_pure_ok.flx` - pure top-level declarations are allowed without `main`
+- `28_effect_inside_main_allowed.flx` - effectful operations are allowed inside `fn main() with ...`
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -60,6 +62,8 @@ cargo run -- examples/type_system/23_effect_polymorphism_chain_with_e.flx
 cargo run -- examples/type_system/24_unit_return_effectful.flx
 cargo run -- examples/type_system/25_none_return_compat.flx
 cargo run -- examples/type_system/26_any_boundary_success.flx
+cargo run -- examples/type_system/27_top_level_pure_ok.flx
+cargo run -- examples/type_system/28_effect_inside_main_allowed.flx
 ```
 
 JIT:
@@ -77,6 +81,8 @@ cargo run --features jit -- examples/type_system/23_effect_polymorphism_chain_wi
 cargo run --features jit -- examples/type_system/24_unit_return_effectful.flx --jit
 cargo run --features jit -- examples/type_system/25_none_return_compat.flx --jit
 cargo run --features jit -- examples/type_system/26_any_boundary_success.flx --jit
+cargo run --features jit -- examples/type_system/27_top_level_pure_ok.flx --jit
+cargo run --features jit -- examples/type_system/28_effect_inside_main_allowed.flx --jit
 ```
 
 Run everything:
