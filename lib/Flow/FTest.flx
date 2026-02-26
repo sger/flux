@@ -43,13 +43,21 @@ module Flow.FTest {
         test_fn(fixture)
     }
 
-    fn describe(name, tests) {
+    fn describe(name, tests) with IO {
         print("  " + name)
-        map(tests, \t -> {
-            let test_name = t.0
-            let test_fn = t.1
-            print("    " + test_name)
-            test_fn()
-        })
+        run_named_tests(tests)
+    }
+
+    fn run_named_tests(tests) with IO {
+        match tests {
+            [t | rest] -> do {
+                let test_name = t.0
+                let test_fn = t.1
+                print("    " + test_name)
+                test_fn()
+                run_named_tests(rest)
+            },
+            _ -> ()
+        }
     }
 }

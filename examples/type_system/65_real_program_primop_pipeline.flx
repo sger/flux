@@ -1,0 +1,13 @@
+import TypeSystem.RealProgramPrimops as P
+
+fn main() with IO {
+    let xs = [|3, 1, 9, 4|]
+    let top = P.top_two(xs)
+    let m = {"alice": 10, "bob": 22}
+
+    print(to_string(P.norm_sum(-3, 5)))
+    print(to_string(P.string_len("flux")))
+    print(to_string(top))
+    print(to_string(P.lookup_score(m, "bob")))
+    print(to_string(P.emit_label(42)))
+}

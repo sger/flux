@@ -28,32 +28,136 @@ pub struct CommandOutcome {
 pub fn curated_cases() -> Vec<ParityFixtureCase> {
     vec![
         // A: direct effects / propagation
-        ParityFixtureCase { path: "examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx", roots: &[], strict: false, expect_compile_error: true, category: "A" },
-        ParityFixtureCase { path: "examples/type_system/failing/36_pure_context_time_only_rejects_io.flx", roots: &[], strict: false, expect_compile_error: true, category: "A" },
-        ParityFixtureCase { path: "examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx", roots: &[], strict: false, expect_compile_error: true, category: "A" },
-        ParityFixtureCase { path: "examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx", roots: &["examples/type_system"], strict: false, expect_compile_error: true, category: "A" },
-
+        ParityFixtureCase {
+            path: "examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "A",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/36_pure_context_time_only_rejects_io.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "A",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "A",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx",
+            roots: &["examples/type_system"],
+            strict: false,
+            expect_compile_error: true,
+            category: "A",
+        },
         // B: handle/perform
-        ParityFixtureCase { path: "examples/type_system/failing/17_handle_unknown_operation.flx", roots: &[], strict: false, expect_compile_error: true, category: "B" },
-        ParityFixtureCase { path: "examples/type_system/failing/18_handle_incomplete_operation_set.flx", roots: &[], strict: false, expect_compile_error: true, category: "B" },
-        ParityFixtureCase { path: "examples/type_system/failing/42_handle_unknown_effect.flx", roots: &[], strict: false, expect_compile_error: true, category: "B" },
-        ParityFixtureCase { path: "examples/type_system/22_handle_discharges_effect.flx", roots: &[], strict: false, expect_compile_error: false, category: "B" },
-
+        ParityFixtureCase {
+            path: "examples/type_system/failing/17_handle_unknown_operation.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "B",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/18_handle_incomplete_operation_set.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "B",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/42_handle_unknown_effect.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "B",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/22_handle_discharges_effect.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: false,
+            category: "B",
+        },
         // C: effect polymorphism
-        ParityFixtureCase { path: "examples/type_system/30_effect_poly_hof_nested_ok.flx", roots: &[], strict: false, expect_compile_error: false, category: "C" },
-        ParityFixtureCase { path: "examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx", roots: &[], strict: false, expect_compile_error: true, category: "C" },
-        ParityFixtureCase { path: "examples/type_system/failing/45_effect_row_subtract_missing_io.flx", roots: &[], strict: false, expect_compile_error: true, category: "C" },
-
+        ParityFixtureCase {
+            path: "examples/type_system/30_effect_poly_hof_nested_ok.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: false,
+            category: "C",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "C",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/45_effect_row_subtract_missing_io.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "C",
+        },
         // D: entry policy
-        ParityFixtureCase { path: "examples/type_system/failing/38_top_level_effect_rejected.flx", roots: &[], strict: false, expect_compile_error: true, category: "D" },
-        ParityFixtureCase { path: "examples/type_system/failing/43_main_unhandled_custom_effect.flx", roots: &[], strict: false, expect_compile_error: true, category: "D" },
-        ParityFixtureCase { path: "examples/type_system/29_main_handles_custom_effect.flx", roots: &[], strict: false, expect_compile_error: false, category: "D" },
-
+        ParityFixtureCase {
+            path: "examples/type_system/failing/38_top_level_effect_rejected.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "D",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/43_main_unhandled_custom_effect.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "D",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/29_main_handles_custom_effect.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: false,
+            category: "D",
+        },
         // E/F: strict + public boundary
-        ParityFixtureCase { path: "examples/type_system/failing/29_strict_missing_main.flx", roots: &[], strict: true, expect_compile_error: true, category: "E" },
-        ParityFixtureCase { path: "examples/type_system/failing/57_strict_entry_path_parity.flx", roots: &[], strict: true, expect_compile_error: true, category: "E" },
-        ParityFixtureCase { path: "examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx", roots: &[], strict: true, expect_compile_error: true, category: "F" },
-        ParityFixtureCase { path: "examples/type_system/61_strict_module_private_unannotated_allowed.flx", roots: &["examples/type_system"], strict: true, expect_compile_error: false, category: "F" },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/29_strict_missing_main.flx",
+            roots: &[],
+            strict: true,
+            expect_compile_error: true,
+            category: "E",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/57_strict_entry_path_parity.flx",
+            roots: &[],
+            strict: true,
+            expect_compile_error: true,
+            category: "E",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx",
+            roots: &[],
+            strict: true,
+            expect_compile_error: true,
+            category: "F",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/61_strict_module_private_unannotated_allowed.flx",
+            roots: &["examples/type_system"],
+            strict: true,
+            expect_compile_error: false,
+            category: "F",
+        },
     ]
 }
 
@@ -119,14 +223,23 @@ pub fn run_case(
     })
 }
 
-pub fn parity_transcript(case: &ParityFixtureCase, vm: &CommandOutcome, jit: &CommandOutcome) -> String {
+pub fn parity_transcript(
+    case: &ParityFixtureCase,
+    vm: &CommandOutcome,
+    jit: &CommandOutcome,
+) -> String {
     let vm_tuples = format_tuples(&vm.tuples);
     let jit_tuples = format_tuples(&jit.tuples);
 
     let mismatch = if vm.tuples == jit.tuples {
         String::from("<none>")
     } else {
-        format_mismatch_debug(&vm.tuples, &jit.tuples, &vm.normalized_output, &jit.normalized_output)
+        format_mismatch_debug(
+            &vm.tuples,
+            &jit.tuples,
+            &vm.normalized_output,
+            &jit.normalized_output,
+        )
     };
 
     format!(
@@ -141,7 +254,11 @@ pub fn parity_transcript(case: &ParityFixtureCase, vm: &CommandOutcome, jit: &Co
         jit.exit_code,
         vm_tuples,
         jit_tuples,
-        if vm.tuples == jit.tuples { "match" } else { "mismatch" },
+        if vm.tuples == jit.tuples {
+            "match"
+        } else {
+            "mismatch"
+        },
         mismatch,
     )
 }
@@ -176,8 +293,16 @@ fn format_mismatch_debug(
 
     format!(
         "vm_only:\n{}\n\njit_only:\n{}\n\nvm_output:\n{}\n\njit_output:\n{}",
-        if vm_only.is_empty() { "<none>".to_string() } else { vm_only.join("\n") },
-        if jit_only.is_empty() { "<none>".to_string() } else { jit_only.join("\n") },
+        if vm_only.is_empty() {
+            "<none>".to_string()
+        } else {
+            vm_only.join("\n")
+        },
+        if jit_only.is_empty() {
+            "<none>".to_string()
+        } else {
+            jit_only.join("\n")
+        },
         truncate(vm_output, 4000),
         truncate(jit_output, 4000),
     )
