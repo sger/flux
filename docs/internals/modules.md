@@ -112,21 +112,22 @@ When aliased, use the alias (`T.double`), not the full module qualifier.
 
 ## Visibility and Private Members
 
-Flux uses naming convention-based privacy:
-- names prefixed with `_` are private to the module
-- other members are public
+Flux exports only `public fn` members:
+- `public fn` is externally accessible
+- plain `fn` is private to the module
+- `_name` remains private by convention as well
 
 ```flux
 module Demo.PrivateTest {
-    fn _private(x) { x * 2 }
+    fn helper(x) { x * 2 }
 
-    fn public(x) {
-        _private(x) + 1
+    public fn run(x) {
+        helper(x) + 1
     }
 }
 ```
 
-External access like `Demo.PrivateTest._private(5)` is rejected with `E011 PRIVATE MEMBER`.
+External access like `Demo.PrivateTest.helper(5)` is rejected with `E011 PRIVATE MEMBER`.
 
 ## Module-Level `let` Bindings
 
@@ -137,7 +138,7 @@ module Modules.Analytics.Transforms {
     let SCORE_SCALE = 2
     let shout_prefix = "["
 
-    fn double(x) {
+    public fn double(x) {
         x * SCORE_SCALE
     }
 }

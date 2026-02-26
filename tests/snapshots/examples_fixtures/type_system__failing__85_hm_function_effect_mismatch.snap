@@ -1,0 +1,17 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/85_hm_function_effect_mismatch.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `,` or `)` after parameter, got :.
+
+  --> examples/type_system/failing/85_hm_function_effect_mismatch.flx:3:48
+  |
+3 | fn apply_with_time(f: (Int) -> Int with Time, x: Int) -> Int {
+  |                                                ^
+== stdout ==
+<not executed>

@@ -215,6 +215,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/advanced/list_map_filter.flx:138:13
+    |
+138 | let pairs = zip(labels, vals);
+    |             ^^^^^^^^^^^^^^^^^
+    |             ----------------- expected String, found Int
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -270,6 +281,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 19 errors.
+Found 20 errors.
 == stdout ==
 <not executed>

@@ -131,7 +131,7 @@ fn module_file_with_script_code_is_error() {
 fn alias_import_compiles() {
     let root = temp_root("alias_import");
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(&module_path, "module Data.MyFile { fn value() { 1; } }");
+    write_file(&module_path, "module Data.MyFile { public fn value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
@@ -148,7 +148,7 @@ fn import_except_on_module_hides_excluded_member() {
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
-        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+        "module Data.MyFile { public fn keep() { 1; } public fn drop() { 2; } }",
     );
 
     let entry_path = root.join("Main.flx");
@@ -167,7 +167,7 @@ fn import_except_on_module_keeps_other_members() {
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
-        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+        "module Data.MyFile { public fn keep() { 1; } public fn drop() { 2; } }",
     );
 
     let entry_path = root.join("Main.flx");
@@ -185,7 +185,7 @@ fn import_except_with_alias_hides_excluded_member() {
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
-        "module Data.MyFile { fn keep() { 1; } fn drop() { 2; } }",
+        "module Data.MyFile { public fn keep() { 1; } public fn drop() { 2; } }",
     );
 
     let entry_path = root.join("Main.flx");

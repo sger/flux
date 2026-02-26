@@ -151,9 +151,53 @@ impl Compiler {
         if !strict_unresolved_error || !self.strict_mode {
             return Ok(());
         }
+        self.check_private_module_member_access_for_expr(expression)?;
         Err(Box::new(
             self.unresolved_boundary_error(expression, unresolved_context),
         ))
+    }
+
+    fn check_private_module_member_access_for_expr(&self, expression: &Expression) -> CompileResult<()> {
+        let (object, member, span) = match expression {
+            Expression::MemberAccess { object, member, .. } => (object.as_ref(), *member, expression.span()),
+            Expression::Call { function, .. } => match function.as_ref() {
+                Expression::MemberAccess { object, member, .. } => {
+                    (object.as_ref(), *member, function.span())
+                }
+                _ => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
+
+        let Expression::Identifier { name, .. } = object else {
+            return Ok(());
+        };
+
+        let module_name = if let Some(target) = self.import_aliases.get(name) {
+            Some(*target)
+        } else if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name) {
+            Some(*name)
+        } else {
+            None
+        };
+        let Some(module_name) = module_name else {
+            return Ok(());
+        };
+
+        let member_str = self.sym(member);
+        self.check_private_member(member_str, span, Some(self.sym(module_name)))?;
+        if self.current_module_prefix != Some(module_name)
+            && self.module_member_function_is_public(module_name, member) == Some(false)
+        {
+            return Err(Box::new(Diagnostic::make_error(
+                &crate::diagnostics::PRIVATE_MEMBER,
+                &[member_str],
+                self.file_path.clone(),
+                span,
+            )));
+        }
+
+        Ok(())
     }
 
     pub(super) fn validate_expr_expected_type(

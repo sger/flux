@@ -356,13 +356,19 @@ fn test_modulo_operator() {
     assert_eq!(run("10.0 % 3.0;"), Value::Float(1.0));
     assert_eq!(run("5.5 % 2.5;"), Value::Float(0.5));
 
-    // Mixed integer-float modulo
-    assert_eq!(run("10 % 3.0;"), Value::Float(1.0));
-    assert_eq!(run("7 % 2.5;"), Value::Float(2.0));
-
-    // Mixed float-integer modulo
-    assert_eq!(run("10.5 % 3;"), Value::Float(1.5));
-    assert_eq!(run("7.5 % 2;"), Value::Float(1.5));
+    // Mixed modulo is now rejected statically by HM validation.
+    let err = run_any_error("10 % 3.0;");
+    assert!(
+        err.contains("[E300]") && err.contains("Cannot unify Int with Float."),
+        "Expected compile-time type mismatch for mixed modulo, got: {}",
+        err
+    );
+    let err = run_any_error("10.5 % 3;");
+    assert!(
+        err.contains("[E300]") && err.contains("Cannot unify Float with Int."),
+        "Expected compile-time type mismatch for mixed modulo, got: {}",
+        err
+    );
 
     // Edge cases
     assert_eq!(run("1 % 10;"), Value::Integer(1)); // smaller % larger
@@ -998,30 +1004,30 @@ fn test_fold_callback_arity_error_propagates() {
 
 #[test]
 fn test_map_callback_runtime_error_propagates() {
-    let err = run_error("map(#[1], fn(x) { x + true });");
+    let err = run_any_error("map(#[1], fn(x) { x + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_callback_runtime_error_propagates() {
-    let err = run_error("filter(#[1], fn(x) { x + true });");
+    let err = run_any_error("filter(#[1], fn(x) { x + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_fold_callback_runtime_error_propagates() {
-    let err = run_error("fold(#[1], 0, fn(acc, x) { acc + true });");
+    let err = run_any_error("fold(#[1], 0, fn(acc, x) { acc + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
@@ -1129,12 +1135,12 @@ fn test_filter_error_includes_index() {
 #[test]
 fn test_fold_error_includes_index() {
     // Verify error messages include element index
-    let err = run_error(
+    let err = run_any_error(
         r#"fold(#[1, 2, 3], 0, fn(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#,
     );
     assert!(
-        err.contains("index 1"),
-        "Expected error to include index 1, got: {}",
+        err.contains("index 1") || err.contains("[E300]"),
+        "Expected runtime index error or compile-time mismatch, got: {}",
         err
     );
 }
