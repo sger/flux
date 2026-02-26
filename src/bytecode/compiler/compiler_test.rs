@@ -232,3 +232,58 @@ fn typed_let_inference_path_does_not_use_runtime_compat_fallback_helpers() {
         "typed let inference must not use runtime_boundary_expr_type fallback"
     );
 }
+
+#[test]
+fn typed_let_tuple_field_projection_uses_precise_hm_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let x: Int = (1, "s").1
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected tuple-field typed mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with String."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "tuple-field projection should be typed, not unresolved:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_index_projection_uses_precise_hm_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let xs = [1, 2]
+    let x: Int = xs[0]
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected index projection typed mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]") && rendered.contains("Option<Int>"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "index projection should be typed, not unresolved:\n{}",
+        rendered
+    );
+}

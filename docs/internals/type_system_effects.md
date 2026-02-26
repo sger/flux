@@ -163,6 +163,23 @@ Current order in `Compiler::compile` (`src/bytecode/compiler/mod.rs`):
 10. HM inference pass.
 11. Statement codegen + diagnostics aggregation.
 
+HM pass output contract (0.0.4):
+- `TypeEnv` for identifier/scheme lookup.
+- HM expression typing map keyed by compiler-assigned expression node IDs
+  (`ExprTypeMap`) for typed validation callsites.
+- Typed validators consume this HM expression map instead of re-deriving
+  expression types in ad hoc callsite walkers.
+- Pointer-identity invariant: expression IDs are assigned from expression
+  allocation addresses for the specific `Program` instance passed to `compile`.
+  All AST transforms must run before HM inference so HM and PASS 2 validation
+  observe the same `Program` allocation.
+- HM expression precision currently covers member access plus index/tuple-field
+  projections:
+  - `tuple.i` resolves to the element type when in bounds.
+  - `arr[i]`/`list[i]` resolves to `Option<T>`.
+  - `map[k]` resolves to `Option<V>`.
+  - unknown/unsupported projection shapes fall back to `Any`.
+
 Diagnostics ordering contract for entry/strict class is intentionally deterministic:
 - main signature class (`E410-E412`)
 - top-level purity (`E413`, `E414`)
@@ -227,6 +244,9 @@ Current limitations:
 - 0.0.4 HM gate is zero-fallback for typed/inferred validation paths:
   typed/inferred binding and validation must not fall back to runtime-boundary
   compatibility typing when strict HM typing is unresolved.
+- Known remaining HM gap: some non-strict module-qualified generic call paths
+  can still resolve to unresolved pockets and compile permissively; strict mode
+  remains the enforcement path for unresolved boundary cases.
 - Effects remain compile-time-first enforcement; runtime effect checks are fallback-oriented.
 - Runtime boundary-enforced type subset includes `Int`, `Float`, `Bool`, `String`, `Unit`, `Option<T>`, `List<T>`, `Either<L, R>`, `Array<T>`, `Map<K, V>`, and tuples.
 - Some historical proposal text may still include broader/future claims not yet implemented.

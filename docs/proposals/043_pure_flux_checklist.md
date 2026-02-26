@@ -23,6 +23,11 @@ v0.0.4 critical-path hardening continues under the same truth model for:
 - HM validator architecture hardening uses strict HM typed validation as the
   only typed-path authority.
 - 0.0.4 HM hardening gate is zero-fallback for typed/inferred validation paths.
+- HM implementation baseline now uses global HM outputs for both
+  `TypeEnv` and expression-level typing maps consumed by typed validators.
+- Post-cutover hardening restores precise HM projection typing for
+  `Index`/`TupleFieldAccess` and locks pointer-identity invariants for
+  ExprTypeMap lookup consistency.
 
 It is intentionally implementation-focused (pass/fail criteria), not a new language design.
 
