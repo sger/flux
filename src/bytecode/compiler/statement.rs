@@ -104,6 +104,10 @@ impl Compiler {
                         self.bind_static_type(name, inferred);
                     }
 
+                    // Track aliases of effectful base functions so indirect calls
+                    // like `let p = print; p(...)` keep static effect checking.
+                    self.track_effect_alias_for_binding(name, value);
+
                     match symbol.symbol_scope {
                         SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
                         SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),

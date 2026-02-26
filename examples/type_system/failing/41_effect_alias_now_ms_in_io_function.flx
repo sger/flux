@@ -1,0 +1,10 @@
+// E400: aliasing `now_ms` must not bypass Time effect checks in `with IO` functions.
+
+fn h() -> Int with IO {
+    let n = now_ms
+    n()
+}
+
+fn main() -> Unit with IO, Time {
+    h();
+}

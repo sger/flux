@@ -70,6 +70,12 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E400`) when unannotated callee infers `IO` and a `with Time` caller invokes it
 - `38_top_level_effect_rejected.flx`
   - Expected: compile-time failure (`E413`, `E414`) for effectful top-level execution outside `fn main`
+- `39_effect_alias_print_in_pure_function.flx`
+  - Expected: compile-time failure (`E400`) when `print` is called via local alias in a typed pure function
+- `40_effect_alias_print_in_time_function.flx`
+  - Expected: compile-time failure (`E400`) when `print` is called via local alias in a `with Time` function
+- `41_effect_alias_now_ms_in_io_function.flx`
+  - Expected: compile-time failure (`E400`) when `now_ms` is called via local alias in a `with IO` function
 
 ## A3 Pure-Context Matrix
 
@@ -86,6 +92,14 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 | Pure top-level only (no `main`) | Allow | `../27_top_level_pure_ok.flx` |
 | Effectful top-level expression | Reject (`E413`, `E414`) | `38_top_level_effect_rejected.flx` |
 | Effectful expression inside `fn main() with ...` | Allow | `../28_effect_inside_main_allowed.flx` |
+
+## A1 Alias Edge Cases
+
+| Context | Expected | Fixture |
+|---|---|---|
+| `let p = print; p(...)` in typed pure function | Reject (`E400`) | `39_effect_alias_print_in_pure_function.flx` |
+| `let p = print; p(...)` in `with Time` function | Reject (`E400`) | `40_effect_alias_print_in_time_function.flx` |
+| `let n = now_ms; n()` in `with IO` function | Reject (`E400`) | `41_effect_alias_now_ms_in_io_function.flx` |
 
 ## Run
 
@@ -123,6 +137,9 @@ cargo run -- --no-cache examples/type_system/failing/35_pure_context_typed_pure_
 cargo run -- --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx
 cargo run -- --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx
 cargo run -- --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx
+cargo run -- --no-cache examples/type_system/failing/39_effect_alias_print_in_pure_function.flx
+cargo run -- --no-cache examples/type_system/failing/40_effect_alias_print_in_time_function.flx
+cargo run -- --no-cache examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
 ```
 
 JIT (compile-time failure examples):
@@ -156,4 +173,7 @@ cargo run --features jit -- --no-cache examples/type_system/failing/35_pure_cont
 cargo run --features jit -- --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/39_effect_alias_print_in_pure_function.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/40_effect_alias_print_in_time_function.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx --jit
 ```

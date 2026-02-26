@@ -608,13 +608,18 @@ impl Compiler {
     fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
         let required_name = match function {
             Expression::Identifier { name, .. } => {
-                let Some(binding) = self.resolve_visible_symbol(*name) else {
-                    return Ok(());
-                };
-                if binding.symbol_scope != SymbolScope::Base {
-                    return Ok(());
+                if let Some(effect) = self.lookup_effect_alias(*name) {
+                    Some(self.sym(effect).to_string())
+                } else {
+                    let Some(binding) = self.resolve_visible_symbol(*name) else {
+                        return Ok(());
+                    };
+                    if binding.symbol_scope != SymbolScope::Base {
+                        return Ok(());
+                    }
+                    self.required_effect_for_base_name(self.sym(*name))
+                        .map(str::to_string)
                 }
-                self.required_effect_for_base_name(self.sym(*name))
             }
             _ => None,
         };
@@ -623,7 +628,7 @@ impl Compiler {
             return Ok(());
         };
 
-        if self.is_effect_available_name(required_name) {
+        if self.is_effect_available_name(required_name.as_str()) {
             return Ok(());
         }
 
