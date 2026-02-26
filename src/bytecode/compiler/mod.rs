@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
     ast::{
         TailCall, collect_free_vars_in_program, find_tail_calls,
@@ -322,6 +323,80 @@ impl Compiler {
             }
             _ => {}
         }
+    }
+
+    fn collect_import_module_bindings(&self, program: &Program) -> HashMap<Symbol, Symbol> {
+        let mut bindings = HashMap::new();
+        for statement in &program.statements {
+            let Statement::Import { name, alias, .. } = statement else {
+                continue;
+            };
+            if self.is_base_module_symbol(*name) {
+                continue;
+            }
+            let binding = alias.unwrap_or(*name);
+            bindings.insert(binding, *name);
+        }
+        bindings
+    }
+
+    fn scheme_from_contract(contract: &FnContract, interner: &Interner) -> Option<Scheme> {
+        // For HM member lookup we require a complete typed signature.
+        if contract.params.iter().any(|p| p.is_none()) || contract.ret.is_none() {
+            return None;
+        }
+
+        let mut next_var: TypeVarId = 0;
+        let mut tp_map = HashMap::new();
+        for type_param in &contract.type_params {
+            tp_map.insert(*type_param, next_var);
+            next_var = next_var.saturating_add(1);
+        }
+
+        let mut param_tys = Vec::with_capacity(contract.params.len());
+        for param in &contract.params {
+            let ty_expr = param.as_ref()?;
+            let inferred = TypeEnv::infer_type_from_type_expr(ty_expr, &tp_map, interner)?;
+            param_tys.push(inferred);
+        }
+
+        let ret_expr = contract.ret.as_ref()?;
+        let ret_ty = TypeEnv::infer_type_from_type_expr(ret_expr, &tp_map, interner)?;
+        let effects = contract
+            .effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect::<Vec<_>>();
+
+        let infer_type = InferType::Fun(param_tys, Box::new(ret_ty), effects);
+        let mut forall = tp_map.values().copied().collect::<Vec<_>>();
+        forall.sort_unstable();
+        forall.dedup();
+        Some(Scheme { forall, infer_type })
+    }
+
+    fn build_preloaded_hm_member_schemes(
+        &self,
+        program: &Program,
+    ) -> HashMap<(Symbol, Symbol), Scheme> {
+        let import_bindings = self.collect_import_module_bindings(program);
+        if import_bindings.is_empty() {
+            return HashMap::new();
+        }
+
+        let mut preloaded = HashMap::new();
+        for (binding, target_module) in import_bindings {
+            for (key, contract) in &self.module_contracts {
+                if key.module_name != Some(target_module) {
+                    continue;
+                }
+                if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
+                    preloaded.insert((binding, key.function_name), scheme);
+                }
+            }
+        }
+
+        preloaded
     }
 
     fn collect_function_effect_seeds(&self, program: &Program) -> Vec<FunctionEffectSeed> {
@@ -1560,15 +1635,6 @@ impl Compiler {
     }
 
     #[inline]
-    pub(super) fn lookup_static_type(&self, name: Symbol) -> Option<RuntimeType> {
-        self.static_type_scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(&name))
-            .cloned()
-    }
-
-    #[inline]
     pub(super) fn bind_effect_alias(&mut self, name: Symbol, effect: Symbol) {
         if let Some(scope) = self.effect_alias_scopes.last_mut() {
             scope.insert(name, effect);
@@ -1744,7 +1810,13 @@ impl Compiler {
         // spurious failures in partially-typed programs where base-function return
         // types are not yet registered in the inference environment.
         let hm_diagnostics = {
-            let hm = infer_program(program, &self.interner, Some(self.file_path.clone()));
+            let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+            let hm = infer_program(
+                program,
+                &self.interner,
+                Some(self.file_path.clone()),
+                preloaded_member_schemes,
+            );
             self.type_env = hm.type_env;
             self.hm_expr_types = hm.expr_types;
             self.expr_ptr_to_id = hm.expr_ptr_to_id;

@@ -360,48 +360,53 @@ impl Compiler {
             }
         }
 
-        // Compile-time return type check: if the declared return type and the static type of
-        // the tail expression are both known, verify they're compatible.
-        if let Some(ret_annotation) = return_type
-            && let Some(expected_ret) = TypeEnv::infer_type_from_type_expr(
-                ret_annotation,
-                &Default::default(),
-                &self.interner,
-            )
-            && self.block_has_value_tail(body)
-            && let Some(Statement::Expression {
-                expression,
-                has_semicolon: false,
-                ..
-            }) = body.statements.last()
-        {
-            self.validate_expr_expected_type_with_policy(
-                &expected_ret,
-                expression,
-                "return expression type is known at compile time",
-                "return expression type does not match the declared return type".to_string(),
-                "function return expression",
-                true,
-            )?;
-        }
-
-        self.with_function_context(parameters.len(), effects, |compiler| {
-            compiler.compile_block_with_tail(body)
-        })?;
-
-        if self.block_has_value_tail(body) {
-            if self.is_last_instruction(OpCode::OpPop) {
-                self.replace_last_pop_with_return();
-            } else if !self.is_last_instruction(OpCode::OpReturnValue)
-                && !self.is_last_instruction(OpCode::OpReturnLocal)
+        let compile_result: CompileResult<()> = (|| {
+            // Compile-time return type check: if the declared return type and
+            // the static type of the tail expression are both known, verify
+            // they're compatible.
+            if let Some(ret_annotation) = return_type
+                && let Some(expected_ret) = TypeEnv::infer_type_from_type_expr(
+                    ret_annotation,
+                    &Default::default(),
+                    &self.interner,
+                )
+                && self.block_has_value_tail(body)
+                && let Some(Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    ..
+                }) = body.statements.last()
             {
-                self.emit(OpCode::OpReturnValue, &[]);
+                self.validate_expr_expected_type_with_policy(
+                    &expected_ret,
+                    expression,
+                    "return expression type is known at compile time",
+                    "return expression type does not match the declared return type".to_string(),
+                    "function return expression",
+                    true,
+                )?;
             }
-        } else if !self.is_last_instruction(OpCode::OpReturnValue)
-            && !self.is_last_instruction(OpCode::OpReturnLocal)
-        {
-            self.emit(OpCode::OpReturn, &[]);
-        }
+
+            let body_result = self.with_function_context(parameters.len(), effects, |compiler| {
+                compiler.compile_block_with_tail(body)
+            });
+            if body_result.is_ok() {
+                if self.block_has_value_tail(body) {
+                    if self.is_last_instruction(OpCode::OpPop) {
+                        self.replace_last_pop_with_return();
+                    } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                        && !self.is_last_instruction(OpCode::OpReturnLocal)
+                    {
+                        self.emit(OpCode::OpReturnValue, &[]);
+                    }
+                } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                    && !self.is_last_instruction(OpCode::OpReturnLocal)
+                {
+                    self.emit(OpCode::OpReturn, &[]);
+                }
+            }
+            body_result
+        })();
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         for free in &free_symbols {
@@ -413,6 +418,8 @@ impl Compiler {
         let num_locals = self.symbol_table.num_definitions;
 
         let (instructions, locations, files, effect_summary) = self.leave_scope();
+
+        compile_result?;
 
         for free in &free_symbols {
             self.load_symbol(free);

@@ -287,3 +287,22 @@ fn main() -> Unit {
         rendered
     );
 }
+
+#[test]
+fn function_compile_error_does_not_leak_scope() {
+    let (program, interner) = parse_program(
+        r#"
+fn bad() -> Int {
+    "oops"
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let _ = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    assert_eq!(
+        compiler.scope_index, 0,
+        "function compile error should not leak symbol table scope"
+    );
+}

@@ -4,21 +4,23 @@ source: tests/purity_vm_jit_parity_snapshots.rs
 Fixture: examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
 Category: H
 Strict: false
-Expect compile error: false
+Expect compile error: true
 
 == vm command ==
 $ flux --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
-exit_code: 0
+exit_code: 1
 
 == jit command ==
 $ flux --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx --jit
-exit_code: 0
+exit_code: 1
 
 == vm tuples ==
-<none>
+- E300 | TYPE UNIFICATION ERROR | expected String, found Int
+- E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == jit tuples ==
-<none>
+- E300 | TYPE UNIFICATION ERROR | expected String, found Int
+- E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == parity ==
 match

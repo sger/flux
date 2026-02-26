@@ -15,13 +15,9 @@ $ flux --no-cache --strict --root examples/type_system examples/type_system/61_s
 exit_code: 1
 
 == vm tuples ==
-- E017 | IMPORT SCOPE | 
-- E001 | DUPLICATE NAME | 
 - E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == jit tuples ==
-- E017 | IMPORT SCOPE | 
-- E001 | DUPLICATE NAME | 
 - E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
 
 == parity ==

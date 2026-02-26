@@ -16,6 +16,10 @@ Policy (0.0.4): for module ADTs, external callers should use module `public fn`
 factories/accessors; direct `Module.Ctor(...)` usage is not part of the stable
 API boundary.
 
+ADT declaration note:
+- `type Name<...> = Ctor(...) | ...` is declaration sugar desugared to `data`.
+- Canonical AST/display formatting may render the declaration as `data`.
+
 ## Files
 
 - `01_typed_let_and_functions.flx` - basic typed bindings and function signatures
@@ -71,6 +75,12 @@ API boundary.
 - `83_hm_bool_condition_and_guard_ok.flx` - HM static typing accepts boolean `if` conditions and `match` guards
 - `84_hm_logical_bool_ok.flx` - HM static typing validates boolean logical operators (`&&`, `||`)
 - `85_hm_module_generic_call_ok.flx` - HM infers module-qualified generic call returns deterministically
+- `86_type_adt_sugar_ok.flx` - ADT declaration sugar using `type ... = Ctor(...) | ...` desugars to `data`
+- `87_type_adt_sugar_module_ok.flx` - module-scoped ADT `type` sugar with public factory/accessor API
+- `88_match_bool_exhaustive_ok.flx` - general `match` exhaustiveness accepts unguarded `true`/`false` coverage without catch-all
+- `89_match_list_exhaustive_ok.flx` - general `match` exhaustiveness accepts `[]` + `[h | t]` list partition coverage
+- `90_match_guarded_with_fallback_ok.flx` - guarded arm plus unguarded fallback is accepted as exhaustive
+- `91_match_tuple_with_catchall_ok.flx` - conservative tuple `match` coverage accepted with explicit unguarded catch-all
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -130,6 +140,12 @@ cargo run -- examples/type_system/82_hm_index_known_type_ok.flx
 cargo run -- examples/type_system/83_hm_bool_condition_and_guard_ok.flx
 cargo run -- examples/type_system/84_hm_logical_bool_ok.flx
 cargo run -- --root examples/type_system examples/type_system/85_hm_module_generic_call_ok.flx
+cargo run -- examples/type_system/86_type_adt_sugar_ok.flx
+cargo run -- --root examples/type_system examples/type_system/87_type_adt_sugar_module_ok.flx
+cargo run -- examples/type_system/88_match_bool_exhaustive_ok.flx
+cargo run -- examples/type_system/89_match_list_exhaustive_ok.flx
+cargo run -- examples/type_system/90_match_guarded_with_fallback_ok.flx
+cargo run -- examples/type_system/91_match_tuple_with_catchall_ok.flx
 ```
 
 JIT:
@@ -177,6 +193,12 @@ cargo run --features jit -- examples/type_system/82_hm_index_known_type_ok.flx -
 cargo run --features jit -- examples/type_system/83_hm_bool_condition_and_guard_ok.flx --jit
 cargo run --features jit -- examples/type_system/84_hm_logical_bool_ok.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/85_hm_module_generic_call_ok.flx --jit
+cargo run --features jit -- examples/type_system/86_type_adt_sugar_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/87_type_adt_sugar_module_ok.flx --jit
+cargo run --features jit -- examples/type_system/88_match_bool_exhaustive_ok.flx --jit
+cargo run --features jit -- examples/type_system/89_match_list_exhaustive_ok.flx --jit
+cargo run --features jit -- examples/type_system/90_match_guarded_with_fallback_ok.flx --jit
+cargo run --features jit -- examples/type_system/91_match_tuple_with_catchall_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

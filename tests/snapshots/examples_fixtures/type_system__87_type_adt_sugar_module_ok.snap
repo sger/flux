@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/Debug/runtime_trace_error.flx
+Fixture: examples/type_system/87_type_adt_sugar_module_ok.flx
 == compile ==
 ok
 == diagnostics ==

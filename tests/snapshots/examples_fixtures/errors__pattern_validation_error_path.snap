@@ -43,25 +43,6 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
-
-Match expressions must end with a `_` or identifier arm.
-
-  --> examples/errors/pattern_validation_error_path.flx:9:7
-   |
- 9 | print(match value {
-   |       ^^^^^^^^^^^^^
-10 |     _ -> "any",
-   | ^^^^^^^^^^^^^^^
-11 |     2 -> "two",
-   | ^^^^^^^^^^^^^^^
-12 | });
-   | ^
-
-Hint:
-  Add a catch-all pattern: _ -> default_value
-
-
 --> compiler error[E016]: INVALID PATTERN
 
 Catch-all patterns must be the final match arm.
@@ -96,7 +77,7 @@ Hint:
 
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Match expressions must end with a `_` or identifier arm.
+Match is non-exhaustive without an unguarded catch-all arm.
 
   --> examples/errors/pattern_validation_error_path.flx:14:7
    |
@@ -110,7 +91,7 @@ Match expressions must end with a `_` or identifier arm.
    | ^
 
 Hint:
-  Add a catch-all pattern: _ -> default_value
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -138,6 +119,19 @@ Match expression must have at least one arm.
 
 Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/errors/pattern_validation_error_path.flx:19:7
+   |
+19 | print(match value { });
+   |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 Found 8 errors.
 == stdout ==

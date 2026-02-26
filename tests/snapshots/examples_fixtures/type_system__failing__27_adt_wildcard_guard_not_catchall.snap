@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Match expressions must end with a `_` or identifier arm.
+Match is non-exhaustive without an unguarded catch-all arm.
 
   --> examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx:9:5
    |
@@ -19,6 +19,6 @@ Match expressions must end with a `_` or identifier arm.
    | ^^^^^
 
 Hint:
-  Add a catch-all pattern: _ -> default_value
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 == stdout ==
 <not executed>

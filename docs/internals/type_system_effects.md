@@ -25,6 +25,8 @@ Release-critical track for v0.0.4 is:
 - Core HM inference for unannotated typed code paths.
 - User-defined nominal generic ADTs (`data T<...> { ... }`).
 - Stronger exhaustiveness (top-level constructor coverage + nested constructor-space checks for supported shapes).
+- General non-ADT `match` exhaustiveness hardening (`E015`) for Bool/list/sum-like
+  spaces with deterministic guarded-arm behavior.
 
 Truth sources for this baseline:
 - Compiler paths in `src/bytecode/compiler/mod.rs` and `src/bytecode/compiler/expression.rs`.
@@ -175,6 +177,8 @@ HM pass output contract (0.0.4):
   observe the same `Program` allocation.
 - HM expression precision currently covers member access plus index/tuple-field
   projections:
+  - module member access typing includes inline module members and imported
+    module public function contracts when typed signatures are available.
   - `tuple.i` resolves to the element type when in bounds.
   - `arr[i]`/`list[i]` resolves to `Option<T>`.
   - `map[k]` resolves to `Option<V>`.
@@ -226,7 +230,7 @@ Canonical fixture references:
 | Direct effect checks and propagation | `19`, `20`, `27`, `28` | `15`, `16`, `20`, `31`, `32`, `33`, `34`, `35`, `36`, `37`, `39`, `40`, `41` |
 | Perform/handle static correctness | `18`, `22`, `29` | `17`, `18`, `21`, `42`, `43` |
 | Effect polymorphism and rows | `21`, `23`, `30`, `31`, `32`, `33` | `19`, `22`, `44`, `45` |
-| HM + ADT + nested exhaustiveness hardening | `74`, `75`, `76`, `77`, `78`, `79`, `80`, `81`, `82`, `83`, `84`, `85` | `64`, `65`, `67`, `68`, `69`, `70`, `71`, `72`, `73`, `74`, `75`, `76`, `77`, `78`, `79` |
+| HM + ADT + exhaustiveness hardening | `74`, `75`, `76`, `77`, `78`, `79`, `80`, `81`, `82`, `83`, `84`, `85`, `88`, `89`, `90`, `91` | `64`, `65`, `67`, `68`, `69`, `70`, `71`, `72`, `73`, `74`, `75`, `76`, `77`, `78`, `79`, `81`, `82`, `83`, `84` |
 | Entry-point boundary | `27`, `28`, `29` | `38`, `43`, `46`, `47`, `48`, `49`, `50` |
 | Strict/public boundary | `58`, `59`, `60`, `61` | `29`, `30`, `51`, `52`, `53`, `54`, `55`, `56`, `57`, `58`, `59` |
 

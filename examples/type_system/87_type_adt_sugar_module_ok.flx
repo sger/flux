@@ -1,0 +1,7 @@
+import TypeSystem.TypeAliasDomain
+
+fn value() -> Int {
+    TypeSystem.TypeAliasDomain.unwrap_or_zero(TypeSystem.TypeAliasDomain.make_ok(7))
+}
+
+let x: Int = value()

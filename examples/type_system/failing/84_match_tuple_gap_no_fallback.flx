@@ -1,0 +1,7 @@
+// E015: Tuple match without unguarded catch-all is conservatively non-exhaustive.
+let t = (1, true);
+
+match t {
+    (1, true) -> 1,
+    (2, false) -> 2
+};

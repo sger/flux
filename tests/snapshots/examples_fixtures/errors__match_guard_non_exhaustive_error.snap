@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Match expressions must end with a `_` or identifier arm.
+Match is non-exhaustive without an unguarded catch-all arm.
 
   --> examples/errors/match_guard_non_exhaustive_error.flx:4:22
   |
@@ -19,7 +19,7 @@ Match expressions must end with a `_` or identifier arm.
   | ^
 
 Hint:
-  Add a catch-all pattern: _ -> default_value
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
