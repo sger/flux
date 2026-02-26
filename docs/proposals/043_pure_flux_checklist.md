@@ -163,18 +163,21 @@ Status:
 
 ### G. Backend Parity and Regression Coverage
 
-- [ ] G1. VM and JIT produce equivalent compile-time diagnostics for effect/type boundary failures.
-- [ ] G2. Shared fixture matrix covers:
+- [x] G1. VM and JIT produce equivalent compile-time diagnostics for effect/type boundary failures.
+- [x] G2. Shared fixture matrix covers:
   - direct effects
   - call propagation
   - handle discharge
   - effect polymorphism
   - strict policy
-- [ ] G3. Snapshot tests pin diagnostic code + title + primary label for key cases.
+- [x] G3. Snapshot tests pin diagnostic code + title + primary label for key cases.
 
 Pass criteria:
 - No known VM/JIT discrepancy in effect diagnostics for fixture suite.
 - CI runs both backends on purity-critical fixtures.
+
+Status:
+- Completed with a dedicated `purity_vm_jit_parity_snapshots` suite using a curated A-F fixture matrix and tuple parity checks (`code`, `title`, `primary label`) with dedicated snapshots under `tests/snapshots/purity_parity`.
 
 ---
 

@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/43_main_unhandled_custom_effect.flx
+Category: D
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E406 | UNHANDLED ROOT EFFECT | 
+
+== jit tuples ==
+- E406 | UNHANDLED ROOT EFFECT | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

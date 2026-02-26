@@ -197,6 +197,28 @@ Note:
 - Visibility is explicit (`public fn`).
 - `_name` is style-only and has no strict/public semantics.
 
+## G Backend Parity Matrix (Curated)
+
+| Category | Context | Fixture |
+|---|---|---|
+| A | direct effect rejection in typed/time contexts | `35_pure_context_typed_pure_rejects_io.flx`, `36_pure_context_time_only_rejects_io.flx`, `37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx` |
+| A | module-qualified effect propagation | `33_module_qualified_effect_propagation_missing.flx` |
+| B | handle/perform static failures | `17_handle_unknown_operation.flx`, `18_handle_incomplete_operation_set.flx`, `42_handle_unknown_effect.flx` |
+| B | handle discharge pass | `../22_handle_discharges_effect.flx` |
+| C | effect polymorphism pass/fail | `../30_effect_poly_hof_nested_ok.flx`, `44_effect_poly_hof_nested_missing_effect.flx`, `45_effect_row_subtract_missing_io.flx` |
+| D | entry policy pass/fail | `38_top_level_effect_rejected.flx`, `43_main_unhandled_custom_effect.flx`, `../29_main_handles_custom_effect.flx` |
+| E/F | strict/public boundary pass/fail | `29_strict_missing_main.flx`, `57_strict_entry_path_parity.flx`, `58_strict_public_underscore_missing_annotation.flx`, `../61_strict_module_private_unannotated_allowed.flx` |
+
+Parity rule:
+- VM and JIT must match on diagnostic tuple: `error code + title + primary label`.
+
+Run parity suite:
+
+```bash
+cargo test --all --all-features purity_vm_jit_parity_snapshots
+INSTA_UPDATE=always cargo test --all --all-features purity_vm_jit_parity_snapshots
+```
+
 ## Run
 
 ```bash

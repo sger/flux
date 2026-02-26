@@ -34,6 +34,9 @@ jobs:
       - name: Tests
         run: cargo test --all --all-features
 
+      - name: Purity VM/JIT parity snapshots
+        run: cargo test --all --all-features purity_vm_jit_parity_snapshots
+
       - name: Smoke test (VM/JIT --test)
         run: |
           cargo run -- --test examples/tests/array_test.flx
