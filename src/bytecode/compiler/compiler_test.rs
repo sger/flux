@@ -201,7 +201,6 @@ fn typed_let_module_member_call_uses_hm_strict_path() {
 module Local {
     public fn make_float() -> Float { 1.5 }
 }
-
 fn main() -> Unit {
     let x: Int = Local.make_float()
 }
@@ -215,6 +214,32 @@ fn main() -> Unit {
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_private_module_member_call_is_rejected_before_hm_boundary_type_check() {
+    let (program, interner) = parse_program(
+        r#"
+module Local {
+    fn make_float() -> Float { 1.5 }
+}
+
+fn main() -> Unit {
+    let x: Float = Local.make_float()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected private member access failure");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E011]"),
         "unexpected diagnostics:\n{}",
         rendered
     );

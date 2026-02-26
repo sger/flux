@@ -1,0 +1,10 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/guide_type_system/03_pure_function_boundaries.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>

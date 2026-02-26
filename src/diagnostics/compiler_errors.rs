@@ -93,7 +93,7 @@ pub const PRIVATE_MEMBER: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Cannot access private member `{}`.",
     hint: Some(
-        "Private members can only be accessed within the same module. Use `pub` to make it public.",
+        "Private members can only be accessed within the same module. Use `public fn` to export a function.",
     ),
 };
 

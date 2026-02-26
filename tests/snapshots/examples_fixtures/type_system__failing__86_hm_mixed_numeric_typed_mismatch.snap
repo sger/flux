@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Float.
+
+  --> examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
+  |
+2 |     let x: Int = 1 + 2.5
+  |                  ^^^^^^^
+  |                  ------- expected Int, found Float
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Float.
+
+  --> examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
+  |
+2 |     let x: Int = 1 + 2.5
+  |                  ^^^^^^^
+  |                  ------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Float
+  |                  ------- operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+
+Found 2 errors.
+== stdout ==
+<not executed>

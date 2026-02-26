@@ -45,6 +45,14 @@ fn fun(params: Vec<InferType>, ret: InferType) -> InferType {
     InferType::Fun(params, Box::new(ret), vec![])
 }
 
+fn fun_with_effects(
+    params: Vec<InferType>,
+    ret: InferType,
+    effects: Vec<flux::syntax::Identifier>,
+) -> InferType {
+    InferType::Fun(params, Box::new(ret), effects)
+}
+
 fn tuple(elems: Vec<InferType>) -> InferType {
     InferType::Tuple(elems)
 }
@@ -142,6 +150,27 @@ fn unify_fun_arity_mismatch() {
         &fun(vec![int(), int()], string()),
     )
     .unwrap_err();
+    assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+}
+
+#[test]
+fn unify_fun_effect_match_succeeds() {
+    let mut interner = flux::syntax::interner::Interner::new();
+    let io = interner.intern("IO");
+    let time = interner.intern("Time");
+    let left = fun_with_effects(vec![int()], int(), vec![io, time]);
+    let right = fun_with_effects(vec![int()], int(), vec![time, io]);
+    assert!(unify(&left, &right).is_ok());
+}
+
+#[test]
+fn unify_fun_effect_mismatch_fails() {
+    let mut interner = flux::syntax::interner::Interner::new();
+    let io = interner.intern("IO");
+    let time = interner.intern("Time");
+    let left = fun_with_effects(vec![int()], int(), vec![io]);
+    let right = fun_with_effects(vec![int()], int(), vec![time]);
+    let err = unify(&left, &right).unwrap_err();
     assert_eq!(err.kind, UnifyErrorKind::Mismatch);
 }
 

@@ -47,6 +47,19 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day03a_from_memory`.
+
+  --> examples/aoc/2024/day03.flx:7:7
+  |
+7 | print(Day03.day03a_from_memory(memory))
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -60,6 +73,19 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day03b_from_memory`.
+
+  --> examples/aoc/2024/day03.flx:8:7
+  |
+8 | print(Day03.day03b_from_memory(memory))
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 6 errors.
 == stdout ==
 <not executed>

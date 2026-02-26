@@ -1,0 +1,29 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx
+Category: H
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Int, found Float
+- E300 | TYPE UNIFICATION ERROR | expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Float
+
+== jit tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Int, found Float
+- E300 | TYPE UNIFICATION ERROR | expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Float
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

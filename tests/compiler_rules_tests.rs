@@ -1,4 +1,5 @@
 use flux::bytecode::compiler::Compiler;
+use flux::diagnostics::render_diagnostics;
 use flux::syntax::{lexer::Lexer, parser::Parser};
 
 fn compile_ok_in(file_path: &str, input: &str) {
@@ -73,6 +74,24 @@ fn compile_err_strict(input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_err_strict_rendered(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    compiler.set_strict_mode(true);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    render_diagnostics(&err, None, None)
+}
+
 fn compile_err_title(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
@@ -137,6 +156,45 @@ fn private_member_access_error() {
         "module Math { fn _private() { 1; } } module Main { fn main() { Math._private(); } }",
     );
     assert_eq!(code, "E011");
+}
+
+#[test]
+fn non_public_module_function_access_error() {
+    let code =
+        compile_err("module Math { fn hidden() { 1; } } module Main { fn main() { Math.hidden(); } }");
+    assert_eq!(code, "E011");
+}
+
+#[test]
+fn public_module_function_access_ok() {
+    compile_ok_in(
+        "examples/test.flx",
+        "module Math { public fn open() { 1; } } module Main { fn main() { Math.open(); } }",
+    );
+}
+
+#[test]
+fn module_internal_private_helper_access_ok() {
+    compile_ok_in(
+        "examples/test.flx",
+        "module Math { fn hidden() { 1; } public fn run() { hidden(); } } module Main { fn main() { Math.run(); } }",
+    );
+}
+
+#[test]
+fn alias_access_to_non_public_module_function_error() {
+    let code = compile_err(
+        "import Math as M module Math { fn hidden() { 1; } } module Main { fn main() { M.hidden(); } }",
+    );
+    assert_eq!(code, "E011");
+}
+
+#[test]
+fn alias_access_to_public_module_function_ok() {
+    compile_ok_in(
+        "examples/test.flx",
+        "import Math as M module Math { public fn open() { 1; } } module Main { fn main() { M.open(); } }",
+    );
 }
 
 #[test]
@@ -334,6 +392,87 @@ fn main() -> Unit {
 "#,
     );
     assert_eq!(code, "E425");
+}
+
+#[test]
+fn hm_polymorphic_reuse_across_concrete_types_ok() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+fn id<T>(x: T) -> T { x }
+fn main() -> Unit {
+    let n = id(1)
+    let s = id("ok")
+}
+"#,
+    );
+}
+
+#[test]
+fn hm_typed_mixed_numeric_add_is_compile_mismatch() {
+    let code = compile_err(
+        r#"
+fn main() -> Unit {
+    let x: Int = 1 + 2.5
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn hm_pattern_binding_from_some_is_constrained() {
+    let code = compile_err(
+        r#"
+fn main() -> Unit {
+    let x: String = match Some(1) {
+        Some(v) -> v,
+        None -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+}
+
+#[test]
+fn strict_member_access_non_module_path_reports_unresolved_boundary() {
+    let code = compile_err_strict(
+        r#"
+fn main() -> Unit {
+    let h = { "a": 1 }
+    let x: Int = h.a
+}
+"#,
+    );
+    assert_eq!(code, "E425");
+}
+
+#[test]
+fn strict_unresolved_generic_boundary_has_stable_diagnostic_shape() {
+    let rendered = compile_err_strict_rendered(
+        r#"
+public fn id<T>(x: T) -> T { x }
+fn main() -> Unit {
+    id(1)
+}
+"#,
+    );
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 in rendered diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("STRICT UNRESOLVED BOUNDARY TYPE"),
+        "expected title in rendered diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("unresolved expression type in function return expression"),
+        "expected unresolved-context message in rendered diagnostics:\n{}",
+        rendered
+    );
 }
 
 #[test]

@@ -107,6 +107,7 @@ pub struct Compiler {
     pub tail_calls: Vec<TailCall>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
+    pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
@@ -164,6 +165,7 @@ impl Compiler {
             tail_calls: Vec::new(),
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
+            module_function_visibility: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
@@ -280,6 +282,35 @@ impl Compiler {
         }
     }
 
+    fn collect_module_function_visibility(&mut self, program: &Program) {
+        for statement in &program.statements {
+            self.collect_module_function_visibility_from_statement(statement, None);
+        }
+    }
+
+    fn collect_module_function_visibility_from_statement(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
+        match statement {
+            Statement::Function {
+                is_public, name, ..
+            } => {
+                if let Some(module_name) = module_name {
+                    self.module_function_visibility
+                        .insert((module_name, *name), *is_public);
+                }
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.collect_module_function_visibility_from_statement(nested, Some(*name));
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn collect_contracts_from_statement(
         &mut self,
         statement: &Statement,
@@ -388,6 +419,13 @@ impl Compiler {
         for (binding, target_module) in import_bindings {
             for (key, contract) in &self.module_contracts {
                 if key.module_name != Some(target_module) {
+                    continue;
+                }
+                if self
+                    .module_function_visibility
+                    .get(&(target_module, key.function_name))
+                    != Some(&true)
+                {
                     continue;
                 }
                 if let Some(scheme) = Self::scheme_from_contract(contract, &self.interner) {
@@ -1566,6 +1604,16 @@ impl Compiler {
         self.lookup_contract(None, function_name, arity)
     }
 
+    pub(super) fn module_member_function_is_public(
+        &self,
+        module_name: Symbol,
+        member_name: Symbol,
+    ) -> Option<bool> {
+        self.module_function_visibility
+            .get(&(module_name, member_name))
+            .copied()
+    }
+
     pub(super) fn module_qualifier_text(&self, expr: &Expression) -> Option<String> {
         match expr {
             Expression::Identifier { name, .. } => Some(self.sym(*name).to_string()),
@@ -1749,6 +1797,7 @@ impl Compiler {
         self.effect_alias_scopes.clear();
         self.effect_alias_scopes.push(HashMap::new());
         self.process_base_directives(program);
+        self.collect_module_function_visibility(program);
         self.collect_module_contracts(program);
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);

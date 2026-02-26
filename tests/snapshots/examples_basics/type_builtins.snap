@@ -450,6 +450,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/basics/type_builtins.flx:119:7
+    |
+119 | print(describe(42));
+    |       ^^^^^^^^^^^^
+    |       ------------ expected String, found Int
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -462,17 +473,6 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Int with String.
-
-  --> examples/basics/type_builtins.flx:120:7
-    |
-120 | print(describe("hello"));
-    |       ^^^^^^^^^^^^^^^^^
-    |       ----------------- expected Int, found String
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -491,13 +491,13 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with Array<Int>.
+Cannot unify String with Array<Int>.
 
   --> examples/basics/type_builtins.flx:121:7
     |
 121 | print(describe([|1, 2, 3|]));
     |       ^^^^^^^^^^^^^^^^^^^^^
-    |       --------------------- expected Int, found Array<Int>
+    |       --------------------- expected String, found Array<Int>
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT

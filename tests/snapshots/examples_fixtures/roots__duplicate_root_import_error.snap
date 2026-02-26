@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/roots/duplicate_root_import_error.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `value`.
+
+  --> examples/roots/duplicate_root_import_error.flx:3:1
+  |
+3 | Dup.Mod.value();
+  | ^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 == stdout ==
 <not executed>

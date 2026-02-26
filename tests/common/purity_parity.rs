@@ -264,6 +264,27 @@ pub fn curated_cases() -> Vec<ParityFixtureCase> {
             expect_compile_error: true,
             category: "H",
         },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/85_hm_function_effect_mismatch.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "H",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "H",
+        },
+        ParityFixtureCase {
+            path: "examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx",
+            roots: &[],
+            strict: false,
+            expect_compile_error: true,
+            category: "H",
+        },
     ]
 }
 

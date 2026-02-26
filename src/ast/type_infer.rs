@@ -443,18 +443,14 @@ impl<'a> InferCtx<'a> {
                 arms,
                 span,
             } => {
-                self.infer_expr(scrutinee);
+                let scrutinee_ty = self.infer_expr(scrutinee);
                 if arms.is_empty() {
                     return InferType::Con(TypeConstructor::Any);
                 }
 
                 // Infer the first arm.
                 self.env.enter_scope();
-                self.bind_pattern(
-                    &arms[0].pattern,
-                    &InferType::Con(TypeConstructor::Any),
-                    *span,
-                );
+                self.bind_pattern(&arms[0].pattern, &scrutinee_ty, *span);
                 if let Some(guard) = &arms[0].guard {
                     self.infer_expr(guard);
                 }
@@ -465,7 +461,7 @@ impl<'a> InferCtx<'a> {
                 let mut result_ty = first_ty;
                 for arm in arms.iter().skip(1) {
                     self.env.enter_scope();
-                    self.bind_pattern(&arm.pattern, &InferType::Con(TypeConstructor::Any), *span);
+                    self.bind_pattern(&arm.pattern, &scrutinee_ty, *span);
                     if let Some(guard) = &arm.guard {
                         self.infer_expr(guard);
                     }
@@ -708,16 +704,43 @@ impl<'a> InferCtx<'a> {
         let lt = self.infer_expr(left);
         let rt = self.infer_expr(right);
         match op {
-            // Arithmetic — Flux allows mixed Int/Float arithmetic (e.g. `1 + 2.5`).
-            // We do NOT require operand agreement; instead we propagate the concrete
-            // type when both sides agree, and fall back to Any for mixed or unknown.
-            "+" | "-" | "*" | "/" | "%" => {
-                let lt_r = lt.apply_type_subst(&self.subst);
-                let rt_r = rt.apply_type_subst(&self.subst);
-                if lt_r == rt_r {
-                    lt_r
-                } else {
-                    InferType::Con(TypeConstructor::Any)
+            // Arithmetic policy:
+            // - `+` supports Int, Float, and String with matching operand types.
+            // - `-`, `*`, `/`, `%` support Int/Float with matching operand types.
+            // Mixed numeric types are rejected in typed contexts.
+            "+" => {
+                let resolved = self.unify_reporting(&lt, &rt, span);
+                match resolved.apply_type_subst(&self.subst) {
+                    InferType::Con(TypeConstructor::Int)
+                    | InferType::Con(TypeConstructor::Float)
+                    | InferType::Con(TypeConstructor::String) => {
+                        resolved.apply_type_subst(&self.subst)
+                    }
+                    InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
+                        InferType::Con(TypeConstructor::Any)
+                    }
+                    other => {
+                        let expected_numeric = InferType::Con(TypeConstructor::Int);
+                        self.unify_reporting(&other, &expected_numeric, span);
+                        InferType::Con(TypeConstructor::Any)
+                    }
+                }
+            }
+            "-" | "*" | "/" | "%" => {
+                let resolved = self.unify_reporting(&lt, &rt, span);
+                match resolved.apply_type_subst(&self.subst) {
+                    InferType::Con(TypeConstructor::Int)
+                    | InferType::Con(TypeConstructor::Float) => {
+                        resolved.apply_type_subst(&self.subst)
+                    }
+                    InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
+                        InferType::Con(TypeConstructor::Any)
+                    }
+                    other => {
+                        let expected_numeric = InferType::Con(TypeConstructor::Int);
+                        self.unify_reporting(&other, &expected_numeric, span);
+                        InferType::Con(TypeConstructor::Any)
+                    }
                 }
             }
             // Comparisons — operands must agree; result is Bool.
@@ -768,33 +791,98 @@ impl<'a> InferCtx<'a> {
 
     // ── Pattern variable binding ──────────────────────────────────────────────
 
-    /// Conservatively bind all variables introduced by a pattern to fresh
-    /// type variables.  We do not propagate scrutinee type information
-    /// downward into patterns at this stage.
-    fn bind_pattern(&mut self, pattern: &Pattern, _scrutinee_ty: &InferType, span: Span) {
+    /// Bind variables introduced by a pattern, propagating scrutinee type
+    /// information when available.
+    fn bind_pattern(&mut self, pattern: &Pattern, scrutinee_ty: &InferType, span: Span) {
+        let resolved_scrutinee = scrutinee_ty.apply_type_subst(&self.subst);
         match pattern {
             Pattern::Identifier { name, .. } => {
-                let v = self.env.fresh_infer_type();
-                self.env.bind(*name, Scheme::mono(v));
+                self.env.bind(*name, Scheme::mono(resolved_scrutinee));
             }
-            Pattern::Wildcard { .. }
-            | Pattern::None { .. }
-            | Pattern::EmptyList { .. }
-            | Pattern::Literal { .. } => {
+            Pattern::Wildcard { .. } => {
                 // Nothing to bind.
             }
-            Pattern::Some { pattern, .. }
-            | Pattern::Left { pattern, .. }
-            | Pattern::Right { pattern, .. } => {
-                self.bind_pattern(pattern, &InferType::Con(TypeConstructor::Any), span);
+            Pattern::Literal { expression, .. } => {
+                let literal_ty = self.infer_expr(expression);
+                self.unify_reporting(&resolved_scrutinee, &literal_ty, span);
+            }
+            Pattern::None { .. } => {
+                let inner = self.env.fresh_infer_type();
+                let expected = InferType::App(TypeConstructor::Option, vec![inner]);
+                self.unify_reporting(&resolved_scrutinee, &expected, span);
+            }
+            Pattern::Some { pattern, .. } => {
+                let inner = self.env.fresh_infer_type();
+                let expected = InferType::App(TypeConstructor::Option, vec![inner.clone()]);
+                let unified = self.unify_reporting(&resolved_scrutinee, &expected, span);
+                let inner_ty = match unified.apply_type_subst(&self.subst) {
+                    InferType::App(TypeConstructor::Option, args) if args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    _ => inner.apply_type_subst(&self.subst),
+                };
+                self.bind_pattern(pattern, &inner_ty, span);
+            }
+            Pattern::Left { pattern, .. } => {
+                let left = self.env.fresh_infer_type();
+                let right = self.env.fresh_infer_type();
+                let expected = InferType::App(TypeConstructor::Either, vec![left.clone(), right]);
+                let unified = self.unify_reporting(&resolved_scrutinee, &expected, span);
+                let left_ty = match unified.apply_type_subst(&self.subst) {
+                    InferType::App(TypeConstructor::Either, args) if args.len() == 2 => {
+                        args[0].clone()
+                    }
+                    _ => left.apply_type_subst(&self.subst),
+                };
+                self.bind_pattern(pattern, &left_ty, span);
+            }
+            Pattern::Right { pattern, .. } => {
+                let left = self.env.fresh_infer_type();
+                let right = self.env.fresh_infer_type();
+                let expected = InferType::App(TypeConstructor::Either, vec![left, right.clone()]);
+                let unified = self.unify_reporting(&resolved_scrutinee, &expected, span);
+                let right_ty = match unified.apply_type_subst(&self.subst) {
+                    InferType::App(TypeConstructor::Either, args) if args.len() == 2 => {
+                        args[1].clone()
+                    }
+                    _ => right.apply_type_subst(&self.subst),
+                };
+                self.bind_pattern(pattern, &right_ty, span);
+            }
+            Pattern::EmptyList { .. } => {
+                let elem = self.env.fresh_infer_type();
+                let expected = InferType::App(TypeConstructor::List, vec![elem]);
+                self.unify_reporting(&resolved_scrutinee, &expected, span);
             }
             Pattern::Cons { head, tail, .. } => {
-                self.bind_pattern(head, &InferType::Con(TypeConstructor::Any), span);
-                self.bind_pattern(tail, &InferType::Con(TypeConstructor::Any), span);
+                let elem = self.env.fresh_infer_type();
+                let list_ty = InferType::App(TypeConstructor::List, vec![elem.clone()]);
+                let unified = self.unify_reporting(&resolved_scrutinee, &list_ty, span);
+                let element_ty = match unified.apply_type_subst(&self.subst) {
+                    InferType::App(TypeConstructor::List, args) if args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    _ => elem.apply_type_subst(&self.subst),
+                };
+                self.bind_pattern(head, &element_ty, span);
+                self.bind_pattern(tail, &list_ty, span);
             }
             Pattern::Tuple { elements, .. } => {
-                for elem in elements {
-                    self.bind_pattern(elem, &InferType::Con(TypeConstructor::Any), span);
+                let tuple_shape = InferType::Tuple(
+                    elements
+                        .iter()
+                        .map(|_| self.env.fresh_infer_type())
+                        .collect(),
+                );
+                let unified = self.unify_reporting(&resolved_scrutinee, &tuple_shape, span);
+                if let InferType::Tuple(component_types) = unified.apply_type_subst(&self.subst) {
+                    for (elem, elem_ty) in elements.iter().zip(component_types.iter()) {
+                        self.bind_pattern(elem, elem_ty, span);
+                    }
+                } else {
+                    for elem in elements {
+                        self.bind_pattern(elem, &InferType::Con(TypeConstructor::Any), span);
+                    }
                 }
             }
             Pattern::Constructor { fields, .. } => {
