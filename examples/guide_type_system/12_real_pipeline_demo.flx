@@ -1,0 +1,10 @@
+import Guide.Factories as F
+import Guide.Effects as E
+import Guide.StrictApi as API
+
+fn main() with IO, Time {
+    let start: Int = F.demo(3)
+    let shaped: Int = E.map_twice(\n -> n + 1, start)
+    let logged: Int = E.run_with_logging(shaped)
+    print(to_string(API.pipeline(logged)))
+}

@@ -1,0 +1,11 @@
+type Shape = Circle(Float) | Rect(Float, Float)
+
+fn area(s: Shape) -> Float {
+    match s {
+        Circle(r) -> r * r,
+        Rect(w, h) -> w * h,
+    }
+}
+
+let a1: Float = area(Circle(2.0))
+let a2: Float = area(Rect(2.0, 3.0))

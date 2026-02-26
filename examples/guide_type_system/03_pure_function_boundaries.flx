@@ -1,0 +1,19 @@
+fn normalize_pair(p: (String, Int)) -> (String, Int) {
+    match p {
+        (name, score) -> (trim(name), score),
+        _ -> ("", 0),
+    }
+}
+
+fn sum_scores(xs: List<(String, Int)>) -> Int {
+    match xs {
+        [h | t] -> match h {
+            (_, s) -> s + sum_scores(t),
+            _ -> sum_scores(t),
+        },
+        _ -> 0,
+    }
+}
+
+let cleaned: (String, Int) = normalize_pair(("  Ada  ", 10))
+let total: Int = sum_scores([cleaned, ("Bob", 20)])
