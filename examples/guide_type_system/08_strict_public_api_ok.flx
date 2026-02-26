@@ -1,0 +1,5 @@
+import Guide.StrictApi as API
+
+fn main() -> Unit {
+    let out: Int = API.pipeline(1)
+}

@@ -1,0 +1,15 @@
+module Guide.Effects {
+    public fn tick_plus(x: Int) -> Int with Time {
+        now_ms() + x
+    }
+
+    public fn run_with_logging(x: Int) -> Int with IO, Time {
+        let value: Int = tick_plus(x)
+        print(to_string(value))
+        value
+    }
+
+    public fn map_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+        f(f(x))
+    }
+}

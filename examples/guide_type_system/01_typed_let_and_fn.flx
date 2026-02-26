@@ -1,0 +1,6 @@
+fn add(x: Int, y: Int) -> Int {
+    x + y
+}
+
+let base: Int = 40
+let total: Int = add(base, 2)
