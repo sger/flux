@@ -1,0 +1,12 @@
+// E300: effect operation argument mismatch.
+// `Console.read` expects `String`, but call passes `Int`.
+
+effect Console {
+    read: String -> Int
+}
+
+fn main() -> Unit with IO {
+    let _ = (perform Console.read(123)) handle Console {
+        read(_resume, _msg) -> 0
+    }
+}

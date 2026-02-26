@@ -81,6 +81,7 @@ ADT declaration note:
 - `89_match_list_exhaustive_ok.flx` - general `match` exhaustiveness accepts `[]` + `[h | t]` list partition coverage
 - `90_match_guarded_with_fallback_ok.flx` - guarded arm plus unguarded fallback is accepted as exhaustive
 - `91_match_tuple_with_catchall_ok.flx` - conservative tuple `match` coverage accepted with explicit unguarded catch-all
+- `92_effect_op_signature_enforcement_ok.flx` - effect op signature (`String -> Int`) enforced across `perform` and handler arm typing
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -146,6 +147,7 @@ cargo run -- examples/type_system/88_match_bool_exhaustive_ok.flx
 cargo run -- examples/type_system/89_match_list_exhaustive_ok.flx
 cargo run -- examples/type_system/90_match_guarded_with_fallback_ok.flx
 cargo run -- examples/type_system/91_match_tuple_with_catchall_ok.flx
+cargo run -- examples/type_system/92_effect_op_signature_enforcement_ok.flx
 ```
 
 JIT:
@@ -199,6 +201,7 @@ cargo run --features jit -- examples/type_system/88_match_bool_exhaustive_ok.flx
 cargo run --features jit -- examples/type_system/89_match_list_exhaustive_ok.flx --jit
 cargo run --features jit -- examples/type_system/90_match_guarded_with_fallback_ok.flx --jit
 cargo run --features jit -- examples/type_system/91_match_tuple_with_catchall_ok.flx --jit
+cargo run --features jit -- examples/type_system/92_effect_op_signature_enforcement_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

@@ -72,7 +72,7 @@ pub enum Statement {
         span: Span,
     },
     /// effect Name { op: Params -> Ret, ... } - declares a user defined effect.
-    /// Syntax only for now not enforced by the compiler.
+    /// Operation signatures are enforced by compiler static checks.
     EffectDecl {
         name: Identifier,
         ops: Vec<EffectOp>,
