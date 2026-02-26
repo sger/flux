@@ -183,7 +183,6 @@ impl Compiler {
         self.current_module_prefix = None;
         self.current_span = None;
         self.excluded_base_symbols.clear();
-        self.module_contracts.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
@@ -246,8 +245,6 @@ impl Compiler {
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {
-        self.module_contracts.clear();
-
         for statement in &program.statements {
             self.collect_contracts_from_statement(statement, None);
         }
@@ -810,18 +807,15 @@ impl Compiler {
                     let name = self.sym(*name);
                     if matches!(name, "print" | "read_file" | "read_lines" | "read_stdin") {
                         effects.insert(io_effect);
-                    } else if matches!(name, "now" | "clock_now") {
+                    } else if matches!(name, "now" | "clock_now" | "now_ms" | "time") {
                         effects.insert(time_effect);
                     }
                 }
             }
             Expression::MemberAccess { object, member, .. } => {
-                if let Expression::Identifier {
-                    name: module_name, ..
-                } = object.as_ref()
-                {
+                if let Some(module_name) = self.resolve_module_name_from_expr(object) {
                     let key = ContractKey {
-                        module_name: Some(*module_name),
+                        module_name: Some(module_name),
                         function_name: *member,
                         arity,
                     };
@@ -1231,6 +1225,52 @@ impl Compiler {
         self.lookup_contract(None, function_name, arity)
     }
 
+    pub(super) fn module_qualifier_text(&self, expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Identifier { name, .. } => Some(self.sym(*name).to_string()),
+            Expression::MemberAccess { object, member, .. } => Some(format!(
+                "{}.{}",
+                self.module_qualifier_text(object)?,
+                self.sym(*member)
+            )),
+            _ => None,
+        }
+    }
+
+    pub(super) fn resolve_module_name_from_expr(&self, expr: &Expression) -> Option<Symbol> {
+        if let Expression::Identifier { name, .. } = expr {
+            if let Some(target) = self.import_aliases.get(name) {
+                return Some(*target);
+            }
+            if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name) {
+                return Some(*name);
+            }
+            return None;
+        }
+
+        let qualifier = self.module_qualifier_text(expr)?;
+
+        if let Some(found) = self
+            .imported_modules
+            .iter()
+            .copied()
+            .find(|module| self.sym(*module) == qualifier)
+        {
+            return Some(found);
+        }
+
+        if let Some(current) = self.current_module_prefix
+            && self.sym(current) == qualifier
+        {
+            return Some(current);
+        }
+
+        self.module_contracts.keys().find_map(|key| {
+            let module = key.module_name?;
+            (self.sym(module) == qualifier).then_some(module)
+        })
+    }
+
     pub(super) fn effect_declared_ops(&self, effect: Symbol) -> Option<&HashSet<Symbol>> {
         self.effect_ops_registry.get(&effect)
     }
@@ -1321,7 +1361,6 @@ impl Compiler {
         self.excluded_base_symbols.clear();
         self.function_effects.clear();
         self.handled_effects.clear();
-        self.module_contracts.clear();
         self.effect_ops_registry.clear();
         self.static_type_scopes.clear();
         self.static_type_scopes.push(HashMap::new());

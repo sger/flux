@@ -1,0 +1,5 @@
+// A4 matrix: effectful operations are allowed inside `fn main() with ...`.
+
+fn main() -> Unit with IO {
+    print("main handles IO")
+}

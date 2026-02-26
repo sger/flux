@@ -1,0 +1,10 @@
+// A3 matrix: typed `with Time` function rejects direct IO builtin call.
+
+fn tick() -> Int with Time {
+    print("tick")
+    1
+}
+
+fn main() -> Unit with IO, Time {
+    tick();
+}

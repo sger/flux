@@ -20,6 +20,8 @@ examples=(
   "examples/type_system/24_unit_return_effectful.flx"
   "examples/type_system/25_none_return_compat.flx"
   "examples/type_system/26_any_boundary_success.flx"
+  "examples/type_system/27_top_level_pure_ok.flx"
+  "examples/type_system/28_effect_inside_main_allowed.flx"
 )
 
 for file in "${examples[@]}"; do

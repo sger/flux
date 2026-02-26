@@ -54,6 +54,38 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E415`) in `--strict` mode because all strict programs require `fn main`
 - `30_strict_public_unannotated_effectful.flx`
   - Expected: compile-time failure (`E416`, `E417`, `E418`) in `--strict` mode because a public effectful function must annotate params/return/effects
+- `31_direct_time_builtin_missing_effect.flx`
+  - Expected: compile-time failure (`E400`) when a `with IO` function directly calls Time builtin (`now_ms`)
+- `32_direct_time_hof_missing_effect.flx`
+  - Expected: compile-time failure (`E400`) when a `with IO` function directly calls Time builtin (`time`)
+- `33_module_qualified_effect_propagation_missing.flx`
+  - Expected: compile-time failure (`E400`) when module-qualified call requires `IO` inside a `with Time` function
+- `34_generic_effect_propagation_missing.flx`
+  - Expected: compile-time failure (`E400`) when generic higher-order wrapper propagates callback `IO` into a `with Time` function
+- `35_pure_context_typed_pure_rejects_io.flx`
+  - Expected: compile-time failure (`E400`) when typed pure function directly calls `print`
+- `36_pure_context_time_only_rejects_io.flx`
+  - Expected: compile-time failure (`E400`) when `with Time` function directly calls `print`
+- `37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx`
+  - Expected: compile-time failure (`E400`) when unannotated callee infers `IO` and a `with Time` caller invokes it
+- `38_top_level_effect_rejected.flx`
+  - Expected: compile-time failure (`E413`, `E414`) for effectful top-level execution outside `fn main`
+
+## A3 Pure-Context Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| Typed pure (`fn f(...) -> T`) + `print` | Reject (`E400`) | `35_pure_context_typed_pure_rejects_io.flx` |
+| Typed `with Time` + `print` | Reject (`E400`) | `36_pure_context_time_only_rejects_io.flx` |
+| Unannotated callee (infers `IO`) called from typed `with Time` | Reject (`E400`) | `37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx` |
+
+## A4 Top-Level Policy Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| Pure top-level only (no `main`) | Allow | `../27_top_level_pure_ok.flx` |
+| Effectful top-level expression | Reject (`E413`, `E414`) | `38_top_level_effect_rejected.flx` |
+| Effectful expression inside `fn main() with ...` | Allow | `../28_effect_inside_main_allowed.flx` |
 
 ## Run
 
@@ -83,6 +115,14 @@ cargo run -- --no-cache examples/type_system/failing/27_adt_wildcard_guard_not_c
 cargo run -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
 cargo run -- --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx
 cargo run -- --no-cache --strict examples/type_system/failing/30_strict_public_unannotated_effectful.flx
+cargo run -- --no-cache examples/type_system/failing/31_direct_time_builtin_missing_effect.flx
+cargo run -- --no-cache examples/type_system/failing/32_direct_time_hof_missing_effect.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx
+cargo run -- --no-cache examples/type_system/failing/34_generic_effect_propagation_missing.flx
+cargo run -- --no-cache examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx
+cargo run -- --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx
+cargo run -- --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx
+cargo run -- --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx
 ```
 
 JIT (compile-time failure examples):
@@ -108,4 +148,12 @@ cargo run --features jit -- --no-cache examples/type_system/failing/27_adt_wildc
 cargo run --features jit -- --no-cache examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx --jit
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/29_strict_missing_main.flx --jit
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/30_strict_public_unannotated_effectful.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/31_direct_time_builtin_missing_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/32_direct_time_hof_missing_effect.flx --jit
+cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/34_generic_effect_propagation_missing.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/35_pure_context_typed_pure_rejects_io.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/36_pure_context_time_only_rejects_io.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx --jit
 ```

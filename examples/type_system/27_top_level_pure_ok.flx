@@ -1,0 +1,9 @@
+// A4 matrix: pure top-level declarations/expressions are allowed without `main`.
+
+let answer = 40 + 2
+
+fn double(x: Int) -> Int {
+    x * 2
+}
+
+let _ = double(answer)
