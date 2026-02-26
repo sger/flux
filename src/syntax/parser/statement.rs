@@ -51,7 +51,11 @@ impl Parser {
             TokenType::Data => self.parse_data_statement(),
             TokenType::Effect => self.parse_effect_statement(),
             TokenType::Fn if self.is_peek_token(TokenType::Ident) => {
-                self.parse_function_statement()
+                self.parse_function_statement(false)
+            }
+            TokenType::Public if self.is_peek_token(TokenType::Fn) => {
+                self.next_token(); // fn
+                self.parse_function_statement(true)
             }
             TokenType::Ident if self.current_token.literal == "fn" => {
                 // Defensive path: `fn` should lex as TokenType::Fn.
@@ -158,8 +162,12 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_function_statement(&mut self) -> Option<Statement> {
-        let start = self.current_token.position;
+    pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
+        let start = if is_public {
+            self.current_token.position
+        } else {
+            self.current_token.position
+        };
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
@@ -218,6 +226,7 @@ impl Parser {
         let body = self.parse_block();
 
         Some(Statement::Function {
+            is_public,
             name,
             type_params,
             parameters,

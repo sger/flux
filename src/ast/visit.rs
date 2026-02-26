@@ -101,6 +101,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             visitor.visit_expr(expression);
         }
         Statement::Function {
+            is_public: _,
             name,
             type_params: _,
             parameters,

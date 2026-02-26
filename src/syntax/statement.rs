@@ -37,6 +37,7 @@ pub enum Statement {
         span: Span,
     },
     Function {
+        is_public: bool,
         name: Identifier,
         /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
         /// Empty for non-generic functions.
@@ -147,6 +148,7 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::Function {
+                is_public,
                 name,
                 parameters,
                 parameter_types,
@@ -165,11 +167,13 @@ impl fmt::Display for Statement {
                         },
                     )
                     .collect();
+                let fn_kw = if *is_public { "public fn" } else { "fn" };
                 if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         write!(
                             f,
-                            "fn {}({}) -> {} {}",
+                            "{} {}({}) -> {} {}",
+                            fn_kw,
                             name,
                             params.join(", "),
                             return_type,
@@ -180,7 +184,8 @@ impl fmt::Display for Statement {
                             effects.iter().map(ToString::to_string).collect();
                         write!(
                             f,
-                            "fn {}({}) -> {} with {} {}",
+                            "{} {}({}) -> {} with {} {}",
+                            fn_kw,
                             name,
                             params.join(", "),
                             return_type,
@@ -189,13 +194,14 @@ impl fmt::Display for Statement {
                         )
                     }
                 } else if effects.is_empty() {
-                    write!(f, "fn {}({}) {}", name, params.join(", "), body)
+                    write!(f, "{} {}({}) {}", fn_kw, name, params.join(", "), body)
                 } else {
                     let effects_text: Vec<String> =
                         effects.iter().map(ToString::to_string).collect();
                     write!(
                         f,
-                        "fn {}({}) with {} {}",
+                        "{} {}({}) with {} {}",
+                        fn_kw,
                         name,
                         params.join(", "),
                         effects_text.join(", "),
@@ -311,6 +317,7 @@ impl Statement {
                 }
             }
             Statement::Function {
+                is_public,
                 name,
                 parameters,
                 parameter_types,
@@ -330,10 +337,12 @@ impl Statement {
                         }
                     })
                     .collect();
+                let fn_kw = if *is_public { "public fn" } else { "fn" };
                 if let Some(return_type) = return_type {
                     if effects.is_empty() {
                         format!(
-                            "fn {}({}) -> {} {}",
+                            "{} {}({}) -> {} {}",
+                            fn_kw,
                             interner.resolve(*name),
                             params.join(", "),
                             return_type.display_with(interner),
@@ -343,7 +352,8 @@ impl Statement {
                         let effects_text: Vec<String> =
                             effects.iter().map(|e| e.display_with(interner)).collect();
                         format!(
-                            "fn {}({}) -> {} with {} {}",
+                            "{} {}({}) -> {} with {} {}",
+                            fn_kw,
                             interner.resolve(*name),
                             params.join(", "),
                             return_type.display_with(interner),
@@ -353,7 +363,8 @@ impl Statement {
                     }
                 } else if effects.is_empty() {
                     format!(
-                        "fn {}({}) {}",
+                        "{} {}({}) {}",
+                        fn_kw,
                         interner.resolve(*name),
                         params.join(", "),
                         body
@@ -362,7 +373,8 @@ impl Statement {
                     let effects_text: Vec<String> =
                         effects.iter().map(|e| e.display_with(interner)).collect();
                     format!(
-                        "fn {}({}) with {} {}",
+                        "{} {}({}) with {} {}",
+                        fn_kw,
                         interner.resolve(*name),
                         params.join(", "),
                         effects_text.join(", "),

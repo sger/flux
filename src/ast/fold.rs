@@ -108,6 +108,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::Function {
+            is_public,
             name,
             type_params,
             parameters,
@@ -117,6 +118,7 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             body,
             span,
         } => Statement::Function {
+            is_public,
             name: folder.fold_identifier(name),
             type_params,
             parameters: parameters
