@@ -1,0 +1,14 @@
+module TypeSystem.TypeAliasDomain {
+    type ResultI = Ok(Int) | Err(String)
+
+    public fn make_ok(v: Int) -> ResultI {
+        Ok(v)
+    }
+
+    public fn unwrap_or_zero(v: ResultI) -> Int {
+        match v {
+            Ok(x) -> x,
+            Err(_) -> 0,
+        }
+    }
+}

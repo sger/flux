@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/TypeSystem/TypeAliasDomain.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `TypeSystem.TypeAliasDomain` doesn't match file path `examples/type_system/TypeSystem/TypeAliasDomain.flx`.
+
+  --> examples/type_system/TypeSystem/TypeAliasDomain.flx:1:1
+  |
+1 | module TypeSystem.TypeAliasDomain {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

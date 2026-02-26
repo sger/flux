@@ -261,7 +261,7 @@ pub fn curated_cases() -> Vec<ParityFixtureCase> {
             path: "examples/type_system/failing/79_hm_module_generic_call_mismatch.flx",
             roots: &["examples/type_system"],
             strict: false,
-            expect_compile_error: false,
+            expect_compile_error: true,
             category: "H",
         },
     ]

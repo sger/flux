@@ -19,6 +19,13 @@ fn parse_ok(input: &str) -> (Program, Interner) {
     (program, interner)
 }
 
+fn parse_with_errors(input: &str) -> (Program, Parser) {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    (program, parser)
+}
+
 #[test]
 fn parses_module_statement() {
     let (program, interner) = parse_ok("module Foo { let x = 1; }");
@@ -401,4 +408,87 @@ fn parses_non_generic_function_has_empty_type_params() {
         }
         _ => panic!("expected function"),
     }
+}
+
+#[test]
+fn parses_type_adt_sugar_simple() {
+    let (program, interner) = parse_ok("type Shape = Circle(Float) | Rect(Float, Float)");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Shape");
+            assert!(type_params.is_empty());
+            assert_eq!(variants.len(), 2);
+            assert_eq!(interner.resolve(variants[0].name), "Circle");
+            assert_eq!(variants[0].fields.len(), 1);
+            assert_eq!(interner.resolve(variants[1].name), "Rect");
+            assert_eq!(variants[1].fields.len(), 2);
+        }
+        _ => panic!("expected desugared data statement"),
+    }
+}
+
+#[test]
+fn parses_type_adt_sugar_generic() {
+    let (program, interner) = parse_ok("type Result<T, E> = Ok(T) | Err(E)");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Result");
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(interner.resolve(type_params[0]), "T");
+            assert_eq!(interner.resolve(type_params[1]), "E");
+            assert_eq!(variants.len(), 2);
+        }
+        _ => panic!("expected desugared data statement"),
+    }
+}
+
+#[test]
+fn parses_type_adt_sugar_inside_module() {
+    let (program, interner) = parse_ok("module M { type Local = A | B }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Module { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            match &body.statements[0] {
+                Statement::Data { name, variants, .. } => {
+                    assert_eq!(interner.resolve(*name), "Local");
+                    assert_eq!(variants.len(), 2);
+                    assert_eq!(interner.resolve(variants[0].name), "A");
+                    assert_eq!(interner.resolve(variants[1].name), "B");
+                }
+                _ => panic!("expected module data statement"),
+            }
+        }
+        _ => panic!("expected module"),
+    }
+}
+
+#[test]
+fn type_adt_sugar_missing_assign_reports_error() {
+    let (_program, parser) = parse_with_errors("type Shape Circle(Float) | Rect(Float, Float)");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser errors for missing '='"
+    );
+}
+
+#[test]
+fn type_adt_sugar_trailing_bar_reports_error() {
+    let (_program, parser) = parse_with_errors("type Shape = Circle(Float) |");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser errors for trailing '|'"
+    );
 }

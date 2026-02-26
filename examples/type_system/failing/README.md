@@ -152,6 +152,16 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E300`) proving typed validation uses HM strict-path and does not fall back to runtime-boundary compatibility inference for inline function-expression calls
 - `79_hm_module_generic_call_mismatch.flx`
   - Expected: compile-time failure (`E300`) because module-qualified generic return type is inferred as `String` and cannot unify with expected `Int`
+- `80_type_adt_constructor_arity_mismatch.flx`
+  - Expected: compile-time failure (`E082`) showing `type ... = ... | ...` ADT sugar reuses constructor arity checks
+- `81_match_bool_missing_false.flx`
+  - Expected: compile-time failure (`E015`) because Bool match misses `false`
+- `82_match_list_missing_empty.flx`
+  - Expected: compile-time failure (`E015`) because list match misses `[]`
+- `83_match_guarded_wildcard_only_non_exhaustive.flx`
+  - Expected: compile-time failure (`E015`) because guarded wildcard is not unconditional coverage
+- `84_match_tuple_gap_no_fallback.flx`
+  - Expected: compile-time failure (`E015`) because tuple match without unguarded fallback is conservatively non-exhaustive
 
 ## A3 Pure-Context Matrix
 
@@ -320,6 +330,11 @@ cargo run -- --no-cache examples/type_system/failing/76_hm_match_guard_non_bool_
 cargo run -- --no-cache examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx
 cargo run -- --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/81_match_bool_missing_false.flx
+cargo run -- --no-cache examples/type_system/failing/82_match_list_missing_empty.flx
+cargo run -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx
+cargo run -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -408,4 +423,9 @@ cargo run --features jit -- --no-cache examples/type_system/failing/76_hm_match_
 cargo run --features jit -- --no-cache examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx --jit
 cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/79_hm_module_generic_call_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/80_type_adt_constructor_arity_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/81_match_bool_missing_false.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/82_match_list_missing_empty.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx --jit
 ```

@@ -107,6 +107,21 @@ Cannot unify Unit with Bool.
    | ^^^^^^^^^
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Bool with Unit.
+
+  --> examples/basics/mini_database.flx:45:12
+   |
+45 |         if opt_eq(record["id"], id) {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^
+   |            ------------------------ expected Bool, found Unit
+   |            ------------------------ if condition is known at compile time
+
+Help:
+  use a Bool expression, or make the condition/guard explicitly boolean
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -152,6 +167,21 @@ Cannot unify Unit with Bool.
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 66 |         };
    | ^^^^^^^^^
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Bool with Unit.
+
+  --> examples/basics/mini_database.flx:62:12
+   |
+62 |         if opt_eq(record["name"], name) {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |            ---------------------------- expected Bool, found Unit
+   |            ---------------------------- if condition is known at compile time
+
+Help:
+  use a Bool expression, or make the condition/guard explicitly boolean
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -217,6 +247,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 14 errors.
+Found 16 errors.
 == stdout ==
 <not executed>

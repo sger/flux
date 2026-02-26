@@ -3,8 +3,7 @@ use std::collections::HashSet;
 use crate::{
     ast::{Visitor, visit},
     diagnostics::{
-        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH,
-        NON_EXHAUSTIVE_MATCH, position::Span,
+        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH, position::Span,
     },
     syntax::{
         expression::{Expression, MatchArm, Pattern},
@@ -102,24 +101,8 @@ fn validate_match_arms(
         }
     }
 
-    // Skip E015 when any arm is a Constructor pattern: ADT matches are exhaustive
-    // when all constructors are covered, which is checked by E083 in the compiler.
-    let has_constructor_arms = arms
-        .iter()
-        .any(|arm| matches!(arm.pattern, Pattern::Constructor { .. }));
-
-    if !has_constructor_arms {
-        if let Some(last) = arms.last()
-            && !is_unconditional_catchall_arm(last)
-        {
-            diagnostics.push(Diagnostic::make_error(
-                &NON_EXHAUSTIVE_MATCH,
-                &[],
-                ctx.file_path.to_string(),
-                match_span,
-            ));
-        }
-    }
+    // General and ADT exhaustiveness are validated in compiler pass 2 where HM
+    // expression types and ADT registry data are available.
 }
 
 fn validate_pattern_bindings(

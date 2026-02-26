@@ -5,25 +5,6 @@ Fixture: examples/patterns/match_wildcard_non_last_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
-
-Match expressions must end with a `_` or identifier arm.
-
-  --> examples/patterns/match_wildcard_non_last_error.flx:3:21
-  |
-3 |         let label = match value {
-  |                     ^^^^^^^^^^^^^
-4 |             _ -> "any",
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-5 |             2 -> "two",
-  | ^^^^^^^^^^^^^^^^^^^^^^^
-6 |         };
-  | ^^^^^^^^^
-
-Hint:
-  Add a catch-all pattern: _ -> default_value
-
-
 --> compiler error[E016]: INVALID PATTERN
 
 Catch-all patterns must be the final match arm.
@@ -35,7 +16,5 @@ Catch-all patterns must be the final match arm.
 
 Hint:
   Move `_` or the binding pattern to the last arm.
-
-Found 2 errors.
 == stdout ==
 <not executed>

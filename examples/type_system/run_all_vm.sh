@@ -37,6 +37,10 @@ examples=(
   "examples/type_system/83_hm_bool_condition_and_guard_ok.flx"
   "examples/type_system/84_hm_logical_bool_ok.flx"
   "examples/type_system/85_hm_module_generic_call_ok.flx"
+  "examples/type_system/88_match_bool_exhaustive_ok.flx"
+  "examples/type_system/89_match_list_exhaustive_ok.flx"
+  "examples/type_system/90_match_guarded_with_fallback_ok.flx"
+  "examples/type_system/91_match_tuple_with_catchall_ok.flx"
 )
 
 for file in "${examples[@]}"; do

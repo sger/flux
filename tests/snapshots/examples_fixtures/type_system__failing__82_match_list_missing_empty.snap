@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/82_match_list_missing_empty.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive: missing list case(s): [].
+
+  --> examples/type_system/failing/82_match_list_missing_empty.flx:4:1
+  |
+4 | match xs {
+  | ^^^^^^^^^^
+5 |     [h | t] -> h
+  | ^^^^^^^^^^^^^^^^
+6 | };
+  | ^
+
+Hint:
+  Add missing list arms or an unguarded `_ -> ...` catch-all.
+== stdout ==
+<not executed>
