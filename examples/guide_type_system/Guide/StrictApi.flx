@@ -1,0 +1,13 @@
+module Guide.StrictApi {
+    public fn inc(x: Int) -> Int {
+        x + 1
+    }
+
+    fn helper(x: Int) -> Int {
+        x + 10
+    }
+
+    public fn pipeline(x: Int) -> Int {
+        helper(inc(x))
+    }
+}
