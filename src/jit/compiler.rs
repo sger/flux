@@ -4373,9 +4373,7 @@ fn runtime_contract_from_annotations(
     } else {
         let effects = effects
             .iter()
-            .map(|effect| match effect {
-                crate::syntax::effect_expr::EffectExpr::Named { name, .. } => *name,
-            })
+            .flat_map(crate::syntax::effect_expr::EffectExpr::normalized_names)
             .collect::<Vec<_>>();
         Some(FunctionContract {
             params,

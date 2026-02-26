@@ -1,6 +1,6 @@
 # Proposal 042: Effect Rows and Constraint Solving for `with e`
 
-**Status:** Draft  
+**Status:** In Progress  
 **Date:** 2026-02-25  
 **Depends on:** 032_type_system_with_effects.md
 
@@ -187,6 +187,16 @@ Diagnostic messages should show:
 
 - Improve messages and optionally tighten behavior under `--strict`.
 
+## 10.1 Implementation Status (Current)
+
+- Phase A (internal row IR): implemented in compiler row-constraint model.
+- Phase B (equality + extension solving): implemented for call-site effect-variable resolution (`with e`, `with IO, e`, chained wrappers).
+- Phase C (handler-aware subtraction): modeled internally in row constraints and aligned with existing `handle` discharge semantics.
+- Phase D (diagnostics): row-polymorphism diagnostics added for unresolved/ambiguous variables and row-constraint failures.
+
+Remaining follow-up:
+- Full principal-row unification across all type-inference paths still needs broader HM integration.
+
 ---
 
 ## 11. Compatibility
@@ -203,4 +213,3 @@ Behavioral changes are limited to stricter and more precise compile-time effect 
 2. Should absence constraints be part of v1, or deferred?
 3. How much row detail should appear in user diagnostics by default?
 4. Should `--strict` require explicit effect annotations for public higher-order APIs?
-

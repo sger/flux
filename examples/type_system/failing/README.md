@@ -80,6 +80,10 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E405`) when `handle` references an undeclared effect
 - `43_main_unhandled_custom_effect.flx`
   - Expected: compile-time failure (`E406`) when `fn main` exits with undischarged custom effects
+- `44_effect_poly_hof_nested_missing_effect.flx`
+  - Expected: compile-time failure (`E400`) when nested polymorphic wrappers resolve `e` to `IO` but caller declares only `Time`
+- `45_effect_row_subtract_missing_io.flx`
+  - Expected: compile-time failure (`E400`) when row subtraction leaves `IO` required but caller declares only `Time`
 
 ## A3 Pure-Context Matrix
 
@@ -115,6 +119,16 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 | `handle` missing operation arms | Reject (`E402`) | `18_handle_incomplete_operation_set.flx` |
 | Root boundary with undischarged custom effect in `main` | Reject (`E406`) | `43_main_unhandled_custom_effect.flx` |
 | Root boundary with explicit handle discharge | Allow | `../29_main_handles_custom_effect.flx` |
+
+## C Effect-Polymorphism Matrix
+
+| Context | Expected | Fixture |
+|---|---|---|
+| Nested HOF wrappers with pure callback | Allow | `../30_effect_poly_hof_nested_ok.flx` |
+| Polymorphic callback + local custom handle discharge | Allow | `../31_effect_poly_partial_handle_ok.flx` |
+| Mixed `IO`/`Time` row extension with polymorphic callback | Allow | `../32_effect_poly_mixed_io_time_ok.flx` |
+| Nested HOF wrappers resolve `e` to `IO` in `with Time` caller | Reject (`E400`) | `44_effect_poly_hof_nested_missing_effect.flx` |
+| Explicit row subtraction (`IO + Console - Console`) still requires `IO` | Reject (`E400`) | `45_effect_row_subtract_missing_io.flx` |
 
 ## Run
 
@@ -157,6 +171,8 @@ cargo run -- --no-cache examples/type_system/failing/40_effect_alias_print_in_ti
 cargo run -- --no-cache examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
+cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
+cargo run -- --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx
 ```
 
 JIT (compile-time failure examples):
@@ -195,4 +211,6 @@ cargo run --features jit -- --no-cache examples/type_system/failing/40_effect_al
 cargo run --features jit -- --no-cache examples/type_system/failing/41_effect_alias_now_ms_in_io_function.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx --jit
 ```

@@ -74,9 +74,7 @@ pub fn to_runtime_contract(contract: &FnContract, interner: &Interner) -> Option
     let effects = contract
         .effects
         .iter()
-        .map(|effect| match effect {
-            EffectExpr::Named { name, .. } => *name,
-        })
+        .flat_map(EffectExpr::normalized_names)
         .collect::<Vec<_>>();
 
     Some(FunctionContract {
