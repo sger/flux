@@ -45,6 +45,7 @@ Module source used by `07`:
 
 Intentional failure fixtures:
 - `failing/` - compile/runtime contract failure examples
+  - includes entry-point policy coverage (`E410`-`E415`) for `main`/top-level purity boundary rules
 
 ## Run
 

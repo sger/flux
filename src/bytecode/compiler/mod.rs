@@ -61,6 +61,13 @@ struct FunctionEffectSeed {
     span: Span,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MainValidationState {
+    has_main: bool,
+    is_unique_main: bool,
+    is_valid_signature: bool,
+}
+
 pub struct Compiler {
     constants: Vec<Value>,
     pub symbol_table: SymbolTable,
@@ -953,7 +960,7 @@ impl Compiler {
         }
     }
 
-    fn validate_main_entrypoint(&mut self, program: &Program) -> bool {
+    fn validate_main_entrypoint(&mut self, program: &Program) -> MainValidationState {
         let main_symbol = self.interner.intern("main");
         let mut mains: Vec<(Span, usize, Option<TypeExpr>)> = Vec::new();
 
@@ -990,8 +997,10 @@ impl Compiler {
             }
         }
 
+        let mut is_valid_signature = true;
         if let Some((main_span, param_count, return_type)) = mains.first() {
             if *param_count != 0 {
+                is_valid_signature = false;
                 self.errors.push(
                     Diagnostic::make_error_dynamic(
                         "E411",
@@ -1009,6 +1018,7 @@ impl Compiler {
             if let Some(ret) = return_type
                 && !Self::is_unit_type_annotation(ret, &self.interner)
             {
+                is_valid_signature = false;
                 self.errors.push(
                     Diagnostic::make_error_dynamic(
                         "E412",
@@ -1024,7 +1034,11 @@ impl Compiler {
             }
         }
 
-        !mains.is_empty()
+        MainValidationState {
+            has_main: !mains.is_empty(),
+            is_unique_main: mains.len() <= 1,
+            is_valid_signature,
+        }
     }
 
     fn contract_effect_sets(&self) -> HashMap<ContractKey, HashSet<Symbol>> {
@@ -1125,7 +1139,14 @@ impl Compiler {
         }
     }
 
-    fn validate_main_root_effect_discharge(&mut self, program: &Program) {
+    fn validate_main_root_effect_discharge(
+        &mut self,
+        program: &Program,
+        main_state: MainValidationState,
+    ) {
+        if !(main_state.has_main && main_state.is_unique_main && main_state.is_valid_signature) {
+            return;
+        }
         let main_symbol = self.interner.intern("main");
         let io_effect = self.interner.intern("IO");
         let time_effect = self.interner.intern("Time");
@@ -1590,10 +1611,12 @@ impl Compiler {
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);
         self.collect_effect_declarations(program);
-        let has_main = self.validate_main_entrypoint(program);
-        self.validate_top_level_effectful_code(program, has_main);
-        self.validate_main_root_effect_discharge(program);
-        self.validate_strict_mode(program, has_main);
+        let main_state = self.validate_main_entrypoint(program);
+        self.validate_top_level_effectful_code(program, main_state.has_main);
+        self.validate_main_root_effect_discharge(program, main_state);
+        self.validate_strict_mode(program, main_state.has_main);
+
+        let main_symbol = self.interner.intern("main");
 
         // PASS 1: Predeclare all module-level function names
         // This enables forward references and mutual recursion
@@ -1605,6 +1628,11 @@ impl Compiler {
                     && self.symbol_table.exists_in_current_scope(name)
                     && existing.symbol_scope != crate::bytecode::symbol_scope::SymbolScope::Base
                 {
+                    // Keep duplicate-main diagnostics canonical via E410 from
+                    // `validate_main_entrypoint`, avoid redundant E001 noise.
+                    if name == main_symbol {
+                        continue;
+                    }
                     let name_str = self.sym(name);
                     self.errors.push(self.make_redeclaration_error(
                         name_str,
@@ -1657,8 +1685,7 @@ impl Compiler {
             }
         }
 
-        let main_symbol = self.interner.intern("main");
-        if has_main && !self.has_explicit_top_level_main_call(program, main_symbol) {
+        if main_state.has_main && !self.has_explicit_top_level_main_call(program, main_symbol) {
             self.emit_main_entry_call();
         }
 
