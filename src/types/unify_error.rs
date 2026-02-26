@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{
     diagnostics::position::Span,
     types::{
@@ -80,10 +82,13 @@ pub fn unify_with_span(
             unify_many(args1, args2, span)
         }
 
-        // Function types: same arity
-        (InferType::Fun(params1, ret1, _), InferType::Fun(params2, ret2, _))
+        // Function types: same arity and same effect set
+        (InferType::Fun(params1, ret1, effects1), InferType::Fun(params2, ret2, effects2))
             if params1.len() == params2.len() =>
         {
+            if !effect_sets_equal(effects1, effects2) {
+                return Err(UnifyError::mismatch(t1.clone(), t2.clone(), span));
+            }
             let subst = unify_many(params1, params2, span)?;
             let ret1_sub = ret1.apply_type_subst(&subst);
             let ret2_sub = ret2.apply_type_subst(&subst);
@@ -99,6 +104,15 @@ pub fn unify_with_span(
         // Everything else is a mismatch
         _ => Err(UnifyError::mismatch(t1.clone(), t2.clone(), span)),
     }
+}
+
+fn effect_sets_equal(
+    left: &[crate::syntax::Identifier],
+    right: &[crate::syntax::Identifier],
+) -> bool {
+    let left_set: HashSet<_> = left.iter().copied().collect();
+    let right_set: HashSet<_> = right.iter().copied().collect();
+    left_set == right_set
 }
 
 /// Unify two lists of types pairwise, composing the substitutions.

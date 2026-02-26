@@ -6,7 +6,7 @@
 
 - Use module-qualified public APIs.
 - Understand strict checks targeting `public fn` boundaries.
-- Treat underscore naming as style-only.
+- Use `public fn` for exported module APIs; plain `fn` stays private.
 
 ## Core Concepts
 

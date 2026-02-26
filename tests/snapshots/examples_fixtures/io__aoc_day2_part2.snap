@@ -32,6 +32,19 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `solve_file`.
+
+  --> examples/io/aoc_day2_part2.flx:6:7
+  |
+6 | print(Day2.solve_file("examples/io/aoc_day2.txt"))
+  |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 3 errors.
 == stdout ==
 <not executed>

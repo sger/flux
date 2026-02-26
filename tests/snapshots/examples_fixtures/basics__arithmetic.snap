@@ -144,6 +144,17 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 10 errors.
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Float with Int.
+
+  --> examples/basics/arithmetic.flx:18:7
+   |
+18 | print(10.5 % 3);
+   |       ^^^^^^^^
+   |       -------- expected Float, found Int
+
+Found 11 errors.
 == stdout ==
 <not executed>

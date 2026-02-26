@@ -75,6 +75,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Float with Int.
+
+  --> examples/basics/modulo.flx:21:7
+   |
+21 | print(10.5 % 3);
+   |       ^^^^^^^^
+   |       -------- expected Float, found Int
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -144,6 +155,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 10 errors.
+Found 11 errors.
 == stdout ==
 <not executed>

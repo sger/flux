@@ -5,6 +5,32 @@ Fixture: examples/io/aoc_day2_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `solve_parsed_ranges`.
+
+  --> examples/io/aoc_day2_part2_profile.flx:10:21
+   |
+10 |         let total = Day2.solve_parsed_ranges(parsed_ranges)
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `parse_ranges`.
+
+  --> examples/io/aoc_day2_part2_profile.flx:15:21
+   |
+15 | let parsed_ranges = Day2.parse_ranges("examples/io/aoc_day2.txt")
+   |                     ^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: Time).
@@ -130,6 +156,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 9 errors.
+Found 11 errors.
 == stdout ==
 <not executed>

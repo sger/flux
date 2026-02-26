@@ -7,6 +7,17 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
+Cannot unify String with Int.
+
+  --> examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:9:18
+  |
+9 |     let y: Int = x + 1
+  |                  ^^^^^
+  |                  ----- expected String, found Int
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
 Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with String and Int.
 
   --> examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:9:18
@@ -18,5 +29,7 @@ Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with
 
 Help:
   adjust operand types or add explicit conversion
+
+Found 2 errors.
 == stdout ==
 <not executed>

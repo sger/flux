@@ -1,0 +1,29 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx
+Category: H
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Int, found String
+- E300 | TYPE UNIFICATION ERROR | 
+
+== jit tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Int, found String
+- E300 | TYPE UNIFICATION ERROR | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

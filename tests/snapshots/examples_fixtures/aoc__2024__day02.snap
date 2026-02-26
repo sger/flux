@@ -5,61 +5,16 @@ Fixture: examples/aoc/2024/day02.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E011]: PRIVATE MEMBER
 
-Effectful operation is not allowed at top level (requires: IO).
+Cannot access private member `int_at`.
 
-  --> examples/aoc/2024/day02.flx:6:1
-  |
-6 | let reports = read_lines("examples/aoc/2024/day02.txt") |> Day02.parse_reports
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------------------------------------------------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/aoc/2024/day02.flx:6:1
-  |
-6 | let reports = read_lines("examples/aoc/2024/day02.txt") |> Day02.parse_reports
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ------------------------------------------------------------------------------ effectful top-level execution
+  --> examples/aoc/2024/Day02Solver.flx:24:27
+   |
+24 |                 push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
+   |                           ^^^^^^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/aoc/2024/day02.flx:7:1
-  |
-7 | print(Day02.day02a(reports))
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ---------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/aoc/2024/day02.flx:8:1
-  |
-8 | print(Day02.day02b(reports))
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ---------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 4 errors.
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 == stdout ==
 <not executed>

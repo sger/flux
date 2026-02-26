@@ -22,7 +22,8 @@ use crate::{
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
         ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, UNKNOWN_BASE_MEMBER,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
+        UNKNOWN_BASE_MEMBER,
         UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::type_unification_error,
@@ -421,6 +422,16 @@ impl Compiler {
 
                     let member_str = self.sym(member);
                     self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
+                    if self.current_module_prefix != Some(module_name)
+                        && self.module_member_function_is_public(module_name, member) == Some(false)
+                    {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &PRIVATE_MEMBER,
+                            &[member_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
+                    }
 
                     let qualified = self.interner.intern_join(module_name, member);
                     // Module Constants check if this is a compile-time constant

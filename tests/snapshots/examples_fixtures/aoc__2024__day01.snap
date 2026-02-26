@@ -5,6 +5,19 @@ Fixture: examples/aoc/2024/day01.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `int_at`.
+
+  --> examples/aoc/2024/day01.flx:14:6
+   |
+14 |     (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
+   |      ^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -60,6 +73,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

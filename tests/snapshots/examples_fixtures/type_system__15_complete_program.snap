@@ -5,6 +5,45 @@ Fixture: examples/type_system/15_complete_program.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `map_list`.
+
+  --> examples/type_system/15_complete_program.flx:26:25
+   |
+26 | let scores: List<Int> = C.map_list(students, /(p: (String, Int)) -> p.1)
+   |                         ^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `summarize`.
+
+  --> examples/type_system/15_complete_program.flx:30:22
+   |
+30 | let stats: Summary = Stats.summarize(scores)
+   |                      ^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `score_to_grade`.
+
+  --> examples/type_system/15_complete_program.flx:37:13
+   |
+37 |     let g = Stats.score_to_grade(score)
+   |             ^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -61,18 +100,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E400]: MISSING EFFECT
+--> compiler error[E011]: PRIVATE MEMBER
 
-Call to `print` requires effect `IO` in this function signature.
+Cannot access private member `fold_list`.
 
-  --> examples/type_system/15_complete_program.flx:47:5
+  --> examples/type_system/15_complete_program.flx:46:1
    |
-47 |     print(report_line(p.0, p.1))
-   |     ^^^^^
-   |     ----- effectful call occurs here
+46 | C.fold_list(students, (), /(_, p: (String, Int)) ->
+   | ^^^^^^^^^^^
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -103,6 +141,45 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `summary_print`.
+
+  --> examples/type_system/15_complete_program.flx:54:1
+   |
+54 | Stats.summary_print(stats)
+   | ^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `keep_above`.
+
+  --> examples/type_system/15_complete_program.flx:56:26
+   |
+56 | let passing: List<Int> = Stats.keep_above(scores, 59)
+   |                          ^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `keep_below`.
+
+  --> examples/type_system/15_complete_program.flx:57:26
+   |
+57 | let failing: List<Int> = Stats.keep_below(scores, 60)
+   |                          ^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -117,6 +194,19 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `list_len`.
+
+  --> examples/type_system/15_complete_program.flx:58:41
+   |
+58 | print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+   |                                         ^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -129,6 +219,19 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `list_len`.
+
+  --> examples/type_system/15_complete_program.flx:59:41
+   |
+59 | print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+   |                                         ^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -159,18 +262,30 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E400]: MISSING EFFECT
+--> compiler error[E011]: PRIVATE MEMBER
 
-Call to `print` requires effect `IO` in this function signature.
+Cannot access private member `rank`.
 
-  --> examples/type_system/15_complete_program.flx:67:5
+  --> examples/type_system/15_complete_program.flx:65:35
    |
-67 |     print("  #" + to_string(pos) + "  " + p.0 + "  " + to_string(p.1))
-   |     ^^^^^
-   |     ----- effectful call occurs here
+65 | let ranked: List<(String, Int)> = Stats.rank(students)
+   |                                   ^^^^^^^^^^
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `fold_list`.
+
+  --> examples/type_system/15_complete_program.flx:66:1
+   |
+66 | C.fold_list(ranked, 1, /(pos: Int, p: (String, Int)) -> do {
+   | ^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -199,6 +314,19 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `grade_distribution`.
+
+  --> examples/type_system/15_complete_program.flx:75:39
+   |
+75 | let dist: (Int, Int, Int, Int, Int) = Stats.grade_distribution(scores)
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -299,19 +427,18 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E400]: MISSING EFFECT
+--> compiler error[E011]: PRIVATE MEMBER
 
-Call to `print` requires effect `IO` in this function signature.
+Cannot access private member `fold_list`.
 
-  --> examples/type_system/15_complete_program.flx:91:5
+  --> examples/type_system/15_complete_program.flx:86:1
    |
-91 |     print("  " + p.0 + ": " + letter + " (GPA " + to_string(gpa) + ") — " + status)
-   |     ^^^^^
-   |     ----- effectful call occurs here
+86 | C.fold_list(students, (), /(_, p: (String, Int)) -> do {
+   | ^^^^^^^^^^^
 
 Hint:
-  Add `with IO` to the enclosing function.
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 22 errors.
+Found 32 errors.
 == stdout ==
 <not executed>
