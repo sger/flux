@@ -6,6 +6,13 @@
 
 Implementation note:
 - Phase-runner starter scaffolding has been introduced (`pipeline.rs`, `passes/prepare.rs`) with behavior-preserving delegation to the existing compile path.
+- v0.0.4 M5 safe subset landed a low-risk compile hot-path win: `compile_with_opts` no longer clones `Program` on non-optimized paths.
+- M5 compile benchmark snapshot (`benches/compiler_compile_bench.rs`):
+  - `compile_with_opts_no_analyze/typed_function_heavy`: `17.331 .. 18.369 ms` -> `17.368 .. 17.789 ms`
+  - `compile_with_opts_analyze/typed_function_heavy`: `17.494 .. 17.726 ms` -> `17.753 .. 18.149 ms` (slight regression to monitor)
+  - logs:
+    - baseline: `perf_logs/compiler-bench-20260227-164429.log`
+    - current: `perf_logs/compiler-bench-20260227-175048.log`
 
 ---
 

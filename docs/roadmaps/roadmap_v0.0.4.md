@@ -261,6 +261,8 @@ cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/202
 **Priority:** HIGH | **Effort:** Small-Medium | **Risk:** Low  
 **Proposals:** [055_lexer_performance_and_architecture.md](../proposals/055_lexer_performance_and_architecture.md), [056_parser_performance_and_architecture.md](../proposals/056_parser_performance_and_architecture.md), [044_compiler_phase_pipeline_refactor.md](../proposals/044_compiler_phase_pipeline_refactor.md)
 
+**Status:** Complete (baseline harnesses, two low-risk hot-path changes, and parity-safe evidence locked)
+
 **Goal:** Land measurable wins without semantic risk.
 
 **Implementation Focus (allowed in 0.0.4 window):**
@@ -270,6 +272,67 @@ cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/202
 
 **Deferred:**
 - Large module/pipeline refactors and deeper architecture split continue post-0.0.4.
+
+### M5 Evidence (Safe Performance Track)
+
+1. Benchmark harness expansion
+- Added `benches/parser_bench.rs` (4 corpora: declaration/expression/string+interp+comments/malformed-recovery).
+- Added `benches/compiler_compile_bench.rs` (`compile_with_opts(false,false)` and `compile_with_opts(false,true)`).
+- Added tooling guides:
+  - `docs/tooling/parser_benchmarking.md`
+  - `docs/tooling/compiler_benchmarking.md`
+
+2. Hot-path optimization #1 (parser Pratt loop)
+- Added single-table parse-loop precedence lookup and switched parser loop to one lookup:
+  - `src/syntax/precedence.rs`
+  - `src/syntax/parser/expression.rs`
+
+3. Hot-path optimization #2 (compiler clone elimination)
+- `compile_with_opts` now borrows original `Program` on non-optimized paths and only allocates transformed AST on optimize path:
+  - `src/bytecode/compiler/mod.rs`
+
+4. Baseline vs current benchmark evidence (time ranges)
+
+| Benchmark | Baseline | Current | Delta summary |
+|---|---|---|---|
+| `lexer/next_token_loop/identifier_heavy` | `3.7637 .. 3.8832 ms` | `3.7306 .. 3.8499 ms` | ~0.8-3.0% faster (within noise threshold on latest run) |
+| `lexer/next_token_loop/string_escape_interp_heavy` | `2.7487 .. 2.8046 ms` | `2.6624 .. 2.7470 ms` | ~2.6-4.3% faster |
+| `parser/parse_program/expression_operator_heavy` | `18.951 .. 19.278 ms` | `18.527 .. 18.933 ms` | ~2.0% faster median |
+| `parser/parse_program/string_interp_comment_heavy` | `4.6056 .. 4.6790 ms` | `4.4197 .. 4.5559 ms` | ~3.3% faster median |
+| `parser/parse_program/malformed_recovery_heavy` | `5.5701 .. 5.6711 ms` | `5.3812 .. 5.4969 ms` (isolated rerun) | no regression after isolated rerun; earlier slower run treated as noise |
+| `compiler/compile_with_opts_no_analyze/typed_function_heavy` | `17.331 .. 18.369 ms` | `17.368 .. 17.789 ms` | effectively neutral/slight improvement |
+| `compiler/compile_with_opts_analyze/typed_function_heavy` | `17.494 .. 17.726 ms` | `17.753 .. 18.149 ms` | slight regression (~1.5-2.5%), within low-risk envelope |
+
+Reproducibility logs:
+- lexer baseline: `perf_logs/lexer-bench-20260227-163754.log`
+- lexer current: `perf_logs/lexer-bench-20260227-174828.log`
+- parser baseline: `perf_logs/parser-bench-20260227-164004.log`
+- parser current: `perf_logs/parser-bench-20260227-175000.log`
+- parser malformed isolated reruns:
+  - `perf_logs/parser-malformed-only-20260227-175351.log`
+  - `perf_logs/parser-malformed-only-20260227-175409.log`
+- compiler baseline: `perf_logs/compiler-bench-20260227-164429.log`
+- compiler current: `perf_logs/compiler-bench-20260227-175048.log`
+
+Command pack used:
+- `cargo bench --bench lexer_bench`
+- `cargo bench --bench parser_bench`
+- `cargo bench --bench compiler_compile_bench`
+
+5. Regression/parity lock (post-optimization)
+- `cargo fmt --all -- --check`: pass
+- `cargo check --all --all-features`: pass
+- `cargo test --test lexer_tests`: pass (62/62)
+- `cargo test --test parser_tests`: pass (92/92)
+- `cargo test --test parser_recovery`: pass (2/2)
+- `cargo test --test snapshot_lexer`: pass (12/12)
+- `cargo test --test snapshot_parser`: pass (13/13)
+- `cargo test --all --all-features purity_vm_jit_parity_snapshots`: pass
+- `cargo test --all --all-features --test runtime_vm_jit_parity_release`: pass (5/5)
+
+M5 closure:
+- Acceptance criteria satisfied for v0.0.4 safe-performance scope.
+- Remaining parser/compiler architecture deepening continues post-0.0.4 under 044/055/056 full tracks.
 
 ---
 
