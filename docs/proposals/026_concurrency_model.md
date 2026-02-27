@@ -14,12 +14,17 @@
 
 ## Summary
 
-Flux adopts a two-layer concurrency model:
+Flux adopts a two-layer concurrency model with an **actor-first rollout** for current compiler/runtime maturity:
 
-1. **Async/await** — cooperative, single-threaded concurrency for IO-bound work. No threading, no `Rc` changes. Ships first.
-2. **Actors** — isolated VM instances communicating via message passing for CPU-bound parallelism. Each actor owns its own `Rc` heap. Ships second.
+1. **Actors (MVP first)** — isolated VM instances communicating via message passing for safe parallelism.
+2. **Async/await (after actor MVP)** — cooperative concurrency for IO-bound work, layered on top of runtime scheduling primitives.
 
 Shared-memory concurrency is explicitly rejected — it contradicts pure FP and would require replacing `Rc` with `Arc` across the entire value layer.
+
+Why actor-first now:
+- it matches Flux purity/isolation constraints with minimal aliasing risk,
+- it avoids shipping partial async semantics before scheduler/error contracts are stable,
+- it aligns with current parity-first release discipline (VM/JIT behavior lock before feature breadth).
 
 ## Motivation
 
@@ -71,7 +76,50 @@ pub struct VM {
 
 ## Design
 
-### Layer 1: Async/Await (Single-Threaded)
+### Layer 1: Actors (MVP, Multi-Threaded Isolation)
+
+Each actor is an **isolated VM instance** running on its own OS thread. Actors communicate exclusively through message passing. Values are **deep-copied** when sent between actors — each actor has its own `Rc` heap.
+
+#### Syntax (proposed)
+
+```flux
+actor Counter(initial: Int) {
+  state count = initial
+
+  receive Increment {
+    count = count + 1
+  }
+
+  receive Get {
+    reply(count)
+  }
+}
+
+fn main() with IO, Async {
+  let c = spawn Counter(0)
+  send(c, Increment)
+  let n = await ask(c, Get)
+  print("count=" + to_string(n))
+}
+```
+
+#### Message Operations
+
+| Operation | Syntax | Behavior |
+|-----------|--------|----------|
+| **Spawn** | `spawn ActorName(args)` | Create actor, return `ActorRef<T>` |
+| **Send**  | `send(actor, Msg)` | Fire-and-forget enqueue |
+| **Ask**   | `await ask(actor, Msg)` | Request-reply (suspends caller) |
+| **Stop**  | `stop(actor)` | Graceful actor shutdown |
+
+#### Actor Runtime Contract
+
+1. Actor mailbox ordering is FIFO per sender.
+2. Actor processes one message at a time (no internal shared-state races).
+3. Cross-actor values use transfer representation (`TransferValue`) and are reconstructed into local heap values.
+4. Actor crash does not corrupt other actors; caller receives deterministic runtime failure.
+
+### Layer 2: Async/Await (Single-Threaded Cooperative)
 
 Cooperative multitasking on a single thread. The VM suspends a task at `await` points and resumes another ready task. **No threading, no `Rc` changes.**
 
@@ -195,55 +243,7 @@ fn fetch_all(urls) with IO, Async {
 | Concurrent tasks | `let f = async compute(data)` |
 | Parallel IO | Spawn multiple, await all |
 
-### Layer 2: Actors (Multi-Threaded)
-
-Each actor is an **isolated VM instance** running on its own OS thread. Actors communicate exclusively through message passing. Values are **deep-copied** when sent between actors — each actor has its own `Rc` heap.
-
-#### Syntax
-
-```flux
-// Define an actor
-actor Counter(initial: Int) {
-  // State is local to this actor — mutable within the actor
-  state count = initial
-
-  // Handle incoming messages
-  receive Increment {
-    count = count + 1
-  }
-
-  receive Decrement {
-    count = count - 1
-  }
-
-  receive Get {
-    reply(count)
-  }
-
-  receive Add(n) {
-    count = count + n
-    reply(count)
-  }
-}
-
-// Usage
-fn main() with IO, Async {
-  // Spawn actor — returns an ActorRef
-  let counter = spawn Counter(0)
-
-  // Fire-and-forget message
-  send(counter, Increment)
-  send(counter, Increment)
-  send(counter, Add(10))
-
-  // Request-reply (async — suspends until reply)
-  let value = await ask(counter, Get)  // => 12
-  print("Count: #{value}")
-
-  // Stop the actor
-  stop(counter)
-}
-```
+> Note: async/await remains part of Proposal 026 scope, but lands after actor MVP to keep parity and diagnostics deterministic.
 
 #### Message Types
 
@@ -332,6 +332,126 @@ impl Value {
 }
 ```
 
+## Under the Hood: VM and JIT Execution Model
+
+This section specifies how concurrency features should execute in Flux's two backends so implementation remains parity-safe.
+
+### A. VM Runtime Path (authoritative semantics)
+
+Concurrency semantics are defined by VM runtime behavior first. JIT must match these semantics.
+
+#### A1. Actor operation flow
+
+1. `spawn ActorName(args)`:
+   - Evaluate args on current VM stack.
+   - Serialize args to `TransferValue`.
+   - Create actor instance (thread + mailbox + isolated VM state).
+   - Return `ActorRef` handle value.
+
+2. `send(actor, Msg(...))`:
+   - Evaluate message payload.
+   - Serialize to `TransferValue`.
+   - Enqueue to actor mailbox.
+   - Return `Unit`/`None`.
+
+3. `ask(actor, Msg(...))` + `await`:
+   - Evaluate and serialize message payload.
+   - Create reply promise/future handle.
+   - Enqueue request with correlation id.
+   - Suspend caller task at `await` until reply is ready.
+   - On resume, deserialize reply payload into VM value.
+
+4. `stop(actor)`:
+   - Send stop signal to actor loop.
+   - Join/cleanup according to policy (graceful timeout is configurable).
+
+#### A2. VM internal structures (minimum)
+
+```rust
+struct ActorRef {
+    actor_id: u64,
+}
+
+struct ActorRuntime {
+    mailbox_tx: Sender<TransferMessage>,
+    // thread/join metadata
+}
+
+enum TransferMessage {
+    FireAndForget { tag: String, payload: Vec<TransferValue> },
+    Request { request_id: u64, tag: String, payload: Vec<TransferValue>, reply_to: Sender<TransferReply> },
+    Stop,
+}
+
+struct TransferReply {
+    request_id: u64,
+    result: Result<TransferValue, TransferError>,
+}
+```
+
+#### A3. VM opcode/lowering strategy
+
+MVP strategy should prefer **builtin lowering first** (lower risk):
+- `spawn/send/ask/stop` compile to Base/Runtime function calls via existing call path.
+- This avoids introducing new opcodes before semantics stabilize.
+
+Optional optimization (post-MVP):
+- add dedicated opcodes (`OpSpawnActor`, `OpSendActor`, `OpAskActor`, `OpStopActor`) once behavior is locked.
+
+### B. JIT Runtime Path (must mirror VM)
+
+JIT should reuse VM-authoritative runtime helpers and avoid duplicating concurrency semantics.
+
+#### B1. JIT execution contract
+
+1. Parser + compiler still produce same bytecode-level semantics.
+2. JIT lowers actor/concurrency operations to runtime helper calls (`src/jit/runtime_helpers.rs`).
+3. Helper implementations reuse shared transfer/message runtime logic.
+4. Error handling and diagnostics formatting must match VM class/signature policy.
+
+#### B2. JIT integration points
+
+Expected touchpoints:
+- `src/jit/compiler.rs`: lower concurrency builtins/calls to helper stubs.
+- `src/jit/runtime_helpers.rs`: actor operations + transfer conversion bridge.
+- `src/jit/context.rs`: store async wait state, pending replies, and runtime error.
+- `src/jit/mod.rs`: orchestration only (no semantic divergence).
+
+#### B3. JIT parity requirements
+
+For curated parity cases:
+- successful runs: same observable output/value.
+- failing runs: same normalized error class/signature.
+- compile diagnostics: same tuple lock (`code/title/primary label`).
+
+### C. Scheduling/Blocking Rules
+
+1. Actor mailbox processing is single-threaded per actor.
+2. `ask` is logically async; callers should not block OS threads in busy loops.
+3. `await` suspension points are explicit and deterministic.
+4. Backpressure defaults:
+   - unbounded mailbox in MVP, bounded optional in Phase 3.
+   - bounded behavior must return deterministic runtime error when full.
+
+### D. Failure Semantics
+
+1. Actor panic/crash:
+   - does not crash unrelated actors by default.
+   - requester receives failure reply (or timeout failure).
+2. Unknown message tag:
+   - deterministic runtime error (or compile-time rejection where statically known).
+3. Reply timeout (if configured):
+   - deterministic timeout error signature.
+
+### E. Determinism and Diagnostics
+
+1. VM and JIT share error class taxonomy for actor/runtime failures.
+2. Diagnostic wording can differ in full text, but parity tests compare normalized signatures.
+3. Compile-time checks should keep existing families when semantics match:
+   - type mismatch: `E300`
+   - effect boundary: `E400` family
+   - unresolved strict boundary: `E425`
+
 #### Supervision (Future Phase)
 
 Basic fault tolerance — an actor can monitor its children:
@@ -358,35 +478,183 @@ Full supervision trees (Erlang OTP-style) are a future extension.
 
 ## Implementation Roadmap
 
-### Phase 1: Async Runtime (No Threading)
+### Phase 1: Actor MVP (Release Candidate Track)
 
 | Step | What | Effort |
 |------|------|--------|
-| 1.1 | `Task` struct — save/restore VM state (stack, frames, sp) | Medium |
-| 1.2 | `Scheduler` — round-robin task switching | Medium |
-| 1.3 | `OpAsync` / `OpAwait` opcodes | Small |
-| 1.4 | `EventLoop` — poll-based IO readiness (using `mio` or `polling`) | Medium |
-| 1.5 | `Async` effect annotation in type system | Small (after type system exists) |
-| 1.6 | Built-in async operations: `sleep`, `http_get`, `read_file_async` | Medium |
+| 1.1 | `actor` syntax + parser AST nodes (`actor`, `receive`, `state`) | Medium |
+| 1.2 | `TransferValue` conversion (`Value <-> TransferValue`) | Medium |
+| 1.3 | Actor runtime: mailbox + thread-per-actor loop | Medium |
+| 1.4 | Builtins: `spawn` / `send` / `ask` / `stop` | Medium |
+| 1.5 | Effect integration: `Async`/`Actor`-style effect requirements | Medium |
+| 1.6 | Deterministic diagnostics + VM/JIT parity fixture matrix | Medium |
 
-**Dependencies:** Compiler changes to parse `async`/`await` keywords. No type system required for initial version (add effect annotation later).
+**Dependencies:** existing type/effect hardening and parity governance.
 
-**Milestone:** `async`/`await` works for IO concurrency on a single thread.
+**Milestone:** isolated actor concurrency available with deterministic compile/runtime diagnostics and parity tests.
 
-### Phase 2: Actor System
+#### Phase 1 Detailed Instructions (VM/JIT)
+
+1. Parser + AST
+   - Add actor declaration and receive-arm parsing.
+   - Keep actor syntax isolated from existing function/module grammar.
+   - Add parser pass/fail fixtures for actor declarations and message patterns.
+
+2. Compiler lowering
+   - Lower `spawn/send/ask/stop` to runtime builtin call path first.
+   - Enforce effect requirements at typed callsites.
+   - Add compile-time message arity/type checks where constructor/message metadata is known.
+
+3. VM runtime
+   - Implement actor registry and mailbox runtime.
+   - Implement `TransferValue` conversion for cross-actor payloads.
+   - Implement request-reply correlation for `ask`.
+   - Return deterministic runtime errors on serialization/unknown actor/reply mismatch.
+
+4. JIT runtime
+   - Add helper wrappers in `runtime_helpers.rs` that call shared actor runtime operations.
+   - Ensure JIT error path sets context error with VM-matching signature fragments.
+   - Avoid backend-specific behavior branches for actor semantics.
+
+5. Parity tests
+   - Add compile parity fixtures in existing snapshot matrix style.
+   - Add runtime parity tests (value + error signature) following `tests/runtime_vm_jit_parity_release.rs` pattern.
+   - Gate merges on VM/JIT parity for curated concurrency fixtures.
+
+#### Phase 1 Repo File Targets (Decision-Complete)
+
+Parser and syntax:
+- `src/syntax/token_type.rs`
+- `src/syntax/lexer/mod.rs`
+- `src/syntax/parser/statement.rs`
+- `src/syntax/parser/expression.rs`
+- `src/syntax/parser/parser_test.rs`
+
+AST and compiler front-end:
+- `src/ast/statement.rs`
+- `src/ast/expression.rs`
+- `src/bytecode/compiler/statement.rs`
+- `src/bytecode/compiler/expression.rs`
+- `src/bytecode/compiler/mod.rs`
+- `src/diagnostics/compiler_errors.rs`
+
+Runtime VM:
+- `src/runtime/value.rs`
+- `src/runtime/vm/mod.rs`
+- `src/runtime/vm/dispatch.rs`
+- `src/runtime/vm/function_call.rs`
+- `src/runtime/base/mod.rs`
+- new actor runtime module(s): `src/runtime/actor/*`
+
+Runtime JIT:
+- `src/jit/compiler.rs`
+- `src/jit/runtime_helpers.rs`
+- `src/jit/context.rs`
+- `src/jit/mod.rs`
+
+CLI and integration wiring:
+- `src/main.rs` (if new flags or runtime setup needed)
+
+#### Backend Adapter Boundary (VM/JIT)
+
+Concurrency semantics should live in one shared runtime module, with VM/JIT as backend adapters.
+
+Proposed module layout:
+- `src/runtime/actor/mod.rs` — public actor runtime API and orchestration.
+- `src/runtime/actor/types.rs` — `ActorId`, envelopes, reply correlation IDs.
+- `src/runtime/actor/mailbox.rs` — mailbox queue/channel logic.
+- `src/runtime/actor/registry.rs` — global actor registry.
+- `src/runtime/actor/supervisor.rs` — MVP one-for-one restart logic.
+- `src/runtime/actor/transfer.rs` — cross-actor transfer representation and conversion.
+- `src/runtime/actor/backend.rs` — backend trait + VM/JIT adapter contracts.
+
+Backend contract (initial sketch):
+
+```rust
+pub trait RuntimeBackend {
+    type ExecCtx;
+
+    fn spawn_actor(&self, entry_fn: Symbol, args: Vec<TransferValue>) -> RuntimeResult<ActorId>;
+    fn send(&self, to: ActorId, msg: TransferValue) -> RuntimeResult<()>;
+    fn ask(&self, to: ActorId, msg: TransferValue, timeout_ms: Option<u64>) -> RuntimeResult<TransferValue>;
+    fn stop(&self, id: ActorId) -> RuntimeResult<()>;
+}
+```
+
+Implementations:
+- `VmBackend` maps actor execution to bytecode VM instances (`src/runtime/vm/*`).
+- `JitBackend` maps actor execution to JIT contexts/runtime helpers (`src/jit/*`).
+
+Rules:
+1. Actor semantics are backend-independent and implemented once in `runtime/actor/*`.
+2. VM and JIT may differ in execution mechanics, never in actor semantics/diagnostics class.
+3. `main` is treated as the root actor endpoint to keep request/reply symmetric.
+
+#### Phase 1 Test Inventory (to add)
+
+Rust tests:
+- `tests/actor_parser_tests.rs`
+- `tests/actor_compiler_rules_tests.rs`
+- `tests/actor_vm_jit_parity_release.rs`
+- `tests/actor_supervision_tests.rs` (phase-1 minimal restart)
+
+Fixture files:
+- pass fixtures under `examples/type_system/`:
+  - `96_actor_spawn_send_ask_ok.flx`
+  - `97_actor_typed_reply_ok.flx`
+  - `98_actor_supervisor_restart_ok.flx`
+- failing fixtures under `examples/type_system/failing/`:
+  - `92_actor_pure_context_forbidden.flx`
+  - `93_actor_message_arity_mismatch.flx`
+  - `94_actor_ask_typed_mismatch.flx`
+  - `95_actor_unknown_message_arm.flx`
+
+Docs updates required per phase:
+- `examples/type_system/README.md`
+- `examples/type_system/failing/README.md`
+- `docs/internals/type_system_effects.md`
+- `docs/proposals/043_pure_flux_checklist.md`
+
+#### Phase 1 Required Commands (release gate style)
+
+```bash
+cargo fmt --all -- --check
+cargo check --all --all-features
+cargo test --test actor_parser_tests
+cargo test --test actor_compiler_rules_tests
+cargo test --all --all-features --test actor_vm_jit_parity_release
+cargo test --all --all-features purity_vm_jit_parity_snapshots
+```
+
+Targeted smoke commands:
+
+```bash
+cargo run -- --no-cache examples/type_system/96_actor_spawn_send_ask_ok.flx
+cargo run --features jit -- --no-cache examples/type_system/96_actor_spawn_send_ask_ok.flx --jit
+cargo run -- --no-cache examples/type_system/failing/92_actor_pure_context_forbidden.flx
+cargo run --features jit -- --no-cache examples/type_system/failing/92_actor_pure_context_forbidden.flx --jit
+```
+
+#### Phase 1 Acceptance Criteria
+
+1. Actor syntax parses deterministically with actionable parser diagnostics.
+2. `spawn/send/ask/stop` compile with effect/type enforcement in typed contexts.
+3. VM actor runtime supports request-reply and deterministic failure signatures.
+4. JIT matches VM behavior on curated actor parity matrix.
+5. Compile diagnostics parity tuple (`code/title/primary label`) remains locked.
+
+### Phase 2: Async Runtime (Cooperative)
 
 | Step | What | Effort |
 |------|------|--------|
-| 2.1 | `actor` keyword in parser — parse actor declarations | Medium |
-| 2.2 | `TransferValue` — serialize/deserialize values across thread boundaries | Medium |
-| 2.3 | Actor runtime — spawn OS thread per actor, mailbox via `crossbeam` channel | Medium |
-| 2.4 | `spawn` / `send` / `ask` / `stop` base functions | Medium |
-| 2.5 | Actor-internal `async`/`await` — each actor runs its own scheduler | Small (reuse Phase 1) |
-| 2.6 | `monitor` / `ActorDown` — basic fault notification | Medium |
+| 2.1 | `Task` struct — save/restore VM state (stack, frames, sp) | Medium |
+| 2.2 | `Scheduler` — round-robin task switching | Medium |
+| 2.3 | `OpAsync` / `OpAwait` opcodes | Small |
+| 2.4 | `EventLoop` — poll-based IO readiness (`mio` or `polling`) | Medium |
+| 2.5 | Built-in async operations: `sleep`, `http_get`, `read_file_async` | Medium |
+| 2.6 | Structured async diagnostics and cancellation policy | Medium |
 
-**Dependencies:** Phase 1 (async runtime). Shared bytecode wrapped in `Arc` for thread safety.
-
-**Milestone:** Actors run on multiple threads with message passing.
+**Milestone:** cooperative IO concurrency that composes with actors.
 
 ### Phase 3: Supervision and Tooling
 
@@ -409,7 +677,21 @@ Full supervision trees (Erlang OTP-style) are a future extension.
 | **Callback-based async** | Callback hell. `async`/`await` is strictly better UX. |
 | **Colored function problem** | `async` functions are a different "color" than sync functions. We accept this trade-off for clarity — effects already distinguish pure from impure. |
 
-## Example: Complete Concurrent Program
+## Diagnostics Contract (Proposed)
+
+New diagnostics must follow existing Flux convention (stable code/title/primary label + actionable hint):
+
+1. Actor operation in pure/incompatible effect context (`E4xx` family extension).
+2. Invalid actor message shape/arity at send site.
+3. `ask` result type mismatch (compile-time when typed, runtime fallback when dynamic).
+4. Unknown actor message arm in `receive`.
+5. Invalid `await` usage context (when async layer lands).
+
+VM/JIT parity contract:
+- compile diagnostics parity on tuple: `code/title/primary label`,
+- runtime parity on normalized error class/signature for curated cases.
+
+## Example: Complete Concurrent Program (MVP-oriented)
 
 ```flux
 module App {
@@ -457,6 +739,47 @@ module App {
   }
 }
 ```
+
+## Additional Example Matrix (Pass/Fail)
+
+### Pass: actor request-reply with typed payload
+
+```flux
+actor MathBox {
+  receive Add(x: Int, y: Int) {
+    reply(x + y)
+  }
+}
+
+fn main() with IO, Async {
+  let m = spawn MathBox()
+  let n: Int = await ask(m, Add(20, 22))
+  print(to_string(n))
+}
+```
+
+### Fail: actor operation in pure function
+
+```flux
+fn bad() -> Int {
+  let a = spawn MathBox()
+  1
+}
+```
+
+Expected: compile-time effect error (`E400` family policy).
+
+### Fail: typed ask mismatch
+
+```flux
+fn main() with IO, Async {
+  let m = spawn MathBox()
+  let s: String = await ask(m, Add(1, 2))
+  print(s)
+}
+```
+
+Expected: compile-time type mismatch (`E300`).
 
 ## References
 

@@ -4,6 +4,16 @@
 **Date:** 2026-02-26  
 **Depends on:** `014_lexer_parser_code_review.md`, `054_0_0_4_hm_adt_exhaustiveness_critical_path.md`
 
+Implementation note (v0.0.4 M5 safe subset):
+- Lexer benchmark harness remains the baseline source (`benches/lexer_bench.rs`), and M5 validation is gated by parser/diagnostics parity suites.
+
+Evidence snapshot (baseline -> current):
+- `lexer/next_token_loop/identifier_heavy`: `3.7637 .. 3.8832 ms` -> `3.7306 .. 3.8499 ms`
+- `lexer/next_token_loop/string_escape_interp_heavy`: `2.7487 .. 2.8046 ms` -> `2.6624 .. 2.7470 ms`
+- logs:
+  - baseline: `perf_logs/lexer-bench-20260227-163754.log`
+  - current: `perf_logs/lexer-bench-20260227-174828.log`
+
 ---
 
 ## 1. Summary
