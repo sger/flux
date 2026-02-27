@@ -68,6 +68,57 @@ fn display_type_constructor(c: &TypeConstructor, interner: &Interner) -> String 
     }
 }
 
+/// Built-in type names used for "did you mean?" suggestions.
+const KNOWN_TYPE_NAMES: &[&str] = &[
+    "Int", "Float", "Bool", "String", "Unit", "List", "Map", "Array", "Option", "Either",
+];
+
+/// If a type name looks like a typo of a known built-in type, return a
+/// suggestion string like `did you mean \`String\`?`.
+pub fn suggest_type_name(name: &str) -> Option<String> {
+    // Don't suggest for known types or very short names
+    if KNOWN_TYPE_NAMES.contains(&name) || name.len() < 2 {
+        return None;
+    }
+    let best = KNOWN_TYPE_NAMES
+        .iter()
+        .filter_map(|&known| {
+            let d = edit_distance(name, known);
+            // Allow distance ≤ 2, or prefix match
+            if d <= 2 || known.starts_with(name) || name.starts_with(known) {
+                Some((d, known))
+            } else {
+                None
+            }
+        })
+        .min_by_key(|(d, _)| *d);
+
+    best.map(|(_, known)| format!("did you mean `{known}`?"))
+}
+
+/// Simple Levenshtein edit distance.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (m, n) = (a.len(), b.len());
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 0..=m {
+        dp[i][0] = i;
+    }
+    for j in 0..=n {
+        dp[0][j] = j;
+    }
+    for i in 1..=m {
+        for j in 1..=n {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[m][n]
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Inference context
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,7 +284,7 @@ impl<'a> InferCtx<'a> {
 
                 if should_emit {
                     let file = self.file_path.clone();
-                    let diag = match e.kind {
+                    let mut diag = match e.kind {
                         UnifyErrorKind::OccursCheck(v) => {
                             let v_str = format!("t{v}");
                             let ty_str = self.display_type(&e.actual);
@@ -245,6 +296,19 @@ impl<'a> InferCtx<'a> {
                             type_unification_error(file, span, &exp_str, &act_str)
                         }
                     };
+                    // Add "did you mean?" hint for likely type name typos
+                    for ty in [&e.expected, &e.actual] {
+                        if let InferType::Con(TypeConstructor::Adt(sym)) = ty {
+                            let name = self.interner.resolve(*sym);
+                            if let Some(suggestion) = suggest_type_name(name) {
+                                diag.hints.push(
+                                    crate::diagnostics::types::Hint::help(
+                                        format!("Unknown type `{name}` — {suggestion}"),
+                                    ),
+                                );
+                            }
+                        }
+                    }
                     self.errors.push(diag);
                 }
                 InferType::Con(TypeConstructor::Any)

@@ -18,5 +18,6 @@ Cannot unify Any with Int.
 
 Help:
   return expression type does not match the declared return type
+  Unknown type `Any` — did you mean `Int`?
 == stdout ==
 <not executed>
