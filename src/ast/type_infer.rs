@@ -134,6 +134,30 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Unify `t1` with `t2` silently — update the substitution for type
+    /// propagation but never emit a diagnostic on failure.
+    ///
+    /// Used at annotated boundary sites (return type annotations, typed `let`
+    /// initializers) where the compiler's boundary checker is the authoritative
+    /// error reporter.  HM still needs the substitution side-effect so that
+    /// downstream inference sees the annotation constraint.
+    fn unify_propagate(&mut self, t1: &InferType, t2: &InferType) -> InferType {
+        let t1_sub = t1.apply_type_subst(&self.subst);
+        let t2_sub = t2.apply_type_subst(&self.subst);
+        match unify_with_span(&t1_sub, &t2_sub, Span::default()) {
+            Ok(s) => {
+                self.subst = std::mem::take(&mut self.subst).compose(&s);
+                t1_sub.apply_type_subst(&self.subst)
+            }
+            Err(_) => {
+                // Compiler boundary check will report — return the annotation
+                // type so that downstream inference stays consistent with the
+                // programmer's declared intent.
+                t2_sub.apply_type_subst(&self.subst)
+            }
+        }
+    }
+
     /// Unify `t1` with `t2`, composing the result into `self.subst`.
     ///
     /// On success, returns the resolved first type.
@@ -340,11 +364,13 @@ impl<'a> InferCtx<'a> {
         // Infer the body type.
         let body_ty = self.infer_block(body);
 
-        // Unify the body type with the declared return type, if present.
+        // Propagate the return type annotation constraint silently — the
+        // compiler's boundary checker in statement.rs is the authoritative
+        // reporter for return type mismatches.
         let ret_ty = match return_type {
             Some(ret_ann) => {
                 match TypeEnv::infer_type_from_type_expr(ret_ann, &tp_map, self.interner) {
-                    Some(ann_ty) => self.unify_reporting(&body_ty, &ann_ty, ret_ann.span()),
+                    Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
                     None => body_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -383,10 +409,13 @@ impl<'a> InferCtx<'a> {
     fn infer_let(&mut self, name: Identifier, annotation: Option<&TypeExpr>, value: &Expression) {
         let val_ty = self.infer_expr(value);
 
+        // Propagate the let annotation constraint silently — the compiler's
+        // boundary checker in statement.rs is the authoritative reporter for
+        // typed-let initializer mismatches.
         let final_ty = match annotation {
             Some(ann) => {
                 match TypeEnv::infer_type_from_type_expr(ann, &HashMap::new(), self.interner) {
-                    Some(ann_ty) => self.unify_reporting(&val_ty, &ann_ty, ann.span()),
+                    Some(ann_ty) => self.unify_propagate(&val_ty, &ann_ty),
                     None => val_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -599,7 +628,7 @@ impl<'a> InferCtx<'a> {
                             &HashMap::new(),
                             self.interner,
                         ) {
-                            Some(ann_ty) => self.unify_reporting(&body_ty, &ann_ty, ret_ann.span()),
+                            Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
                             None => body_ty.apply_type_subst(&self.subst),
                         }
                     }

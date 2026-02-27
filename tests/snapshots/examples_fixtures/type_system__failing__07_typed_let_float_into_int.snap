@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Float with Int.
-
-  --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:13
-  |
-1 | let answer: Int = 42.5
-  |             ^^^
-  |             --- expected Float, found Int
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify Int with Float.
 
   --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
@@ -72,6 +61,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 5 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

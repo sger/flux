@@ -9,17 +9,6 @@ failed (compile)
 
 Cannot unify Int with String.
 
-  --> examples/type_system/failing/02_runtime_boundary_arg_violation.flx:12:1
-   |
-12 | typed_add(dynamic, 1)
-   | ^^^^^^^^^^^^^^^^^^^^^
-   | --------------------- expected Int, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Int with String.
-
   --> examples/type_system/failing/02_runtime_boundary_arg_violation.flx:12:11
    |
 12 | typed_add(dynamic, 1)
@@ -29,7 +18,5 @@ Cannot unify Int with String.
 
 Help:
   argument #1 does not match function contract
-
-Found 2 errors.
 == stdout ==
 <not executed>

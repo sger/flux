@@ -9,17 +9,6 @@ failed (compile)
 
 Cannot unify Float with String.
 
-  --> examples/type_system/failing/04_compile_float_string_arg.flx:6:1
-  |
-6 | scale("3.14", 2.0)
-  | ^^^^^^^^^^^^^^^^^^
-  | ------------------ expected Float, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Float with String.
-
   --> examples/type_system/failing/04_compile_float_string_arg.flx:6:7
   |
 6 | scale("3.14", 2.0)
@@ -29,7 +18,5 @@ Cannot unify Float with String.
 
 Help:
   argument #1 does not match function contract
-
-Found 2 errors.
 == stdout ==
 <not executed>

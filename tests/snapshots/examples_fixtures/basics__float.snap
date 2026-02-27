@@ -105,17 +105,6 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with Float.
-
-  --> examples/basics/float.flx:11:7
-   |
-11 | print(1 + 2.5);
-   |       ^^^^^^^
-   |       ------- expected Int, found Float
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Float.
 
   --> examples/basics/float.flx:11:7
@@ -142,6 +131,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 10 errors.
+Found 9 errors.
 == stdout ==
 <not executed>

@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
-
-  --> examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx:7:25
-  |
-7 |         Boxed(Ok(v)) -> v + "x",
-  |                         ^^^^^^^
-  |                         ------- expected Int, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and String.
 
   --> examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx:7:25
@@ -29,7 +18,5 @@ Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with
 
 Help:
   adjust operand types or add explicit conversion
-
-Found 2 errors.
 == stdout ==
 <not executed>

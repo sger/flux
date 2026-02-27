@@ -91,24 +91,6 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Unit with Bool.
-
-  --> examples/basics/mini_database.flx:45:9
-   |
-45 |         if opt_eq(record["id"], id) {
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-46 |             record;
-   | ^^^^^^^^^^^^^^^^^^^
-47 |         } else {
-   | ^^^^^^^^^^^^^^^^
-48 |             findById(rest(records), id);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-49 |         };
-   | ^^^^^^^^^
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify Bool with Unit.
 
   --> examples/basics/mini_database.flx:45:12
@@ -149,24 +131,6 @@ Cannot unify indexable value (Array/List/Tuple/Map) with Unit.
 
 Help:
   index only arrays, lists, tuples, or maps
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Unit with Bool.
-
-  --> examples/basics/mini_database.flx:62:9
-   |
-62 |         if opt_eq(record["name"], name) {
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-63 |             record;
-   | ^^^^^^^^^^^^^^^^^^^
-64 |         } else {
-   | ^^^^^^^^^^^^^^^^
-65 |             findByName(rest(records), name);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-66 |         };
-   | ^^^^^^^^^
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -247,6 +211,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 16 errors.
+Found 14 errors.
 == stdout ==
 <not executed>

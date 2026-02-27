@@ -9,17 +9,6 @@ failed (compile)
 
 Cannot unify Int with String.
 
-  --> examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:14:21
-   |
-14 |     print(to_string(expect_int(choose(true))))
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^^
-   |                     ------------------------ expected Int, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Int with String.
-
   --> examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:14:32
    |
 14 |     print(to_string(expect_int(choose(true))))
@@ -29,7 +18,5 @@ Cannot unify Int with String.
 
 Help:
   argument #1 does not match function contract
-
-Found 2 errors.
 == stdout ==
 <not executed>
