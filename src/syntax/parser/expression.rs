@@ -8,7 +8,8 @@ use crate::{
         block::Block,
         expression::{Expression, HandleArm, MatchArm, Pattern},
         precedence::{
-            Fixity, Precedence, infix_op, postfix_op, prefix_op, rhs_precedence_for_infix,
+            Fixity, Precedence, infix_op, parse_loop_precedence, prefix_op,
+            rhs_precedence_for_infix,
         },
         statement::Statement,
         token_type::TokenType,
@@ -108,11 +109,7 @@ impl Parser {
         let mut left = self.parse_prefix()?;
 
         while !self.is_expression_terminator(self.peek_token.token_type) {
-            let peek_precedence = if let Some(peek_info) = postfix_op(&self.peek_token.token_type) {
-                peek_info.precedence
-            } else if let Some(peek_info) = infix_op(&self.peek_token.token_type) {
-                peek_info.precedence
-            } else {
+            let Some(peek_precedence) = parse_loop_precedence(&self.peek_token.token_type) else {
                 break;
             };
 

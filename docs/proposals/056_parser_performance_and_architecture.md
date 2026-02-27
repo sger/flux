@@ -4,6 +4,21 @@
 **Date:** 2026-02-26  
 **Depends on:** `044_compiler_phase_pipeline_refactor.md`, `055_lexer_performance_and_architecture.md`
 
+Implementation note (v0.0.4 M5 safe subset):
+- Parser benchmark harness landed as `benches/parser_bench.rs`.
+- Pratt parse-loop lookup now uses a single precedence table lookup in hot loop paths (`src/syntax/precedence.rs`, `src/syntax/parser/expression.rs`).
+
+Evidence snapshot (baseline -> current):
+- `parser/parse_program/expression_operator_heavy`: `18.951 .. 19.278 ms` -> `18.527 .. 18.933 ms`
+- `parser/parse_program/string_interp_comment_heavy`: `4.6056 .. 4.6790 ms` -> `4.4197 .. 4.5559 ms`
+- `parser/parse_program/malformed_recovery_heavy`: `5.5701 .. 5.6711 ms` -> `5.3812 .. 5.4969 ms` on isolated rerun
+- logs:
+  - baseline: `perf_logs/parser-bench-20260227-164004.log`
+  - current: `perf_logs/parser-bench-20260227-175000.log`
+  - malformed-only validation:
+    - `perf_logs/parser-malformed-only-20260227-175351.log`
+    - `perf_logs/parser-malformed-only-20260227-175409.log`
+
 ---
 
 ## 1. Summary

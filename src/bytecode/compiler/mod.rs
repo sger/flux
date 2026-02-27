@@ -1793,7 +1793,6 @@ impl Compiler {
     /// 4. Free-variable analysis: Collects free symbols in the AST
     /// 5. Tail-position analysis: Collects call expressions in tail position
     ///
-    /// This requires cloning the program if optimize or analyze is enabled.
     pub fn compile_with_opts(
         &mut self,
         program: &Program,
@@ -1805,31 +1804,35 @@ impl Compiler {
         // Program passed to `compile`. Any AST rewrites must happen before this call.
         // `program_to_compile` is therefore the single transformed Program consumed by
         // both HM inference and PASS 2 codegen validation in one invocation.
-        // Apply optimizations if requested
-        let program_to_compile = if optimize {
+        // Apply optimizations only when requested.
+        if optimize {
             use crate::ast::{constant_fold_with_interner, desugar, rename};
             let desugared = desugar(program.clone());
             let optimized = constant_fold_with_interner(desugared, &self.interner);
             // Rename pass (currently no-op, reserved for future alpha-conversion)
-            rename(optimized, HashMap::new())
-        } else if analyze {
-            // Need to clone for analysis even without optimization
-            program.clone()
-        } else {
-            // Borrow directly if no transformations needed
-            program.clone()
-        };
+            let program_to_compile = rename(optimized, HashMap::new());
 
-        // Collect analysis data if requested
-        if analyze {
-            self.free_vars = collect_free_vars_in_program(&program_to_compile);
-            self.tail_calls = find_tail_calls(&program_to_compile);
+            // Collect analysis data if requested.
+            if analyze {
+                self.free_vars = collect_free_vars_in_program(&program_to_compile);
+                self.tail_calls = find_tail_calls(&program_to_compile);
+            } else {
+                self.free_vars.clear();
+                self.tail_calls.clear();
+            }
+
+            self.compile(&program_to_compile)
         } else {
-            self.free_vars.clear();
-            self.tail_calls.clear();
+            // Borrow the original program directly for non-optimized paths.
+            if analyze {
+                self.free_vars = collect_free_vars_in_program(program);
+                self.tail_calls = find_tail_calls(program);
+            } else {
+                self.free_vars.clear();
+                self.tail_calls.clear();
+            }
+            self.compile(program)
         }
-
-        self.compile(&program_to_compile)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
