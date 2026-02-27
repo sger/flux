@@ -109,6 +109,12 @@ Required commands:
 cargo fmt --all -- --check
 cargo check --all --all-features
 cargo test --all --all-features purity_vm_jit_parity_snapshots
+cargo test --all --all-features --test runtime_vm_jit_parity_release
+
+cargo run -- --no-cache --root examples/aoc/2024 examples/aoc/2024/day04.flx
+cargo run --features jit -- --no-cache --root examples/aoc/2024 examples/aoc/2024/day04.flx --jit
+cargo run -- --no-cache --test --root lib --root examples/aoc/2024 examples/aoc/2024/day05_part1_test.flx
+cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/2024 examples/aoc/2024/day05_part1_test.flx --jit
 ```
 
 Required docs updates:
@@ -120,7 +126,7 @@ Stage-1 acceptance:
 1. HM typed-path zero-fallback achieved.
 2. ADT semantics deterministic for supported contract.
 3. Exhaustiveness guarantees stable in supported domains.
-4. VM/JIT parity green on curated matrix.
+4. VM/JIT parity green on curated compile and runtime matrices.
 5. Docs aligned with implementation truth.
 
 ---
