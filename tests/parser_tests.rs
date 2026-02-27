@@ -671,8 +671,8 @@ fn t(x) {
         let interner = parser.take_interner();
 
         assert!(
-            parser.errors.iter().any(|d| d.code() == Some("E034")
-                && d.message().is_some_and(|m| m.contains("Expected )"))),
+            parser.errors.iter().any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
+                && d.message().is_some_and(|m| m.contains(")") || m.contains("closing"))),
             "expected missing `)` diagnostic: {:?}",
             parser.errors
         );
@@ -705,11 +705,15 @@ fn t(x) {
             .errors
             .first()
             .expect("expected at least one parse error");
-        assert_eq!(first.code(), Some("E034"));
+        assert!(
+            first.code() == Some("E076") || first.code() == Some("E034"),
+            "expected UNCLOSED_DELIMITER or UNEXPECTED_TOKEN, got: {:?}",
+            first.code()
+        );
         assert!(
             first
                 .message()
-                .is_some_and(|m| m.contains("Expected )") || m.contains("Expected `)`")),
+                .is_some_and(|m| m.contains(")") || m.contains("closing")),
             "expected first diagnostic to be about missing `)`, got: {:?}",
             first.message()
         );

@@ -446,7 +446,17 @@ impl Parser {
             if self.is_peek_token(TokenType::RParen) {
                 self.next_token();
             } else {
-                self.peek_error(TokenType::RParen);
+                if self.peek_token.position.line > self.current_token.end_position.line {
+                    let open_span = Span::new(start, start);
+                    self.errors.push(unclosed_delimiter(
+                        open_span,
+                        "(",
+                        ")",
+                        Some(self.peek_token.span()),
+                    ));
+                } else {
+                    self.peek_error(TokenType::RParen);
+                }
                 // Recover missing `)` so following code can continue parsing with
                 // minimal cascades.
                 if !(self.recover_to_matching_delimiter(
@@ -469,7 +479,20 @@ impl Parser {
         if self.is_peek_token(TokenType::RParen) {
             self.next_token();
         } else {
-            self.peek_error(TokenType::RParen);
+            // Use unclosed_delimiter when the unexpected token is on a later
+            // line (suggesting a truly forgotten `)`) and fall back to the
+            // generic peek_error for same-line issues (e.g. missing comma).
+            if self.peek_token.position.line > self.current_token.end_position.line {
+                let open_span = Span::new(start, start);
+                self.errors.push(unclosed_delimiter(
+                    open_span,
+                    "(",
+                    ")",
+                    Some(self.peek_token.span()),
+                ));
+            } else {
+                self.peek_error(TokenType::RParen);
+            }
             // Same recovery as tuple literals: report missing `)` and try to
             // resynchronize locally before giving up.
             if !(self.recover_to_matching_delimiter(

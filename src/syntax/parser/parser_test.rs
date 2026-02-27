@@ -492,3 +492,42 @@ fn type_adt_sugar_trailing_bar_reports_error() {
         "expected parser errors for trailing '|'"
     );
 }
+
+#[test]
+fn missing_open_brace_reports_contextual_error() {
+    let (_program, parser) =
+        parse_with_errors("fn add(a: Int, b: Int) -> Int\n    a + b\n");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing opening brace"
+    );
+    let msg = parser.errors[0].message.as_deref().unwrap_or("");
+    assert!(
+        msg.contains("Expected `{` to begin function body"),
+        "expected contextual brace error, got: {msg}"
+    );
+}
+
+#[test]
+fn missing_open_brace_mentions_function_name() {
+    let (_program, parser) =
+        parse_with_errors("fn distance_tag(p: Int) -> String\n    p\n");
+    assert!(!parser.errors.is_empty());
+    // The diagnostic should reference the function name in a label
+    let has_fn_name = parser.errors[0]
+        .labels
+        .iter()
+        .any(|l| l.text.contains("distance_tag"));
+    assert!(has_fn_name, "expected label mentioning function name");
+}
+
+#[test]
+fn missing_close_brace_reports_unclosed_delimiter() {
+    let (_program, parser) = parse_with_errors("fn foo() {\n    1 + 2\n");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing closing brace"
+    );
+    let code = parser.errors[0].code.as_deref().unwrap_or("");
+    assert_eq!(code, "E076", "expected UNCLOSED_DELIMITER error code");
+}
