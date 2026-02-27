@@ -54,14 +54,14 @@ Create a focused plan for Flux v0.0.4 as a **hardening release**: complete type-
 │ Week 1: HM Zero-Fallback Completion                            │
 │   ✓ Strict HM typed-path authority                             │
 │   ✓ Remove typed-path runtime-compat rescue                    │
-│   → Deterministic typed mismatch diagnostics                   │
+│   ✓ Deterministic typed mismatch diagnostics                   │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │ Week 2: ADT Semantics Hardening                                │
 │   ✓ Constructor/arity/type checks stabilized                   │
 │   ✓ Module boundary policy behavior locked                     │
-│   → Predictable ADT behavior for supported release contract    │
+│   ✓ Predictable ADT behavior for supported release contract    │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
@@ -81,11 +81,48 @@ Create a focused plan for Flux v0.0.4 as a **hardening release**: complete type-
 Total: 4 weeks (March 2026 release window)
 ```
 
+### Week 1 Evidence (HM Zero-Fallback)
+
+1. `cargo check --all --all-features`  
+   Outcome: clean compile with strict HM typed-path flow and diagnostics suppression wiring intact.
+
+2. `cargo test --test compiler_rules_tests`  
+   Outcome: 61/61 passed, including unresolved boundary and HM mismatch regression coverage (`E300`/`E425` policy paths).
+
+3. `cargo test --lib bytecode::compiler::compiler_test`  
+   Outcome: 17/17 passed, including explicit guard tests that typed-let inference does not use runtime-compat fallback helpers.
+
+4. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
+   Outcome: parity snapshot gate passed (`purity_vm_jit_parity_snapshots` green), preserving VM/JIT tuple invariants.
+
+5. `cargo fmt --all -- --check`  
+   Outcome: passing after formatting normalization.
+
 **Post v0.0.4 (deferred tracks):**
 - Auto-currying / placeholder partial application (`052`)
 - Traits / typeclasses (`053`)
 - Typed records (`048`)
 - Larger architecture/perf refactor (`044`, `055`, `056` full execution)
+
+### Week 2 Evidence (ADT Semantics Hardening)
+
+1. `cargo check --all --all-features`  
+   Outcome: compile passes after HM ADT constructor-call/pattern typing deepening.
+
+2. `cargo test --test type_inference_tests`  
+   Outcome: ADT HM coverage tests pass (constructor generic instantiation + constructor-pattern type propagation).
+
+3. `cargo test --test compiler_rules_tests`  
+   Outcome: module ADT constructor boundary regression passes with dedicated class (`E084`).
+
+4. `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx`  
+   Outcome: deterministic ADT boundary failure on `E084` (no `E004` fallback path).
+
+5. `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit`  
+   Outcome: JIT path matches VM diagnostic class/title for ADT boundary misuse.
+
+6. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
+   Outcome: parity suite green after intentional snapshot update (`E004 -> E084` for fixture 66).
 
 ---
 
@@ -98,9 +135,10 @@ Total: 4 weeks (March 2026 release window)
 **Goal:** Make HM strict-path authority for typed validation callsites.
 
 **Implementation Focus:**
-- Eliminate typed-path reliance on runtime-compat expression typing.
+- Eliminate typed-path reliance on runtime-compat expression typing for strict HM validation paths.
 - Ensure unresolved handling is policy-accurate (`E425` strict path only where intended).
-- Keep mismatch class stable on `E300`.
+- Keep typed mismatch class stable on `E300`.
+- Keep runtime-boundary mismatch class on `E055` only.
 
 **Required Validation:**
 - typed-let mismatch coverage (identifier and call-return)
@@ -241,4 +279,3 @@ Any intentional change requires snapshot review + proposal note.
 - Exhaustiveness owner: Proposal `050`
 - Release orchestration owner: Proposal `054`
 - Perf starters: Proposals `055` + `056` (safe subset only for v0.0.4)
-

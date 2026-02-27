@@ -689,7 +689,7 @@ pub const UNKNOWN_BASE_MEMBER: ErrorCode = ErrorCode {
 };
 
 // ============================================================================
-// ADT ERRORS (E081-E083)
+// ADT ERRORS (E081-E084)
 // ============================================================================
 
 pub const UNKNOWN_CONSTRUCTOR: ErrorCode = ErrorCode {
@@ -714,6 +714,16 @@ pub const ADT_NON_EXHAUSTIVE_MATCH: ErrorCode = ErrorCode {
     error_type: ErrorType::Compiler,
     message: "Match expression on `{}` does not cover all constructors.",
     hint: Some("Add the missing constructors or a wildcard `_` catch-all arm."),
+};
+
+pub const MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED: ErrorCode = ErrorCode {
+    code: "E084",
+    title: "MODULE ADT CONSTRUCTOR NOT EXPORTED",
+    error_type: ErrorType::Compiler,
+    message: "Constructor `{}` from module `{}` is not part of the public API.",
+    hint: Some(
+        "Use the module's `public fn` factory/accessor API instead of direct constructor access.",
+    ),
 };
 
 // ============================================================================

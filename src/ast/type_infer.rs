@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     diagnostics::{
@@ -9,6 +9,7 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        data_variant::DataVariant,
         effect_expr::EffectExpr,
         expression::{Expression, Pattern},
         interner::Interner,
@@ -44,7 +45,15 @@ struct InferCtx<'a> {
     expr_ptr_to_id: HashMap<usize, ExprNodeId>,
     expr_types: HashMap<ExprNodeId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
     effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+}
+
+#[derive(Debug, Clone)]
+struct AdtConstructorTypeInfo {
+    adt_name: Identifier,
+    type_params: Vec<Identifier>,
+    fields: Vec<TypeExpr>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -64,6 +73,7 @@ impl<'a> InferCtx<'a> {
             expr_ptr_to_id: HashMap::new(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
+            adt_constructor_types: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
         }
     }
@@ -175,6 +185,10 @@ impl<'a> InferCtx<'a> {
     // ── Program / statement inference ─────────────────────────────────────────
 
     fn infer_program(&mut self, program: &Program) {
+        // Phase A0: predeclare top-level ADT constructors so functions can
+        // reference constructors defined later in the file.
+        self.predeclare_data_constructors_in_statements(&program.statements);
+
         // Phase A: pre-declare all top-level function names with a fresh type
         // variable so that mutually-recursive functions can reference each other.
         for stmt in &program.statements {
@@ -236,8 +250,60 @@ impl<'a> InferCtx<'a> {
                 self.infer_expr(value);
             }
             Statement::Module { name, body, .. } => self.infer_module(*name, body),
-            // Import, Data, Return at top-level: no HM inference needed.
+            Statement::Data {
+                name,
+                type_params,
+                variants,
+                ..
+            } => {
+                self.register_data_constructors(*name, type_params, variants);
+            }
+            // Import, Return at top-level: no HM inference needed.
             _ => {}
+        }
+    }
+
+    fn predeclare_data_constructors_in_statements(&mut self, statements: &[Statement]) {
+        for stmt in statements {
+            if let Statement::Data {
+                name,
+                type_params,
+                variants,
+                ..
+            } = stmt
+            {
+                self.register_data_constructors(*name, type_params, variants);
+            }
+        }
+    }
+
+    fn register_data_constructors(
+        &mut self,
+        adt_name: Identifier,
+        type_params: &[Identifier],
+        variants: &[DataVariant],
+    ) {
+        for variant in variants {
+            self.adt_constructor_types.insert(
+                variant.name,
+                AdtConstructorTypeInfo {
+                    adt_name,
+                    type_params: type_params.to_vec(),
+                    fields: variant.fields.clone(),
+                },
+            );
+
+            let Some((field_tys, result_ty)) = self.instantiate_constructor_parts(variant.name)
+            else {
+                continue;
+            };
+            let ctor_ty = if field_tys.is_empty() {
+                result_ty
+            } else {
+                InferType::Fun(field_tys, Box::new(result_ty), vec![])
+            };
+            let scheme = generalize(&ctor_ty, &HashSet::new());
+            self.env.bind(variant.name, scheme);
         }
     }
 
@@ -335,6 +401,7 @@ impl<'a> InferCtx<'a> {
 
     fn infer_module(&mut self, module_name: Identifier, body: &Block) {
         self.env.enter_scope();
+        self.predeclare_data_constructors_in_statements(&body.statements);
         for stmt in &body.statements {
             self.infer_stmt(stmt);
             if let Statement::Function {
@@ -557,7 +624,15 @@ impl<'a> InferCtx<'a> {
                 function,
                 arguments,
                 span,
-            } => self.infer_call(function, arguments, *span),
+            } => {
+                if let Expression::Identifier { name, .. } = function.as_ref()
+                    && self.adt_constructor_types.contains_key(name)
+                {
+                    self.infer_constructor_call(*name, arguments, *span)
+                } else {
+                    self.infer_call(function, arguments, *span)
+                }
+            }
 
             // ── Collection literals ───────────────────────────────────────────
             Expression::TupleLiteral { elements, .. } => {
@@ -707,7 +782,8 @@ impl<'a> InferCtx<'a> {
                 span,
             } => {
                 let arg_tys: Vec<InferType> = args.iter().map(|arg| self.infer_expr(arg)).collect();
-                if let Some((param_tys, ret_ty)) = self.effect_op_signature_types(*effect, *operation)
+                if let Some((param_tys, ret_ty)) =
+                    self.effect_op_signature_types(*effect, *operation)
                 {
                     if arg_tys.len() == param_tys.len() {
                         for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
@@ -953,11 +1029,80 @@ impl<'a> InferCtx<'a> {
                 }
             }
             Pattern::Constructor { fields, .. } => {
-                for field in fields {
-                    self.bind_pattern(field, &InferType::Con(TypeConstructor::Any), span);
+                if let Pattern::Constructor { name, .. } = pattern
+                    && let Some((field_tys, result_ty)) = self.instantiate_constructor_parts(*name)
+                {
+                    self.unify_reporting(&resolved_scrutinee, &result_ty, span);
+                    if field_tys.len() == fields.len() {
+                        for (field, field_ty) in fields.iter().zip(field_tys.iter()) {
+                            self.bind_pattern(field, field_ty, span);
+                        }
+                    } else {
+                        for field in fields {
+                            self.bind_pattern(field, &InferType::Con(TypeConstructor::Any), span);
+                        }
+                    }
+                } else {
+                    for field in fields {
+                        self.bind_pattern(field, &InferType::Con(TypeConstructor::Any), span);
+                    }
                 }
             }
         }
+    }
+
+    fn instantiate_constructor_parts(
+        &mut self,
+        constructor: Identifier,
+    ) -> Option<(Vec<InferType>, InferType)> {
+        let info = self.adt_constructor_types.get(&constructor)?.clone();
+        let mut type_param_map: HashMap<Identifier, TypeVarId> = HashMap::new();
+        for type_param in &info.type_params {
+            type_param_map.insert(*type_param, self.env.fresh());
+        }
+
+        let field_tys: Vec<InferType> = info
+            .fields
+            .iter()
+            .map(|field| {
+                TypeEnv::infer_type_from_type_expr(field, &type_param_map, self.interner)
+                    .unwrap_or(InferType::Con(TypeConstructor::Any))
+            })
+            .collect();
+
+        let result_ty = if info.type_params.is_empty() {
+            InferType::Con(TypeConstructor::Adt(info.adt_name))
+        } else {
+            let mut args = Vec::with_capacity(info.type_params.len());
+            for type_param in &info.type_params {
+                let Some(var) = type_param_map.get(type_param) else {
+                    return None;
+                };
+                args.push(InferType::Var(*var));
+            }
+            InferType::App(TypeConstructor::Adt(info.adt_name), args)
+        };
+
+        Some((field_tys, result_ty))
+    }
+
+    fn infer_constructor_call(
+        &mut self,
+        constructor: Identifier,
+        arguments: &[Expression],
+        span: Span,
+    ) -> InferType {
+        let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
+        let Some((param_tys, result_ty)) = self.instantiate_constructor_parts(constructor) else {
+            return InferType::Con(TypeConstructor::Any);
+        };
+        if arg_tys.len() != param_tys.len() {
+            return InferType::Con(TypeConstructor::Any);
+        }
+        for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
+            self.unify_reporting(actual, expected, span);
+        }
+        result_ty.apply_type_subst(&self.subst)
     }
 }
 

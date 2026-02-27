@@ -160,9 +160,18 @@ fn private_member_access_error() {
 
 #[test]
 fn non_public_module_function_access_error() {
-    let code =
-        compile_err("module Math { fn hidden() { 1; } } module Main { fn main() { Math.hidden(); } }");
+    let code = compile_err(
+        "module Math { fn hidden() { 1; } } module Main { fn main() { Math.hidden(); } }",
+    );
     assert_eq!(code, "E011");
+}
+
+#[test]
+fn module_adt_constructor_access_uses_boundary_diagnostic() {
+    let code = compile_err(
+        "module M { type MaybeInt = SomeInt(Int) | NoneInt } module Main { fn main() { M.SomeInt(1); } }",
+    );
+    assert_eq!(code, "E084");
 }
 
 #[test]
