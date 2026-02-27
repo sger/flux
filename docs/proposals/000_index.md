@@ -32,8 +32,13 @@ Feature state is evidence-driven:
 | 044 | [044_compiler_phase_pipeline_refactor.md](044_compiler_phase_pipeline_refactor.md) | Draft | gap | proposal-only | next architecture/perf workstream |
 | 046 | [046_typed_ast_hm_architecture.md](046_typed_ast_hm_architecture.md) | Draft | gap | proposal-only | post-0.0.4 HM architecture deepening |
 | 049 | [049_effect_rows_completeness.md](049_effect_rows_completeness.md) | Draft | gap | proposal-only | complete row solver semantics and deterministic diagnostics after 042 baseline |
-| 050 | [050_totality_and_exhaustiveness_hardening.md](050_totality_and_exhaustiveness_hardening.md) | Draft | gap | proposal-only | harden exhaustive/total match guarantees across supported domains |
-| 051 | [051_any_fallback_reduction.md](051_any_fallback_reduction.md) | Draft | gap | proposal-only | reduce accidental `Any` fallback in typed/HM-known paths with staged rollout |
+| 050 | [050_totality_and_exhaustiveness_hardening.md](050_totality_and_exhaustiveness_hardening.md) | Draft | gap | proposal-only | stage-1 exhaustiveness hardening owner under roadmap 054 |
+| 051 | [051_any_fallback_reduction.md](051_any_fallback_reduction.md) | Draft | gap | proposal-only | stage-1 HM zero-fallback owner under roadmap 054 |
+| 052 | [052_auto_currying_and_partial_application.md](052_auto_currying_and_partial_application.md) | Draft | gap | proposal-only | stage-2 post-0.0.4 currying/placeholder feature track under roadmap 054 |
+| 053 | [053_traits_and_typeclasses.md](053_traits_and_typeclasses.md) | Draft | gap | proposal-only | stage-2 post-0.0.4 trait/typeclass feature track under roadmap 054 |
+| 054 | [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](054_0_0_4_hm_adt_exhaustiveness_critical_path.md) | Draft | gap | proposal-only | canonical sequencing and gates for 0.0.4 HM/ADT/exhaustiveness + post-0.0.4 feature tracks |
+| 055 | [055_lexer_performance_and_architecture.md](055_lexer_performance_and_architecture.md) | Draft | gap | proposal-only | phased lexer perf + architecture hardening with parser-contract and benchmark gates |
+| 056 | [056_parser_performance_and_architecture.md](056_parser_performance_and_architecture.md) | Draft | gap | proposal-only | phased parser perf + architecture hardening with lexer/parser contract and benchmark gates |
 
 ## Backlog (Draft / Proposed)
 
@@ -68,7 +73,7 @@ Feature state is evidence-driven:
 | 040 | [040_macro_system.md](040_macro_system.md) | Draft | gap | proposal-only | canonical macro proposal going forward |
 | 041 | [041_nan_boxing_runtime_optimization.md](041_nan_boxing_runtime_optimization.md) | Proposed | gap | proposal-only | keep in runtime perf backlog |
 | 045 | [045_gc.md](045_gc.md) | Draft | gap | proposal-only (renamed from `010_gc.md`) | continue as canonical GC proposal |
-| 047 | [047_adt_semantics_deepening.md](047_adt_semantics_deepening.md) | Draft | gap | proposal-only | post-sugar ADT semantic hardening track |
+| 047 | [047_adt_semantics_deepening.md](047_adt_semantics_deepening.md) | Draft | gap | proposal-only | stage-1 ADT hardening owner under roadmap 054 |
 | 048 | [048_typed_record_types.md](048_typed_record_types.md) | Draft | gap | proposal-only | typed immutable records with compile-time field checking and spread update |
 
 ## Superseded Historical Docs

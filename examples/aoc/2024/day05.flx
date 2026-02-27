@@ -1,0 +1,10 @@
+// Advent of Code 2024 - Day 5
+// Uses input file: examples/aoc/2024/day05.txt
+
+import Day05Solver as Day05
+
+fn main() with IO {
+    let lines = read_lines("examples/aoc/2024/day05.txt")
+    print(Day05.day05a_from_lines(lines))
+    print(Day05.day05b_from_lines(lines))
+}
