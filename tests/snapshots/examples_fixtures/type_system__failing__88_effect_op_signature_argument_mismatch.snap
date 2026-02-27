@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with String.
+
+  --> examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:9:14
+  |
+9 |     let _ = (perform Console.read(123)) handle Console {
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |              ------------------------- expected Int, found String
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:9:35
+  |
+9 |     let _ = (perform Console.read(123)) handle Console {
+  |                                   ^^^
+  |                                   --- expected String, found Int
+  |                                   --- perform argument type is known at compile time
+
+Help:
+  argument does not match effect operation signature
+
+Found 2 errors.
+== stdout ==
+<not executed>

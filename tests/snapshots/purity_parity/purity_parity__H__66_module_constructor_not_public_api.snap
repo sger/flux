@@ -15,10 +15,10 @@ $ flux --no-cache --root examples/type_system examples/type_system/failing/66_mo
 exit_code: 1
 
 == vm tuples ==
-- E004 | UNDEFINED VARIABLE | 
+- E084 | MODULE ADT CONSTRUCTOR NOT EXPORTED | 
 
 == jit tuples ==
-- E004 | UNDEFINED VARIABLE | 
+- E084 | MODULE ADT CONSTRUCTOR NOT EXPORTED | 
 
 == parity ==
 match

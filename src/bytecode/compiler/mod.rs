@@ -108,6 +108,7 @@ pub struct Compiler {
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
+    pub(super) module_adt_constructors: HashMap<(Symbol, Symbol), Symbol>,
     pub(super) static_type_scopes: Vec<HashMap<Symbol, RuntimeType>>,
     pub(super) effect_alias_scopes: Vec<HashMap<Symbol, Symbol>>,
     pub(super) adt_registry: AdtRegistry,
@@ -167,6 +168,7 @@ impl Compiler {
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
+            module_adt_constructors: HashMap::new(),
             static_type_scopes: vec![HashMap::new()],
             effect_alias_scopes: vec![HashMap::new()],
             adt_registry: AdtRegistry::new(),
@@ -269,7 +271,8 @@ impl Compiler {
                 let entry = self.effect_ops_registry.entry(*name).or_default();
                 for op in ops {
                     entry.insert(op.name);
-                    self.effect_op_signatures.insert((*name, op.name), op.type_expr.clone());
+                    self.effect_op_signatures
+                        .insert((*name, op.name), op.type_expr.clone());
                 }
             }
             Statement::Module { body, .. } => {
@@ -290,6 +293,35 @@ impl Compiler {
     fn collect_module_function_visibility(&mut self, program: &Program) {
         for statement in &program.statements {
             self.collect_module_function_visibility_from_statement(statement, None);
+        }
+    }
+
+    fn collect_module_adt_constructors(&mut self, program: &Program) {
+        for statement in &program.statements {
+            self.collect_module_adt_constructors_from_statement(statement, None);
+        }
+    }
+
+    fn collect_module_adt_constructors_from_statement(
+        &mut self,
+        statement: &Statement,
+        module_name: Option<Symbol>,
+    ) {
+        match statement {
+            Statement::Data { name, variants, .. } => {
+                if let Some(module_name) = module_name {
+                    for variant in variants {
+                        self.module_adt_constructors
+                            .insert((module_name, variant.name), *name);
+                    }
+                }
+            }
+            Statement::Module { name, body, .. } => {
+                for nested in &body.statements {
+                    self.collect_module_adt_constructors_from_statement(nested, Some(*name));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1619,6 +1651,16 @@ impl Compiler {
             .copied()
     }
 
+    pub(super) fn module_member_adt_constructor_owner(
+        &self,
+        module_name: Symbol,
+        member_name: Symbol,
+    ) -> Option<Symbol> {
+        self.module_adt_constructors
+            .get(&(module_name, member_name))
+            .copied()
+    }
+
     pub(super) fn module_qualifier_text(&self, expr: &Expression) -> Option<String> {
         match expr {
             Expression::Identifier { name, .. } => Some(self.sym(*name).to_string()),
@@ -1808,6 +1850,7 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.process_base_directives(program);
         self.collect_module_function_visibility(program);
+        self.collect_module_adt_constructors(program);
         self.collect_module_contracts(program);
         self.infer_unannotated_function_effects(program);
         self.collect_adt_definitions(program);

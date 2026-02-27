@@ -157,9 +157,14 @@ impl Compiler {
         ))
     }
 
-    fn check_private_module_member_access_for_expr(&self, expression: &Expression) -> CompileResult<()> {
+    fn check_private_module_member_access_for_expr(
+        &self,
+        expression: &Expression,
+    ) -> CompileResult<()> {
         let (object, member, span) = match expression {
-            Expression::MemberAccess { object, member, .. } => (object.as_ref(), *member, expression.span()),
+            Expression::MemberAccess { object, member, .. } => {
+                (object.as_ref(), *member, expression.span())
+            }
             Expression::Call { function, .. } => match function.as_ref() {
                 Expression::MemberAccess { object, member, .. } => {
                     (object.as_ref(), *member, function.span())
@@ -175,7 +180,8 @@ impl Compiler {
 
         let module_name = if let Some(target) = self.import_aliases.get(name) {
             Some(*target)
-        } else if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name) {
+        } else if self.imported_modules.contains(name) || self.current_module_prefix == Some(*name)
+        {
             Some(*name)
         } else {
             None

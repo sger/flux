@@ -79,7 +79,10 @@ fn infer_program_from_source(
     let mut effect_op_sigs = HashMap::new();
     fn collect_effect_sigs(
         statements: &[Statement],
-        out: &mut HashMap<(flux::syntax::Identifier, flux::syntax::Identifier), flux::syntax::type_expr::TypeExpr>,
+        out: &mut HashMap<
+            (flux::syntax::Identifier, flux::syntax::Identifier),
+            flux::syntax::type_expr::TypeExpr,
+        >,
     ) {
         for statement in statements {
             match statement {
@@ -132,9 +135,8 @@ fn first_perform_expr(program: &flux::syntax::program::Program) -> Option<&Expre
                 .iter()
                 .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
             Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
-            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
-                walk_expr(object)
-            }
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
             Expression::Match {
                 scrutinee, arms, ..
             } => walk_expr(scrutinee).or_else(|| {
@@ -149,9 +151,9 @@ fn first_perform_expr(program: &flux::syntax::program::Program) -> Option<&Expre
             | Expression::Left { value, .. }
             | Expression::Right { value, .. } => walk_expr(value),
             Expression::Cons { head, tail, .. } => walk_expr(head).or_else(|| walk_expr(tail)),
-            Expression::Handle { expr, arms, .. } => walk_expr(expr).or_else(|| {
-                arms.iter().find_map(|arm| walk_expr(&arm.body))
-            }),
+            Expression::Handle { expr, arms, .. } => {
+                walk_expr(expr).or_else(|| arms.iter().find_map(|arm| walk_expr(&arm.body)))
+            }
             _ => None,
         }
     }
@@ -203,9 +205,8 @@ fn first_handle_expr(program: &flux::syntax::program::Program) -> Option<&Expres
                 .iter()
                 .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
             Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
-            Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
-                walk_expr(object)
-            }
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
             Expression::Match {
                 scrutinee, arms, ..
             } => walk_expr(scrutinee).or_else(|| {
@@ -241,6 +242,60 @@ fn first_handle_expr(program: &flux::syntax::program::Program) -> Option<&Expres
     }
 
     program.statements.iter().find_map(walk_stmt)
+}
+
+fn has_diagnostic_code(result: &flux::ast::type_infer::InferProgramResult, code: &str) -> bool {
+    result
+        .diagnostics
+        .iter()
+        .any(|diag| diag.code() == Some(code))
+}
+
+#[test]
+fn infer_adt_constructor_call_generic_ok() {
+    let source = r#"
+type Result<T, E> = Ok(T) | Err(E)
+let x: Result<Int, String> = Ok(1)
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_code(&result, "E300"),
+        "unexpected E300 diagnostics: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_adt_constructor_call_generic_mismatch_reports_e300() {
+    let source = r#"
+type Result<T, E> = Ok(T) | Err(E)
+let x: Result<Int, String> = Ok("oops")
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_adt_constructor_pattern_binding_propagates_field_type() {
+    let source = r#"
+type Result<T, E> = Ok(T) | Err(E)
+fn unwrap_plus(r: Result<Int, String>) -> Int {
+    match r {
+        Ok(v) -> v + "x",
+        Err(_) -> 0,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
 }
 
 // ============================================================================

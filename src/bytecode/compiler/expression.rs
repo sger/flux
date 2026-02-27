@@ -22,10 +22,9 @@ use crate::{
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
         ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
-        UNKNOWN_BASE_MEMBER,
-        UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR,
+        LEGACY_LIST_TAIL_NONE, MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED, MODULE_NOT_IMPORTED,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::type_unification_error,
         diag_enhanced,
         position::{Position, Span},
@@ -176,6 +175,13 @@ impl Compiler {
                             self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                         self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
+                        if let Some(diag) = self
+                            .module_constructor_boundary_error_from_qualified_identifier(
+                                name, *span,
+                            )
+                        {
+                            return Err(Self::boxed(diag));
+                        }
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
                             self.make_undefined_variable_error(name_str, *span),
@@ -199,6 +205,11 @@ impl Compiler {
                         self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                     self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                 } else {
+                    if let Some(diag) = self
+                        .module_constructor_boundary_error_from_qualified_identifier(name, *span)
+                    {
+                        return Err(Self::boxed(diag));
+                    }
                     let name_str = self.sym(name);
                     return Err(Self::boxed(
                         self.make_undefined_variable_error(name_str, *span),
@@ -443,21 +454,11 @@ impl Compiler {
                     )));
                 }
 
-                let (module_binding_name, module_name) = match object.as_ref() {
-                    Expression::Identifier { name, .. } => {
-                        let name = *name;
-                        if let Some(target) = self.import_aliases.get(&name) {
-                            (Some(name), Some(*target))
-                        } else if self.imported_modules.contains(&name)
-                            || self.current_module_prefix == Some(name)
-                        {
-                            (Some(name), Some(name))
-                        } else {
-                            (Some(name), None)
-                        }
-                    }
-                    _ => (None, None),
+                let module_binding_name = match object.as_ref() {
+                    Expression::Identifier { name, .. } => Some(*name),
+                    _ => None,
                 };
+                let module_name = self.resolve_module_name_from_expr(object);
 
                 if let Some(module_name) = module_name {
                     if let Some(binding_name) = module_binding_name
@@ -504,6 +505,18 @@ impl Compiler {
 
                     let module_name_str = self.sym(module_name);
                     let member_str = self.sym(member);
+                    if self.current_module_prefix != Some(module_name)
+                        && self
+                            .module_member_adt_constructor_owner(module_name, member)
+                            .is_some()
+                    {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
+                            &[member_str, module_name_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
+                    }
 
                     return Err(Self::boxed(Diagnostic::make_error(
                         &UNKNOWN_MODULE_MEMBER,
@@ -750,6 +763,40 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn module_constructor_boundary_error_from_qualified_identifier(
+        &self,
+        name: Symbol,
+        span: Span,
+    ) -> Option<Diagnostic> {
+        let full_name = self.sym(name);
+        let (qualifier, member) = full_name.rsplit_once('.')?;
+        let module_name = self
+            .imported_modules
+            .iter()
+            .copied()
+            .find(|module| self.sym(*module) == qualifier)
+            .or_else(|| {
+                self.import_aliases
+                    .iter()
+                    .find(|(alias, _)| self.sym(**alias) == qualifier)
+                    .map(|(_, target)| *target)
+            })?;
+        let is_adt_constructor = self
+            .module_adt_constructors
+            .keys()
+            .any(|(owner, ctor)| *owner == module_name && self.sym(*ctor) == member);
+        if !is_adt_constructor {
+            return None;
+        }
+
+        Some(Diagnostic::make_error(
+            &MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
+            &[member, qualifier],
+            self.file_path.clone(),
+            span,
+        ))
     }
 
     fn diagnostic_for_row_violation(
@@ -2135,9 +2182,11 @@ impl Compiler {
         }
 
         for (arg, expected_ty) in args.iter().zip(op_params.iter()) {
-            let Some(expected) =
-                TypeEnv::infer_type_from_type_expr(expected_ty, &Default::default(), &self.interner)
-            else {
+            let Some(expected) = TypeEnv::infer_type_from_type_expr(
+                expected_ty,
+                &Default::default(),
+                &self.interner,
+            ) else {
                 continue;
             };
             self.validate_expr_expected_type(
@@ -2328,7 +2377,8 @@ impl Compiler {
             let mut params: Vec<Symbol> = Vec::with_capacity(1 + arm.params.len());
             params.push(arm.resume_param);
             params.extend_from_slice(&arm.params);
-            let mut parameter_types: Vec<Option<TypeExpr>> = Vec::with_capacity(1 + op_params.len());
+            let mut parameter_types: Vec<Option<TypeExpr>> =
+                Vec::with_capacity(1 + op_params.len());
             parameter_types.push(None);
             for ty in op_params {
                 parameter_types.push(Some(ty.clone()));
@@ -2346,13 +2396,7 @@ impl Compiler {
             };
 
             // compile_function_literal emits OpClosure, leaving a closure on the stack
-            self.compile_function_literal(
-                &params,
-                &parameter_types,
-                &None,
-                &[],
-                &arm_block,
-            )?;
+            self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
         }
 
         // Build HandlerDescriptor and emit OpHandle

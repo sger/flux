@@ -111,6 +111,12 @@ Preserve by default:
 - primary label
 - ordering class
 
+Week-2 lock-in note:
+- keep `E082` for constructor arity mismatch,
+- keep `E083` for ADT non-exhaustive match,
+- use `E084` for cross-module direct ADT constructor boundary misuse under
+  factory-only policy.
+
 Any intentional changes require snapshot review and proposal note.
 
 ---

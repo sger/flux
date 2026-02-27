@@ -131,7 +131,10 @@ fn module_file_with_script_code_is_error() {
 fn alias_import_compiles() {
     let root = temp_root("alias_import");
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(&module_path, "module Data.MyFile { public fn value() { 1; } }");
+    write_file(
+        &module_path,
+        "module Data.MyFile { public fn value() { 1; } }",
+    );
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
