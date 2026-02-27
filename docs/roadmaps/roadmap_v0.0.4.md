@@ -145,6 +145,32 @@ Total: 4 weeks (March 2026 release window)
 5. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
    Outcome: parity snapshot gate passed; compile-diagnostic tuples remain aligned across VM/JIT for curated purity/type fixtures.
 
+### Week 4 Evidence (Parity Freeze + Runtime Stability)
+
+1. `cargo fmt --all -- --check`  
+   Outcome: formatting gate passed for parity-freeze branch state.
+
+2. `cargo check --all --all-features`  
+   Outcome: clean compile with release parity test matrix additions.
+
+3. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
+   Outcome: compile-diagnostic tuple parity gate remains green (`code/title/primary label` lock).
+
+4. `cargo test --all --all-features --test runtime_vm_jit_parity_release`  
+   Outcome: curated runtime parity matrix passes:
+   - typed module-qualified runtime value parity,
+   - ADT constructor/match runtime value parity,
+   - controlled runtime panic signature parity,
+   - AoC CLI outcome parity (`day04.flx` deterministic `E011` compile parity, `day05_part1_test.flx` VM/JIT pass parity).
+
+5. Runtime smoke commands  
+   Outcome:
+   - `examples/aoc/2024/day04.flx`: VM/JIT both fail with `E011` private-member diagnostic.
+   - `examples/aoc/2024/day05_part1_test.flx` (`--test`): VM/JIT both pass all 4 tests.
+
+6. Residual risk note  
+   Outcome: full `examples/aoc/2024/day05.flx` remains outside the curated release matrix due known VM stack-overflow behavior in Part 2 recursion; tracked as post-0.0.4 runtime hardening follow-up.
+
 ---
 
 ## Proposed Milestones
@@ -221,6 +247,12 @@ Total: 4 weeks (March 2026 release window)
 cargo fmt --all -- --check
 cargo check --all --all-features
 cargo test --all --all-features purity_vm_jit_parity_snapshots
+cargo test --all --all-features --test runtime_vm_jit_parity_release
+
+cargo run -- --no-cache --root examples/aoc/2024 examples/aoc/2024/day04.flx
+cargo run --features jit -- --no-cache --root examples/aoc/2024 examples/aoc/2024/day04.flx --jit
+cargo run -- --no-cache --test --root lib --root examples/aoc/2024 examples/aoc/2024/day05_part1_test.flx
+cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/2024 examples/aoc/2024/day05_part1_test.flx --jit
 ```
 
 ---

@@ -213,6 +213,10 @@ Pass criteria:
 
 Status:
 - Completed with a dedicated `purity_vm_jit_parity_snapshots` suite using a curated A-F fixture matrix and tuple parity checks (`code`, `title`, `primary label`) with dedicated snapshots under `tests/snapshots/purity_parity`.
+- v0.0.4 Week-4 parity freeze extends this with a curated runtime parity gate:
+  `tests/runtime_vm_jit_parity_release.rs` (typed module flow, ADT flow,
+  controlled runtime error signature, and AoC CLI outcome parity for
+  `day04.flx` plus VM/JIT test-run parity for `day05_part1_test.flx`).
 
 ---
 
