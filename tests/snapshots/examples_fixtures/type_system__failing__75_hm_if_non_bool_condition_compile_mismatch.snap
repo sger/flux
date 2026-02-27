@@ -7,24 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with Bool.
-
-  --> examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:5
-  |
-2 |     if 1 {
-  |     ^^^^^^
-3 |         10
-  | ^^^^^^^^^^
-4 |     } else {
-  | ^^^^^^^^^^^^
-5 |         20
-  | ^^^^^^^^^^
-6 |     }
-  | ^^^^^
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify Bool with Int.
 
   --> examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:8
@@ -36,7 +18,5 @@ Cannot unify Bool with Int.
 
 Help:
   use a Bool expression, or make the condition/guard explicitly boolean
-
-Found 2 errors.
 == stdout ==
 <not executed>

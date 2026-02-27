@@ -1914,7 +1914,7 @@ impl Compiler {
         // fully resolved (no free type variables) are emitted. This prevents
         // spurious failures in partially-typed programs where base-function return
         // types are not yet registered in the inference environment.
-        let hm_diagnostics = {
+        let mut hm_diagnostics = {
             let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
             let hm = infer_program(
                 program,
@@ -1947,7 +1947,15 @@ impl Compiler {
             self.emit_main_entry_call();
         }
 
-        self.suppress_redundant_type_mismatch_diagnostics(&hm_diagnostics);
+        // HM no longer emits errors for annotated boundaries (return type,
+        // let annotation) — those use `unify_propagate` (silent).
+        //
+        // For call-site argument mismatches, HM's `infer_call` still reports
+        // (it's the only reporter for untyped functions).  When a typed function
+        // causes the compiler to emit a per-argument boundary error, the HM
+        // call-site error is redundant.  Drop any HM diagnostic that shares the
+        // same code + message as an existing compiler error on an overlapping span.
+        self.suppress_overlapping_hm_diagnostics(&mut hm_diagnostics);
 
         // HM diagnostics appended after bytecode errors so that specific,
         // actionable errors (e.g. E077 legacy list tail, E055 contract mismatch)
@@ -1962,48 +1970,46 @@ impl Compiler {
         Ok(())
     }
 
-    fn suppress_redundant_type_mismatch_diagnostics(&mut self, hm_diagnostics: &[Diagnostic]) {
-        let hm_unify_locs: Vec<(String, usize)> = hm_diagnostics
-            .iter()
-            .filter(|diag| diag.code() == Some("E300"))
-            .filter_map(|diag| {
-                let span = diag.span()?;
-                let file = diag
-                    .file()
-                    .map(|f| f.to_string())
-                    .unwrap_or_else(|| self.file_path.clone());
-                Some((file, span.start.line))
-            })
-            .collect();
-        if hm_unify_locs.is_empty() {
+    /// Drop HM diagnostics that are redundant with a compiler boundary error.
+    ///
+    /// An HM diagnostic is considered redundant when an existing compiler error
+    /// has the same error code, the same severity, and overlapping spans.
+    /// The message text may differ (HM emits generic "Cannot unify X with Y"
+    /// while the compiler emits more specific messages like "matching '+'
+    /// operands"), but if code + severity + span overlap they describe the
+    /// same semantic issue and the compiler's version is preferred.
+    fn suppress_overlapping_hm_diagnostics(&self, hm_diagnostics: &mut Vec<Diagnostic>) {
+        if self.errors.is_empty() || hm_diagnostics.is_empty() {
             return;
         }
-
-        let default_file = self.file_path.clone();
-        self.errors.retain(|diag| {
-            if diag.code() != Some("E055") {
-                return true;
-            }
-            // Keep typed-let initializer mismatches as explicit boundary diagnostics
-            // even when HM emits E300 on the same line.
-            if diag
-                .labels()
-                .iter()
-                .any(|label| label.text == "initializer type is known at compile time")
-            {
-                return true;
-            }
-            let Some(span) = diag.span() else {
-                return true;
-            };
-            let file = diag
-                .file()
-                .map(|f| f.to_string())
-                .unwrap_or_else(|| default_file.clone());
-            !hm_unify_locs
-                .iter()
-                .any(|(hm_file, hm_line)| hm_file == &file && *hm_line == span.start.line)
+        let default_file = &self.file_path;
+        hm_diagnostics.retain(|hm| {
+            !self.errors.iter().any(|existing| {
+                existing.code() == hm.code()
+                    && existing.severity() == hm.severity()
+                    && Self::diagnostic_spans_overlap(existing, hm, default_file)
+            })
         });
+    }
+
+    fn diagnostic_spans_overlap(a: &Diagnostic, b: &Diagnostic, default_file: &str) -> bool {
+        let (Some(a_span), Some(b_span)) = (a.span(), b.span()) else {
+            return false;
+        };
+        let a_file = a.file().unwrap_or(default_file);
+        let b_file = b.file().unwrap_or(default_file);
+        if a_file != b_file {
+            return false;
+        }
+        Self::spans_overlap(a_span, b_span)
+    }
+
+    fn spans_overlap(left: Span, right: Span) -> bool {
+        Self::position_leq(left.start, right.end) && Self::position_leq(right.start, left.end)
+    }
+
+    fn position_leq(left: Position, right: Position) -> bool {
+        left.line < right.line || (left.line == right.line && left.column <= right.column)
     }
 
     // Module Constants helper to emit any Value as a constant

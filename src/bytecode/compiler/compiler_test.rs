@@ -168,7 +168,7 @@ let x: Int = y
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Float with Int."),
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -188,7 +188,7 @@ let x: Int = make()
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Float with Int."),
+        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
         "unexpected diagnostics:\n{}",
         rendered
     );

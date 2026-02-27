@@ -18,18 +18,5 @@ Cannot unify Bool operands with Int and Bool.
 
 Help:
   adjust operand types or add explicit conversion
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Int with Bool.
-
-  --> examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:2:5
-  |
-2 |     a && b
-  |     ^^^^^^
-  |     ------ expected Int, found Bool
-
-Found 2 errors.
 == stdout ==
 <not executed>

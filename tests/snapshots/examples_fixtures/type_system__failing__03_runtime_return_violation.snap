@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
-
-  --> examples/type_system/failing/03_runtime_return_violation.flx:1:13
-  |
-1 | fn bad() -> Int {
-  |             ^^^
-  |             --- expected String, found Int
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify Int with String.
 
   --> examples/type_system/failing/03_runtime_return_violation.flx:2:5
@@ -29,7 +18,5 @@ Cannot unify Int with String.
 
 Help:
   return expression type does not match the declared return type
-
-Found 2 errors.
 == stdout ==
 <not executed>

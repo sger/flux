@@ -9,17 +9,6 @@ failed (compile)
 
 Cannot unify Float with String.
 
-  --> examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:1
-   |
-12 | area(dynamic)
-   | ^^^^^^^^^^^^^
-   | ------------- expected Float, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Float with String.
-
   --> examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:6
    |
 12 | area(dynamic)
@@ -29,7 +18,5 @@ Cannot unify Float with String.
 
 Help:
   argument #1 does not match function contract
-
-Found 2 errors.
 == stdout ==
 <not executed>

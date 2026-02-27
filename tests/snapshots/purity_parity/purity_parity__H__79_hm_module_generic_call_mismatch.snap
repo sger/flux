@@ -15,11 +15,9 @@ $ flux --no-cache --root examples/type_system examples/type_system/failing/79_hm
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected String, found Int
 - E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected String, found Int
 - E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == parity ==

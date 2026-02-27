@@ -15,12 +15,10 @@ $ flux --no-cache examples/type_system/failing/87_hm_pattern_binding_constrained
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
-- E300 | TYPE UNIFICATION ERROR | 
+- E300 | TYPE UNIFICATION ERROR | expected Unit, found String
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
-- E300 | TYPE UNIFICATION ERROR | 
+- E300 | TYPE UNIFICATION ERROR | expected Unit, found String
 
 == parity ==
 match

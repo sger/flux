@@ -16,11 +16,9 @@ exit_code: 1
 
 == vm tuples ==
 - E300 | TYPE UNIFICATION ERROR | expected Bool operands, found Int and Bool
-- E300 | TYPE UNIFICATION ERROR | expected Int, found Bool
 
 == jit tuples ==
 - E300 | TYPE UNIFICATION ERROR | expected Bool operands, found Int and Bool
-- E300 | TYPE UNIFICATION ERROR | expected Int, found Bool
 
 == parity ==
 match

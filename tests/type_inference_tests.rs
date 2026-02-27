@@ -266,15 +266,18 @@ let x: Result<Int, String> = Ok(1)
 }
 
 #[test]
-fn infer_adt_constructor_call_generic_mismatch_reports_e300() {
+fn infer_adt_constructor_call_generic_mismatch_silent_in_hm() {
+    // HM uses `unify_propagate` (silent) for let annotation mismatches —
+    // the compiler's boundary checker is the authoritative reporter.
+    // Verify HM does NOT emit E300 for this constraint.
     let source = r#"
 type Result<T, E> = Ok(T) | Err(E)
 let x: Result<Int, String> = Ok("oops")
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        has_diagnostic_code(&result, "E300"),
-        "expected E300 diagnostics, got: {:#?}",
+        !has_diagnostic_code(&result, "E300"),
+        "HM should not emit E300 for let annotation mismatches (compiler handles it), got: {:#?}",
         result.diagnostics
     );
 }
