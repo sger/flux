@@ -32,6 +32,8 @@ Truth sources for this baseline:
 - Compiler paths in `src/bytecode/compiler/mod.rs` and `src/bytecode/compiler/expression.rs`.
 - Type core in `src/types/*`.
 - Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
+- Roadmap orchestration/sequencing in:
+  `docs/proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
 
 ## 2. Semantic Model (Implemented)
 

@@ -12,6 +12,11 @@ Strengthen compile-time totality/exhaustiveness guarantees for supported match s
 
 This proposal formalizes coverage rules and guard behavior without introducing new pattern syntax.
 
+Execution ownership note:
+- This proposal is the exhaustiveness owner for stage-1 week-3 in
+  `054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
+- It does not own HM fallback reduction sequencing (`051`) or ADT constructor semantics (`047`).
+
 ---
 
 ## 2. Problem Statement

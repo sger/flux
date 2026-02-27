@@ -12,6 +12,11 @@ Reduce accidental unsoundness by replacing silent `Any` degradation with concret
 
 This proposal preserves Flux gradual typing where intentional, but narrows implicit fallback where the compiler already has enough information to be stricter.
 
+Execution ownership note:
+- This proposal is the HM zero-fallback owner for stage-1 week-1 in
+  `054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
+- It does not own ADT semantic hardening (`047`) or exhaustiveness ownership (`050`).
+
 ---
 
 ## 2. Problem Statement

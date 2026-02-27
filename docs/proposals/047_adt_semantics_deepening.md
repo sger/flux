@@ -12,6 +12,11 @@ After landing `type ... = ... | ...` ADT declaration sugar, deepen ADT semantics
 
 This proposal focuses on stronger type/diagnostic guarantees for ADT constructors, generic instantiation, module boundaries, and nested exhaustiveness precision.
 
+Execution ownership note:
+- This proposal is the ADT-semantic owner for stage-1 week-2 in
+  `054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
+- It does not own HM zero-fallback sequencing (`051`) or global rollout orchestration (`054`).
+
 ---
 
 ## 2. Motivation
