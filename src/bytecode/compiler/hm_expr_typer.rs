@@ -5,10 +5,11 @@ use crate::{
     },
     syntax::expression::Expression,
     types::{
-        infer_type::InferType, type_constructor::TypeConstructor, type_env::TypeEnv,
-        type_subst::TypeSubst, unify_error::unify,
+        infer_type::InferType, type_constructor::TypeConstructor, unify_error::unify,
     },
 };
+
+use crate::ast::type_infer::display_infer_type;
 
 use super::CompileResult;
 
@@ -71,13 +72,13 @@ impl Compiler {
         infer.free_vars().is_empty() && !Self::contains_any(infer)
     }
 
-    fn format_infer_type(infer: &InferType) -> String {
-        TypeEnv::to_runtime(infer, &TypeSubst::empty()).type_name()
+    fn format_infer_type(&self, infer: &InferType) -> String {
+        display_infer_type(infer, &self.interner)
     }
 
-    fn format_unify_pair(expected: &InferType, actual: &InferType) -> (String, String) {
-        let expected_str = Self::format_infer_type(expected);
-        let actual_str = Self::format_infer_type(actual);
+    fn format_unify_pair(&self, expected: &InferType, actual: &InferType) -> (String, String) {
+        let expected_str = self.format_infer_type(expected);
+        let actual_str = self.format_infer_type(actual);
         (expected_str, actual_str)
     }
 
@@ -92,14 +93,14 @@ impl Compiler {
         ))
     }
 
-    fn ensure_unify(expected: &InferType, actual: &InferType) -> Result<(), (String, String)> {
+    fn ensure_unify(&self, expected: &InferType, actual: &InferType) -> Result<(), (String, String)> {
         if let Some((resolved_expected, resolved_actual)) =
             Self::resolved_unify_types(expected, actual)
             && resolved_expected == resolved_actual
         {
             return Ok(());
         }
-        let (expected_str, actual_str) = Self::format_unify_pair(expected, actual);
+        let (expected_str, actual_str) = self.format_unify_pair(expected, actual);
         Err((expected_str, actual_str))
     }
 
@@ -235,11 +236,11 @@ impl Compiler {
     ) -> CompileResult<()> {
         match self.hm_expr_type_strict_path(expression) {
             HmExprTypeResult::Known(actual) => {
-                if Self::ensure_unify(expected, &actual).is_ok() {
+                if self.ensure_unify(expected, &actual).is_ok() {
                     return Ok(());
                 }
 
-                let (expected_str, actual_str) = Self::format_unify_pair(expected, &actual);
+                let (expected_str, actual_str) = self.format_unify_pair(expected, &actual);
                 Err(Box::new(self.build_type_mismatch(
                     expression,
                     primary_label,

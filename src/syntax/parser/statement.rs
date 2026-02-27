@@ -1,5 +1,8 @@
 use crate::{
-    diagnostics::{DiagnosticBuilder, unexpected_token, unknown_keyword},
+    diagnostics::{
+        DiagnosticBuilder, missing_function_body_brace,
+        position::Span, unexpected_token, unknown_keyword,
+    },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
         statement::Statement, token_type::TokenType,
@@ -220,11 +223,26 @@ impl Parser {
 
         let effects = self.parse_effect_list()?;
 
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.is_peek_token(TokenType::LBrace) {
+            let fn_name = self.lexer.interner().resolve(name).to_string();
+            let fn_span = Span::new(start, start);
+            let found_desc = match self.peek_token.token_type {
+                TokenType::Ident => format!("`{}`", self.peek_token.literal),
+                TokenType::Eof => "end of file".to_string(),
+                _ => format!("`{}`", self.peek_token.token_type),
+            };
+            self.errors.push(missing_function_body_brace(
+                fn_span,
+                &fn_name,
+                self.peek_token.span(),
+                &found_desc,
+            ));
             return None;
         }
+        self.next_token(); // consume `{`
 
-        let body = self.parse_block();
+        let fn_name_str = self.lexer.interner().resolve(name).to_string();
+        let body = self.parse_block_with_context(Some(&fn_name_str));
 
         Some(Statement::Function {
             is_public,

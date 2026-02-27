@@ -666,6 +666,12 @@ impl Parser {
 
     /// Parses a block body until `}`/`EOF`, including post-expression `where` clauses.
     pub(super) fn parse_block(&mut self) -> Block {
+        self.parse_block_with_context(None)
+    }
+
+    /// Like `parse_block`, but accepts an optional context label (e.g. a function
+    /// name) to produce richer "unclosed delimiter" diagnostics.
+    pub(super) fn parse_block_with_context(&mut self, context: Option<&str>) -> Block {
         let start = self.current_token.position;
         let mut statements = Vec::new();
         self.next_token();
@@ -700,8 +706,23 @@ impl Parser {
         // Detect unclosed block: reached EOF without finding closing `}`
         if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
             self.reported_unclosed_brace = true;
-            self.errors
-                .push(unclosed_delimiter(Span::new(start, start), "{", "}", None));
+            let open_span = Span::new(start, start);
+            let msg = if let Some(name) = context {
+                format!(
+                    "Expected a closing `}}` to match this opening `{{` in function `{}`.",
+                    name
+                )
+            } else {
+                "Expected a closing `}` to match this opening `{`.".to_string()
+            };
+            let mut diag = unclosed_delimiter(open_span, "{", "}", None);
+            diag.message = Some(msg);
+            if let Some(name) = context {
+                diag.hints.push(crate::diagnostics::types::Hint::help(
+                    format!("Add `}}` to close the body of function `{}`.", name),
+                ));
+            }
+            self.errors.push(diag);
         }
 
         Block {
@@ -1131,9 +1152,14 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
 
     /// Emits a diagnostic for an unexpected `peek_token`.
     pub(super) fn peek_error(&mut self, expected: TokenType) {
+        let found = match self.peek_token.token_type {
+            TokenType::Ident => format!("`{}`", self.peek_token.literal),
+            TokenType::Eof => "end of file".to_string(),
+            tt => format!("`{}`", tt),
+        };
         self.errors.push(unexpected_token(
             self.peek_token.span(),
-            format!("Expected {}, got {}.", expected, self.peek_token.token_type),
+            format!("Expected `{}`, got {}.", expected, found),
         ));
     }
 

@@ -29,6 +29,46 @@ use crate::{
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Display helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Format an `InferType` for user-facing diagnostics, resolving ADT symbols
+/// to their human-readable names via the interner. Unresolved type variables
+/// display as `_` (unknown type).
+pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
+    match ty {
+        InferType::Var(_) => "_".to_string(),
+        InferType::Con(c) => display_type_constructor(c, interner),
+        InferType::App(c, args) => {
+            let base = display_type_constructor(c, interner);
+            let args_str: Vec<String> = args.iter().map(|a| display_infer_type(a, interner)).collect();
+            format!("{}<{}>", base, args_str.join(", "))
+        }
+        InferType::Fun(params, ret, effects) => {
+            let params_str: Vec<String> = params.iter().map(|p| display_infer_type(p, interner)).collect();
+            let ret_str = display_infer_type(ret, interner);
+            if effects.is_empty() {
+                format!("({}) -> {}", params_str.join(", "), ret_str)
+            } else {
+                let eff_str: Vec<String> = effects.iter().map(|e| interner.resolve(*e).to_string()).collect();
+                format!("({}) -> {} with {}", params_str.join(", "), ret_str, eff_str.join(", "))
+            }
+        }
+        InferType::Tuple(elems) => {
+            let elems_str: Vec<String> = elems.iter().map(|e| display_infer_type(e, interner)).collect();
+            format!("({})", elems_str.join(", "))
+        }
+    }
+}
+
+fn display_type_constructor(c: &TypeConstructor, interner: &Interner) -> String {
+    match c {
+        TypeConstructor::Adt(sym) => interner.resolve(*sym).to_string(),
+        _ => c.to_string(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Inference context
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -57,6 +97,12 @@ struct AdtConstructorTypeInfo {
 }
 
 impl<'a> InferCtx<'a> {
+    /// Format an `InferType` for user-facing diagnostics, resolving ADT
+    /// symbols to their human-readable names via the interner.
+    fn display_type(&self, ty: &InferType) -> String {
+        display_infer_type(ty, self.interner)
+    }
+
     fn new(
         interner: &'a Interner,
         file_path: String,
@@ -190,12 +236,12 @@ impl<'a> InferCtx<'a> {
                     let diag = match e.kind {
                         UnifyErrorKind::OccursCheck(v) => {
                             let v_str = format!("t{v}");
-                            let ty_str = e.actual.to_string();
+                            let ty_str = self.display_type(&e.actual);
                             occurs_check_failure(file, span, &v_str, &ty_str)
                         }
                         UnifyErrorKind::Mismatch => {
-                            let exp_str = e.expected.to_string();
-                            let act_str = e.actual.to_string();
+                            let exp_str = self.display_type(&e.expected);
+                            let act_str = self.display_type(&e.actual);
                             type_unification_error(file, span, &exp_str, &act_str)
                         }
                     };
