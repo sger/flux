@@ -2706,10 +2706,22 @@ impl Compiler {
         arms: &[MatchArm],
         span: Span,
     ) -> CompileResult<()> {
-        let has_constructor_arms = arms
+        let constructor_names: Vec<Symbol> = arms
             .iter()
-            .any(|arm| matches!(arm.pattern, Pattern::Constructor { .. }));
-        if has_constructor_arms {
+            .filter_map(|arm| {
+                if let Pattern::Constructor { name, .. } = &arm.pattern {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !constructor_names.is_empty()
+            && constructor_names
+                .iter()
+                .all(|name| self.adt_registry.lookup_constructor(*name).is_some())
+        {
             return self.check_adt_match_exhaustiveness(arms, span);
         }
 

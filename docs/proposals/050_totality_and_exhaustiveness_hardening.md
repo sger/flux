@@ -198,3 +198,25 @@ A release candidate passes only if:
 2. Guard semantics are intentionally conservative.
 3. Rollout is staged with strict-first hardening.
 4. Canonical semantics source remains `docs/internals/type_system_effects.md`.
+
+---
+
+## 16. Week-3 Implementation Notes (v0.0.4)
+
+Implemented behavior lock (Week 3):
+1. Class-boundary routing is deterministic:
+   - ADT constructor-space non-exhaustive remains `E083`.
+   - General-domain non-exhaustive remains `E015`.
+2. Guard semantics are uniformly conservative:
+   - guarded-only coverage does not close exhaustiveness.
+   - unguarded wildcard/identifier remains required as conservative fallback in tuple/unknown domains.
+3. General-domain missing-case ordering is fixed:
+   - Bool: `true`, `false`
+   - Option: `None`, `Some(_)`
+   - Either: `Left(_)`, `Right(_)`
+   - List: `[]`, `[h | t]`
+
+Validation evidence used for Week-3 closure:
+1. `cargo test --test compiler_rules_tests`
+2. `cargo test --test pattern_validation`
+3. `cargo test --all --all-features purity_vm_jit_parity_snapshots`

@@ -124,6 +124,27 @@ Total: 4 weeks (March 2026 release window)
 6. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
    Outcome: parity suite green after intentional snapshot update (`E004 -> E084` for fixture 66).
 
+### Week 3 Evidence (Strong Exhaustiveness Completion)
+
+1. `cargo fmt --all -- --check`  
+   Outcome: formatting gate passed after exhaustiveness routing/test updates.
+
+2. `cargo check --all --all-features`  
+   Outcome: clean compile with deterministic general-vs-ADT exhaustiveness routing and guard semantics lock.
+
+3. `cargo test --test compiler_rules_tests`  
+   Outcome: 66/66 passed, including Week-3 lock tests:
+   - `match_bool_guarded_only_reports_deterministic_missing_order`
+   - `adt_match_all_constructor_arms_guarded_is_non_exhaustive_e083`
+   - `adt_match_guarded_constructor_with_unguarded_fallback_is_exhaustive`
+   - `adt_match_mixed_constructor_spaces_reports_e083`
+
+4. `cargo test --test pattern_validation`  
+   Outcome: 9/9 passed, including guarded wildcard non-exhaustive behavior (`E015`) and guarded+fallback acceptance.
+
+5. `cargo test --all --all-features purity_vm_jit_parity_snapshots`  
+   Outcome: parity snapshot gate passed; compile-diagnostic tuples remain aligned across VM/JIT for curated purity/type fixtures.
+
 ---
 
 ## Proposed Milestones
