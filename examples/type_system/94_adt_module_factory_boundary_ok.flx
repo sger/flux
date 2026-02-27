@@ -1,0 +1,10 @@
+// Uses module public factory/accessor API for ADTs (no direct constructor access).
+import TypeSystem.GenericResultTree as G
+
+fn value() -> Int {
+    G.leftmost_ok(G.demo_tree())
+}
+
+fn main() {
+    print(to_string(value()))
+}

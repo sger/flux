@@ -82,6 +82,9 @@ ADT declaration note:
 - `90_match_guarded_with_fallback_ok.flx` - guarded arm plus unguarded fallback is accepted as exhaustive
 - `91_match_tuple_with_catchall_ok.flx` - conservative tuple `match` coverage accepted with explicit unguarded catch-all
 - `92_effect_op_signature_enforcement_ok.flx` - effect op signature (`String -> Int`) enforced across `perform` and handler arm typing
+- `93_adt_generic_constructor_hm_ok.flx` - generic ADT constructor call and constructor-pattern bindings are HM-typed without `Any` rescue
+- `94_adt_module_factory_boundary_ok.flx` - cross-module ADT usage through public factory/accessor API (no direct constructor access)
+- `95_adt_generic_nested_pattern_hm_ok.flx` - nested generic constructor patterns preserve concrete HM field typing
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -148,6 +151,9 @@ cargo run -- examples/type_system/89_match_list_exhaustive_ok.flx
 cargo run -- examples/type_system/90_match_guarded_with_fallback_ok.flx
 cargo run -- examples/type_system/91_match_tuple_with_catchall_ok.flx
 cargo run -- examples/type_system/92_effect_op_signature_enforcement_ok.flx
+cargo run -- examples/type_system/93_adt_generic_constructor_hm_ok.flx
+cargo run -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx
+cargo run -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx
 ```
 
 JIT:
@@ -202,6 +208,9 @@ cargo run --features jit -- examples/type_system/89_match_list_exhaustive_ok.flx
 cargo run --features jit -- examples/type_system/90_match_guarded_with_fallback_ok.flx --jit
 cargo run --features jit -- examples/type_system/91_match_tuple_with_catchall_ok.flx --jit
 cargo run --features jit -- examples/type_system/92_effect_op_signature_enforcement_ok.flx --jit
+cargo run --features jit -- examples/type_system/93_adt_generic_constructor_hm_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx --jit
+cargo run --features jit -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

@@ -125,7 +125,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `65_adt_nested_constructor_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) because nested constructor space under unary wrapper is not fully covered
 - `66_module_constructor_not_public_api.flx`
-  - Expected: compile-time failure (`E004`) because module ADT constructors are not part of public API in 0.0.4 (use module `public fn` factories)
+  - Expected: compile-time failure (`E084`) because module ADT constructors are not part of public API in 0.0.4 (use module `public fn` factories)
 - `67_adt_multi_arity_nested_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) because nested constructor-space under multi-arity constructor is not fully covered
 - `68_adt_nested_list_non_exhaustive.flx`
@@ -164,6 +164,12 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E015`) because tuple match without unguarded fallback is conservatively non-exhaustive
 - `88_effect_op_signature_argument_mismatch.flx`
   - Expected: compile-time failure (`E300`) because `perform` argument type does not match the declared effect operation signature
+- `89_adt_generic_constructor_hm_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because generic ADT constructor argument does not unify with the instantiated annotation
+- `90_adt_module_constructor_alias_not_exported.flx`
+  - Expected: compile-time failure (`E084`) because direct ADT constructor access is rejected across module boundaries even through alias imports
+- `91_adt_nested_pattern_binding_type_mismatch.flx`
+  - Expected: compile-time failure (`E300`) because nested constructor-pattern binding keeps concrete `Int` field typing
 
 ## A3 Pure-Context Matrix
 
@@ -338,6 +344,9 @@ cargo run -- --no-cache examples/type_system/failing/82_match_list_missing_empty
 cargo run -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx
 cargo run -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
 cargo run -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx
+cargo run -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -432,4 +441,7 @@ cargo run --features jit -- --no-cache examples/type_system/failing/82_match_lis
 cargo run --features jit -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx --jit
+cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx --jit
 ```

@@ -1,0 +1,11 @@
+// E300: nested constructor-pattern binding keeps concrete field type (`Int`), so String add mismatches.
+type Result<T, E> = Ok(T) | Err(E)
+type Wrap = Boxed(Result<Int, String>) | Empty
+
+fn bad(w: Wrap) -> Int {
+    match w {
+        Boxed(Ok(v)) -> v + "x",
+        Boxed(Err(_)) -> 0,
+        Empty -> 0,
+    }
+}

@@ -1,0 +1,18 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Int.
+
+  --> examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:4:10
+  |
+4 | let bad: Result<Int, String> = Ok("oops")
+  |          ^^^^^^^^^^^^^^^^^^^
+  |          ------------------- expected String, found Int
+== stdout ==
+<not executed>
