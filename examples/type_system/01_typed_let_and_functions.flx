@@ -8,7 +8,7 @@ fn add(a: Int, b: Int) -> Int {
 
 fn distance_tag(p: (Int, Int)) -> String {
     let (x, y) = p
-    "Point(#{x}, #{})"
+    "Point(#{x}, #{y})"
 }
 
 fn main() with IO {

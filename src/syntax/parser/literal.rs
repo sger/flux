@@ -175,6 +175,37 @@ impl Parser {
         loop {
             // Parse the interpolation expression
             self.next_token();
+
+            // Detect empty interpolation `#{}`
+            if self.current_token.token_type == TokenType::RBrace {
+                self.errors.push(crate::diagnostics::unexpected_token(
+                    self.current_token.span(),
+                    "Empty interpolation `#{}` — provide an expression between the braces.",
+                ));
+                // Continue parsing the rest of the string to avoid cascade
+                // The RBrace has been consumed as current_token, so check what follows
+                if self.is_peek_token(TokenType::InterpolationStart) {
+                    self.next_token();
+                    let literal = Self::decode_string_escapes(&self.current_token.literal);
+                    if !literal.is_empty() {
+                        parts.push(StringPart::Literal(literal));
+                    }
+                    continue;
+                } else if self.is_peek_token(TokenType::StringEnd) {
+                    self.next_token();
+                    let final_literal = Self::decode_string_escapes(&self.current_token.literal);
+                    if !final_literal.is_empty() {
+                        parts.push(StringPart::Literal(final_literal));
+                    }
+                    break;
+                } else {
+                    self.errors
+                        .push(unterminated_interpolation(self.peek_token.span()));
+                    self.synchronize_after_error();
+                    return None;
+                }
+            }
+
             let expr = self.parse_expression(Precedence::Lowest)?;
             parts.push(StringPart::Interpolation(Box::new(expr)));
 
