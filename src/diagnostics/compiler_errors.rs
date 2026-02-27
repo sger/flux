@@ -764,7 +764,7 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
 
 use super::diagnostic::Diagnostic;
 use super::registry::diag_enhanced;
-use super::types::RelatedDiagnostic;
+use super::types::{Label, RelatedDiagnostic};
 use crate::diagnostics::position::Span;
 
 // Parser Errors
@@ -872,6 +872,32 @@ pub fn unclosed_delimiter(
         );
     }
     diag
+}
+
+/// Create a "missing opening brace" error for a function definition.
+///
+/// Emits a contextual error when `{` is missing after a function signature,
+/// pointing at the unexpected token and providing a help hint.
+pub fn missing_function_body_brace(
+    fn_span: Span,
+    fn_name: &str,
+    found_span: Span,
+    found_token: &str,
+) -> Diagnostic {
+    diag_enhanced(&UNEXPECTED_TOKEN)
+        .with_span(found_span)
+        .with_message(format!(
+            "Expected `{{` to begin function body, found {}.",
+            found_token
+        ))
+        .with_label(Label::secondary(
+            fn_span,
+            format!("function `{}` defined here", fn_name),
+        ))
+        .with_help(format!(
+            "Add `{{` after the function signature: `fn {}(...) {{`",
+            fn_name
+        ))
 }
 
 // Type Inference Errors (E300–E399)

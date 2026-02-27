@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify $$0 with $$3.
+Cannot unify A with B.
 
   --> examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
    |

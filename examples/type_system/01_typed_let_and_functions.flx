@@ -6,10 +6,12 @@ fn add(a: Int, b: Int) -> Int {
     a + b
 }
 
-fn distance_tag(p: (Int, Int)) -> String {
+fn distance_tag(p: (In, In)) -> String {
     let (x, y) = p
     "Point(#{x}, #{y})"
 }
 
-print("#{label}: #{add(answer, 8)}")
-print(distance_tag(point))
+fn main() with IO {
+    print("#{label}: #{add(answer, 8)}")
+    print(distance_tag(point))
+}
