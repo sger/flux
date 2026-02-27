@@ -352,6 +352,61 @@ fn match_tuple_without_catchall_is_conservatively_non_exhaustive() {
 }
 
 #[test]
+fn match_bool_guarded_only_reports_deterministic_missing_order() {
+    let message = compile_err_message("let b = true; match b { _ if b -> 1 }");
+    assert!(
+        message.contains("true, false"),
+        "expected deterministic Bool missing-order `true, false`, got: {message}"
+    );
+}
+
+#[test]
+fn adt_match_all_constructor_arms_guarded_is_non_exhaustive_e083() {
+    let code = compile_err(
+        r#"
+type Result<T, E> = Ok(T) | Err(E)
+let r: Result<Int, String> = Ok(1)
+match r {
+    Ok(v) if v > 0 -> v,
+    Err(_e) if true -> 0
+}
+"#,
+    );
+    assert_eq!(code, "E083");
+}
+
+#[test]
+fn adt_match_guarded_constructor_with_unguarded_fallback_is_exhaustive() {
+    compile_ok_in(
+        "test.flx",
+        r#"
+type Result<T, E> = Ok(T) | Err(E)
+let r: Result<Int, String> = Ok(1)
+match r {
+    Ok(v) if v > 0 -> v,
+    _ -> 0
+};
+"#,
+    );
+}
+
+#[test]
+fn adt_match_mixed_constructor_spaces_reports_e083() {
+    let code = compile_err(
+        r#"
+type A = A1 | A2
+type B = B1 | B2
+let x: A = A1
+match x {
+    A1 -> 1,
+    B1 -> 2
+}
+"#,
+    );
+    assert_eq!(code, "E083");
+}
+
+#[test]
 fn match_identifier_non_last_error() {
     let code = compile_err("let x = 2; match x { y -> 1, _ -> 2 }");
     assert_eq!(code, "E016");
