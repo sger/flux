@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use crate::ast::type_infer::display_infer_type;
+use crate::ast::type_infer::{display_infer_type, suggest_type_name};
 
 use super::CompileResult;
 
@@ -112,9 +112,19 @@ impl Compiler {
         expected: &str,
         actual: &str,
     ) -> Diagnostic {
-        type_unification_error(self.file_path.clone(), expression.span(), expected, actual)
-            .with_secondary_label(expression.span(), primary_label)
-            .with_help(help)
+        let mut diag =
+            type_unification_error(self.file_path.clone(), expression.span(), expected, actual)
+                .with_secondary_label(expression.span(), primary_label)
+                .with_help(help);
+        // Add "did you mean?" hint for likely type name typos
+        for name in [expected, actual] {
+            if let Some(suggestion) = suggest_type_name(name) {
+                diag.hints.push(crate::diagnostics::types::Hint::help(
+                    format!("Unknown type `{name}` — {suggestion}"),
+                ));
+            }
+        }
+        diag
     }
 
     pub(super) fn unresolved_boundary_error(

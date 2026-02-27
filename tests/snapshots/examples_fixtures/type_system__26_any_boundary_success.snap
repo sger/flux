@@ -18,5 +18,6 @@ Cannot unify Any with Int.
 
 Help:
   argument #1 does not match function contract
+  Unknown type `Any` — did you mean `Int`?
 == stdout ==
 <not executed>
