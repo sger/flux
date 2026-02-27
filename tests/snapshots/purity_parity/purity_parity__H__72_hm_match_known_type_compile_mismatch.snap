@@ -16,10 +16,8 @@ exit_code: 1
 
 == vm tuples ==
 - E300 | TYPE UNIFICATION ERROR | expected Int, found String
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
 - E300 | TYPE UNIFICATION ERROR | expected Int, found String
 
 == parity ==

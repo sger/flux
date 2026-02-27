@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
-
-  --> examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:4:13
-  |
-4 |     let _x: String = (/(n: Int) -> n)(1)
-  |             ^^^^^^
-  |             ------ expected Int, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify String with Int.
 
   --> examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:4:23
@@ -29,7 +18,5 @@ Cannot unify String with Int.
 
 Help:
   binding initializer does not match type annotation
-
-Found 2 errors.
 == stdout ==
 <not executed>

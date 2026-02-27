@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
-
-  --> examples/type_system/failing/08_compile_identifier_type_mismatch.flx:2:8
-  |
-2 | let n: Int = value
-  |        ^^^
-  |        --- expected String, found Int
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify Int with String.
 
   --> examples/type_system/failing/08_compile_identifier_type_mismatch.flx:2:14
@@ -29,7 +18,5 @@ Cannot unify Int with String.
 
 Help:
   binding initializer does not match type annotation
-
-Found 2 errors.
 == stdout ==
 <not executed>

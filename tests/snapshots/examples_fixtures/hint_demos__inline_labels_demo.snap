@@ -7,17 +7,6 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
-
-  --> examples/hint_demos/inline_labels_demo.flx:5:14
-  |
-5 | let result = "hello" + 123;
-  |              ^^^^^^^^^^^^^
-  |              ------------- expected String, found Int
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with String and Int.
 
   --> examples/hint_demos/inline_labels_demo.flx:5:14
@@ -41,6 +30,6 @@ Cannot unify String with Int.
   | ^^^^^^^^^^^^^^^^
   | ---------------- expected String, found Int
 
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

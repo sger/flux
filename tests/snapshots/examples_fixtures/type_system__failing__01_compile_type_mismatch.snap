@@ -9,17 +9,6 @@ failed (compile)
 
 Cannot unify Int with String.
 
-  --> examples/type_system/failing/01_compile_type_mismatch.flx:6:1
-  |
-6 | add("x", 2)
-  | ^^^^^^^^^^^
-  | ----------- expected Int, found String
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify Int with String.
-
   --> examples/type_system/failing/01_compile_type_mismatch.flx:6:5
   |
 6 | add("x", 2)
@@ -29,7 +18,5 @@ Cannot unify Int with String.
 
 Help:
   argument #1 does not match function contract
-
-Found 2 errors.
 == stdout ==
 <not executed>
