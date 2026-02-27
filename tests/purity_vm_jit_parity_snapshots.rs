@@ -32,6 +32,8 @@ fn purity_vm_jit_parity_snapshots() {
             );
         }
 
+        // Parity freeze contract is tuple-level (`code`, `title`, `primary label`).
+        // Full rendered text can differ by backend-specific formatting and is non-blocking.
         assert_eq!(
             vm.tuples,
             jit.tuples,
