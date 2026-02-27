@@ -33,6 +33,8 @@ v0.0.4 critical-path hardening continues under the same truth model for:
   deterministic behavior.
 - ADT post-sugar semantic hardening is tracked separately in
   `047_adt_semantics_deepening.md`.
+- Roadmap sequencing for stage-1 hardening and post-0.0.4 feature tracks is
+  coordinated in `054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
 
 It is intentionally implementation-focused (pass/fail criteria), not a new language design.
 
