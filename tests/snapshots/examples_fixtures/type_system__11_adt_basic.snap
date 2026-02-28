@@ -5,89 +5,98 @@ Fixture: examples/type_system/11_adt_basic.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Effectful operation is not allowed at top level (requires: IO).
+Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/11_adt_basic.flx:27:1
+  --> examples/type_system/11_adt_basic.flx:9:9
    |
-27 | print(describe(c))
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ top-level effectful expression
+ 9 |         match s {
+   |         ^^^^^^^^^
+10 |             Circle(r) -> 3.14159 * r * r,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |             Rectangle(w, h) -> w * h,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |             Point -> 0.0,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |         }
+   | ^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Effectful program is missing `fn main` root effect handler.
+Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/11_adt_basic.flx:27:1
+  --> examples/type_system/11_adt_basic.flx:17:9
    |
-27 | print(describe(c))
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ effectful top-level execution
+17 |         match s {
+   |         ^^^^^^^^^
+18 |             Circle(r) -> "Circle with radius #{r}",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |             Rectangle(w, h) -> "Rectangle #{w}x#{h}",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |             Point -> "Point",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 |         }
+   | ^^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `Circle`.
 
-  --> examples/type_system/11_adt_basic.flx:28:1
+  --> examples/type_system/11_adt_basic.flx:24:13
    |
-28 | print(describe(r))
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ top-level effectful expression
+24 |     let c = Circle(5.0)
+   |             ^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let Circle = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Help:
+  Did you mean `c`?
 
-Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/type_system/11_adt_basic.flx:29:1
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Rectangle`.
+
+  --> examples/type_system/11_adt_basic.flx:25:13
    |
-29 | print(describe(p))
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ top-level effectful expression
+25 |     let r = Rectangle(3.0, 4.0)
+   |             ^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let Rectangle = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Help:
+  Did you mean `r`?
 
-Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/type_system/11_adt_basic.flx:30:1
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Point`.
+
+  --> examples/type_system/11_adt_basic.flx:26:13
    |
-30 | print("Area of circle: #{area(c)}")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------- top-level effectful expression
+26 |     let p = Point
+   |             ^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let Point = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Help:
+  Did you mean one of: `p`, `print`, `count`?
 
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/11_adt_basic.flx:31:1
-   |
-31 | print("Area of rectangle: #{area(r)}")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 6 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

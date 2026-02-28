@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/174_handle_missing_lbrace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin `handle` arms.
+
+  --> examples/type_system/failing/174_handle_missing_lbrace.flx:1:21
+  |
+1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+  |                     ^^^^^
+
+Hint:
+  Handle expressions use `expr handle Effect { ... }`.
+== stdout ==
+<not executed>

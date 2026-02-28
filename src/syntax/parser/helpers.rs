@@ -68,6 +68,50 @@ impl Parser {
         }
     }
 
+    /// Consumes `peek_token` when it matches `token_type`, otherwise emits a
+    /// contextual unexpected-token diagnostic with a stable help hint.
+    pub(super) fn expect_peek_context(
+        &mut self,
+        token_type: TokenType,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) -> bool {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            self.errors.push(
+                unexpected_token(self.peek_token.span(), message.into())
+                    .with_hint_text(hint.into()),
+            );
+            false
+        }
+    }
+
+    /// Contextual `expect_peek` variant that can derive message and hint from
+    /// parser state at the failure site.
+    pub(super) fn expect_peek_contextf<M, H>(
+        &mut self,
+        token_type: TokenType,
+        message_fn: M,
+        hint_fn: H,
+    ) -> bool
+    where
+        M: FnOnce(&Self) -> String,
+        H: FnOnce(&Self) -> String,
+    {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            self.errors.push(
+                unexpected_token(self.peek_token.span(), message_fn(self))
+                    .with_hint_text(hint_fn(self)),
+            );
+            false
+        }
+    }
+
     /// Consumes `peek_token` only if it matches `token_type`.
     pub(super) fn consume_if_peek(&mut self, token_type: TokenType) -> bool {
         if self.is_peek_token(token_type) {
@@ -313,7 +357,11 @@ impl Parser {
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) {
             self.next_token(); // consume '.'
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected identifier after `.` in qualified name.".to_string(),
+                "Qualified names use `Module.Name`.".to_string(),
+            ) {
                 return None;
             }
             name.push('.');
@@ -368,13 +416,15 @@ impl Parser {
                 TokenType::RParen | TokenType::Eof => return Some(identifiers),
 
                 _ => {
-                    self.errors.push(unexpected_token(
-                        self.current_token.span(),
-                        format!(
-                            "Expected `,` or `)` after parameter, got {}.",
-                            self.current_token.token_type
+                    self.errors.push(
+                        unexpected_token(
+                            self.current_token.span(),
+                            "Expected `,` or `)` after function parameter.",
+                        )
+                        .with_hint_text(
+                            "Separate parameters with `,` and close the parameter list with `)`.",
                         ),
-                    ));
+                    );
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
                         return Some(identifiers);
@@ -480,13 +530,15 @@ impl Parser {
                         self.errors
                             .push(missing_lambda_close_paren(self.current_token.span()));
                     } else {
-                        self.errors.push(unexpected_token(
-                            self.current_token.span(),
-                            format!(
-                                "Expected `,` or `)` after parameter, got {}.",
-                                self.current_token.token_type
+                        self.errors.push(
+                            unexpected_token(
+                                self.current_token.span(),
+                                "Expected `,` or `)` after function parameter.",
+                            )
+                            .with_hint_text(
+                                "Separate parameters with `,` and close the parameter list with `)`.",
                             ),
-                        ));
+                        );
                     }
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
@@ -633,7 +685,11 @@ impl Parser {
     }
 
     fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name in effect expression.".to_string(),
+            "Effect expressions use names like `IO` or `IO + Net`.".to_string(),
+        ) {
             return None;
         }
 
@@ -660,7 +716,11 @@ impl Parser {
             };
 
             self.next_token(); // operator
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected effect name after effect operator.".to_string(),
+                "Effect expressions use `Left + Right` or `Left - Right`.".to_string(),
+            ) {
                 return None;
             }
 
@@ -799,7 +859,11 @@ impl Parser {
                 break;
             }
 
-            if !self.expect_peek(TokenType::Gt) {
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` to close generic type arguments.".to_string(),
+                "Generic types use `Name<T, U>`.".to_string(),
+            ) {
                 return None;
             }
         }
@@ -826,7 +890,11 @@ impl Parser {
         self.next_token();
         let first = self.parse_type_expr()?;
         if !self.is_peek_token(TokenType::Comma) {
-            if !self.expect_peek(TokenType::RParen) {
+            if !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` to close parenthesized type.".to_string(),
+                "Grouped types use `(Type)`.".to_string(),
+            ) {
                 return None;
             }
             return Some(first);
@@ -844,7 +912,11 @@ impl Parser {
             elements.push(self.parse_type_expr()?);
         }
 
-        if !self.expect_peek(TokenType::RParen) {
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            "Expected `)` to close tuple type.".to_string(),
+            "Tuple types use `(A, B, ...)`.".to_string(),
+        ) {
             return None;
         }
 

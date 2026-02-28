@@ -5,61 +5,17 @@ Fixture: examples/type_system/16_effect_annotated.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E400]: MISSING EFFECT
 
-Effectful operation is not allowed at top level (requires: IO).
+Call to `print` requires effect `IO` in this function signature.
 
-  --> examples/type_system/16_effect_annotated.flx:14:1
+  --> examples/type_system/16_effect_annotated.flx:19:9
    |
-14 | print(log_and_double(5))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------ top-level effectful expression
+19 |         print(x)
+   |         ^^^^^
+   |         ----- effectful call occurs here
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/type_system/16_effect_annotated.flx:14:1
-   |
-14 | print(log_and_double(5))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------ effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/16_effect_annotated.flx:22:1
-   |
-22 | print(just_double(5))
-   | ^^^^^^^^^^^^^^^^^^^^^
-   | --------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/16_effect_annotated.flx:29:1
-   |
-29 | print(add(3, 4))
-   | ^^^^^^^^^^^^^^^^
-   | ---------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 4 errors.
+  Add `with IO` to the enclosing function.
 == stdout ==
 <not executed>

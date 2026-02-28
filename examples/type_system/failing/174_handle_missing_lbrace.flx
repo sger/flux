@@ -1,0 +1,2 @@
+let x = 1 handle IO print(resume, msg) -> resume(msg)
+let after = 1

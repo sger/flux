@@ -5,60 +5,100 @@ Fixture: examples/type_system/12_adt_nested.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Effectful operation is not allowed at top level (requires: IO).
+Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/12_adt_nested.flx:40:1
+  --> examples/type_system/12_adt_nested.flx:8:9
    |
-40 | print(contains(t, 3))
+ 8 |         match t {
+   |         ^^^^^^^^^
+ 9 |             Leaf -> Node(Leaf, v, Leaf),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+10 |             Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |             if v < x {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+12 |                 Node(insert(left, v), x, right)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |             } else if v > x {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |             Node(left, x, insert(right, v))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 |         } else {
+   | ^^^^^^^^^^^^^^^^
+16 |         t
+   | ^^^^^^^^^
+17 |     },
+   | ^^^^^^
+18 | }
+   | ^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/12_adt_nested.flx:22:5
+   |
+22 |     match t {
+   |     ^^^^^^^^^
+23 |         Leaf -> false,
+   | ^^^^^^^^^^^^^^^^^^^^^^
+24 |         Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |         if v == x { true }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |         else if v < x { contains(left, v) }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 |         else { contains(right, v) },
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |     }
+   | ^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/12_adt_nested.flx:32:5
+   |
+32 |     match t {
+   |     ^^^^^^^^^
+33 |         Leaf -> [||],
    | ^^^^^^^^^^^^^^^^^^^^^
-   | --------------------- top-level effectful expression
+34 |         Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+35 |         concat(inorder(left), concat([|x|], inorder(right))),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |     }
+   | ^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful program is missing `fn main` root effect handler.
+I can't find a value named `Leaf`.
 
-  --> examples/type_system/12_adt_nested.flx:40:1
+  --> examples/type_system/12_adt_nested.flx:39:37
    |
-40 | print(contains(t, 3))
-   | ^^^^^^^^^^^^^^^^^^^^^
-   | --------------------- effectful top-level execution
+39 | let t = insert(insert(insert(insert(Leaf, 5), 3), 7), 1)
+   |                                     ^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Define it first: let Leaf = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/12_adt_nested.flx:41:1
-   |
-41 | print(contains(t, 4))
-   | ^^^^^^^^^^^^^^^^^^^^^
-   | --------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/12_adt_nested.flx:42:1
-   |
-42 | print(inorder(t))
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
+Help:
+  Did you mean `len`?
 
 Found 4 errors.
 == stdout ==

@@ -66,7 +66,11 @@ impl Parser {
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected identifier after `.` in qualified path.".to_string(),
+                "Qualified paths use `Module.Name`.".to_string(),
+            ) {
                 return None;
             }
             name.push('.');

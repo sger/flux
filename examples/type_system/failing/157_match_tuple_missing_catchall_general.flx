@@ -1,0 +1,7 @@
+fn main() -> Unit {
+    let t = (1, true)
+    let _x = match t {
+        (1, true) -> 1,
+        (2, false) -> 2,
+    }
+}

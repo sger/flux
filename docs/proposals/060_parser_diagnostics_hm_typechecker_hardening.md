@@ -1022,3 +1022,22 @@ Tracks are independent. Recommended order within the 0.0.4 gate:
 5. Snapshot/parity churn is intentional-only and documented task-by-task.
 6. Fixture IDs `122..150` are present, referenced, and reproducible via documented commands.
 7. All tasks `T0..T14` are complete with auditable evidence.
+
+### T15 — P5 Remaining `expect_peek` Contextual Recovery (Broad Sweep)
+- **Goal:** Replace remaining generic `expect_peek` parser diagnostics with construct-aware E034 messages and hints.
+- **Files:**
+  - `src/syntax/parser/helpers.rs`
+  - `src/syntax/parser/expression.rs`
+  - `src/syntax/parser/statement.rs`
+  - `src/syntax/parser/literal.rs`
+- **Changes:**
+  - add parser-local contextual helpers (`expect_peek_context`, `expect_peek_contextf`)
+  - route expression/statement/literal/helper `expect_peek` callsites to construct-aware messaging
+  - preserve synchronization and recovery behavior
+- **Tests:**
+  - `tests/parser_tests.rs` table-driven contextual-message assertions
+  - `tests/parser_recovery.rs` fixture-based recovery continuation checks
+- **Fixtures:**
+  - `173` to `184`
+- **Risk:** Medium (message and snapshot churn across parser transcripts).
+- **Done When:** Broad parser structure sites no longer emit bare generic `Expected \`X\`, got Y.` diagnostics.

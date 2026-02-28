@@ -1,6 +1,6 @@
 # Proposal 047: ADT Semantics Deepening (Post-Sugar Hardening)
 
-**Status:** Draft  
+**Status:** Implemented  
 **Date:** 2026-02-26  
 **Depends on:** `032_type_system_with_effects.md`, `043_pure_flux_checklist.md`, `046_typed_ast_hm_architecture.md`
 
@@ -112,10 +112,13 @@ Preserve by default:
 - ordering class
 
 Week-2 lock-in note:
-- keep `E082` for constructor arity mismatch,
-- keep `E083` for ADT non-exhaustive match,
-- use `E084` for cross-module direct ADT constructor boundary misuse under
-  factory-only policy.
+1. constructor call-site arity mismatch uses `E082`,
+2. constructor-pattern arity mismatch uses `E085`,
+3. ADT non-exhaustive match uses `E083`,
+4. cross-module direct constructor access uses policy split:
+   - strict mode: `E086` (blocking error)
+   - non-strict mode: `W201` (warning-only; compilation continues)
+5. constructor arity checks are diagnostic-driven (no panic path).
 
 Any intentional changes require snapshot review and proposal note.
 
@@ -137,3 +140,29 @@ Any intentional changes require snapshot review and proposal note.
 2. Factory-only module ADT API policy remains active for this track.
 3. No runtime representation changes are required.
 4. This is a semantic hardening track after 0.0.4 syntax alignment.
+
+---
+
+## 11. 047 Closure Note (Regression Lock)
+
+Implemented and locked behavior:
+1. Constructor arity is enforced with diagnostics in both pattern-lowering paths (`E085`) and constructor call paths (`E082`) (no panic behavior).
+2. Cross-module module-qualified constructor boundary policy is locked as:
+   - strict mode: reject with `E086`
+   - non-strict mode: emit `W201` warning and continue.
+3. Existing fixture anchors:
+   - pattern arity: `146..148`
+   - strict/non-strict boundary split: `149..150`
+   - legacy arity fixtures (`26`, `80`) now align with `E085`.
+
+Validation outcomes:
+1. `cargo check --all --all-features` -> PASS
+2. `cargo test --test error_codes_registry_tests` -> PASS
+3. `cargo test --test compiler_rules_tests` -> PASS
+4. `cargo test --test snapshot_diagnostics` -> PASS
+5. `cargo test --all --all-features purity_vm_jit_parity_snapshots` -> PASS
+6. `cargo test --test examples_fixtures_snapshots` -> FAIL (informational, unrelated churn)
+
+Known external churn:
+1. `tests/snapshots/examples_fixtures/aoc__2024__day03.snap.new`
+2. Out-of-scope for 047 ADT arity/boundary policy lock.

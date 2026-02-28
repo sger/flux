@@ -5,47 +5,16 @@ Fixture: examples/io/aoc_day12_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `str_at`.
 
-  --> examples/io/aoc_day12_haskell_style.flx:138:1
-    |
-138 | let input_lines = read_lines("examples/io/aoc_day12.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day12_haskell_style.flx:138:1
-    |
-138 | let input_lines = read_lines("examples/io/aoc_day12.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------------- effectful top-level execution
+  --> examples/io/aoc_day12_haskell_style.flx:60:13
+   |
+60 |     let t = str_at(tokens, idx)
+   |             ^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day12_haskell_style.flx:139:1
-    |
-139 | print(day12a(input_lines))
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | -------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+  Define it first: let str_at = ...;
 == stdout ==
 <not executed>

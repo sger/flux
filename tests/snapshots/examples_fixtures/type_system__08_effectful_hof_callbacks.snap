@@ -5,47 +5,17 @@ Fixture: examples/type_system/08_effectful_hof_callbacks.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/08_effectful_hof_callbacks.flx:12:1
-   |
-12 | each_log(list(10, 20, 30), /(x: Int) -> print("callback=#{x}"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | --------------------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/type_system/08_effectful_hof_callbacks.flx:12:1
-   |
-12 | each_log(list(10, 20, 30), /(x: Int) -> print("callback=#{x}"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | --------------------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
 --> compiler error[E400]: MISSING EFFECT
 
 Call to `print` requires effect `IO` in this function signature.
 
-  --> examples/type_system/08_effectful_hof_callbacks.flx:12:41
+  --> examples/type_system/08_effectful_hof_callbacks.flx:13:45
    |
-12 | each_log(list(10, 20, 30), /(x: Int) -> print("callback=#{x}"))
-   |                                         ^^^^^
-   |                                         ----- effectful call occurs here
+13 |     each_log(list(10, 20, 30), /(x: Int) -> print("callback=#{x}"))
+   |                                             ^^^^^
+   |                                             ----- effectful call occurs here
 
 Hint:
   Add `with IO` to the enclosing function.
-
-Found 3 errors.
 == stdout ==
 <not executed>

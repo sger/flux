@@ -1233,7 +1233,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert_eq!(span.start, Position::new(1, 7));
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
+                .is_some_and(|m| m.contains("Expected `,` or `)` after function parameter"))
         );
 
         match &program.statements[0] {
@@ -2319,5 +2319,91 @@ let w = match x { Some(n) -> n, None -> 0 };
             alias_diag_count, 0,
             "did not expect statement-keyword alias diagnostics for identifier usage"
         );
+    }
+
+    #[test]
+    fn t15_remaining_expect_peek_sites_emit_contextual_e034_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            message_fragment: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot",
+                input: "let x = perform IO print(\"hi\")",
+                message_fragment: "perform",
+            },
+            Case {
+                name: "handle_missing_lbrace",
+                input: "let x = 1 handle IO print(resume, msg) -> resume(msg)",
+                message_fragment: "handle",
+            },
+            Case {
+                name: "match_missing_open_brace",
+                input: "let x = match 1 0 -> 0",
+                message_fragment: "match",
+            },
+            Case {
+                name: "module_missing_lbrace",
+                input: "module Demo\nlet x = 1",
+                message_fragment: "module",
+            },
+            Case {
+                name: "type_sugar_missing_assign",
+                input: "type Maybe<T> Some(T) | None",
+                message_fragment: "type",
+            },
+            Case {
+                name: "hash_missing_colon",
+                input: "let h = { \"a\" 1 }",
+                message_fragment: "hash",
+            },
+            Case {
+                name: "list_comprehension_missing_generator_ident",
+                input: "let xs = [x | <- [1, 2, 3]]",
+                message_fragment: "comprehension",
+            },
+            Case {
+                name: "type_expr_missing_rparen",
+                input: "fn bad(x: (Int, String -> Int { x }",
+                message_fragment: "type",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034"))
+                .unwrap_or_else(|| panic!("expected E034 for case `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert!(
+                !msg.contains("Expected `") || msg.contains(case.message_fragment),
+                "expected contextual message for case `{}`, got: {}",
+                case.name,
+                msg
+            );
+            assert!(
+                msg.to_lowercase().contains(case.message_fragment),
+                "expected message to mention `{}` for case `{}`, got: {}",
+                case.message_fragment,
+                case.name,
+                msg
+            );
+            assert!(
+                !diag.hints().is_empty(),
+                "expected help hint for case `{}`",
+                case.name
+            );
+        }
     }
 }

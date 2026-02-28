@@ -45,7 +45,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `25_adt_mixed_constructors_in_match.flx`
   - Expected: compile-time failure (`E083`) when one `match` mixes constructors from different ADTs
 - `26_adt_match_constructor_arity_mismatch.flx`
-  - Expected: compile-time failure (`E082`) when constructor pattern field count mismatches declaration arity
+  - Expected: compile-time failure (`E085`) when constructor pattern field count mismatches declaration arity
 - `27_adt_wildcard_guard_not_catchall.flx`
   - Expected: compile-time failure (`E015`) because `_ if ...` is guarded and does not count as a catch-all arm
 - `28_adt_nested_guard_non_exhaustive.flx`
@@ -125,7 +125,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `65_adt_nested_constructor_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) because nested constructor space under unary wrapper is not fully covered
 - `66_module_constructor_not_public_api.flx`
-  - Expected: compile-time failure (`E084`) because module ADT constructors are not part of public API in 0.0.4 (use module `public fn` factories)
+  - Expected: strict-mode compile-time failure (`E086`) because direct cross-module constructor access is rejected (use module `public fn` factories)
 - `67_adt_multi_arity_nested_non_exhaustive.flx`
   - Expected: compile-time failure (`E083`) because nested constructor-space under multi-arity constructor is not fully covered
 - `68_adt_nested_list_non_exhaustive.flx`
@@ -153,7 +153,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `79_hm_module_generic_call_mismatch.flx`
   - Expected: compile-time failure (`E300`) because module-qualified generic return type is inferred as `String` and cannot unify with expected `Int`
 - `80_type_adt_constructor_arity_mismatch.flx`
-  - Expected: compile-time failure (`E082`) showing `type ... = ... | ...` ADT sugar reuses constructor arity checks
+  - Expected: compile-time failure (`E085`) showing `type ... = ... | ...` ADT sugar reuses constructor-pattern arity checks
 - `81_match_bool_missing_false.flx`
   - Expected: compile-time failure (`E015`) because Bool match misses `false`
 - `82_match_list_missing_empty.flx`
@@ -167,7 +167,7 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `89_adt_generic_constructor_hm_mismatch.flx`
   - Expected: compile-time failure (`E300`) because generic ADT constructor argument does not unify with the instantiated annotation
 - `90_adt_module_constructor_alias_not_exported.flx`
-  - Expected: compile-time failure (`E084`) because direct ADT constructor access is rejected across module boundaries even through alias imports
+  - Expected: strict-mode compile-time failure (`E086`) because direct ADT constructor access is rejected across module boundaries even through alias imports
 - `91_adt_nested_pattern_binding_type_mismatch.flx`
   - Expected: compile-time failure (`E300`) because nested constructor-pattern binding keeps concrete `Int` field typing
 - `92_hm_if_branch_contextual_mismatch.flx`
@@ -290,6 +290,48 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `150_cross_module_constructor_access_nonstrict_warning.flx`
   - Expected: non-strict warning (`W201`) for cross-module constructor access; compilation continues
   - Note: in `examples_fixtures_snapshots`, this fixture may show `E018` due to harness roots; canonical T14 assertions are in `compiler_rules_tests` and focused `cargo run --root examples/type_system ...` commands.
+- `151_array_literal_concrete_conflict_prefers_e300.flx`
+  - Expected: compile-time failure (`E300`) for concrete heterogeneous array literal conflict (strict-first 051)
+- `152_array_literal_callarg_conflict_prefers_e300.flx`
+  - Expected: compile-time failure (`E300`) for concrete heterogeneous array argument conflict at call boundary
+- `153_match_branch_conflict_prefers_e300.flx`
+  - Expected: compile-time failure (`E300`) for concrete `match` arm type disagreement in typed let path
+- `154_unresolved_projection_strict_e425.flx`
+  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved tuple projection source
+- `155_unresolved_member_access_strict_e425.flx`
+  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved member access source
+- `156_unresolved_call_arg_strict_e425.flx`
+  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved call argument source
+- `157_match_tuple_missing_catchall_general.flx`
+  - Expected: compile-time failure (`E015`) with tuple-conservative non-exhaustive message (unguarded catch-all required)
+- `158_match_tuple_guarded_only_non_exhaustive.flx`
+  - Expected: compile-time failure (`E015`) because guarded tuple arms are conditional and do not prove exhaustiveness
+- `159_match_nested_tuple_mixed_shape_non_exhaustive.flx`
+  - Expected: compile-time failure (`E083`) for nested tuple mixed-shape conservative non-exhaustiveness in ADT nested checking
+- `161_tuple_destructure_concrete_mismatch_prefers_e300.flx`
+  - Expected: strict-mode compile-time failure (`E300`) for concrete tuple-destructure shape mismatch
+- `162_tuple_destructure_unresolved_strict_e425.flx`
+  - Expected: strict-mode compile-time failure (`E425`) when tuple-destructure source is genuinely unresolved
+- `163_match_concrete_disagreement_prefers_e300.flx`
+  - Expected: strict-mode compile-time failure (`E300`) for concrete `match` arm disagreement
+- `164_match_unresolved_arm_stays_suppressed.flx`
+  - Expected: unresolved arm path suppresses contextual `match` arm mismatch diagnostics (no new false-positive `E300`)
+- `165_self_recursive_precision_prefers_e300.flx`
+  - Expected: compile-time failure (`E300`) showing self-recursive return precision remains concrete at typed use site
+- `166_self_recursive_guard_stable_unresolved.flx`
+  - Expected: compile-time failure (`E004`) from unresolved symbol baseline, without recursion-specific false-positive mismatch diagnostics
+- `167_tuple_destructure_ordered_concrete_conflict_e300.flx`
+  - Expected: strict-mode compile-time failure (`E300`) for concrete tuple-destructure conflict (arity/shape mismatch)
+- `168_tuple_destructure_unresolved_guard_strict_e425.flx`
+  - Expected: strict-mode compile-time failure (`E425`) when tuple-destructure source remains genuinely unresolved
+- `169_match_disagreement_first_arm_unresolved_still_e300.flx`
+  - Expected: strict-mode compile-time failure (`E300`) for concrete `match` arm disagreement even when first arm is unresolved
+- `170_match_disagreement_all_concrete_ordering_invariant_e300.flx`
+  - Expected: strict-mode compile-time failure (`E300`) for all-concrete `match` arm disagreement (ordering-invariant)
+- `171_self_recursive_refinement_concrete_chain_e300.flx`
+  - Expected: compile-time failure (`E300`) for typed mismatch using refined concrete self-recursive return chain
+- `172_self_recursive_unresolved_guard_no_false_positive.flx`
+  - Expected: compile-time failure (`E004`) baseline unresolved symbol only; no recursion-specific false-positive mismatch diagnostics
 
 ## A3 Pure-Context Matrix
 
@@ -444,7 +486,7 @@ cargo run -- --no-cache --root examples/type_system examples/type_system/failing
 cargo run -- --no-cache --root examples/type_system examples/type_system/failing/63_either_boundary_runtime_violation.flx
 cargo run -- --no-cache examples/type_system/failing/64_hm_inferred_call_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/65_adt_nested_constructor_non_exhaustive.flx
-cargo run -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
 cargo run -- --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx
 cargo run -- --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
 cargo run -- --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
@@ -465,7 +507,7 @@ cargo run -- --no-cache examples/type_system/failing/83_match_guarded_wildcard_o
 cargo run -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
 cargo run -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
-cargo run -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx
 cargo run -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx
 cargo run -- --no-cache examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx
@@ -579,7 +621,7 @@ cargo run --features jit -- --no-cache --strict examples/type_system/failing/58_
 cargo run --features jit -- --no-cache --strict examples/type_system/failing/59_strict_module_public_effect_missing_with.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/64_hm_inferred_call_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/65_adt_nested_constructor_non_exhaustive.flx --jit
-cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/67_adt_multi_arity_nested_non_exhaustive.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx --jit
@@ -600,7 +642,7 @@ cargo run --features jit -- --no-cache examples/type_system/failing/83_match_gua
 cargo run --features jit -- --no-cache examples/type_system/failing/84_match_tuple_gap_no_fallback.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx --jit
-cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx --jit
@@ -641,3 +683,27 @@ cargo run --features jit -- --no-cache examples/type_system/failing/148_construc
 cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/149_cross_module_constructor_access_strict.flx --jit
 cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx --jit
 ```
+- `173_perform_missing_dot.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `perform` structure message (missing `.` between effect and operation)
+- `174_handle_missing_lbrace.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `handle` message (missing `{` before handler arms)
+- `175_handle_arm_missing_arrow.flx`
+  - Expected: parser diagnostic (`E034`) with contextual handle-arm message (missing `->`)
+- `176_match_missing_open_brace.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `match` message (missing `{`)
+- `177_module_missing_open_brace.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `module` message (missing `{`)
+- `178_import_except_missing_open_bracket.flx`
+  - Expected: parser diagnostic (`E034`) with contextual import `except` list message (missing `[... ]`)
+- `179_data_missing_open_brace.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `data` declaration message (missing `{`)
+- `180_type_adt_missing_assign.flx`
+  - Expected: parser diagnostic (`E034`) with contextual `type` ADT-sugar message (missing `=`)
+- `181_effect_missing_colon.flx`
+  - Expected: parser diagnostic (`E034`) with contextual effect operation signature message (missing `:`)
+- `182_list_comprehension_missing_left_arrow.flx`
+  - Expected: parser diagnostic (`E034`) with contextual list-comprehension generator message (missing generator identifier)
+- `183_hash_missing_colon.flx`
+  - Expected: parser diagnostic (`E034`) with contextual hash key/value separator message (missing `:`)
+- `184_type_expr_missing_close_paren.flx`
+  - Expected: parser diagnostic (`E034`) with contextual type-expression closing delimiter message (missing `)`) 
