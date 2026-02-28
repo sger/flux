@@ -35,11 +35,11 @@ fn main() with IO {
     // an array with 3 elements
     // Right(25)
     // Left(age must be an integer, got String)
-    
+
     // =============================================================================
     // Type Checking Base Functions (Milestone 5.5)
     // =============================================================================
-    
+
     // type_of - get type name as string
     print(type_of(42));           // "Int"
     print(type_of(3.14));         // "Float"
@@ -49,73 +49,73 @@ fn main() with IO {
     print(type_of({"a": 1}));     // "Hash"
     print(type_of(None));         // "None"
     print(type_of(Some(42)));     // "Some"
-    
+
     // is_int - check if value is an integer
     print(is_int(42));            // true
     print(is_int(3.14));          // false
     print(is_int("hello"));       // false
-    
+
     // is_float - check if value is a float
     print(is_float(3.14));        // true
     print(is_float(42));          // false
-    
+
     // is_string - check if value is a string
     print(is_string("hello"));    // true
     print(is_string(42));         // false
-    
+
     // is_bool - check if value is a boolean
     print(is_bool(true));         // true
     print(is_bool(false));        // true
     print(is_bool(0));            // false
-    
+
     // is_array - check if value is an array
     print(is_array([|1, 2, 3|]));   // true
     print(is_array("hello"));     // false
-    
+
     // is_hash - check if value is a hash
     print(is_hash({"a": 1}));     // true
     print(is_hash([|1, 2|]));       // false
-    
+
     // is_none - check if value is None
     print(is_none(None));         // true
     print(is_none(42));           // false
-    
+
     // is_some - check if value is Some
     print(is_some(Some(42)));     // true
     print(is_some(None));         // false
-    
+
     // =============================================================================
     // Practical Examples
     // =============================================================================
-    
+
     print("Practical examples:");
-    
+
     // Example 1: Safe type conversion
     fn safeAdd(a, b) {
         if is_int(a) && is_int(b) {
             Some(a + b)
         } else {
-            None
-        }
+        None
     }
-    print(safeAdd(1, 2));         // Some(3)
-    
-    // Example 2: Type-based dispatch
-    fn describe(value) {
-        "type: " + type_of(value)
-    }
-    print(describe("42"));        // "type: String"
-    print(describe("hello"));     // "type: String"
-    print(describe("array"));     // "type: String"
-    
-    // Example 3: Validate function arguments
-    fn requireInt(name, value) {
-        if !is_int(value) {
-            Left(name + " must be an integer, got " + type_of(value))
-        } else {
-            Right(value)
-        }
-    }
-    print(requireInt("age", 25));      // Right(25)
-    print(requireInt("age", 30));      // Right(30)
+}
+print(safeAdd(1, 2));         // Some(3)
+
+// Example 2: Type-based dispatch
+fn describe(value) {
+    "type: " + type_of(value)
+}
+print(describe("42"));        // "type: String"
+print(describe("hello"));     // "type: String"
+print(describe("array"));     // "type: String"
+
+// Example 3: Validate function arguments
+fn requireInt(name, value) {
+    if !is_int(value) {
+        Left(name + " must be an integer, got " + type_of(value))
+    } else {
+    Right(value)
+}
+}
+print(requireInt("age", 25));      // Right(25)
+print(requireInt("age", 30));      // Right(30)
 }
