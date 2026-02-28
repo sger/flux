@@ -1,8 +1,11 @@
 fn test(n) {
     if n == 0 {
-        "zero";
+        "zero"
     } else {
-        "nonzero";
+        "nonzero"
     }
 }
-print(test(0));
+
+fn main() with IO {
+    print(test(0))
+}
