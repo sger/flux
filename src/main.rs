@@ -44,6 +44,7 @@ use flux::{
 enum DiagnosticOutputFormat {
     Text,
     Json,
+    JsonCompact,
 }
 
 fn main() {
@@ -337,7 +338,7 @@ Flags:
   --no-cache         Disable bytecode cache for this run
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)
-  --format <f>       Diagnostics format: text|json (default: text)
+  --format <f>       Diagnostics format: text|json|json-compact (default: text)
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
@@ -1127,7 +1128,7 @@ fn extract_diagnostic_format(args: &mut Vec<String>) -> Option<DiagnosticOutputF
     while i < args.len() {
         let value = if args[i] == "--format" {
             if i + 1 >= args.len() {
-                eprintln!("Usage: flux <file.flx> --format <text|json>");
+                eprintln!("Usage: flux <file.flx> --format <text|json|json-compact>");
                 return None;
             }
             let v = args.remove(i + 1);
@@ -1145,8 +1146,9 @@ fn extract_diagnostic_format(args: &mut Vec<String>) -> Option<DiagnosticOutputF
         format = match value.as_str() {
             "text" => DiagnosticOutputFormat::Text,
             "json" => DiagnosticOutputFormat::Json,
+            "json-compact" => DiagnosticOutputFormat::JsonCompact,
             _ => {
-                eprintln!("Error: --format expects one of: text, json.");
+                eprintln!("Error: --format expects one of: text, json, json-compact.");
                 return None;
             }
         };
@@ -1226,8 +1228,23 @@ fn emit_diagnostics(
             }
         }
         DiagnosticOutputFormat::Json => {
-            let rendered =
-                render_diagnostics_json(diagnostics, default_file, Some(max_errors), !all_errors);
+            let rendered = render_diagnostics_json(
+                diagnostics,
+                default_file,
+                Some(max_errors),
+                !all_errors,
+                true,
+            );
+            eprintln!("{}", rendered);
+        }
+        DiagnosticOutputFormat::JsonCompact => {
+            let rendered = render_diagnostics_json(
+                diagnostics,
+                default_file,
+                Some(max_errors),
+                !all_errors,
+                false,
+            );
             eprintln!("{}", rendered);
         }
     }

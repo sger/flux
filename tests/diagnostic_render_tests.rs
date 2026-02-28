@@ -45,7 +45,7 @@ fn json_render_is_valid_array() {
         "test.flx",
         Span::new(Position::new(1, 1), Position::new(1, 2)),
     );
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     assert!(parsed.is_array(), "expected top-level JSON array");
@@ -62,7 +62,7 @@ fn json_render_contains_required_fields() {
         "test.flx",
         Span::new(Position::new(1, 1), Position::new(1, 2)),
     );
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let first = parsed
@@ -98,7 +98,7 @@ fn json_render_includes_phase_when_tagged() {
         Span::new(Position::new(1, 1), Position::new(1, 2)),
     )
     .with_phase(DiagnosticPhase::TypeInference);
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let first = parsed
@@ -127,7 +127,7 @@ fn json_render_preserves_label_and_hint_payloads() {
     .with_secondary_label(span, "secondary label")
     .with_hint_text("example hint");
 
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let first = parsed
@@ -173,7 +173,13 @@ fn json_render_respects_max_errors_filter() {
             Span::new(Position::new(line, 1), Position::new(line, 2)),
         )
     };
-    let out = render_diagnostics_json(&[mk(1), mk(2), mk(3)], Some("test.flx"), Some(2), true);
+    let out = render_diagnostics_json(
+        &[mk(1), mk(2), mk(3)],
+        Some("test.flx"),
+        Some(2),
+        true,
+        true,
+    );
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let len = parsed

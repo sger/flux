@@ -69,6 +69,7 @@ pub fn render_diagnostics_json(
     default_file: Option<&str>,
     max_errors: Option<usize>,
     stage_filtering: bool,
+    pretty: bool,
 ) -> String {
     let mut agg = DiagnosticsAggregator::new(diagnostics)
         .with_max_errors(max_errors)
@@ -79,7 +80,11 @@ pub fn render_diagnostics_json(
 
     let processed = agg.processed_diagnostics();
     let payload: Vec<JsonDiagnostic> = processed.iter().map(JsonDiagnostic::from_diag).collect();
-    serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string())
+    if pretty {
+        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string())
+    } else {
+        serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string())
+    }
 }
 
 impl JsonDiagnostic {
