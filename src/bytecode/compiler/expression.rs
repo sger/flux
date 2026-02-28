@@ -5,6 +5,7 @@ use std::{
 
 use super::suggestions::suggest_effect_name;
 use crate::{
+    ast::type_infer::display_infer_type,
     bytecode::{
         binding::Binding,
         compiler::{
@@ -18,16 +19,19 @@ use crate::{
         op_code::OpCode,
         symbol_scope::SymbolScope,
     },
-    ast::type_infer::display_infer_type,
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
         ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED, MODULE_NOT_IMPORTED,
-        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
-        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
-        compiler_errors::{call_arg_type_mismatch, type_unification_error, wrong_argument_count},
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
+        UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        UNKNOWN_PREFIX_OPERATOR,
+        compiler_errors::{
+            call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+            cross_module_constructor_access_error, cross_module_constructor_access_warning,
+            guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
+        },
         diag_enhanced,
         position::{Position, Span},
         types::ErrorType,
@@ -177,12 +181,27 @@ impl Compiler {
                             self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                         self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
-                        if let Some(diag) = self
-                            .module_constructor_boundary_error_from_qualified_identifier(
-                                name, *span,
-                            )
+                        if let Some((member_name, qualifier)) =
+                            self.module_constructor_boundary_from_qualified_identifier(name)
                         {
-                            return Err(Self::boxed(diag));
+                            if self.strict_mode {
+                                return Err(Self::boxed(
+                                    cross_module_constructor_access_error(
+                                        *span,
+                                        member_name.as_str(),
+                                        qualifier.as_str(),
+                                    )
+                                    .with_file(self.file_path.clone()),
+                                ));
+                            }
+                            self.warnings.push(
+                                cross_module_constructor_access_warning(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            );
                         }
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
@@ -207,10 +226,27 @@ impl Compiler {
                         self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                     self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                 } else {
-                    if let Some(diag) = self
-                        .module_constructor_boundary_error_from_qualified_identifier(name, *span)
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(name)
                     {
-                        return Err(Self::boxed(diag));
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
                     }
                     let name_str = self.sym(name);
                     return Err(Self::boxed(
@@ -506,24 +542,36 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    let module_name_str = self.sym(module_name);
-                    let member_str = self.sym(member);
+                    let module_name_str = self.sym(module_name).to_string();
+                    let member_str = self.sym(member).to_string();
                     if self.current_module_prefix != Some(module_name)
                         && self
                             .module_member_adt_constructor_owner(module_name, member)
                             .is_some()
                     {
-                        return Err(Self::boxed(Diagnostic::make_error(
-                            &MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
-                            &[member_str, module_name_str],
-                            self.file_path.clone(),
-                            expr_span,
-                        )));
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    expr_span,
+                                    member_str.as_str(),
+                                    module_name_str.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                expr_span,
+                                member_str.as_str(),
+                                module_name_str.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
                     }
 
                     return Err(Self::boxed(Diagnostic::make_error(
                         &UNKNOWN_MODULE_MEMBER,
-                        &[module_name_str, member_str],
+                        &[module_name_str.as_str(), member_str.as_str()],
                         self.file_path.clone(),
                         expr_span,
                     )));
@@ -769,7 +817,8 @@ impl Compiler {
                         && !actual.contains_any()
                     {
                         let compatible = if let Ok(subst) = unify(&expected_infer, &actual) {
-                            expected_infer.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
+                            expected_infer.apply_type_subst(&subst)
+                                == actual.apply_type_subst(&subst)
                         } else {
                             false
                         };
@@ -864,11 +913,10 @@ impl Compiler {
         )))
     }
 
-    fn module_constructor_boundary_error_from_qualified_identifier(
+    fn module_constructor_boundary_from_qualified_identifier(
         &self,
         name: Symbol,
-        span: Span,
-    ) -> Option<Diagnostic> {
+    ) -> Option<(String, String)> {
         let full_name = self.sym(name);
         let (qualifier, member) = full_name.rsplit_once('.')?;
         let module_name = self
@@ -890,12 +938,7 @@ impl Compiler {
             return None;
         }
 
-        Some(Diagnostic::make_error(
-            &MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
-            &[member, qualifier],
-            self.file_path.clone(),
-            span,
-        ))
+        Some((member.to_string(), qualifier.to_string()))
     }
 
     fn diagnostic_for_row_violation(
@@ -1815,14 +1858,13 @@ impl Compiler {
                 if fields.len() != constructor_info.arity {
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
-                            .with_span(*span)
-                            .with_message(format!(
-                                "Constructor `{}` expects {} argument(s) but got {}.",
-                                name_str,
-                                constructor_info.arity,
-                                fields.len()
-                            )),
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
                     ));
                 }
 
@@ -2053,14 +2095,13 @@ impl Compiler {
                 if fields.len() != constructor_info.arity {
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
-                            .with_span(*span)
-                            .with_message(format!(
-                                "Constructor `{}` expects {} argument(s) but got {}.",
-                                name_str,
-                                constructor_info.arity,
-                                fields.len()
-                            )),
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
                     ));
                 }
 
@@ -2764,20 +2805,85 @@ impl Compiler {
         arguments: &[Expression],
         span: Span,
     ) -> CompileResult<bool> {
-        let Expression::Identifier { name, .. } = function else {
+        let (name, boundary_module): (Symbol, Option<Symbol>) = match function {
+            Expression::Identifier { name, .. } => (*name, None),
+            Expression::MemberAccess { object, member, .. } => {
+                let Some(module_name) = self.resolve_module_name_from_expr(object) else {
+                    return Ok(false);
+                };
+                let Some(_adt_owner) =
+                    self.module_member_adt_constructor_owner(module_name, *member)
+                else {
+                    return Ok(false);
+                };
+                (*member, Some(module_name))
+            }
+            _ => return Ok(false),
+        };
+
+        // Only intercept if the constructor is known.
+        let Some(info) = self.adt_registry.lookup_constructor(name) else {
+            if let Some((member_name, qualifier)) =
+                self.module_constructor_boundary_from_qualified_identifier(name)
+            {
+                if self.strict_mode {
+                    return Err(Self::boxed(
+                        cross_module_constructor_access_error(
+                            span,
+                            member_name.as_str(),
+                            qualifier.as_str(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+                self.warnings.push(
+                    cross_module_constructor_access_warning(
+                        span,
+                        member_name.as_str(),
+                        qualifier.as_str(),
+                    )
+                    .with_file(self.file_path.clone()),
+                );
+                for arg in arguments {
+                    self.compile_non_tail_expression(arg)?;
+                }
+                let const_idx = self.add_constant(Value::String(Rc::from(member_name.as_str())));
+                self.emit(OpCode::OpMakeAdt, &[const_idx, arguments.len()]);
+                return Ok(true);
+            }
             return Ok(false);
         };
 
-        // Only intercept if the name is a known ADT constructor
-        let Some(info) = self.adt_registry.lookup_constructor(*name) else {
-            return Ok(false);
-        };
+        if let Some(module_name) = boundary_module
+            && self.current_module_prefix != Some(module_name)
+        {
+            let module_name_str = self.sym(module_name).to_string();
+            let ctor_name_str = self.sym(name).to_string();
+            if self.strict_mode {
+                return Err(Self::boxed(
+                    cross_module_constructor_access_error(
+                        span,
+                        ctor_name_str.as_str(),
+                        module_name_str.as_str(),
+                    )
+                    .with_file(self.file_path.clone()),
+                ));
+            }
+            self.warnings.push(
+                cross_module_constructor_access_warning(
+                    span,
+                    ctor_name_str.as_str(),
+                    module_name_str.as_str(),
+                )
+                .with_file(self.file_path.clone()),
+            );
+        }
 
         let expected_arity = info.arity;
         let actual_arity = arguments.len();
 
         if actual_arity != expected_arity {
-            let name_str = self.interner.resolve(*name).to_string();
+            let name_str = self.interner.resolve(name).to_string();
             return Err(Self::boxed(
                 diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
                     .with_span(span)
@@ -2794,7 +2900,7 @@ impl Compiler {
         }
 
         // Add constructor name as a string constant
-        let constructor_name = self.interner.resolve(*name).to_string();
+        let constructor_name = self.interner.resolve(name).to_string();
         let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
         self.emit(OpCode::OpMakeAdt, &[const_idx, actual_arity]);
 
@@ -2988,6 +3094,9 @@ impl Compiler {
                 ));
             }
             GeneralCoverageDomain::Tuple(_) | GeneralCoverageDomain::Unknown => {
+                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
+                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
+                }
                 return Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
@@ -3002,6 +3111,27 @@ impl Compiler {
                 ));
             }
         }
+    }
+
+    fn has_guarded_wildcard_without_unguarded_catchall(arms: &[MatchArm]) -> bool {
+        let has_unguarded_catchall = arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        });
+        if has_unguarded_catchall {
+            return false;
+        }
+
+        arms.iter().any(|arm| {
+            arm.guard.is_some()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        })
     }
 
     fn infer_general_match_domain(

@@ -1,0 +1,7 @@
+// E015: Bool match missing false branch.
+fn main() -> Unit {
+    let b = true
+    let _x = match b {
+        true -> 1
+    }
+}

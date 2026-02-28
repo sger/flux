@@ -461,6 +461,8 @@ dependencies = [
  "cranelift-native",
  "criterion",
  "insta",
+ "serde",
+ "serde_json",
  "sha2",
  "target-lexicon",
 ]

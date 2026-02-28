@@ -85,6 +85,7 @@ ADT declaration note:
 - `93_adt_generic_constructor_hm_ok.flx` - generic ADT constructor call and constructor-pattern bindings are HM-typed without `Any` rescue
 - `94_adt_module_factory_boundary_ok.flx` - cross-module ADT usage through public factory/accessor API (no direct constructor access)
 - `95_adt_generic_nested_pattern_hm_ok.flx` - nested generic constructor patterns preserve concrete HM field typing
+- `145_guarded_wildcard_with_fallback_ok.flx` - guarded wildcard plus unguarded wildcard fallback remains exhaustive
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -92,6 +93,9 @@ Module source used by `07`:
 Intentional failure fixtures:
 - `failing/` - compile/runtime contract failure examples
   - includes entry-point policy coverage (`E410`-`E415`) for `main`/top-level purity boundary rules
+
+Troubleshooting (module-qualified examples):
+- If a fixture imports `TypeSystem.*` modules, run with `--root examples/type_system` to avoid `E018` import-resolution noise.
 
 ## Run
 
@@ -154,6 +158,7 @@ cargo run -- examples/type_system/92_effect_op_signature_enforcement_ok.flx
 cargo run -- examples/type_system/93_adt_generic_constructor_hm_ok.flx
 cargo run -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx
 cargo run -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx
+cargo run -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx
 ```
 
 JIT:
@@ -211,6 +216,7 @@ cargo run --features jit -- examples/type_system/92_effect_op_signature_enforcem
 cargo run --features jit -- examples/type_system/93_adt_generic_constructor_hm_ok.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx --jit
 cargo run --features jit -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx --jit
+cargo run --features jit -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

@@ -80,6 +80,7 @@ pub struct Compiler {
     pub(super) scopes: Vec<CompilationScope>,
     pub(super) scope_index: usize,
     pub errors: Vec<Diagnostic>,
+    pub warnings: Vec<Diagnostic>,
     pub(super) file_path: String,
     imported_files: HashSet<String>,
     pub(super) file_scope_symbols: HashSet<Symbol>,
@@ -147,6 +148,7 @@ impl Compiler {
             scopes: vec![CompilationScope::new()],
             scope_index: 0,
             errors: Vec::new(),
+            warnings: Vec::new(),
             file_path: file_path.into(),
             imported_files: HashSet::new(),
             file_scope_symbols: HashSet::new(),
@@ -232,6 +234,10 @@ impl Compiler {
         self.strict_require_main = strict_require_main;
     }
 
+    pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.warnings)
+    }
+
     pub(super) fn boxed(diag: Diagnostic) -> Box<Diagnostic> {
         Box::new(diag)
     }
@@ -313,6 +319,16 @@ impl Compiler {
                     for variant in variants {
                         self.module_adt_constructors
                             .insert((module_name, variant.name), *name);
+                        if let Some(short) = self
+                            .sym(variant.name)
+                            .rsplit('.')
+                            .next()
+                            .map(ToOwned::to_owned)
+                        {
+                            let short_sym = self.interner.intern(short.as_str());
+                            self.module_adt_constructors
+                                .insert((module_name, short_sym), *name);
+                        }
                     }
                 }
             }
@@ -1656,9 +1672,25 @@ impl Compiler {
         module_name: Symbol,
         member_name: Symbol,
     ) -> Option<Symbol> {
-        self.module_adt_constructors
+        if let Some(owner) = self
+            .module_adt_constructors
             .get(&(module_name, member_name))
             .copied()
+        {
+            return Some(owner);
+        }
+
+        let member_text = self.sym(member_name);
+        self.module_adt_constructors
+            .iter()
+            .find_map(|((owner, ctor), adt)| {
+                if *owner != module_name {
+                    return None;
+                }
+                let ctor_text = self.sym(*ctor);
+                (ctor_text == member_text || ctor_text.rsplit('.').next() == Some(member_text))
+                    .then_some(*adt)
+            })
     }
 
     pub(super) fn module_qualifier_text(&self, expr: &Expression) -> Option<String> {
@@ -1837,6 +1869,7 @@ impl Compiler {
 
     pub fn compile(&mut self, program: &Program) -> Result<(), Vec<Diagnostic>> {
         // Ensure per-file tracking is clean for each compile pass.
+        self.warnings.clear();
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();

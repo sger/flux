@@ -19,6 +19,8 @@ jit = [
 
 [dependencies]
 sha2 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 cranelift-codegen = { version = "0.128", optional = true }
 cranelift-frontend = { version = "0.128", optional = true }
 cranelift-module = { version = "0.128", optional = true }

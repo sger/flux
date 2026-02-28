@@ -230,6 +230,66 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: parser diagnostic (`E034`) suggesting `,` instead of `|` between match arms
 - `121_match_fat_arrow.flx`
   - Expected: parser diagnostic (`E034`) suggesting `->` instead of `=>` in match arms
+- `122_hash_missing_close_brace.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `}` for hash literal close
+- `123_array_missing_close_bracket.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `]` for array literal close
+- `124_lambda_missing_close_paren.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `)` for lambda parameter list close
+- `125_string_interpolation_missing_close_brace.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `}` for string interpolation close
+- `126_list_comprehension_missing_close_bracket.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `]` for list-comprehension close
+- `127_match_missing_arrow.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `->` in match arm
+- `128_lambda_missing_arrow.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `->` in lambda
+- `129_orphan_constructor_pattern_statement.flx`
+  - Expected: parser diagnostic (`E034`) for built-in constructor-pattern-like statement outside `match`
+- `130_do_missing_brace.flx`
+  - Expected: parser diagnostic (`E034`) naming missing `{` to begin `do` block
+- `131_call_arg_span_precision.flx`
+  - Expected: compile-time failure (`E300`) with primary label on the mismatching call argument expression span
+- `132_let_initializer_span_precision.flx`
+  - Expected: compile-time failure (`E300`) with primary label on the typed-let initializer expression span
+- `133_if_branch_value_span_precision.flx`
+  - Expected: compile-time failure (`E300`) with primary label on the mismatching `if` branch value expression span
+- `134_if_concrete_branch_mismatch.flx`
+  - Expected: compile-time failure (`E300`) with contextual if-branch mismatch message and dual labels
+- `135_if_any_branch_suppressed.flx`
+  - Expected: compile-time failure (e.g. `E056` from the follow-up call) while suppressing contextual if-branch mismatch for nested `Any`
+- `136_tuple_projection_precise_mismatch.flx`
+  - Expected: compile-time failure (`E300`) proving known tuple projection resolves to precise projected type (`String`) instead of unresolved fallback
+- `137_tuple_projection_unresolved_path_unchanged.flx`
+  - Expected: compile-time failure with unresolved-source behavior unchanged:
+    - default mode: `E004` (undefined source symbol)
+    - strict typed-validation path: `E425` unresolved boundary in compiler-rules regression test
+- `138_match_scrutinee_constraint_propagates.flx`
+  - Expected: compile-time failure (`E300`) where family-consistent match arms constrain scrutinee shape and produce a concrete downstream typed-let mismatch
+- `139_match_scrutinee_constraint_no_propagation_mixed_family.flx`
+  - Expected: compile-time failure (e.g. `E056` follow-up) while heterogeneous constructor families do not force scrutinee-family propagation
+- `140_recursive_self_reference_return_precision.flx`
+  - Expected: compile-time failure (`E300`) where unannotated self recursion refines return type and downstream typed-let mismatch remains concrete
+- `141_recursive_self_reference_negative_guard.flx`
+  - Expected: compile-time failure (`E056`) from independent follow-up call, with no recursion-specific diagnostic noise
+- `142_match_bool_missing_true.flx`
+  - Expected: compile-time failure (`E015`) because Bool match misses `true`
+- `143_match_bool_missing_false.flx`
+  - Expected: compile-time failure (`E015`) because Bool match misses `false`
+- `144_guarded_wildcard_only_non_exhaustive_targeted.flx`
+  - Expected: compile-time failure (`E015`) with targeted guarded-wildcard non-exhaustive message
+- `146_constructor_pattern_arity_some_too_many.flx`
+  - Expected: compile-time failure (`E085`) for constructor-pattern arity mismatch (`BoxI(a, b)`)
+- `147_constructor_pattern_arity_none_too_many.flx`
+  - Expected: compile-time failure (`E085`) for constructor-pattern arity mismatch (`NoneI(v)`)
+- `148_constructor_pattern_arity_left_too_many.flx`
+  - Expected: compile-time failure (`E085`) for constructor-pattern arity mismatch (`LeftI(a, b, c)`)
+- `149_cross_module_constructor_access_strict.flx`
+  - Expected: strict-mode compile-time failure (`E086`) for cross-module constructor access
+  - Note: in `examples_fixtures_snapshots`, this fixture may show `E018` due to harness roots; canonical T14 assertions are in `compiler_rules_tests` and focused `cargo run --root examples/type_system ...` commands.
+- `150_cross_module_constructor_access_nonstrict_warning.flx`
+  - Expected: non-strict warning (`W201`) for cross-module constructor access; compilation continues
+  - Note: in `examples_fixtures_snapshots`, this fixture may show `E018` due to harness roots; canonical T14 assertions are in `compiler_rules_tests` and focused `cargo run --root examples/type_system ...` commands.
 
 ## A3 Pure-Context Matrix
 
@@ -437,6 +497,14 @@ cargo run -- --no-cache examples/type_system/failing/118_let_missing_eq.flx
 cargo run -- --no-cache examples/type_system/failing/119_fn_missing_parens.flx
 cargo run -- --no-cache examples/type_system/failing/120_match_pipe_separator.flx
 cargo run -- --no-cache examples/type_system/failing/121_match_fat_arrow.flx
+cargo run -- --no-cache examples/type_system/failing/142_match_bool_missing_true.flx
+cargo run -- --no-cache examples/type_system/failing/143_match_bool_missing_false.flx
+cargo run -- --no-cache examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx
+cargo run -- --no-cache examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx
+cargo run -- --no-cache examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx
+cargo run -- --no-cache examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx
+cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/149_cross_module_constructor_access_strict.flx
+cargo run -- --no-cache --root examples/type_system examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -564,4 +632,12 @@ cargo run --features jit -- --no-cache examples/type_system/failing/118_let_miss
 cargo run --features jit -- --no-cache examples/type_system/failing/119_fn_missing_parens.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/120_match_pipe_separator.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/121_match_fat_arrow.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/142_match_bool_missing_true.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/143_match_bool_missing_false.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx --jit
+cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/149_cross_module_constructor_access_strict.flx --jit
+cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx --jit
 ```

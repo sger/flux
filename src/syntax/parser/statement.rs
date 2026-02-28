@@ -1,8 +1,8 @@
 use crate::{
     diagnostics::{
         DiagnosticBuilder, missing_fn_param_list, missing_function_body_brace, missing_let_assign,
-        position::Span, unexpected_end_keyword, unexpected_token, unknown_keyword,
-        unknown_keyword_alias,
+        orphan_constructor_pattern, position::Span, unexpected_end_keyword, unexpected_token,
+        unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
@@ -10,7 +10,10 @@ use crate::{
     },
 };
 
-use super::{Parser, helpers::SyncMode};
+use super::{
+    Parser,
+    helpers::{ParameterListContext, SyncMode},
+};
 
 impl Parser {
     fn looks_like_text_block_juxtaposition(&self) -> bool {
@@ -78,10 +81,8 @@ impl Parser {
                 None
             }
             TokenType::Ident
-                if matches!(
-                    self.current_token.literal.as_ref(),
-                    "var" | "const" | "val"
-                ) && self.is_peek_token(TokenType::Ident) =>
+                if matches!(self.current_token.literal.as_ref(), "var" | "const" | "val")
+                    && self.is_peek_token(TokenType::Ident) =>
             {
                 self.errors.push(unknown_keyword_alias(
                     self.current_token.span(),
@@ -137,7 +138,8 @@ impl Parser {
     }
 
     pub(super) fn parse_expression_statement(&mut self) -> Option<Statement> {
-        if self.current_token.token_type == TokenType::Ident && self.current_token.literal == "end" {
+        if self.current_token.token_type == TokenType::Ident && self.current_token.literal == "end"
+        {
             self.errors
                 .push(unexpected_end_keyword(self.current_token.span()));
             return None;
@@ -183,7 +185,8 @@ impl Parser {
                 });
             }
             if ident_name == "end" {
-                self.errors.push(unexpected_end_keyword(self.peek_token.span()));
+                self.errors
+                    .push(unexpected_end_keyword(self.peek_token.span()));
                 while !self.is_peek_token(TokenType::Eof)
                     && self.peek_token.position.line == self.current_token.end_position.line
                 {
@@ -238,6 +241,23 @@ impl Parser {
         } else {
             false
         };
+
+        if matches!(
+            expression,
+            crate::syntax::expression::Expression::Some { .. }
+                | crate::syntax::expression::Expression::Left { .. }
+                | crate::syntax::expression::Expression::Right { .. }
+        ) && (has_semicolon || self.is_peek_token(TokenType::Eof))
+        {
+            let name = match &expression {
+                crate::syntax::expression::Expression::Some { .. } => "Some",
+                crate::syntax::expression::Expression::Left { .. } => "Left",
+                crate::syntax::expression::Expression::Right { .. } => "Right",
+                _ => unreachable!(),
+            };
+            self.errors
+                .push(orphan_constructor_pattern(expression.span(), name));
+        }
 
         Some(Statement::Expression {
             expression,
@@ -297,7 +317,8 @@ impl Parser {
             return None;
         }
 
-        let (parameters, parameter_types) = self.parse_typed_function_parameters()?;
+        let (parameters, parameter_types) =
+            self.parse_typed_function_parameters(ParameterListContext::Function)?;
 
         let return_type = if self.is_peek_token(TokenType::Arrow) {
             self.next_token(); // ->

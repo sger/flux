@@ -20,25 +20,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:23:10
-   |
-21 |     Some(u) -> u["name"],
-
-   |                --------- first arm returns `Option<String>`
-22 |     None -> "unknown",
-
-23 |     _ -> "unknown",
-   |          ^^^^^^^^^
-   |          --------- arm 3 returns `String`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -56,25 +38,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:28:10
-   |
-26 |     Some(u) -> u["name"],
-
-   |                --------- first arm returns `Option<String>`
-27 |     None -> "unknown",
-
-28 |     _ -> "unknown",
-   |          ^^^^^^^^^
-   |          --------- arm 3 returns `String`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -92,25 +56,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:33:10
-   |
-31 |     Some(u) -> u["age"],
-
-   |                -------- first arm returns `Option<String>`
-32 |     None -> 0,
-
-33 |     _ -> 0,
-   |          ^
-   |          - arm 3 returns `Int`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -128,25 +74,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:38:10
-   |
-36 |     Some(u) -> u["age"],
-
-   |                -------- first arm returns `Option<String>`
-37 |     None -> 0,
-
-38 |     _ -> 0,
-   |          ^
-   |          - arm 3 returns `Int`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -255,25 +183,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:63:10
-   |
-61 |     Some(v) -> v[0],
-
-   |                ---- first arm returns `Option<String>`
-62 |     None -> "no languages",
-
-63 |     _ -> "no languages",
-   |          ^^^^^^^^^^^^^^
-   |          -------------- arm 3 returns `String`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
@@ -291,25 +201,7 @@ The arms of this `match` expression produce different types.
 
 Help:
   All match arms must return the same type. Change arm 2 to return `Option<String>`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-The arms of this `match` expression produce different types.
-
-  --> examples/basics/array_hash_combo.flx:68:10
-   |
-66 |     Some(v) -> v[1],
-
-   |                ---- first arm returns `Option<String>`
-67 |     None -> "no languages",
-
-68 |     _ -> "no languages",
-   |          ^^^^^^^^^^^^^^
-   |          -------------- arm 3 returns `String`
-
-Help:
-  All match arms must return the same type. Change arm 3 to return `Option<String>`.
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -353,6 +245,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 21 errors.
+Found 15 errors.
 == stdout ==
 <not executed>

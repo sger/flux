@@ -176,7 +176,7 @@ pub fn curated_cases() -> Vec<ParityFixtureCase> {
         ParityFixtureCase {
             path: "examples/type_system/failing/66_module_constructor_not_public_api.flx",
             roots: &["examples/type_system"],
-            strict: false,
+            strict: true,
             expect_compile_error: true,
             category: "H",
         },
@@ -500,12 +500,12 @@ fn parse_diagnostic_tuples(output: &str) -> Vec<DiagnosticTuple> {
 
     while i < lines.len() {
         let line = lines[i].trim();
-        if let Some((code, title)) = parse_error_header(line) {
+        if let Some((code, title)) = parse_diagnostic_header(line) {
             let mut primary_label = String::new();
             let mut j = i + 1;
             while j < lines.len() {
                 let block_line = lines[j].trim();
-                if parse_error_header(block_line).is_some() {
+                if parse_diagnostic_header(block_line).is_some() {
                     break;
                 }
                 if primary_label.is_empty() {
@@ -530,18 +530,21 @@ fn parse_diagnostic_tuples(output: &str) -> Vec<DiagnosticTuple> {
     tuples
 }
 
-fn parse_error_header(line: &str) -> Option<(String, String)> {
-    let marker = "compiler error[";
-    let marker_idx = line.find(marker)?;
-    let code_start = marker_idx + marker.len();
-    let code_end_rel = line[code_start..].find(']')?;
-    let code_end = code_start + code_end_rel;
-    let code = line[code_start..code_end].trim().to_string();
+fn parse_diagnostic_header(line: &str) -> Option<(String, String)> {
+    for marker in ["compiler error[", "compiler warning[", "warning["] {
+        if let Some(marker_idx) = line.find(marker) {
+            let code_start = marker_idx + marker.len();
+            let code_end_rel = line[code_start..].find(']')?;
+            let code_end = code_start + code_end_rel;
+            let code = line[code_start..code_end].trim().to_string();
 
-    let title_marker = "]:";
-    let title_start = line[code_end..].find(title_marker)? + code_end + title_marker.len();
-    let title = line[title_start..].trim().to_string();
-    Some((code, title))
+            let title_marker = "]:";
+            let title_start = line[code_end..].find(title_marker)? + code_end + title_marker.len();
+            let title = line[title_start..].trim().to_string();
+            return Some((code, title));
+        }
+    }
+    None
 }
 
 fn parse_primary_label(line: &str) -> Option<String> {

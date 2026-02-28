@@ -1,0 +1,30 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/135_if_any_branch_suppressed.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+
+The `add` function takes 2 arguments, but 1 were provided.
+
+  --> examples/type_system/failing/135_if_any_branch_suppressed.flx:8:14
+  |
+4 | fn add(a: Int, b: Int) -> Int { a + b }
+
+  | --------------------------------------- `add` is defined with 2 parameters
+5 | 
+
+6 | fn main() -> Unit {
+
+7 |     let _f = if true { concrete_fn } else { any_param_fn }
+
+8 |     let _x = add(1)
+  |              ^^^^^^
+  |              ------ 1 arguments provided here, expected 2
+
+Help:
+  Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+== stdout ==
+<not executed>

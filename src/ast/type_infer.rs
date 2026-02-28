@@ -5,8 +5,8 @@ use crate::{
         Diagnostic,
         compiler_errors::{
             call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
-            fun_return_type_mismatch,
-            if_branch_type_mismatch, occurs_check_failure, type_unification_error,
+            fun_return_type_mismatch, if_branch_type_mismatch, occurs_check_failure,
+            type_unification_error,
         },
         position::Span,
         text_similarity::levenshtein_distance,
@@ -165,6 +165,17 @@ enum ReportContext {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PatternFamily {
+    Option,
+    Either,
+    List,
+    Tuple(usize),
+    Adt(Identifier),
+    NonConstraining,
+    UnknownOrMixed,
+}
+
 impl<'a> InferCtx<'a> {
     /// Format an `InferType` for user-facing diagnostics, resolving ADT
     /// symbols to their human-readable names via the interner.
@@ -215,6 +226,81 @@ impl<'a> InferCtx<'a> {
             .collect::<Option<Vec<_>>>()?;
         let ret_ty = TypeEnv::infer_type_from_type_expr(ret, &tp_map, self.interner)?;
         Some((param_tys, ret_ty))
+    }
+
+    fn pattern_family(&self, pattern: &Pattern) -> PatternFamily {
+        match pattern {
+            Pattern::Wildcard { .. } | Pattern::Identifier { .. } | Pattern::Literal { .. } => {
+                PatternFamily::NonConstraining
+            }
+            Pattern::None { .. } | Pattern::Some { .. } => PatternFamily::Option,
+            Pattern::Left { .. } | Pattern::Right { .. } => PatternFamily::Either,
+            Pattern::EmptyList { .. } | Pattern::Cons { .. } => PatternFamily::List,
+            Pattern::Tuple { elements, .. } => PatternFamily::Tuple(elements.len()),
+            Pattern::Constructor { name, .. } => self
+                .adt_constructor_types
+                .get(name)
+                .map(|info| PatternFamily::Adt(info.adt_name))
+                .unwrap_or(PatternFamily::UnknownOrMixed),
+        }
+    }
+
+    fn match_constraint_family(
+        &self,
+        arms: &[crate::syntax::expression::MatchArm],
+    ) -> Option<PatternFamily> {
+        let mut family: Option<PatternFamily> = None;
+        for arm in arms {
+            let arm_family = self.pattern_family(&arm.pattern);
+            match arm_family {
+                PatternFamily::NonConstraining => {}
+                PatternFamily::UnknownOrMixed => return None,
+                _ => match &family {
+                    None => family = Some(arm_family),
+                    Some(existing) if *existing == arm_family => {}
+                    Some(_) => return None,
+                },
+            }
+        }
+        family
+    }
+
+    fn family_expected_type(&mut self, family: &PatternFamily) -> Option<InferType> {
+        match family {
+            PatternFamily::Option => Some(InferType::App(
+                TypeConstructor::Option,
+                vec![self.env.fresh_infer_type()],
+            )),
+            PatternFamily::Either => Some(InferType::App(
+                TypeConstructor::Either,
+                vec![self.env.fresh_infer_type(), self.env.fresh_infer_type()],
+            )),
+            PatternFamily::List => Some(InferType::App(
+                TypeConstructor::List,
+                vec![self.env.fresh_infer_type()],
+            )),
+            PatternFamily::Tuple(arity) => Some(InferType::Tuple(
+                (0..*arity).map(|_| self.env.fresh_infer_type()).collect(),
+            )),
+            PatternFamily::Adt(adt_name) => {
+                let info = self
+                    .adt_constructor_types
+                    .values()
+                    .find(|info| info.adt_name == *adt_name)?;
+                if info.type_params.is_empty() {
+                    Some(InferType::Con(TypeConstructor::Adt(*adt_name)))
+                } else {
+                    Some(InferType::App(
+                        TypeConstructor::Adt(*adt_name),
+                        info.type_params
+                            .iter()
+                            .map(|_| self.env.fresh_infer_type())
+                            .collect(),
+                    ))
+                }
+            }
+            PatternFamily::NonConstraining | PatternFamily::UnknownOrMixed => None,
+        }
     }
 
     fn node_id_for_expr(&mut self, expr: &Expression) -> ExprNodeId {
@@ -616,7 +702,7 @@ impl<'a> InferCtx<'a> {
         // Propagate the return type annotation constraint silently — the
         // compiler's boundary checker in statement.rs is the authoritative
         // reporter for return type mismatches.
-        let ret_ty = match return_type {
+        let mut ret_ty = match return_type {
             Some(ret_ann) => {
                 match TypeEnv::infer_type_from_type_expr(ret_ann, &tp_map, self.interner) {
                     Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
@@ -625,6 +711,18 @@ impl<'a> InferCtx<'a> {
             }
             None => body_ty.apply_type_subst(&self.subst),
         };
+
+        // T11 (self-only): run one extra refinement pass for unannotated
+        // self-recursive functions so recursive call result types can feed
+        // back into the function return slot.
+        if return_type.is_none()
+            && type_params.is_empty()
+            && self.block_contains_self_call(body, name)
+        {
+            ret_ty = self.refine_unannotated_self_recursive_return(
+                name, parameters, &param_tys, effects, body, &ret_ty,
+            );
+        }
 
         // Resolve parameter types through the accumulated substitution.
         let final_param_tys: Vec<InferType> = param_tys
@@ -653,6 +751,153 @@ impl<'a> InferCtx<'a> {
 
         // Update the pre-declared entry (from Phase A).
         self.env.bind_with_span(name, scheme, Some(fn_span));
+    }
+
+    fn refine_unannotated_self_recursive_return(
+        &mut self,
+        name: Identifier,
+        parameters: &[Identifier],
+        param_tys: &[InferType],
+        effects: &[EffectExpr],
+        body: &Block,
+        current_ret: &InferType,
+    ) -> InferType {
+        self.env.enter_scope();
+        let refined_param_tys: Vec<InferType> = param_tys
+            .iter()
+            .map(|ty| ty.apply_type_subst(&self.subst))
+            .collect();
+        for (param_name, param_ty) in parameters.iter().zip(refined_param_tys.iter()) {
+            self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
+        }
+        let ret_slot = self.env.fresh_infer_type();
+        let effect_symbols = effects
+            .iter()
+            .flat_map(EffectExpr::normalized_names)
+            .collect();
+        let self_fn_ty = InferType::Fun(
+            refined_param_tys,
+            Box::new(ret_slot.clone()),
+            effect_symbols,
+        );
+        self.env.bind(name, Scheme::mono(self_fn_ty));
+        let second_body_ty = self.infer_block(body);
+        let refined_ret = self.unify_propagate(&second_body_ty, &ret_slot);
+        self.env.leave_scope();
+
+        if current_ret.contains_any() {
+            refined_ret.apply_type_subst(&self.subst)
+        } else {
+            self.unify_propagate(current_ret, &refined_ret)
+                .apply_type_subst(&self.subst)
+        }
+    }
+
+    fn block_contains_self_call(&self, block: &Block, name: Identifier) -> bool {
+        block
+            .statements
+            .iter()
+            .any(|stmt| self.statement_contains_self_call(stmt, name))
+    }
+
+    fn statement_contains_self_call(&self, stmt: &Statement, name: Identifier) -> bool {
+        match stmt {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => self.expression_contains_self_call(value, name),
+            Statement::Return {
+                value: Some(expr), ..
+            }
+            | Statement::Expression {
+                expression: expr, ..
+            } => self.expression_contains_self_call(expr, name),
+            Statement::Module { body, .. } => self.block_contains_self_call(body, name),
+            _ => false,
+        }
+    }
+
+    fn expression_contains_self_call(&self, expr: &Expression, name: Identifier) -> bool {
+        match expr {
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => {
+                if let Expression::Identifier { name: callee, .. } = function.as_ref()
+                    && *callee == name
+                {
+                    return true;
+                }
+                self.expression_contains_self_call(function, name)
+                    || arguments
+                        .iter()
+                        .any(|arg| self.expression_contains_self_call(arg, name))
+            }
+            Expression::Prefix { right, .. } => self.expression_contains_self_call(right, name),
+            Expression::Infix { left, right, .. } => {
+                self.expression_contains_self_call(left, name)
+                    || self.expression_contains_self_call(right, name)
+            }
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                self.expression_contains_self_call(condition, name)
+                    || self.block_contains_self_call(consequence, name)
+                    || alternative
+                        .as_ref()
+                        .is_some_and(|b| self.block_contains_self_call(b, name))
+            }
+            Expression::DoBlock { block, .. } => self.block_contains_self_call(block, name),
+            Expression::Function { .. } => false,
+            Expression::TupleLiteral { elements, .. }
+            | Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => elements
+                .iter()
+                .any(|element| self.expression_contains_self_call(element, name)),
+            Expression::Hash { pairs, .. } => pairs.iter().any(|(k, v)| {
+                self.expression_contains_self_call(k, name)
+                    || self.expression_contains_self_call(v, name)
+            }),
+            Expression::Cons { head, tail, .. } => {
+                self.expression_contains_self_call(head, name)
+                    || self.expression_contains_self_call(tail, name)
+            }
+            Expression::Index { left, index, .. } => {
+                self.expression_contains_self_call(left, name)
+                    || self.expression_contains_self_call(index, name)
+            }
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => {
+                self.expression_contains_self_call(object, name)
+            }
+            Expression::Match {
+                scrutinee, arms, ..
+            } => {
+                self.expression_contains_self_call(scrutinee, name)
+                    || arms.iter().any(|arm| {
+                        arm.guard
+                            .as_ref()
+                            .is_some_and(|g| self.expression_contains_self_call(g, name))
+                            || self.expression_contains_self_call(&arm.body, name)
+                    })
+            }
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => self.expression_contains_self_call(value, name),
+            Expression::Perform { args, .. } => args
+                .iter()
+                .any(|arg| self.expression_contains_self_call(arg, name)),
+            Expression::Handle { expr, arms, .. } => {
+                self.expression_contains_self_call(expr, name)
+                    || arms
+                        .iter()
+                        .any(|arm| self.expression_contains_self_call(&arm.body, name))
+            }
+            _ => false,
+        }
     }
 
     fn infer_let(&mut self, name: Identifier, annotation: Option<&TypeExpr>, value: &Expression) {
@@ -694,6 +939,32 @@ impl<'a> InferCtx<'a> {
             }
         }
         self.env.leave_scope();
+    }
+
+    /// Span of the expression that determines a block's value in HM inference.
+    /// Falls back to the full block span when the block has no value expression.
+    fn block_value_span(&self, block: &Block) -> Span {
+        let mut value_span = block.span;
+        for stmt in &block.statements {
+            match stmt {
+                Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    ..
+                } => {
+                    value_span = expression.span();
+                }
+                Statement::Return {
+                    value: Some(expr), ..
+                } => {
+                    value_span = expr.span();
+                }
+                _ => {
+                    value_span = block.span;
+                }
+            }
+        }
+        value_span
     }
 
     // ── Block inference ───────────────────────────────────────────────────────
@@ -800,13 +1071,15 @@ impl<'a> InferCtx<'a> {
                 match alternative {
                     Some(alt) => {
                         let else_ty = self.infer_block(alt);
+                        let then_value_span = self.block_value_span(consequence);
+                        let else_value_span = self.block_value_span(alt);
                         self.unify_with_context(
                             &then_ty,
                             &else_ty,
                             *span,
                             ReportContext::IfBranch {
-                                then_span: consequence.span,
-                                else_span: alt.span,
+                                then_span: then_value_span,
+                                else_span: else_value_span,
                             },
                         )
                     }
@@ -825,10 +1098,15 @@ impl<'a> InferCtx<'a> {
                 if arms.is_empty() {
                     return InferType::Con(TypeConstructor::Any);
                 }
+                let propagated_scrutinee_ty = self
+                    .match_constraint_family(arms)
+                    .and_then(|family| self.family_expected_type(&family))
+                    .map(|expected| self.unify_reporting(&scrutinee_ty, &expected, *span))
+                    .unwrap_or_else(|| scrutinee_ty.clone());
 
                 // Infer the first arm.
                 self.env.enter_scope();
-                self.bind_pattern(&arms[0].pattern, &scrutinee_ty, *span);
+                self.bind_pattern(&arms[0].pattern, &propagated_scrutinee_ty, *span);
                 if let Some(guard) = &arms[0].guard {
                     self.infer_expr(guard);
                 }
@@ -840,7 +1118,7 @@ impl<'a> InferCtx<'a> {
                 let mut result_ty = first_ty.clone();
                 for (i, arm) in arms.iter().skip(1).enumerate() {
                     self.env.enter_scope();
-                    self.bind_pattern(&arm.pattern, &scrutinee_ty, *span);
+                    self.bind_pattern(&arm.pattern, &propagated_scrutinee_ty, *span);
                     if let Some(guard) = &arm.guard {
                         self.infer_expr(guard);
                     }
@@ -1230,7 +1508,8 @@ impl<'a> InferCtx<'a> {
                 // Preserve pre-058 higher-order behavior for now: keep the
                 // original whole-function unification path, which is less eager
                 // for function-typed argument diagnostics.
-                let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
+                let arg_tys: Vec<InferType> =
+                    arguments.iter().map(|a| self.infer_expr(a)).collect();
                 let ret_var = self.env.fresh_infer_type();
                 let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
                 self.unify_reporting(&fn_ty, &expected_fn_ty, span);
