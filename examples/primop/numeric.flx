@@ -1,13 +1,15 @@
-print("== PrimOps: numeric ==");
-print(iadd(10, 20));
-print(isub(20, 3));
-print(imul(6, 7));
-print(idiv(21, 3));
-print(imod(20, 6));
-print(fadd(1.5, 2.25));
-print(fsub(5.5, 2.0));
-print(fmul(2.0, 4.5));
-print(fdiv(9.0, 2.0));
-print(abs(-10));
-print(min(3, 7));
-print(max(3.0, 7.5));
+fn main() with IO {
+    print("== PrimOps: numeric ==");
+    print(iadd(10, 20));
+    print(isub(20, 3));
+    print(imul(6, 7));
+    print(idiv(21, 3));
+    print(imod(20, 6));
+    print(fadd(1.5, 2.25));
+    print(fsub(5.5, 2.0));
+    print(fmul(2.0, 4.5));
+    print(fdiv(9.0, 2.0));
+    print(abs(-10));
+    print(min(3, 7));
+    print(max(3.0, 7.5));
+}

@@ -1,21 +1,23 @@
 // Boundary-first contract style: public-facing functions are typed.
 
-fn add(a: Int, b: Int) -> Int {
-    a + b
-}
+fn main() with IO, Time {
+    fn add(a: Int, b: Int) -> Int {
+        a + b
+    }
 
-fn sum3(a: Int, b: Int, c: Int) -> Int {
-    add(add(a, b), c)
-}
+    fn sum3(a: Int, b: Int, c: Int) -> Int {
+        add(add(a, b), c)
+    }
 
-// Internal helper can remain untyped in gradual mode.
-fn internal_scale(x, k) {
-    x * k
-}
+    // Internal helper can remain untyped in gradual mode.
+    fn internal_scale(x, k) {
+        x * k
+    }
 
-fn scaled_sum(a: Int, b: Int, c: Int, k: Int) -> Int {
-    internal_scale(sum3(a, b, c), k)
-}
+    fn scaled_sum(a: Int, b: Int, c: Int, k: Int) -> Int {
+        internal_scale(sum3(a, b, c), k)
+    }
 
-print(add(2, 3))
-print(scaled_sum(1, 2, 3, 10))
+    print(add(2, 3))
+    print(scaled_sum(1, 2, 3, 10))
+}

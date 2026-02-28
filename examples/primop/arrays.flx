@@ -1,10 +1,12 @@
-print("== PrimOps: arrays ==");
-let arr = [|10, 20, 30|];
-print(array_len(arr));
-print(array_get(arr, 1));
-let arr2 = array_set(arr, 1, 99);
-print(arr2);
-print(slice(arr2, 0, 2));
-print(concat(arr, [|40, 50|]));
-print(len(arr));
-print(is_array(arr));
+fn main() with IO {
+    print("== PrimOps: arrays ==");
+    let arr = [|10, 20, 30|];
+    print(array_len(arr));
+    print(array_get(arr, 1));
+    let arr2 = array_set(arr, 1, 99);
+    print(arr2);
+    print(slice(arr2, 0, 2));
+    print(concat(arr, [|40, 50|]));
+    print(len(arr));
+    print(is_array(arr));
+}
