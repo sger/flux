@@ -1,15 +1,17 @@
-// Test: Prefix operators
-// Expected output:
-// -5
-// -10
-// 5
-// false
-// true
-// true
-
-print(-5);
-print(-10);
-print(-(-5));
-print(!true);
-print(!false);
-print(!!true);
+fn main() with IO {
+    // Test: Prefix operators
+    // Expected output:
+    // -5
+    // -10
+    // 5
+    // false
+    // true
+    // true
+    
+    print(-5);
+    print(-10);
+    print(-(-5));
+    print(!true);
+    print(!false);
+    print(!!true);
+}
