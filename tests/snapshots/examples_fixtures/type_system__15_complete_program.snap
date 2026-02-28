@@ -44,6 +44,19 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `grade_to_string`.
+
+  --> examples/type_system/15_complete_program.flx:39:12
+   |
+39 |     " (" + Stats.grade_to_string(g) + ")" +
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -439,6 +452,6 @@ Cannot access private member `fold_list`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 32 errors.
+Found 33 errors.
 == stdout ==
 <not executed>

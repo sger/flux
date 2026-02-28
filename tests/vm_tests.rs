@@ -182,7 +182,10 @@ typed_add(x, 1)
         err
     );
     assert!(
-        err.contains("Expected Int, got String.") || err.contains("Cannot unify Int with String."),
+        err.contains("Expected Int, got String.")
+            || err.contains("Cannot unify Int with String.")
+            || err.contains("The 1st argument to `typed_add` has the wrong type.")
+            || (err.contains("this argument is `String`") && err.contains("Expected `Int`")),
         "expected contract mismatch details, got:\n{}",
         err
     );

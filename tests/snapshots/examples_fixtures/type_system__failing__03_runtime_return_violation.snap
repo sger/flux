@@ -7,16 +7,18 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The return value of `bad` does not match its declared return type.
 
   --> examples/type_system/failing/03_runtime_return_violation.flx:2:5
   |
+1 | fn bad() -> Int {
+
+  |             --- `bad` was declared to return `Int`
 2 |     "not-an-int"
   |     ^^^^^^^^^^^^
-  |     ------------ expected Int, found String
-  |     ------------ return expression type is known at compile time
+  |     ------------ this expression has type `String`
 
 Help:
-  return expression type does not match the declared return type
+  Return a `Int` value from `bad` or change the declared return type.
 == stdout ==
 <not executed>

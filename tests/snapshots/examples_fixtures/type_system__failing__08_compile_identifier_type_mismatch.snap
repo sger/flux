@@ -7,16 +7,16 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The value of `n` does not match its type annotation.
 
   --> examples/type_system/failing/08_compile_identifier_type_mismatch.flx:2:14
   |
 2 | let n: Int = value
   |              ^^^^^
-  |              ----- expected Int, found String
-  |              ----- initializer type is known at compile time
+  |              ----- this is `String`
+  |        --- but `n` was annotated as `Int`
 
 Help:
-  binding initializer does not match type annotation
+  Change `n` to a `Int` value or update the annotation to `String`.
 == stdout ==
 <not executed>

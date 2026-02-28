@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/103_missing_colon_lambda_param.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
+
+  --> examples/type_system/failing/103_missing_colon_lambda_param.flx:1:12
+  |
+1 | let f = /x Int -> x
+  |            ^^^
+
+
+--> compiler error[E036]: LAMBDA SYNTAX ERROR
+
+Expected `->` after lambda parameters, got `EOF`.
+
+  --> examples/type_system/failing/103_missing_colon_lambda_param.flx:2:1
+  |
+
+
+Hint:
+  Use `/x -> expr` or `/(x, y) -> expr`.
+
+
+Example:
+  let add = /(a, b) -> a + b;
+
+Found 2 errors.
+== stdout ==
+<not executed>

@@ -168,7 +168,10 @@ let x: Int = y
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -188,7 +191,10 @@ let x: Int = make()
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -213,7 +219,10 @@ fn main() -> Unit {
         .expect_err("expected HM strict-path mismatch for module member call");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with Float."),
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -274,7 +283,10 @@ fn main() -> Unit {
         .expect_err("expected tuple-field typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Cannot unify Int with String."),
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("String"),
         "unexpected diagnostics:\n{}",
         rendered
     );
