@@ -1,7 +1,8 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, missing_function_body_brace, position::Span, unexpected_token,
-        unknown_keyword,
+        DiagnosticBuilder, missing_fn_param_list, missing_function_body_brace, missing_let_assign,
+        position::Span, unexpected_end_keyword, unexpected_token, unknown_keyword,
+        unknown_keyword_alias,
     },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
@@ -66,6 +67,45 @@ impl Parser {
                 None
             }
             TokenType::Ident
+                if self.current_token.literal == "def" && self.is_peek_token(TokenType::Ident) =>
+            {
+                self.errors.push(unknown_keyword_alias(
+                    self.current_token.span(),
+                    "def",
+                    "fn",
+                    "function declarations",
+                ));
+                None
+            }
+            TokenType::Ident
+                if matches!(
+                    self.current_token.literal.as_ref(),
+                    "var" | "const" | "val"
+                ) && self.is_peek_token(TokenType::Ident) =>
+            {
+                self.errors.push(unknown_keyword_alias(
+                    self.current_token.span(),
+                    &self.current_token.literal,
+                    "let",
+                    "bindings",
+                ));
+                None
+            }
+            TokenType::Ident
+                if matches!(
+                    self.current_token.literal.as_ref(),
+                    "case" | "switch" | "when"
+                ) =>
+            {
+                self.errors.push(unknown_keyword_alias(
+                    self.current_token.span(),
+                    &self.current_token.literal,
+                    "match",
+                    "pattern matching",
+                ));
+                None
+            }
+            TokenType::Ident
                 if self.current_token.literal != "fn"
                     && (self.current_token.literal.starts_with("fn")
                         || self.current_token.literal.starts_with("fun"))
@@ -97,6 +137,12 @@ impl Parser {
     }
 
     pub(super) fn parse_expression_statement(&mut self) -> Option<Statement> {
+        if self.current_token.token_type == TokenType::Ident && self.current_token.literal == "end" {
+            self.errors
+                .push(unexpected_end_keyword(self.current_token.span()));
+            return None;
+        }
+
         let start = self.current_token.position;
         let expression = match self.parse_expression(Precedence::Lowest) {
             Some(expression) => expression,
@@ -115,6 +161,40 @@ impl Parser {
             && self.peek_token.position.line == self.current_token.end_position.line
         {
             let ident_name = self.peek_token.literal.to_string();
+            if matches!(ident_name.as_str(), "elif" | "elsif") {
+                self.errors.push(
+                    unknown_keyword_alias(
+                        self.peek_token.span(),
+                        &ident_name,
+                        "else if",
+                        "chained conditionals",
+                    )
+                    .with_hint_text("Replace `elif`/`elsif` with `else if`."),
+                );
+                while !self.is_peek_token(TokenType::Eof)
+                    && self.peek_token.position.line == self.current_token.end_position.line
+                {
+                    self.next_token();
+                }
+                return Some(Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    span: self.span_from(start),
+                });
+            }
+            if ident_name == "end" {
+                self.errors.push(unexpected_end_keyword(self.peek_token.span()));
+                while !self.is_peek_token(TokenType::Eof)
+                    && self.peek_token.position.line == self.current_token.end_position.line
+                {
+                    self.next_token();
+                }
+                return Some(Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    span: self.span_from(start),
+                });
+            }
             let error_span = self.span_from(start);
             self.errors
                 .push(self.build_juxtaposed_identifier_error(&ident_name, error_span));
@@ -201,6 +281,16 @@ impl Parser {
             if !self.expect_peek(TokenType::Gt) {
                 return None;
             }
+        }
+
+        if self.is_peek_token(TokenType::Arrow)
+            || (!self.is_peek_token(TokenType::LParen)
+                && self.token_starts_type(self.peek_token.token_type))
+        {
+            let fn_name = self.lexer.interner().resolve(name).to_string();
+            self.errors
+                .push(missing_fn_param_list(self.peek_token.span(), &fn_name));
+            return None;
         }
 
         if !self.expect_peek(TokenType::LParen) {
@@ -357,8 +447,14 @@ impl Parser {
             Some(binding_name.as_str()),
         );
 
-        if !self.is_current_token(TokenType::Assign) && !self.expect_peek(TokenType::Assign) {
-            return None;
+        if !self.is_current_token(TokenType::Assign) {
+            if self.is_peek_token(TokenType::Assign) {
+                self.next_token();
+            } else {
+                self.errors
+                    .push(missing_let_assign(self.peek_token.span(), &binding_name));
+                return None;
+            }
         }
 
         self.next_token();
