@@ -370,10 +370,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             // error which corrupts the token stream (unterminated string, unclosed
             // delimiter).  Other root errors (e.g. E030 unknown keyword) recover
             // cleanly, so nearby E034s are likely independent issues.
-            let root_is_structural = matches!(
-                root_code.as_deref(),
-                Some("E071" | "E076")
-            );
+            let root_is_structural = matches!(root_code.as_deref(), Some("E071" | "E076"));
             if seen_parse_error
                 && is_generic
                 && root_is_structural
