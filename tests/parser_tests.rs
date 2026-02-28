@@ -2065,4 +2065,156 @@ fn t(x) {
             |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")
         ));
     }
+
+    #[test]
+    fn keyword_aliases_report_e030_with_targeted_suggestions() {
+        let collect = |input: &str| -> Vec<String> {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _program = parser.parse_program();
+            parser
+                .errors
+                .iter()
+                .filter_map(|d| d.message().map(ToString::to_string))
+                .collect()
+        };
+
+        let def_msgs = collect("def foo() { 1 }");
+
+        assert!(
+            def_msgs.iter().any(|m| m.contains("Unknown keyword `def`")),
+            "expected `def` alias diagnostic, got: {:#?}",
+            def_msgs
+        );
+
+        let var_msgs = collect("var x = 1");
+        assert!(
+            var_msgs.iter().any(|m| m.contains("Unknown keyword `var`")),
+            "expected `var` alias diagnostic, got: {:#?}",
+            var_msgs
+        );
+
+        let case_msgs = collect("case 1 { 0 -> 0, _ -> 1 }");
+        assert!(
+            case_msgs.iter().any(|m| m.contains("Unknown keyword `case`")),
+            "expected `case` alias diagnostic, got: {:#?}",
+            case_msgs
+        );
+    }
+
+    #[test]
+    fn elif_and_end_report_targeted_diagnostics() {
+        let lexer = Lexer::new("if true { 1 } elif false { 2 } else { 3 }\nfn f() { 1 end }");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let msgs: Vec<String> = parser
+            .errors
+            .iter()
+            .filter_map(|d| d.message().map(ToString::to_string))
+            .collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Unknown keyword `elif`") || m.contains("Unknown keyword `elsif`")),
+            "expected elif/elsif alias diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("`end` is not a keyword in Flux")),
+            "expected end-keyword diagnostic, got: {:#?}",
+            msgs
+        );
+    }
+
+    #[test]
+    fn structural_context_messages_are_emitted() {
+        let collect = |input: &str| -> Vec<String> {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _program = parser.parse_program();
+            parser
+                .errors
+                .iter()
+                .filter_map(|d| d.message().map(ToString::to_string))
+                .collect()
+        };
+
+        let fn_msgs = collect("fn foo -> Int { 1 }");
+        assert!(
+            fn_msgs.iter()
+                .any(|m| m.contains("Missing parameter list for function `foo`")),
+            "expected missing-parameter-list message, got: {:#?}",
+            fn_msgs
+        );
+
+        let if_msgs = collect("if true 1 else 2");
+        assert!(
+            if_msgs
+                .iter()
+                .any(|m| m.contains("Expected `{` to begin the `if` body")),
+            "expected missing-if-brace message, got: {:#?}",
+            if_msgs
+        );
+
+        let let_msgs = collect("let x 1");
+        assert!(
+            let_msgs
+                .iter()
+                .any(|m| m.contains("Expected `=` after `let x`")),
+            "expected missing-let-assign message, got: {:#?}",
+            let_msgs
+        );
+    }
+
+    #[test]
+    fn match_pipe_and_fat_arrow_emit_targeted_messages() {
+        let lexer = Lexer::new(
+            "match x { 0 -> 1 | 1 -> 2 }\nlet y = 3;\nmatch z { 0 => 1, _ -> 2 }\nlet q = 4;",
+        );
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        let msgs: Vec<String> = parser
+            .errors
+            .iter()
+            .filter_map(|d| d.message().map(ToString::to_string))
+            .collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+            "expected `|` separator diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Expected `->` in match arm, found `=>`")),
+            "expected fat-arrow diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")),
+            "expected parser recovery after `|` separator diagnostic"
+        );
+    }
+
+    #[test]
+    fn alias_words_as_identifiers_do_not_misfire_at_expression_positions() {
+        let lexer = Lexer::new("let val = 1;\nlet end = 2;\nlet x = Foo.end(val);");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let alias_diag_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E030"))
+            .count();
+        assert_eq!(
+            alias_diag_count, 0,
+            "did not expect statement-keyword alias diagnostics for identifier usage"
+        );
+    }
 }

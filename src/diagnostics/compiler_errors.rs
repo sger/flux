@@ -790,11 +790,73 @@ pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str
     diag
 }
 
+/// Create an alias-style unknown keyword diagnostic (E030).
+pub fn unknown_keyword_alias(span: Span, found: &str, replacement: &str, context: &str) -> Diagnostic {
+    unknown_keyword(span, found, None)
+        .with_message(format!(
+            "Unknown keyword `{found}`. Flux uses `{replacement}` for {context}."
+        ))
+        .with_hint_text(format!("Did you mean `{replacement}`?"))
+}
+
 /// Create an "unexpected token" error
 pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
     diag_enhanced(&UNEXPECTED_TOKEN)
         .with_span(span)
         .with_message(message.into())
+}
+
+/// Create a missing-if-body-brace diagnostic (E034).
+pub fn missing_if_body_brace(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `{` to begin the `if` body.")
+        .with_hint_text("Flux requires braces: `if condition { ... } else { ... }`")
+}
+
+/// Create a missing-else-body-brace diagnostic (E034).
+pub fn missing_else_body_brace(span: Span) -> Diagnostic {
+    unexpected_token(span, "Expected `{` to begin the `else` body.")
+        .with_hint_text("Flux requires braces: `if condition { ... } else { ... }`")
+}
+
+/// Create a missing-let-assignment diagnostic (E034).
+pub fn missing_let_assign(span: Span, name: &str) -> Diagnostic {
+    unexpected_token(
+        span,
+        format!("Expected `=` after `let {name}`. Did you mean `let {name} = ...`?"),
+    )
+    .with_hint_text("Let bindings require `=`: `let name = value`")
+}
+
+/// Create a missing-function-parameter-list diagnostic (E034).
+pub fn missing_fn_param_list(span: Span, fn_name: &str) -> Diagnostic {
+    unexpected_token(
+        span,
+        format!(
+            "Missing parameter list for function `{fn_name}`. Write `fn {fn_name}()` or `fn {fn_name}(x: Type)`."
+        ),
+    )
+    .with_hint_text("Function declarations require a parameter list: `fn name(...) -> Type { ... }`")
+}
+
+/// Create a match-arm `|` separator diagnostic (E034).
+pub fn match_pipe_separator(span: Span) -> Diagnostic {
+    unexpected_token(span, "Match arms are separated by `,` in Flux, not `|`.")
+        .with_hint_text("Replace `|` with `,`.")
+}
+
+/// Create a match-arm `=>` arrow diagnostic (E034).
+pub fn match_fat_arrow(span: Span) -> Diagnostic {
+    unexpected_token(
+        span,
+        "Expected `->` in match arm, found `=>`. Flux uses `->` not `=>`.",
+    )
+    .with_hint_text("Replace `=>` with `->`: `match x { pattern -> body, ... }`")
+}
+
+/// Create an unexpected `end` keyword diagnostic (E034).
+pub fn unexpected_end_keyword(span: Span) -> Diagnostic {
+    unexpected_token(span, "`end` is not a keyword in Flux. Use `}` to close blocks.")
+        .with_hint_text("Replace `end` with `}`.")
 }
 
 /// Create an "invalid integer" error

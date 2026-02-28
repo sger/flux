@@ -210,6 +210,26 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E300`) for call-site argument mismatch naming `greet` with definition-site secondary label
 - `111_call_arg_anonymous_fn.flx`
   - Expected: compile-time failure (`E300`) for anonymous call-site argument mismatch with primary argument label only
+- `112_keyword_alias_def.flx`
+  - Expected: parser diagnostic (`E030`) suggesting `fn` for foreign keyword `def`
+- `113_keyword_alias_var.flx`
+  - Expected: parser diagnostic (`E030`) suggesting `let` for foreign keywords `var`/`const`/`val`
+- `114_keyword_alias_case.flx`
+  - Expected: parser diagnostic (`E030`) suggesting `match` for foreign keywords `case`/`switch`/`when`
+- `115_keyword_alias_elif.flx`
+  - Expected: parser diagnostic (`E030`) suggesting `else if` for `elif`/`elsif`
+- `116_keyword_alias_end.flx`
+  - Expected: parser diagnostic (`E034`) explaining `end` is invalid and `}` should be used
+- `117_if_missing_brace.flx`
+  - Expected: parser diagnostic (`E034`) with contextual missing-`{` message for `if` body
+- `118_let_missing_eq.flx`
+  - Expected: parser diagnostic (`E034`) with contextual missing-`=` message for `let` binding
+- `119_fn_missing_parens.flx`
+  - Expected: parser diagnostic (`E034`) with contextual missing parameter-list message
+- `120_match_pipe_separator.flx`
+  - Expected: parser diagnostic (`E034`) suggesting `,` instead of `|` between match arms
+- `121_match_fat_arrow.flx`
+  - Expected: parser diagnostic (`E034`) suggesting `->` instead of `=>` in match arms
 
 ## A3 Pure-Context Matrix
 
@@ -401,6 +421,22 @@ cargo run -- --no-cache examples/type_system/failing/102_missing_colon_function_
 cargo run -- --no-cache examples/type_system/failing/103_missing_colon_lambda_param.flx
 cargo run -- --no-cache examples/type_system/failing/104_missing_colon_effect_op.flx
 cargo run -- --no-cache examples/type_system/failing/105_unknown_effect_suggestion.flx
+cargo run -- --no-cache examples/type_system/failing/106_let_annotation_int_string.flx
+cargo run -- --no-cache examples/type_system/failing/107_let_annotation_bool_int.flx
+cargo run -- --no-cache examples/type_system/failing/108_fun_return_string_vs_int.flx
+cargo run -- --no-cache examples/type_system/failing/109_fun_return_bool_vs_unit.flx
+cargo run -- --no-cache examples/type_system/failing/110_call_arg_named_fn.flx
+cargo run -- --no-cache examples/type_system/failing/111_call_arg_anonymous_fn.flx
+cargo run -- --no-cache examples/type_system/failing/112_keyword_alias_def.flx
+cargo run -- --no-cache examples/type_system/failing/113_keyword_alias_var.flx
+cargo run -- --no-cache examples/type_system/failing/114_keyword_alias_case.flx
+cargo run -- --no-cache examples/type_system/failing/115_keyword_alias_elif.flx
+cargo run -- --no-cache examples/type_system/failing/116_keyword_alias_end.flx
+cargo run -- --no-cache examples/type_system/failing/117_if_missing_brace.flx
+cargo run -- --no-cache examples/type_system/failing/118_let_missing_eq.flx
+cargo run -- --no-cache examples/type_system/failing/119_fn_missing_parens.flx
+cargo run -- --no-cache examples/type_system/failing/120_match_pipe_separator.flx
+cargo run -- --no-cache examples/type_system/failing/121_match_fat_arrow.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -512,4 +548,20 @@ cargo run --features jit -- --no-cache examples/type_system/failing/102_missing_
 cargo run --features jit -- --no-cache examples/type_system/failing/103_missing_colon_lambda_param.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/104_missing_colon_effect_op.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/105_unknown_effect_suggestion.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/106_let_annotation_int_string.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/107_let_annotation_bool_int.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/108_fun_return_string_vs_int.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/109_fun_return_bool_vs_unit.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/110_call_arg_named_fn.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/111_call_arg_anonymous_fn.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/112_keyword_alias_def.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/113_keyword_alias_var.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/114_keyword_alias_case.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/115_keyword_alias_elif.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/116_keyword_alias_end.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/117_if_missing_brace.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/118_let_missing_eq.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/119_fn_missing_parens.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/120_match_pipe_separator.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/121_match_fat_arrow.flx --jit
 ```

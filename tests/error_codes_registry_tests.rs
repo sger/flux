@@ -2,7 +2,9 @@ use flux::diagnostics::position::{Position, Span};
 use flux::diagnostics::{
     ERROR_CODES, LabelStyle, call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
     fun_return_annotation_mismatch, fun_return_type_mismatch, if_branch_type_mismatch,
-    let_annotation_type_mismatch, lookup_error_code, match_arm_type_mismatch, wrong_argument_count,
+    let_annotation_type_mismatch, lookup_error_code, match_arm_type_mismatch, match_fat_arrow,
+    match_pipe_separator, missing_else_body_brace, missing_fn_param_list, missing_if_body_brace,
+    missing_let_assign, unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
 };
 
 fn span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -195,5 +197,67 @@ fn e300_constructor_shapes_have_primary_labels() {
         ret_ann_diag
             .message()
             .is_some_and(|m| m.contains("return value of `add`"))
+    );
+}
+
+#[test]
+fn parser_diagnostic_constructor_shapes_for_059() {
+    let kw = unknown_keyword_alias(span(1, 1, 4), "def", "fn", "function declarations");
+    assert_eq!(kw.code(), Some("E030"));
+    assert!(
+        kw.message()
+            .is_some_and(|m| m.contains("Unknown keyword `def`")),
+        "expected keyword-alias message"
+    );
+    assert!(
+        kw.hints().iter().any(|h| h.text.contains("Did you mean `fn`")),
+        "expected alias hint"
+    );
+
+    let if_brace = missing_if_body_brace(span(2, 9, 10));
+    assert_eq!(if_brace.code(), Some("E034"));
+    assert!(
+        if_brace
+            .message()
+            .is_some_and(|m| m.contains("begin the `if` body"))
+    );
+
+    let else_brace = missing_else_body_brace(span(2, 20, 21));
+    assert_eq!(else_brace.code(), Some("E034"));
+    assert!(
+        else_brace
+            .message()
+            .is_some_and(|m| m.contains("begin the `else` body"))
+    );
+
+    let let_assign = missing_let_assign(span(3, 11, 12), "x");
+    assert_eq!(let_assign.code(), Some("E034"));
+    assert!(
+        let_assign.message().is_some_and(|m| m.contains("let x =")),
+        "expected missing-let-assign message to name binding"
+    );
+
+    let fn_params = missing_fn_param_list(span(4, 8, 10), "foo");
+    assert_eq!(fn_params.code(), Some("E034"));
+    assert!(
+        fn_params
+            .message()
+            .is_some_and(|m| m.contains("Missing parameter list for function `foo`"))
+    );
+
+    let pipe = match_pipe_separator(span(5, 20, 21));
+    assert_eq!(pipe.code(), Some("E034"));
+    assert!(pipe.message().is_some_and(|m| m.contains("not `|`")));
+
+    let fat = match_fat_arrow(span(6, 14, 15));
+    assert_eq!(fat.code(), Some("E034"));
+    assert!(fat.message().is_some_and(|m| m.contains("found `=>`")));
+
+    let end_kw = unexpected_end_keyword(span(7, 9, 12));
+    assert_eq!(end_kw.code(), Some("E034"));
+    assert!(
+        end_kw
+            .message()
+            .is_some_and(|m| m.contains("`end` is not a keyword"))
     );
 }
