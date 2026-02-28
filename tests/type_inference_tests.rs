@@ -244,6 +244,66 @@ fn first_handle_expr(program: &flux::syntax::program::Program) -> Option<&Expres
     program.statements.iter().find_map(walk_stmt)
 }
 
+fn first_match_expr(program: &flux::syntax::program::Program) -> Option<&Expression> {
+    fn walk_expr(expr: &Expression) -> Option<&Expression> {
+        match expr {
+            Expression::Match { .. } => Some(expr),
+            Expression::Prefix { right, .. } => walk_expr(right),
+            Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
+            Expression::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => walk_expr(condition)
+                .or_else(|| walk_block(consequence))
+                .or_else(|| alternative.as_ref().and_then(walk_block)),
+            Expression::DoBlock { block, .. } => walk_block(block),
+            Expression::Function { body, .. } => walk_block(body),
+            Expression::Call {
+                function,
+                arguments,
+                ..
+            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::TupleLiteral { elements, .. }
+            | Expression::ListLiteral { elements, .. }
+            | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
+            Expression::Hash { pairs, .. } => pairs
+                .iter()
+                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
+            Expression::MemberAccess { object, .. }
+            | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
+            Expression::Some { value, .. }
+            | Expression::Left { value, .. }
+            | Expression::Right { value, .. } => walk_expr(value),
+            Expression::Cons { head, tail, .. } => walk_expr(head).or_else(|| walk_expr(tail)),
+            Expression::Handle { expr, arms, .. } => {
+                walk_expr(expr).or_else(|| arms.iter().find_map(|arm| walk_expr(&arm.body)))
+            }
+            _ => None,
+        }
+    }
+
+    fn walk_stmt(statement: &Statement) -> Option<&Expression> {
+        match statement {
+            Statement::Let { value, .. }
+            | Statement::LetDestructure { value, .. }
+            | Statement::Assign { value, .. } => walk_expr(value),
+            Statement::Return { value, .. } => value.as_ref().and_then(walk_expr),
+            Statement::Expression { expression, .. } => walk_expr(expression),
+            Statement::Function { body, .. } | Statement::Module { body, .. } => walk_block(body),
+            _ => None,
+        }
+    }
+
+    fn walk_block(block: &flux::syntax::block::Block) -> Option<&Expression> {
+        block.statements.iter().find_map(walk_stmt)
+    }
+
+    program.statements.iter().find_map(walk_stmt)
+}
+
 fn has_diagnostic_code(result: &flux::ast::type_infer::InferProgramResult, code: &str) -> bool {
     result
         .diagnostics
@@ -358,6 +418,57 @@ fn main() -> Unit {
             .iter()
             .any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
         "expected secondary label on contextual if diagnostic"
+    );
+}
+
+#[test]
+fn infer_if_contextual_primary_label_uses_else_value_expression_span() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let expected_else_value_span = match &program.statements[0] {
+        Statement::Function { body, .. } => match &body.statements[0] {
+            Statement::Let {
+                value:
+                    Expression::If {
+                        alternative: Some(alt),
+                        ..
+                    },
+                ..
+            } => match alt.statements.last() {
+                Some(Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    ..
+                }) => expression.span(),
+                other => panic!("unexpected else block tail statement shape: {other:?}"),
+            },
+            other => panic!("unexpected function body statement shape: {other:?}"),
+        },
+        other => panic!("unexpected program statement shape: {other:?}"),
+    };
+
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The branches of this `if` expression produce different types.")
+                })
+        })
+        .expect("expected contextual if E300 diagnostic");
+    let primary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == flux::diagnostics::LabelStyle::Primary)
+        .expect("expected primary label on contextual if diagnostic");
+    assert_eq!(
+        primary.span, expected_else_value_span,
+        "expected primary label span to match else value expression span"
     );
 }
 
@@ -541,6 +652,173 @@ fn main() -> Unit {
             "The arms of this `match` expression produce different types."
         ),
         "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_family_consistent_arms_propagate_scrutinee_constraint() {
+    let source = r#"
+fn main() -> Unit {
+    let x = mystery_value
+    let y: String = match x {
+        Some(n) -> n,
+        None -> 0,
+    }
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let match_expr = first_match_expr(&program).expect("expected match expression");
+    let key = match_expr as *const Expression as usize;
+    let node_id = result
+        .expr_ptr_to_id
+        .get(&key)
+        .expect("expected expr node id for match");
+    let ty = result
+        .expr_types
+        .get(node_id)
+        .expect("expected inferred type for match expression");
+    assert_eq!(
+        *ty,
+        int(),
+        "expected family-consistent match to resolve scrutinee-driven result type to Int, got: {ty:?}"
+    );
+}
+
+#[test]
+fn infer_match_wildcard_only_does_not_propagate_scrutinee_constraint() {
+    let source = r#"
+fn main() -> Unit {
+    let x = mystery_value
+    let _y = match x {
+        _ -> mystery_value,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for wildcard-only non-constraining match, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_mixed_families_do_not_propagate_scrutinee_constraint() {
+    let source = r#"
+fn main() -> Unit {
+    let x = mystery_value
+    let _y = match x {
+        Some(n) -> n,
+        Left(l) -> l,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for mixed-family match propagation guard, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_mixed_adt_constructors_do_not_propagate_scrutinee_constraint() {
+    let source = r#"
+type A = A1(Int)
+type B = B1(Int)
+
+fn main() -> Unit {
+    let x = mystery_value
+    let _y = match x {
+        A1(v) -> v,
+        B1(w) -> w,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for mixed-ADT-family propagation guard, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_unannotated_self_recursive_function_refines_return_type_on_second_pass() {
+    let source = r#"
+fn countdown(n) {
+    if n == 0 {
+        0
+    } else {
+        countdown(n - 1)
+    }
+}
+
+fn main() -> Unit {
+    let value: String = countdown(2)
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let call_expr = match &program.statements[1] {
+        Statement::Function { body, .. } => match &body.statements[0] {
+            Statement::Let {
+                value:
+                    Expression::Call {
+                        function: _,
+                        arguments: _,
+                        ..
+                    },
+                ..
+            } => {
+                if let Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                } = &body.statements[0]
+                {
+                    call
+                } else {
+                    unreachable!("shape checked above")
+                }
+            }
+            other => panic!("unexpected main statement shape: {other:?}"),
+        },
+        other => panic!("unexpected program statement shape: {other:?}"),
+    };
+    let key = call_expr as *const Expression as usize;
+    let node_id = result
+        .expr_ptr_to_id
+        .get(&key)
+        .expect("expected expr node id for recursive call in main");
+    let inferred_call_ty = result
+        .expr_types
+        .get(node_id)
+        .cloned()
+        .expect("expected inferred type for recursive call in main");
+    assert_eq!(
+        inferred_call_ty,
+        int(),
+        "expected refined recursive call type to be Int, got: {inferred_call_ty:?}"
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no HM diagnostics in infer_program path, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_non_recursive_function_does_not_trigger_second_pass_behavior() {
+    let source = r#"
+fn id(x) { x }
+fn main() -> Unit {
+    let value: Int = id(1)
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no HM diagnostics for non-recursive baseline function, got: {:#?}",
         result.diagnostics
     );
 }
@@ -1151,6 +1429,46 @@ fn main() -> Unit {
 }
 
 #[test]
+fn infer_call_arg_contextual_primary_label_uses_argument_span() {
+    let source = r#"
+fn pair(a: Int, b: Int) -> Int { a + b }
+fn main() -> Unit {
+    let _x = pair(1, "oops")
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let expected_arg_span = match &program.statements[1] {
+        Statement::Function { body, .. } => match &body.statements[0] {
+            Statement::Let {
+                value: Expression::Call { arguments, .. },
+                ..
+            } => arguments[1].span(),
+            other => panic!("unexpected function body statement shape: {other:?}"),
+        },
+        other => panic!("unexpected program statement shape: {other:?}"),
+    };
+
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message()
+                    .is_some_and(|m| m.contains("The 2nd argument to `pair` has the wrong type."))
+        })
+        .expect("expected contextual call-arg E300 diagnostic");
+    let primary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == flux::diagnostics::LabelStyle::Primary)
+        .expect("expected primary label on call-arg diagnostic");
+    assert_eq!(
+        primary.span, expected_arg_span,
+        "expected primary label span to match mismatching argument expression span"
+    );
+}
+
+#[test]
 fn infer_call_arg_anonymous_fn_emits_contextual_e300_without_name() {
     let source = r#"
 fn greet(name: String) -> String { name }
@@ -1165,7 +1483,10 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(&result, "The 1st argument to this function has the wrong type."),
+        has_diagnostic_message_fragment(
+            &result,
+            "The 1st argument to this function has the wrong type."
+        ),
         "expected anonymous call-arg contextual message, got: {:#?}",
         result.diagnostics
     );
@@ -1197,7 +1518,10 @@ fn main() -> Unit {
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        !has_diagnostic_message_fragment(&result, "argument to `accepts_any_param_fn` has the wrong type."),
+        !has_diagnostic_message_fragment(
+            &result,
+            "argument to `accepts_any_param_fn` has the wrong type."
+        ),
         "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
         result.diagnostics
     );

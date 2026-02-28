@@ -228,14 +228,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
-    pub fn report(&self) -> DiagnosticsReport {
-        if self.diagnostics.is_empty() {
-            return DiagnosticsReport {
-                counts: DiagnosticCounts::default(),
-                rendered: String::new(),
-            };
-        }
-
+    fn unique_sorted_suppressed(&self) -> Vec<Diagnostic> {
         let default_file = self.default_file.as_deref();
         let mut seen: HashSet<DiagnosticKey> = HashSet::new();
         let mut unique: Vec<IndexedDiagnostic<'_>> = Vec::new();
@@ -245,8 +238,6 @@ impl<'a> DiagnosticsAggregator<'a> {
                 unique.push(IndexedDiagnostic { index, diag });
             }
         }
-
-        let counts = count_severity(&unique);
 
         unique.sort_by(|a, b| {
             let a_file = effective_file(a.diag, default_file).unwrap_or("");
@@ -263,17 +254,62 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .then_with(|| a.index.cmp(&b.index))
         });
 
-        let mut file_cache: HashMap<String, String> = self.sources.clone();
-        let mut errors_shown = 0usize;
+        suppress_nearby_duplicate_e300(unique, default_file)
+    }
+
+    fn apply_error_limit(&self, diagnostics: Vec<Diagnostic>) -> (Vec<Diagnostic>, usize) {
         let max_errors = self.max_errors.unwrap_or(usize::MAX);
+        let mut errors_shown = 0usize;
+        let mut shown = Vec::new();
+        for diag in diagnostics {
+            if diag.severity() == Severity::Error {
+                if errors_shown >= max_errors {
+                    continue;
+                }
+                errors_shown += 1;
+            }
+            shown.push(diag);
+        }
+        (shown, errors_shown)
+    }
+
+    /// Returns diagnostics after exact dedup + E300 neighborhood suppression
+    /// + max-errors filtering, in deterministic render order.
+    pub fn processed_diagnostics(&self) -> Vec<Diagnostic> {
+        let suppressed = self.unique_sorted_suppressed();
+        let (shown, _) = self.apply_error_limit(suppressed);
+        shown
+    }
+
+    pub fn report(&self) -> DiagnosticsReport {
+        if self.diagnostics.is_empty() {
+            return DiagnosticsReport {
+                counts: DiagnosticCounts::default(),
+                rendered: String::new(),
+            };
+        }
+
+        let default_file = self.default_file.as_deref();
+        let suppressed = self.unique_sorted_suppressed();
+        let counts = {
+            let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = suppressed
+                .iter()
+                .enumerate()
+                .map(|(index, diag)| IndexedDiagnostic { index, diag })
+                .collect();
+            count_severity(&indexed_suppressed)
+        };
+        let file_count = suppressed
+            .iter()
+            .filter_map(|d| effective_file(d, default_file))
+            .collect::<HashSet<_>>()
+            .len();
+        let (shown, errors_shown) = self.apply_error_limit(suppressed);
+
+        let mut file_cache: HashMap<String, String> = self.sources.clone();
         // Default to always showing file headers for consistent output.
         let show_file_headers = self.show_file_headers.unwrap_or(true);
 
-        let file_count = unique
-            .iter()
-            .filter_map(|d| effective_file(d.diag, default_file))
-            .collect::<HashSet<_>>()
-            .len();
         let summary = format_summary(&counts, file_count);
         let mut rendered = String::new();
 
@@ -283,15 +319,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         let mut first_in_group = true;
         let mut rendered_items: Vec<String> = Vec::new();
 
-        for indexed in &unique {
-            let diag = indexed.diag;
-            if diag.severity() == Severity::Error {
-                if errors_shown >= max_errors {
-                    continue;
-                }
-                errors_shown += 1;
-            }
-
+        for diag in &shown {
             let file_key = effective_file(diag, default_file);
             ensure_source(file_key, &mut file_cache);
             for hint in diag.hints() {
@@ -481,6 +509,100 @@ fn column_key(diag: &Diagnostic) -> usize {
 
 fn message_key(diag: &Diagnostic) -> &str {
     diag.message().unwrap_or("")
+}
+
+fn suppress_nearby_duplicate_e300(
+    sorted: Vec<IndexedDiagnostic<'_>>,
+    default_file: Option<&str>,
+) -> Vec<Diagnostic> {
+    let mut retained = Vec::new();
+    let mut consumed = vec![false; sorted.len()];
+
+    for (i, indexed) in sorted.iter().enumerate() {
+        if consumed[i] {
+            continue;
+        }
+        consumed[i] = true;
+
+        let Some((base_file, base_message, base_span)) =
+            e300_group_signature(indexed.diag, default_file)
+        else {
+            retained.push(indexed.diag.clone());
+            continue;
+        };
+
+        let mut suppressed_count = 0usize;
+        for (j, other) in sorted.iter().enumerate().skip(i + 1) {
+            if consumed[j] {
+                continue;
+            }
+            let Some((other_file, other_message, other_span)) =
+                e300_group_signature(other.diag, default_file)
+            else {
+                continue;
+            };
+            if base_file == other_file
+                && base_message == other_message
+                && spans_overlap_or_adjacent(base_span, other_span)
+            {
+                consumed[j] = true;
+                suppressed_count += 1;
+            }
+        }
+
+        let mut diag = indexed.diag.clone();
+        if suppressed_count > 0 {
+            diag.hints.push(Hint::help(format!(
+                "Suppressed {} nearby duplicate E300 diagnostic(s).",
+                suppressed_count
+            )));
+        }
+        retained.push(diag);
+    }
+
+    retained
+}
+
+fn e300_group_signature<'a>(
+    diag: &'a Diagnostic,
+    default_file: Option<&'a str>,
+) -> Option<(Option<&'a str>, &'a str, Span)> {
+    if diag.code() != Some("E300") || diag.severity() != Severity::Error {
+        return None;
+    }
+    let message = diag.message()?;
+    let span = primary_or_diag_span(diag)?;
+    Some((effective_file(diag, default_file), message, span))
+}
+
+fn primary_or_diag_span(diag: &Diagnostic) -> Option<Span> {
+    diag.labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Primary)
+        .map(|l| l.span)
+        .or_else(|| diag.span())
+}
+
+fn spans_overlap_or_adjacent(a: Span, b: Span) -> bool {
+    spans_overlap(a, b) || line_gap(a, b) <= 1
+}
+
+fn spans_overlap(a: Span, b: Span) -> bool {
+    let a_start = (a.start.line, a.start.column);
+    let a_end = (a.end.line, a.end.column);
+    let b_start = (b.start.line, b.start.column);
+    let b_end = (b.end.line, b.end.column);
+    a_start <= b_end && b_start <= a_end
+}
+
+fn line_gap(a: Span, b: Span) -> usize {
+    if a.end.line < b.start.line {
+        b.start.line.saturating_sub(a.end.line)
+    } else if b.end.line < a.start.line {
+        a.start.line.saturating_sub(b.end.line)
+    } else {
+        0
+    }
 }
 
 impl LabelKey {

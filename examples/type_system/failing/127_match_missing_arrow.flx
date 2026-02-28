@@ -1,0 +1,6 @@
+let x = match 1 {
+    0 1,
+    _ -> 0
+}
+
+let after = 42

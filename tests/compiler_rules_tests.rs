@@ -1,5 +1,5 @@
 use flux::bytecode::compiler::Compiler;
-use flux::diagnostics::render_diagnostics;
+use flux::diagnostics::{Diagnostic, LabelStyle, render_diagnostics};
 use flux::syntax::{lexer::Lexer, parser::Parser};
 
 fn compile_ok_in(file_path: &str, input: &str) {
@@ -72,6 +72,22 @@ fn compile_err_strict(input: &str) -> String {
     err.first()
         .map(|d| d.code().unwrap_or("").to_string())
         .unwrap_or_default()
+}
+
+fn compile_ok_with_warnings_in(file_path: &str, input: &str, strict_mode: bool) -> Vec<Diagnostic> {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner(file_path, interner);
+    compiler.set_strict_mode(strict_mode);
+    compiler.compile(&program).expect("expected compile ok");
+    compiler.take_warnings()
 }
 
 fn compile_err_strict_rendered(input: &str) -> String {
@@ -147,6 +163,22 @@ fn compile_err_rendered(input: &str) -> String {
     render_diagnostics(&err, None, None)
 }
 
+fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    compiler
+        .compile(&program)
+        .expect_err("expected compile error")
+}
+
 fn compile_rendered_or_empty(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
@@ -201,11 +233,36 @@ fn non_public_module_function_access_error() {
 }
 
 #[test]
-fn module_adt_constructor_access_uses_boundary_diagnostic() {
-    let code = compile_err(
-        "module M { type MaybeInt = SomeInt(Int) | NoneInt } module Main { fn main() { M.SomeInt(1); } }",
+fn module_adt_constructor_access_strict_uses_e086() {
+    let code = compile_err_strict(
+        "module M { type MaybeInt = SomeInt(Int) | NoneInt } fn main() { M.SomeInt(1); }",
     );
-    assert_eq!(code, "E084");
+    assert_eq!(code, "E086");
+}
+
+#[test]
+fn module_adt_constructor_access_non_strict_emits_w201_warning() {
+    let warnings = compile_ok_with_warnings_in(
+        "examples/test.flx",
+        "module M { type MaybeInt = SomeInt(Int) | NoneInt } fn main() { M.SomeInt(1); }",
+        false,
+    );
+    assert!(
+        warnings.iter().any(|d| d.code() == Some("W201")),
+        "expected W201 warning, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.code(), d.title().to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn constructor_pattern_arity_mismatch_uses_e085() {
+    let code = compile_err(
+        "type BoxI = BoxI(Int) | EmptyI fn main() -> Unit { let _x = match BoxI(1) { BoxI(a, b) -> a, EmptyI -> 0 } }",
+    );
+    assert_eq!(code, "E085");
 }
 
 #[test]
@@ -366,6 +423,17 @@ fn match_bool_exhaustive_without_catchall_ok() {
 }
 
 #[test]
+fn match_bool_missing_true_reports_e015() {
+    let code = compile_err("let x = true; match x { false -> 0 };");
+    assert_eq!(code, "E015");
+}
+
+#[test]
+fn match_bool_with_wildcard_fallback_ok() {
+    compile_ok_in("test.flx", "let x = true; match x { true -> 1, _ -> 0 };");
+}
+
+#[test]
 fn match_list_exhaustive_without_catchall_ok() {
     compile_ok_in(
         "test.flx",
@@ -377,6 +445,29 @@ fn match_list_exhaustive_without_catchall_ok() {
 fn match_guarded_wildcard_only_non_exhaustive_error() {
     let code = compile_err("let x = 2; match x { _ if x > 0 -> 1 }");
     assert_eq!(code, "E015");
+}
+
+#[test]
+fn guarded_wildcard_only_reports_targeted_e015_message() {
+    let rendered = compile_err_rendered("let x = 2; match x { _ if x > 0 -> 1 }");
+    assert!(
+        rendered.contains("guarded wildcard"),
+        "expected targeted guarded wildcard message, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("guard may fail"),
+        "expected guarded wildcard explanation, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn guarded_wildcard_with_bare_fallback_is_exhaustive() {
+    compile_ok_in(
+        "test.flx",
+        "let x = 2; match x { _ if x > 0 -> 1, _ -> 2 };",
+    );
 }
 
 #[test]
@@ -592,6 +683,234 @@ fn main() -> Unit {
 }
 
 #[test]
+fn hm_fixture_134_if_concrete_branch_mismatch_reports_contextual_message() {
+    let source =
+        include_str!("../examples/type_system/failing/134_if_concrete_branch_mismatch.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("The branches of this `if` expression produce different types."),
+        "expected contextual if mismatch text for fixture 134, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_135_if_nested_any_branch_suppresses_contextual_message() {
+    let source = include_str!("../examples/type_system/failing/135_if_any_branch_suppressed.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        !rendered.contains("The branches of this `if` expression produce different types."),
+        "did not expect contextual if mismatch text for fixture 135, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("E056"),
+        "expected fixture 135 to fail due to follow-up known call arity error, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
+    let source =
+        include_str!("../examples/type_system/failing/136_tuple_projection_precise_mismatch.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 136, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("String"),
+        "expected typed-let mismatch details with Int/String for fixture 136, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "known tuple projection should not be unresolved in fixture 136, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_137_tuple_projection_unresolved_behavior_is_stable() {
+    let source = include_str!(
+        "../examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected strict unresolved boundary error for fixture 137, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("does not match its type annotation"),
+        "did not expect contextual typed-let mismatch noise for unresolved fixture 137, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_138_match_scrutinee_constraint_propagates() {
+    let source = include_str!(
+        "../examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 138, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("does not match its type annotation")
+            && rendered.contains("String")
+            && rendered.contains("Int"),
+        "expected constrained downstream typed-let mismatch details for fixture 138, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_139_match_scrutinee_constraint_mixed_family_no_propagation() {
+    let source = include_str!(
+        "../examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E056]"),
+        "expected independent follow-up E056 for fixture 139, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("The arms of this `match` expression produce different types."),
+        "did not expect contextual match-arm mismatch noise for fixture 139, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_142_bool_missing_true_emits_e015() {
+    let source = include_str!("../examples/type_system/failing/142_match_bool_missing_true.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E015]"),
+        "expected E015 for fixture 142, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Match is non-exhaustive: missing Bool case(s): true."),
+        "expected missing-true Bool exhaustiveness message for fixture 142, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_143_bool_missing_false_emits_e015() {
+    let source = include_str!("../examples/type_system/failing/143_match_bool_missing_false.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E015]"),
+        "expected E015 for fixture 143, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Match is non-exhaustive: missing Bool case(s): false."),
+        "expected missing-false Bool exhaustiveness message for fixture 143, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
+    let source = include_str!(
+        "../examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E015]"),
+        "expected E015 for fixture 144, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("guarded wildcard"),
+        "expected targeted guarded wildcard message for fixture 144, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_146_constructor_pattern_arity_some_too_many() {
+    let source = include_str!(
+        "../examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E085]"),
+        "expected E085 for fixture 146, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_147_constructor_pattern_arity_none_too_many() {
+    let source = include_str!(
+        "../examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E085]"),
+        "expected E085 for fixture 147, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_148_constructor_pattern_arity_left_too_many() {
+    let source = include_str!(
+        "../examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E085]"),
+        "expected E085 for fixture 148, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_149_cross_module_constructor_access_strict() {
+    let source = r#"
+module M { type MaybeInt = SomeInt(Int) | NoneInt }
+fn main() { M.SomeInt(1); }
+"#;
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E086]"),
+        "expected E086 for fixture 149 in strict mode, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_150_cross_module_constructor_access_nonstrict_warning() {
+    let source = r#"
+module M { type MaybeInt = SomeInt(Int) | NoneInt }
+fn main() { M.SomeInt(1); }
+"#;
+    let warnings = compile_ok_with_warnings_in("examples/test.flx", source, false);
+    assert!(
+        warnings.iter().any(|d| d.code() == Some("W201")),
+        "expected W201 warning for fixture 150, got: {:?}",
+        warnings
+            .iter()
+            .map(|d| (d.code(), d.title().to_string()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn hm_match_concrete_arm_mismatch_reports_contextual_message() {
     let code = compile_err(
         r#"
@@ -637,6 +956,27 @@ fn main() -> Unit {
         "expected named call-arg mismatch message, got:\n{}",
         rendered
     );
+}
+
+#[test]
+fn hm_fixture_131_call_arg_primary_label_is_argument_subspan() {
+    let source = include_str!("../examples/type_system/failing/131_call_arg_span_precision.flx");
+    let diagnostics = compile_err_diagnostics(source);
+    let diag = diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message()
+                    .is_some_and(|m| m.contains("The 2nd argument to `pair` has the wrong type."))
+        })
+        .expect("expected contextual call-arg E300 diagnostic for fixture 131");
+    let primary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Primary)
+        .expect("expected primary label on fixture 131 diagnostic");
+    assert_eq!(primary.span.start.line, 4);
+    assert_eq!(primary.span.start.column, 21);
 }
 
 #[test]
@@ -692,6 +1032,29 @@ fn main() -> Unit {
 }
 
 #[test]
+fn hm_fixture_132_let_annotation_primary_label_is_initializer_subspan() {
+    let source =
+        include_str!("../examples/type_system/failing/132_let_initializer_span_precision.flx");
+    let diagnostics = compile_err_diagnostics(source);
+    let diag = diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The value of `x` does not match its type annotation.")
+                })
+        })
+        .expect("expected contextual let-annotation E300 diagnostic for fixture 132");
+    let primary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Primary)
+        .expect("expected primary label on fixture 132 diagnostic");
+    assert_eq!(primary.span.start.line, 2);
+    assert_eq!(primary.span.start.column, 17);
+}
+
+#[test]
 fn hm_function_return_annotation_mismatch_reports_dual_labels() {
     let rendered = compile_err_rendered(
         r#"
@@ -711,6 +1074,36 @@ fn main() -> Unit { add() }
         "expected actionable return-annotation help text, got:\n{}",
         rendered
     );
+}
+
+#[test]
+fn hm_fixture_133_if_primary_label_is_else_value_subspan() {
+    let source =
+        include_str!("../examples/type_system/failing/133_if_branch_value_span_precision.flx");
+    let diagnostics = compile_err_diagnostics(source);
+    let diag = diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The branches of this `if` expression produce different types.")
+                })
+        })
+        .expect("expected contextual if-branch E300 diagnostic for fixture 133");
+    let primary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Primary)
+        .expect("expected primary label on fixture 133 diagnostic");
+    let secondary = diag
+        .labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Secondary)
+        .expect("expected secondary label on fixture 133 diagnostic");
+    assert_eq!(primary.span.start.line, 2);
+    assert_eq!(primary.span.start.column, 35);
+    assert_eq!(secondary.span.start.line, 2);
+    assert_eq!(secondary.span.start.column, 23);
 }
 
 #[test]
@@ -1103,6 +1496,39 @@ fn self_recursion_still_works() {
     compile_ok_in(
         "test.flx",
         "fn factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }",
+    );
+}
+
+#[test]
+fn hm_fixture_140_recursive_self_reference_refines_type() {
+    let source = include_str!(
+        "../examples/type_system/failing/140_recursive_self_reference_return_precision.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 140, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("does not match its type annotation")
+            && rendered.contains("String")
+            && rendered.contains("Int"),
+        "expected concrete downstream typed-let mismatch in fixture 140, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
+    let source = include_str!(
+        "../examples/type_system/failing/141_recursive_self_reference_negative_guard.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E056]"),
+        "expected independent follow-up E056 in fixture 141, got:\n{}",
+        rendered
     );
 }
 

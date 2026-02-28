@@ -1,0 +1,10 @@
+module TypeSystem.BoundaryCtor {
+    data MaybeInt {
+        SomeInt(Int),
+        NoneInt,
+    }
+
+    public fn demo() -> MaybeInt {
+        SomeInt(1)
+    }
+}

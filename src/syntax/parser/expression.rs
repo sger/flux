@@ -1,10 +1,11 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, pipe_target_error,
-        match_fat_arrow, match_pipe_separator, missing_else_body_brace, missing_if_body_brace,
-        unknown_keyword_alias,
+        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, match_fat_arrow,
+        match_pipe_separator, missing_array_close_bracket, missing_comprehension_close_bracket,
+        missing_do_block_brace, missing_else_body_brace, missing_hash_close_brace,
+        missing_if_body_brace, missing_lambda_arrow, missing_match_arrow, pipe_target_error,
         position::{Position, Span},
-        unclosed_delimiter, unexpected_token,
+        unclosed_delimiter, unexpected_token, unknown_keyword_alias,
     },
     syntax::{
         block::Block,
@@ -18,7 +19,7 @@ use crate::{
     },
 };
 
-use super::Parser;
+use super::{Parser, helpers::ParameterListContext};
 
 impl Parser {
     fn parse_parenthesized<T>(
@@ -99,7 +100,8 @@ impl Parser {
     }
 
     fn emit_match_pipe_separator_diagnostic(&mut self, diag_start: usize) -> bool {
-        self.errors.push(match_pipe_separator(self.peek_token.span()));
+        self.errors
+            .push(match_pipe_separator(self.peek_token.span()));
         self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
     }
 
@@ -544,7 +546,11 @@ impl Parser {
             self.next_token();
             let first = self.parse_expression(Precedence::Lowest)?;
             let elements = self.parse_expression_list_with_first(first, TokenType::Bar, start)?;
-            if !self.expect_peek(TokenType::RBracket) {
+            if self.is_peek_token(TokenType::RBracket) {
+                self.next_token();
+            } else {
+                self.errors
+                    .push(missing_array_close_bracket(self.peek_token.span()));
                 return None;
             }
             return Some(Expression::ArrayLiteral {
@@ -688,7 +694,11 @@ impl Parser {
         }
 
         // Expect closing ]
-        if !self.expect_peek(TokenType::RBracket) {
+        if self.is_peek_token(TokenType::RBracket) {
+            self.next_token();
+        } else {
+            self.errors
+                .push(missing_comprehension_close_bracket(self.peek_token.span()));
             return None;
         }
 
@@ -826,12 +836,29 @@ impl Parser {
 
             pairs.push((key, value));
 
-            if !self.is_peek_token(TokenType::RBrace) && !self.expect_peek(TokenType::Comma) {
+            if self.is_peek_token(TokenType::RBrace) {
+                // continue to closing-brace consume below
+            } else if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+            } else {
+                if self.peek_token.token_type == TokenType::Eof
+                    || self.peek_token.position.line > self.current_token.end_position.line
+                    || self.token_starts_statement(self.peek_token.token_type)
+                {
+                    self.errors
+                        .push(missing_hash_close_brace(self.peek_token.span()));
+                } else {
+                    self.peek_error(TokenType::Comma);
+                }
                 return None;
             }
         }
 
-        if !self.expect_peek(TokenType::RBrace) {
+        if self.is_peek_token(TokenType::RBrace) {
+            self.next_token();
+        } else {
+            self.errors
+                .push(missing_hash_close_brace(self.peek_token.span()));
             return None;
         }
 
@@ -911,13 +938,8 @@ impl Parser {
     pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         if !self.is_peek_token(TokenType::LBrace) {
-            self.errors.push(unexpected_token(
-                self.peek_token.span(),
-                format!(
-                    "Expected `{{` after `do`, got {}.",
-                    self.peek_token.token_type
-                ),
-            ));
+            self.errors
+                .push(missing_do_block_brace(self.peek_token.span()));
             return None;
         }
         self.next_token();
@@ -1104,7 +1126,13 @@ impl Parser {
                 self.errors.push(match_fat_arrow(self.peek_token.span()));
                 self.next_token(); // consume '='
                 self.next_token(); // consume '>'
-            } else if !self.expect_peek(TokenType::Arrow) {
+            } else if self.is_peek_token(TokenType::Arrow) {
+                self.next_token();
+            } else {
+                self.errors.push(missing_match_arrow(
+                    self.peek_token.span(),
+                    &self.peek_token.token_type.to_string(),
+                ));
                 return None;
             }
 
@@ -1403,7 +1431,7 @@ impl Parser {
         // Parse parameters
         let (parameters, parameter_types) = if self.is_current_token(TokenType::LParen) {
             // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
-            self.parse_typed_function_parameters()?
+            self.parse_typed_function_parameters(ParameterListContext::Lambda)?
         } else if self.is_current_token(TokenType::Arrow) {
             self.errors.push(lambda_syntax_error(
                 self.current_token.span(),
@@ -1440,16 +1468,10 @@ impl Parser {
         } else if self.is_peek_token(TokenType::Arrow) {
             self.next_token(); // consume `->`
         } else {
-            self.errors.push(
-                lambda_syntax_error(
-                    self.peek_token.span(),
-                    format!(
-                        "Expected `->` after lambda parameters, got `{}`.",
-                        self.peek_token.token_type
-                    ),
-                )
-                .with_example("let add = \\(a, b) -> a + b;"),
-            );
+            self.errors.push(missing_lambda_arrow(
+                self.peek_token.span(),
+                &self.peek_token.token_type.to_string(),
+            ));
             return None;
         }
         self.next_token(); // move to lambda body

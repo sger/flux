@@ -1,7 +1,7 @@
 use crate::{
     diagnostics::{
         Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
-        UNTERMINATED_STRING, missing_comma,
+        UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
         position::{Position, Span},
         unclosed_delimiter, unexpected_token,
     },
@@ -15,6 +15,12 @@ use super::Parser;
 
 const LIST_ERROR_LIMIT: usize = 50;
 const DELIMITER_RECOVERY_BUDGET: usize = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParameterListContext {
+    Function,
+    Lambda,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum SyncMode {
@@ -400,6 +406,7 @@ impl Parser {
     /// `parameter_types[i]` corresponds to `parameter_names[i]`.
     pub(super) fn parse_typed_function_parameters(
         &mut self,
+        context: ParameterListContext,
     ) -> Option<(Vec<Identifier>, Vec<Option<TypeExpr>>)> {
         debug_assert!(self.is_current_token(TokenType::LParen));
 
@@ -467,13 +474,20 @@ impl Parser {
                 }
                 TokenType::RParen | TokenType::Eof => return Some((identifiers, types)),
                 _ => {
-                    self.errors.push(unexpected_token(
-                        self.current_token.span(),
-                        format!(
-                            "Expected `,` or `)` after parameter, got {}.",
-                            self.current_token.token_type
-                        ),
-                    ));
+                    if context == ParameterListContext::Lambda
+                        && self.current_token.token_type == TokenType::Arrow
+                    {
+                        self.errors
+                            .push(missing_lambda_close_paren(self.current_token.span()));
+                    } else {
+                        self.errors.push(unexpected_token(
+                            self.current_token.span(),
+                            format!(
+                                "Expected `,` or `)` after parameter, got {}.",
+                                self.current_token.token_type
+                            ),
+                        ));
+                    }
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
                         return Some((identifiers, types));

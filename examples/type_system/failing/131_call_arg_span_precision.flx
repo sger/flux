@@ -1,0 +1,5 @@
+fn pair(a: Int, b: Int) -> Int { a + b }
+
+fn main() -> Unit {
+    let _x = pair(1, "oops")
+}

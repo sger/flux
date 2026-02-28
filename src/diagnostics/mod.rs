@@ -23,6 +23,7 @@ pub use builders::DiagnosticBuilder;
 pub use diagnostic::Diagnostic;
 pub use format::{format_message, format_message_named};
 pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
+pub use rendering::render_diagnostics_json;
 pub use rendering::{render_diagnostics, render_display_path};
 pub use types::{
     ErrorCode, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle,

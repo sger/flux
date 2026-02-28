@@ -1,5 +1,6 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
 ---
 Fixture: examples/basics/mini_database.flx
 == compile ==

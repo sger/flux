@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/136_tuple_projection_precise_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `value` does not match its type annotation.
+
+  --> examples/type_system/failing/136_tuple_projection_precise_mismatch.flx:2:22
+  |
+2 |     let value: Int = (1, "s").1
+  |                      ^^^^^^^^^^
+  |                      ---------- this is `String`
+  |                --- but `value` was annotated as `Int`
+
+Help:
+  Change `value` to a `Int` value or update the annotation to `String`.
+== stdout ==
+<not executed>

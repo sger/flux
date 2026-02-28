@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Match is non-exhaustive without an unguarded catch-all arm.
+A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.
 
   --> examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx:9:5
    |
@@ -19,6 +19,6 @@ Match is non-exhaustive without an unguarded catch-all arm.
    | ^^^^^
 
 Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+  Add an unguarded `_ -> ...` fallback arm after guarded arms.
 == stdout ==
 <not executed>

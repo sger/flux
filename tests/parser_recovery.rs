@@ -300,3 +300,128 @@ fn parser_error_experience_recovery_fixture_keeps_followup_statement() {
         "expected parser recovery to keep follow-up let binding after 059-style errors"
     );
 }
+
+#[test]
+fn t1_named_delimiter_fixtures_keep_followup_statement_when_recoverable() {
+    let cases = [
+        (
+            "hash_close",
+            include_str!("../examples/type_system/failing/122_hash_missing_close_brace.flx"),
+            true,
+        ),
+        (
+            "array_close",
+            include_str!("../examples/type_system/failing/123_array_missing_close_bracket.flx"),
+            true,
+        ),
+        (
+            "lambda_close_paren",
+            include_str!("../examples/type_system/failing/124_lambda_missing_close_paren.flx"),
+            false,
+        ),
+        (
+            "interpolation_close",
+            include_str!(
+                "../examples/type_system/failing/125_string_interpolation_missing_close_brace.flx"
+            ),
+            true,
+        ),
+        (
+            "comprehension_close",
+            include_str!(
+                "../examples/type_system/failing/126_list_comprehension_missing_close_bracket.flx"
+            ),
+            true,
+        ),
+    ];
+
+    for (name, input, expect_followup) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T1 fixture parse should not panic");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code() == Some("E034") && d.message().is_some()),
+            "expected E034 parser diagnostic for case `{name}`"
+        );
+        if expect_followup {
+            assert!(
+                has_let_binding(&program, &interner, "after"),
+                "expected trailing `let after` to remain after recovery for case `{name}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn t2_arrow_fixtures_emit_contextual_e034_and_recover() {
+    let cases = [
+        (
+            "match_missing_arrow",
+            include_str!("../examples/type_system/failing/127_match_missing_arrow.flx"),
+        ),
+        (
+            "lambda_missing_arrow",
+            include_str!("../examples/type_system/failing/128_lambda_missing_arrow.flx"),
+        ),
+    ];
+
+    for (name, input) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T2 fixture parse should not panic");
+        assert!(
+            diagnostics.iter().any(|d| {
+                d.code() == Some("E034")
+                    && d.message().is_some_and(|m| {
+                        m.contains("Expected `->` in match arm")
+                            || m.contains("Expected `->` after lambda parameters")
+                    })
+            }),
+            "expected contextual E034 arrow diagnostic for case `{name}`"
+        );
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
+    }
+}
+
+#[test]
+fn t3_orphan_constructor_fixture_emits_contextual_e034_and_recovers() {
+    let input = include_str!(
+        "../examples/type_system/failing/129_orphan_constructor_pattern_statement.flx"
+    );
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("T3 fixture parse should not panic");
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("outside `match`") && m.contains("Some(...)"))
+        }),
+        "expected contextual orphan-constructor-pattern E034 diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected trailing `let after` to remain after recovery"
+    );
+}
+
+#[test]
+fn t4_do_missing_brace_fixture_emits_contextual_e034_and_recovers() {
+    let input = include_str!("../examples/type_system/failing/130_do_missing_brace.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("T4 fixture parse should not panic");
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("begin the `do` block"))
+        }),
+        "expected contextual do-block E034 diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected trailing `let after` to remain after recovery"
+    );
+}
