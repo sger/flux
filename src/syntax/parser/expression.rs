@@ -52,6 +52,7 @@ impl Parser {
     fn parse_comma_separated_patterns(&mut self, close: TokenType) -> Option<Vec<Pattern>> {
         debug_assert!(self.is_current_token(TokenType::LParen));
         let mut patterns = Vec::new();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         // Empty: Constructor()
         if self.consume_if_peek(close) {
@@ -75,13 +76,18 @@ impl Parser {
                 }
                 ref t if *t == close || *t == TokenType::Eof => break,
                 _ => {
-                    self.errors.push(unexpected_token(
-                        self.current_token.span(),
-                        format!(
-                            "Expected `,` or `)` in constructor pattern, got {}",
-                            self.current_token.token_type
+                    if !self.push_followup_unless_structural_root(
+                        construct_checkpoint,
+                        unexpected_token(
+                            self.current_token.span(),
+                            format!(
+                                "Expected `,` or `)` in constructor pattern, got {}",
+                                self.current_token.token_type
+                            ),
                         ),
-                    ));
+                    ) {
+                        return Some(patterns);
+                    }
                     return None;
                 }
             }
@@ -1217,6 +1223,7 @@ impl Parser {
 
         let mut arms = Vec::new();
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         while !self.is_peek_token(TokenType::RBrace) {
             self.next_token();
@@ -1281,13 +1288,18 @@ impl Parser {
                     return Some(self.build_match_expression(start, scrutinee, arms));
                 }
                 _ => {
-                    self.errors.push(unexpected_token(
-                        self.peek_token.span(),
-                        format!(
-                            "Expected `,` or `}}` after match arm, got {}.",
-                            self.peek_token.token_type
+                    if !self.push_followup_unless_structural_root(
+                        construct_checkpoint,
+                        unexpected_token(
+                            self.peek_token.span(),
+                            format!(
+                                "Expected `,` or `}}` after match arm, got {}.",
+                                self.peek_token.token_type
+                            ),
                         ),
-                    ));
+                    ) {
+                        return Some(self.build_match_expression(start, scrutinee, arms));
+                    }
                     if self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
                     {
                         return Some(self.build_match_expression(start, scrutinee, arms));

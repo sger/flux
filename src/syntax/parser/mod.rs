@@ -93,6 +93,30 @@ impl Parser {
         program.span = Span::new(start, self.current_token.end_position);
         program
     }
+
+    pub(super) fn start_construct_diagnostics_checkpoint(&self) -> usize {
+        self.errors.len()
+    }
+
+    pub(super) fn has_structural_error_since(&self, checkpoint: usize) -> bool {
+        self.errors
+            .iter()
+            .skip(checkpoint)
+            .any(|diag| matches!(diag.code(), Some("E034") | Some("E076")))
+    }
+
+    pub(super) fn push_followup_unless_structural_root(
+        &mut self,
+        checkpoint: usize,
+        diag: Diagnostic,
+    ) -> bool {
+        if self.has_structural_error_since(checkpoint) {
+            false
+        } else {
+            self.errors.push(diag);
+            true
+        }
+    }
 }
 
 fn is_uppercase_ident(token: &Token) -> bool {

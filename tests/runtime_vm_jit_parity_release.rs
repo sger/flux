@@ -157,6 +157,50 @@ fn assert_file_cli_outcome_parity(file: &str, roots: &[&str]) {
     }
 }
 
+fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fragment: &str) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
+
+    let (vm_status, _vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, false);
+    let (jit_status, _jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, true);
+
+    assert_eq!(
+        vm_status, jit_status,
+        "VM/JIT exit-code mismatch for `{file}`\nVM status={}\nJIT status={}\nVM stderr:\n{}\nJIT stderr:\n{}",
+        vm_status, jit_status, vm_stderr, jit_stderr
+    );
+    assert_ne!(vm_status, 0, "expected runtime failure for `{file}` in VM");
+    assert_ne!(
+        jit_status, 0,
+        "expected runtime failure for `{file}` in JIT"
+    );
+
+    assert!(
+        vm_stderr.contains("runtime error[E1004]"),
+        "expected VM runtime E1004 for `{file}`; got:\n{}",
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains("runtime error[E1004]"),
+        "expected JIT runtime E1004 for `{file}`; got:\n{}",
+        jit_stderr
+    );
+    assert!(
+        vm_stderr.contains(expected_fragment),
+        "expected VM stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains(expected_fragment),
+        "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
+        expected_fragment,
+        jit_stderr
+    );
+}
+
 #[test]
 fn release_runtime_parity_module_qualified_typed_flow() {
     assert_vm_jit_value(
@@ -218,5 +262,41 @@ fn release_runtime_parity_aoc_day05_output() {
     assert_file_cli_outcome_parity(
         "examples/aoc/2024/day05_part1_test.flx",
         &["lib", "examples/aoc/2024"],
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_argument_boundary() {
+    assert_file_cli_runtime_e1004_parity(
+        "examples/type_system/failing/185_runtime_boundary_arg_e1004.flx",
+        &["examples/type_system"],
+        "Expected Int, got String.",
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_return_boundary() {
+    assert_file_cli_runtime_e1004_parity(
+        "examples/type_system/failing/186_runtime_boundary_return_e1004.flx",
+        &["examples/type_system"],
+        "Expected Int, got String.",
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_list_boundary() {
+    assert_file_cli_runtime_e1004_parity(
+        "examples/type_system/failing/187_runtime_list_boundary_e1004.flx",
+        &["examples/type_system"],
+        "Expected List<Int>, got String.",
+    );
+}
+
+#[test]
+fn release_runtime_parity_e1004_either_boundary() {
+    assert_file_cli_runtime_e1004_parity(
+        "examples/type_system/failing/188_runtime_either_boundary_e1004.flx",
+        &["examples/type_system"],
+        "Expected Either<String, Int>, got String.",
     );
 }

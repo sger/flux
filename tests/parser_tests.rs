@@ -804,6 +804,43 @@ fn t(x) {
     }
 
     #[test]
+    fn test_malformed_signature_missing_tuple_close_suppresses_redundant_parameter_followups() {
+        let lexer = Lexer::new(include_str!(
+            "../examples/type_system/failing/184_type_expr_missing_close_paren.flx"
+        ));
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let root_missing_tuple_close = parser.errors.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message().is_some_and(|m| {
+                    m.contains("close tuple type") || m.contains("Tuple types use")
+                })
+        });
+        assert!(
+            root_missing_tuple_close,
+            "expected a root tuple-close diagnostic: {:?}",
+            parser.errors
+        );
+
+        let redundant_param_followup = parser.errors.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("after function parameter"))
+        });
+        assert!(
+            !redundant_param_followup,
+            "expected parameter-separator followup to be suppressed: {:?}",
+            parser.errors
+        );
+        assert!(
+            parser.errors.len() <= 2,
+            "expected root + minimal follow-up (<=2 errors), got: {:?}",
+            parser.errors
+        );
+    }
+
+    #[test]
     fn test_hash_literal() {
         let (program, _interner) = parse(r#"{"one": 1, "two": 2};"#);
         assert_eq!(program.statements.len(), 1);
