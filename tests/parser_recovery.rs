@@ -267,3 +267,36 @@ fn unterminated_string_recovery_fixture_keeps_followup_statement() {
         "expected parser recovery to keep follow-up let binding after unterminated string"
     );
 }
+
+#[test]
+fn parser_error_experience_recovery_fixture_keeps_followup_statement() {
+    let input = include_str!("fixtures/recovery/059_parser_error_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("059 parser-error recovery fixture should not panic");
+
+    let messages: Vec<String> = diagnostics
+        .iter()
+        .filter_map(|d| d.message().map(ToString::to_string))
+        .collect();
+    assert!(
+        messages.iter().any(|m| m.contains("Unknown keyword `def`")),
+        "expected keyword-alias diagnostic"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Expected `->` in match arm, found `=>`")),
+        "expected contextual fat-arrow diagnostic"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+        "expected match `|` separator diagnostic"
+    );
+
+    assert!(
+        has_let_binding(&program, &interner, "ok_after"),
+        "expected parser recovery to keep follow-up let binding after 059-style errors"
+    );
+}

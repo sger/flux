@@ -1,0 +1,4 @@
+fn main() -> Unit {
+    let x = match 1 { 0 => 0, _ => 1 }
+    x
+}

@@ -1,6 +1,8 @@
 use crate::{
     diagnostics::{
         DiagnosticBuilder, invalid_pattern, lambda_syntax_error, pipe_target_error,
+        match_fat_arrow, match_pipe_separator, missing_else_body_brace, missing_if_body_brace,
+        unknown_keyword_alias,
         position::{Position, Span},
         unclosed_delimiter, unexpected_token,
     },
@@ -93,6 +95,11 @@ impl Parser {
             self.peek_token.span(),
             "Match arms must be separated by `,`, not `;`.",
         ));
+        self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
+    }
+
+    fn emit_match_pipe_separator_diagnostic(&mut self, diag_start: usize) -> bool {
+        self.errors.push(match_pipe_separator(self.peek_token.span()));
         self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
     }
 
@@ -840,11 +847,28 @@ impl Parser {
         self.next_token();
         let condition = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.is_peek_token(TokenType::LBrace) {
+            self.errors
+                .push(missing_if_body_brace(self.peek_token.span()));
             return None;
         }
+        self.next_token();
 
         let consequence = self.parse_block();
+
+        if self.peek_token.token_type == TokenType::Ident
+            && matches!(self.peek_token.literal.as_ref(), "elif" | "elsif")
+        {
+            self.errors.push(
+                unknown_keyword_alias(
+                    self.peek_token.span(),
+                    &self.peek_token.literal,
+                    "else if",
+                    "chained conditionals",
+                )
+                .with_hint_text("Replace `elif`/`elsif` with `else if`."),
+            );
+        }
 
         let alternative = if self.is_peek_token(TokenType::Else) {
             self.next_token();
@@ -864,9 +888,12 @@ impl Parser {
                     span,
                 })
             } else {
-                if !self.expect_peek(TokenType::LBrace) {
+                if !self.is_peek_token(TokenType::LBrace) {
+                    self.errors
+                        .push(missing_else_body_brace(self.peek_token.span()));
                     return None;
-                };
+                }
+                self.next_token();
                 Some(self.parse_block())
             }
         } else {
@@ -1072,7 +1099,12 @@ impl Parser {
                 guard = Some(self.parse_expression(Precedence::Lowest)?);
             }
 
-            if !self.expect_peek(TokenType::Arrow) {
+            if self.is_peek_token(TokenType::Assign) && self.peek2_token.token_type == TokenType::Gt
+            {
+                self.errors.push(match_fat_arrow(self.peek_token.span()));
+                self.next_token(); // consume '='
+                self.next_token(); // consume '>'
+            } else if !self.expect_peek(TokenType::Arrow) {
                 return None;
             }
 
@@ -1097,6 +1129,13 @@ impl Parser {
                         return Some(self.build_match_expression(start, scrutinee, arms));
                     }
                     // Recover by treating `;` as a comma separator.
+                    self.next_token();
+                }
+                TokenType::Bar => {
+                    if self.emit_match_pipe_separator_diagnostic(diag_start) {
+                        return Some(self.build_match_expression(start, scrutinee, arms));
+                    }
+                    // Recover by treating `|` as a comma separator.
                     self.next_token();
                 }
                 TokenType::Eof => {
@@ -1134,6 +1173,12 @@ impl Parser {
                         }
                         TokenType::Semicolon => {
                             if self.emit_match_semicolon_separator_diagnostic(diag_start) {
+                                return Some(self.build_match_expression(start, scrutinee, arms));
+                            }
+                            self.next_token();
+                        }
+                        TokenType::Bar => {
+                            if self.emit_match_pipe_separator_diagnostic(diag_start) {
                                 return Some(self.build_match_expression(start, scrutinee, arms));
                             }
                             self.next_token();
