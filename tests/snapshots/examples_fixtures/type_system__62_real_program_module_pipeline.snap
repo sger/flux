@@ -16,5 +16,20 @@ Cannot access private member `map_list`.
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `join_strings`.
+
+  --> examples/type_system/62_real_program_module_pipeline.flx:19:11
+   |
+19 |     print(C.join_strings(labels, ", "))
+   |           ^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -22,13 +22,19 @@ Help:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
+The 2nd argument to `add` has the wrong type.
 
-  --> examples/hint_demos/inline_labels_demo.flx:9:1
+  --> examples/hint_demos/inline_labels_demo.flx:9:13
   |
+8 | fn add(a, b) { a + b }
+
+  | ---------------------- `add` expects `String` as the 2nd parameter
 9 | add("text", 456);
-  | ^^^^^^^^^^^^^^^^
-  | ---------------- expected String, found Int
+  |             ^^^
+  |             --- this argument is `Int`
+
+Help:
+  Expected `String` as the 2nd argument.
 
 Found 2 errors.
 == stdout ==

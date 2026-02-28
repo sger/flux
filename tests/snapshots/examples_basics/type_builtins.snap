@@ -427,13 +427,32 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The 2nd argument to `safeAdd` has the wrong type.
 
-  --> examples/basics/type_builtins.flx:101:7
+  --> examples/basics/type_builtins.flx:101:18
     |
+ 93 | fn safeAdd(a, b) {
+
+ 94 |     if is_int(a) && is_int(b) {
+
+ 95 |         Some(a + b)
+
+ 96 |     } else {
+
+ 97 |         None
+
+ 98 |     }
+
+ 99 | }
+
+100 | print(safeAdd(1, 2));
+
 101 | print(safeAdd(1, "hello"));
-    |       ^^^^^^^^^^^^^^^^^^^
-    |       ------------------- expected Int, found String
+    |                  ^^^^^^^
+    |                  ------- this argument is `String`
+
+Help:
+  Expected `Int` as the 2nd argument.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -452,13 +471,46 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
+The 1st argument to `describe` has the wrong type.
 
-  --> examples/basics/type_builtins.flx:119:7
+  --> examples/basics/type_builtins.flx:119:16
     |
+104 | fn describe(value) {
+
+105 |     if is_int(value) {
+
+106 |         "an integer: " + to_string(value)
+
+107 |     } else {
+
+108 |         if is_string(value) {
+
+109 |             "a string: " + value
+
+110 |         } else {
+
+111 |             if is_array(value) {
+
+112 |                 "an array with " + to_string(len(value)) + " elements"
+
+113 |             } else {
+
+114 |                 "unknown type: " + type_of(value)
+
+115 |             }
+
+116 |         }
+
+117 |     }
+
+118 | }
+
 119 | print(describe(42));
-    |       ^^^^^^^^^^^^
-    |       ------------ expected String, found Int
+    |                ^^
+    |                -- this argument is `Int`
+
+Help:
+  Expected `String` as the 1st argument.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -491,13 +543,50 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Array<Int>.
+The 1st argument to `describe` has the wrong type.
 
-  --> examples/basics/type_builtins.flx:121:7
+  --> examples/basics/type_builtins.flx:121:16
     |
+104 | fn describe(value) {
+
+105 |     if is_int(value) {
+
+106 |         "an integer: " + to_string(value)
+
+107 |     } else {
+
+108 |         if is_string(value) {
+
+109 |             "a string: " + value
+
+110 |         } else {
+
+111 |             if is_array(value) {
+
+112 |                 "an array with " + to_string(len(value)) + " elements"
+
+113 |             } else {
+
+114 |                 "unknown type: " + type_of(value)
+
+115 |             }
+
+116 |         }
+
+117 |     }
+
+118 | }
+
+119 | print(describe(42));
+
+120 | print(describe("hello"));
+
 121 | print(describe([|1, 2, 3|]));
-    |       ^^^^^^^^^^^^^^^^^^^^^
-    |       --------------------- expected String, found Array<Int>
+    |                ^^^^^^^^^^^
+    |                ----------- this argument is `Array<Int>`
+
+Help:
+  Expected `String` as the 1st argument.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -530,13 +619,32 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The 2nd argument to `requireInt` has the wrong type.
 
-  --> examples/basics/type_builtins.flx:132:7
+  --> examples/basics/type_builtins.flx:132:25
     |
+124 | fn requireInt(name, value) {
+
+125 |     if !is_int(value) {
+
+126 |         Left(name + " must be an integer, got " + type_of(value))
+
+127 |     } else {
+
+128 |         Right(value)
+
+129 |     }
+
+130 | }
+
+131 | print(requireInt("age", 25));
+
 132 | print(requireInt("age", "old"));
-    |       ^^^^^^^^^^^^^^^^^^^^^^^^
-    |       ------------------------ expected Int, found String
+    |                         ^^^^^
+    |                         ----- this argument is `String`
+
+Help:
+  Expected `Int` as the 2nd argument.
 
 Found 39 errors.
 == stdout ==

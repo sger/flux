@@ -7,12 +7,15 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The 1st argument to `f` has the wrong type.
 
-  --> examples/type_system/failing/64_hm_inferred_call_mismatch.flx:8:18
+  --> examples/type_system/failing/64_hm_inferred_call_mismatch.flx:8:20
   |
 8 |     let b: Int = f("x")
-  |                  ^^^^^^
-  |                  ------ expected Int, found String
+  |                    ^^^
+  |                    --- this argument is `String`
+
+Help:
+  Expected `Int` as the 1st argument.
 == stdout ==
 <not executed>

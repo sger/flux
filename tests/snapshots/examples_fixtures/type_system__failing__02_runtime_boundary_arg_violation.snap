@@ -7,16 +7,29 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The 1st argument to `typed_add` has the wrong type.
 
   --> examples/type_system/failing/02_runtime_boundary_arg_violation.flx:12:11
    |
+ 5 | fn typed_add(a: Int, b: Int) -> Int {
+
+ 6 |     a + b
+
+ 7 | }
+
+ 8 | 
+
+ 9 | let dynamic = old("oops")
+
+10 | 
+
+11 | 
+
 12 | typed_add(dynamic, 1)
    |           ^^^^^^^
-   |           ------- expected Int, found String
-   |           ------- argument type is known at compile time
+   |           ------- this argument is `String`
 
 Help:
-  argument #1 does not match function contract
+  Expected `Int` as the 1st argument.
 == stdout ==
 <not executed>

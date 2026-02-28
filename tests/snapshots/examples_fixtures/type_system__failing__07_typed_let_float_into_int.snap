@@ -7,17 +7,17 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with Float.
+The value of `answer` does not match its type annotation.
 
   --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
   |
 1 | let answer: Int = 42.5
   |                   ^^^^
-  |                   ---- expected Int, found Float
-  |                   ---- initializer type is known at compile time
+  |                   ---- this is `Float`
+  |             --- but `answer` was annotated as `Int`
 
 Help:
-  binding initializer does not match type annotation
+  Change `answer` to a `Int` value or update the annotation to `Float`.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT

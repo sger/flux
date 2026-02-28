@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/107_let_annotation_bool_int.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `flag` does not match its type annotation.
+
+  --> examples/type_system/failing/107_let_annotation_bool_int.flx:2:22
+  |
+2 |     let flag: Bool = 42
+  |                      ^^
+  |                      -- this is `Int`
+  |               ---- but `flag` was annotated as `Bool`
+
+Help:
+  Change `flag` to a `Bool` value or update the annotation to `Int`.
+== stdout ==
+<not executed>

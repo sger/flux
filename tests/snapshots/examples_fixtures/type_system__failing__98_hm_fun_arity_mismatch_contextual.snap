@@ -1,0 +1,25 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Function arity does not match.
+
+  --> examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx:11:14
+   |
+11 |     let _f = if true {
+   |              ^^^^^^^^^
+12 |         one_arg
+   | ^^^^^^^^^^^^^^^
+13 |     } else {
+   | ^^^^^^^^^^^^
+14 |         two_args
+   | ^^^^^^^^^^^^^^^^
+15 |     }
+   | ^^^^^
+== stdout ==
+<not executed>
