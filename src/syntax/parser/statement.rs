@@ -714,9 +714,7 @@ impl Parser {
                         {
                             break;
                         }
-                        let Some(ty) = self.parse_type_expr() else {
-                            return None;
-                        };
+                        let ty = self.parse_type_expr()?;
                         fields.push(ty);
                         // parse_type_expr leaves current at last token of type; advance past it
                         self.next_token();
@@ -844,9 +842,7 @@ impl Parser {
                         {
                             break;
                         }
-                        let Some(ty) = self.parse_type_expr() else {
-                            return None;
-                        };
+                        let ty = self.parse_type_expr()?;
                         fields.push(ty);
                         self.next_token(); // past field type
                         match self.current_token.token_type {

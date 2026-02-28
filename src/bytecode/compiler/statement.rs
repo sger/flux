@@ -414,6 +414,7 @@ impl Compiler {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_function_statement(
         &mut self,
         name: Symbol,
@@ -790,6 +791,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[allow(clippy::vec_box)]
     fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
         let len = block.statements.len();
         let mut errors = Vec::new();

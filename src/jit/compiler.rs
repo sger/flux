@@ -1930,10 +1930,11 @@ fn compile_expression(
                 );
             }
             // Check if calling a registered ADT constructor
-            if let Expression::Identifier { name, .. } = function.as_ref() {
-                if let Some(&arity) = scope.adt_constructors.get(name) {
-                    let name_str = interner.resolve(*name);
-                    let bytes = name_str.as_bytes().to_vec();
+            if let Expression::Identifier { name, .. } = function.as_ref()
+                && let Some(&arity) = scope.adt_constructors.get(name)
+            {
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
 
                     let data = module
                         .declare_anonymous_data(false, false)
@@ -1983,8 +1984,7 @@ fn compile_expression(
                         &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
                     );
 
-                    return Ok(builder.inst_results(call)[0]);
-                }
+                return Ok(builder.inst_results(call)[0]);
             }
             // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
@@ -2875,10 +2875,10 @@ fn validate_jit_match_arms(
     let constructor_names: Vec<Identifier> = arms
         .iter()
         .filter_map(|arm| {
-            if arm.guard.is_none() {
-                if let Pattern::Constructor { name, .. } = &arm.pattern {
-                    return Some(*name);
-                }
+            if arm.guard.is_none()
+                && let Pattern::Constructor { name, .. } = &arm.pattern
+            {
+                return Some(*name);
             }
             None
         })

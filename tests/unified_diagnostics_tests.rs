@@ -311,12 +311,12 @@ fn pass2_multi_error_continuation_ordering() {
         .filter_map(|d| d.code())
         .collect();
     assert!(
-        error_codes.iter().any(|c| *c == "E002"),
+        error_codes.contains(&"E002"),
         "expected E002 in unified diagnostics, got {:?}",
         error_codes
     );
     assert!(
-        error_codes.iter().any(|c| *c == "E300"),
+        error_codes.contains(&"E300"),
         "expected E300 in unified diagnostics, got {:?}",
         error_codes
     );

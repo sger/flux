@@ -2387,11 +2387,8 @@ impl Compiler {
             return true;
         }
         self.current_function_effects()
-            .is_some_and(|effects| effects.iter().any(|effect| *effect == required))
-            || self
-                .handled_effects
-                .iter()
-                .any(|handled| *handled == required)
+            .is_some_and(|effects| effects.contains(&required))
+            || self.handled_effects.contains(&required)
     }
 
     pub(super) fn is_effect_available_name(&self, required_name: &str) -> bool {
