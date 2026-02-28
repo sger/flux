@@ -267,6 +267,11 @@ Known external churn:
 - `tests/snapshots/examples_fixtures/aoc__2024__day03.snap.new`
   - Current failure is from `examples/aoc/2024/day03.flx` snapshot drift (top-level effect/private-member output change), not from 051 strict-first Any-fallback paths (`151..172`).
 
+Strict-only fixture expectation policy:
+1. Fixtures `154`, `155`, `156`, `162`, and `168` are strict-only expectation fixtures.
+2. Canonical correctness checks run with `--strict` and are enforced in `compiler_rules_tests`.
+3. Non-strict runs (including generic `examples_fixtures_snapshots` transcripts) may show unresolved baseline `E004` first; this is expected and not a 051 regression.
+
 #### 051 Closure Note (Regression Lock)
 Implemented and locked behavior:
 1. Tuple destructure strict-first hardening:

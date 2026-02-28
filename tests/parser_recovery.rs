@@ -455,6 +455,10 @@ fn t15_broad_contextual_expect_peek_fixtures_emit_e034_and_recover() {
             "hash_missing_colon",
             include_str!("../examples/type_system/failing/183_hash_missing_colon.flx"),
         ),
+        (
+            "type_expr_missing_close_paren",
+            include_str!("../examples/type_system/failing/184_type_expr_missing_close_paren.flx"),
+        ),
     ];
 
     for (name, input) in cases {

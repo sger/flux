@@ -643,6 +643,7 @@ impl Parser {
         }
 
         let mut names = Vec::new();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
         if self.is_peek_token(TokenType::RBracket) {
             self.next_token();
             return Some(names);
@@ -672,13 +673,18 @@ impl Parser {
                 break;
             }
 
-            self.errors.push(unexpected_token(
-                self.peek_token.span(),
-                format!(
-                    "Expected `,` or `]` in import except list, got {}.",
-                    self.peek_token.token_type
+            if !self.push_followup_unless_structural_root(
+                construct_checkpoint,
+                unexpected_token(
+                    self.peek_token.span(),
+                    format!(
+                        "Expected `,` or `]` in import except list, got {}.",
+                        self.peek_token.token_type
+                    ),
                 ),
-            ));
+            ) {
+                return Some(names);
+            }
             return None;
         }
 
@@ -750,6 +756,7 @@ impl Parser {
 
         while !self.is_current_token(TokenType::RBrace) && !self.is_current_token(TokenType::Eof) {
             let var_start = self.current_token.position;
+            let variant_checkpoint = self.start_construct_diagnostics_checkpoint();
 
             if self.current_token.token_type != TokenType::Ident {
                 self.errors.push(unexpected_token(
@@ -792,13 +799,18 @@ impl Parser {
                             }
                             TokenType::RParen | TokenType::Eof => break,
                             _ => {
-                                self.errors.push(unexpected_token(
-                                    self.current_token.span(),
-                                    format!(
-                                        "Expected `,` or `)` in constructor fields, got {}.",
-                                        self.current_token.token_type
+                                if !self.push_followup_unless_structural_root(
+                                    variant_checkpoint,
+                                    unexpected_token(
+                                        self.current_token.span(),
+                                        format!(
+                                            "Expected `,` or `)` in constructor fields, got {}.",
+                                            self.current_token.token_type
+                                        ),
                                     ),
-                                ));
+                                ) {
+                                    break;
+                                }
                                 return None;
                             }
                         }
@@ -895,6 +907,7 @@ impl Parser {
         let mut variants = Vec::new();
         loop {
             let var_start = self.current_token.position;
+            let variant_checkpoint = self.start_construct_diagnostics_checkpoint();
             if self.current_token.token_type != TokenType::Ident {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
@@ -929,13 +942,18 @@ impl Parser {
                             TokenType::Comma => self.next_token(),
                             TokenType::RParen | TokenType::Eof => break,
                             _ => {
-                                self.errors.push(unexpected_token(
-                                    self.current_token.span(),
-                                    format!(
-                                        "Expected `,` or `)` in constructor fields, got {}.",
-                                        self.current_token.token_type
+                                if !self.push_followup_unless_structural_root(
+                                    variant_checkpoint,
+                                    unexpected_token(
+                                        self.current_token.span(),
+                                        format!(
+                                            "Expected `,` or `)` in constructor fields, got {}.",
+                                            self.current_token.token_type
+                                        ),
                                     ),
-                                ));
+                                ) {
+                                    break;
+                                }
                                 return None;
                             }
                         }
