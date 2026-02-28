@@ -508,10 +508,10 @@ fn parse_diagnostic_tuples(output: &str) -> Vec<DiagnosticTuple> {
                 if parse_diagnostic_header(block_line).is_some() {
                     break;
                 }
-                if primary_label.is_empty() {
-                    if let Some(label) = parse_primary_label(lines[j]) {
-                        primary_label = label;
-                    }
+                if primary_label.is_empty()
+                    && let Some(label) = parse_primary_label(lines[j])
+                {
+                    primary_label = label;
                 }
                 j += 1;
             }
@@ -567,7 +567,7 @@ fn parse_primary_label(line: &str) -> Option<String> {
     }
 
     let cleaned = after_bar
-        .trim_start_matches(|c: char| c == '^' || c == '-' || c == '~' || c == ' ')
+        .trim_start_matches(['^', '-', '~', ' '])
         .trim()
         .to_string();
 

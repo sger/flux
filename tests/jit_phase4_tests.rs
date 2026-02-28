@@ -27,19 +27,34 @@ fn run_jit(input: &str) -> Value {
 
 #[test]
 fn jit_some_expression() {
-    let result = run_jit("Some(42)");
+    let result = run_jit(
+        r#"
+let x = Some(42)
+x
+"#,
+    );
     assert_eq!(result, Value::Some(Rc::new(Value::Integer(42))));
 }
 
 #[test]
 fn jit_left_expression() {
-    let result = run_jit("Left(1)");
+    let result = run_jit(
+        r#"
+let x = Left(1)
+x
+"#,
+    );
     assert_eq!(result, Value::Left(Rc::new(Value::Integer(1))));
 }
 
 #[test]
 fn jit_right_expression() {
-    let result = run_jit(r#"Right("hello")"#);
+    let result = run_jit(
+        r#"
+let x = Right("hello")
+x
+"#,
+    );
     assert_eq!(result, Value::Right(Rc::new(Value::String("hello".into()))));
 }
 

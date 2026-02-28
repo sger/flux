@@ -80,7 +80,7 @@ const KNOWN_EFFECT_NAMES: &[&str] = &["IO", "Time", "State"];
 
 /// Suggest a known built-in effect name for unknown-effect diagnostics.
 pub fn suggest_effect_name(name: &str) -> Option<String> {
-    if KNOWN_EFFECT_NAMES.contains(&name) || name.len() < 1 {
+    if KNOWN_EFFECT_NAMES.contains(&name) || name.is_empty() {
         return None;
     }
 
