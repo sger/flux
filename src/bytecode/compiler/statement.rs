@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
+    ast::type_infer::display_infer_type,
     bytecode::{
         compiler::{Compiler, contracts::convert_type_expr, suggestions::suggest_effect_name},
         debug_info::FunctionDebugInfo,
@@ -11,6 +12,7 @@ use crate::{
     diagnostics::{
         DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
         INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        compiler_errors::{fun_return_annotation_mismatch, let_annotation_type_mismatch},
         position::{Position, Span},
         types::ErrorType,
     },
@@ -24,12 +26,47 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::type_env::TypeEnv,
+    types::{infer_type::InferType, type_env::TypeEnv, unify_error::unify},
 };
+
+use super::hm_expr_typer::HmExprTypeResult;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 impl Compiler {
+    fn known_concrete_expr_type_mismatch(
+        &self,
+        expected: &InferType,
+        expression: &crate::syntax::expression::Expression,
+    ) -> Option<(String, String)> {
+        let HmExprTypeResult::Known(actual) = self.hm_expr_type_strict_path(expression) else {
+            return None;
+        };
+        if !expected.is_concrete()
+            || !actual.is_concrete()
+            || expected.contains_any()
+            || actual.contains_any()
+        {
+            return None;
+        }
+
+        let compatible = if let Ok(subst) = unify(expected, &actual) {
+            let resolved_expected = expected.apply_type_subst(&subst);
+            let resolved_actual = actual.apply_type_subst(&subst);
+            resolved_expected == resolved_actual
+        } else {
+            false
+        };
+        if compatible {
+            return None;
+        }
+
+        Some((
+            display_infer_type(expected, &self.interner),
+            display_infer_type(&actual, &self.interner),
+        ))
+    }
+
     fn is_known_function_effect_annotation(&self, effect: Symbol) -> bool {
         if self.effect_declared_ops(effect).is_some() || self.is_effect_variable(effect) {
             return true;
@@ -125,6 +162,19 @@ impl Compiler {
                             &Default::default(),
                             &self.interner,
                         ) {
+                            if let Some((expected_str, actual_str)) =
+                                self.known_concrete_expr_type_mismatch(&expected_infer, value)
+                            {
+                                let name_str = self.sym(name).to_string();
+                                return Err(Self::boxed(let_annotation_type_mismatch(
+                                    self.file_path.clone(),
+                                    annotation.span(),
+                                    value.span(),
+                                    &name_str,
+                                    &expected_str,
+                                    &actual_str,
+                                )));
+                            }
                             self.validate_expr_expected_type_with_policy(
                                 &expected_infer,
                                 value,
@@ -435,6 +485,19 @@ impl Compiler {
                     ..
                 }) = body.statements.last()
             {
+                if let Some((expected_str, actual_str)) =
+                    self.known_concrete_expr_type_mismatch(&expected_ret, expression)
+                {
+                    let fn_name = self.sym(name).to_string();
+                    return Err(Self::boxed(fun_return_annotation_mismatch(
+                        self.file_path.clone(),
+                        ret_annotation.span(),
+                        expression.span(),
+                        &fn_name,
+                        &expected_str,
+                        &actual_str,
+                    )));
+                }
                 self.validate_expr_expected_type_with_policy(
                     &expected_ret,
                     expression,

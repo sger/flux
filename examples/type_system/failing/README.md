@@ -198,6 +198,18 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: parser diagnostic with targeted missing-colon message for effect operation signature
 - `105_unknown_effect_suggestion.flx`
   - Expected: compile-time failure (`E407`) for unknown function `with ...` effect annotation, with hint suggesting `IO`
+- `106_let_annotation_int_string.flx`
+  - Expected: compile-time failure (`E300`) with dual-label contextual let-annotation mismatch (`Int` annotation vs `String` initializer)
+- `107_let_annotation_bool_int.flx`
+  - Expected: compile-time failure (`E300`) with dual-label contextual let-annotation mismatch (`Bool` annotation vs `Int` initializer)
+- `108_fun_return_string_vs_int.flx`
+  - Expected: compile-time failure (`E300`) with dual-label function return annotation mismatch (`Int` declared vs `String` returned)
+- `109_fun_return_bool_vs_unit.flx`
+  - Expected: compile-time failure (`E300`) with dual-label function return annotation mismatch (`Bool` declared vs non-`Bool` return expression)
+- `110_call_arg_named_fn.flx`
+  - Expected: compile-time failure (`E300`) for call-site argument mismatch naming `greet` with definition-site secondary label
+- `111_call_arg_anonymous_fn.flx`
+  - Expected: compile-time failure (`E300`) for anonymous call-site argument mismatch with primary argument label only
 
 ## A3 Pure-Context Matrix
 

@@ -1,0 +1,7 @@
+fn greet(name: String) -> String {
+    name
+}
+
+fn main() -> Unit {
+    let _x = (if true { greet } else { greet })(42)
+}

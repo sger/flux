@@ -1,7 +1,8 @@
 use flux::diagnostics::position::{Position, Span};
 use flux::diagnostics::{
-    ERROR_CODES, LabelStyle, fun_arity_mismatch, fun_param_type_mismatch, fun_return_type_mismatch,
-    if_branch_type_mismatch, lookup_error_code, match_arm_type_mismatch, wrong_argument_count,
+    ERROR_CODES, LabelStyle, call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
+    fun_return_annotation_mismatch, fun_return_type_mismatch, if_branch_type_mismatch,
+    let_annotation_type_mismatch, lookup_error_code, match_arm_type_mismatch, wrong_argument_count,
 };
 
 fn span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -135,5 +136,64 @@ fn e300_constructor_shapes_have_primary_labels() {
             .labels()
             .iter()
             .any(|l| l.style == LabelStyle::Primary && !l.text.is_empty())
+    );
+
+    let call_arg_diag = call_arg_type_mismatch(
+        "test.flx".to_string(),
+        span(6, 11, 13),
+        Some("greet"),
+        1,
+        Some(span(1, 10, 16)),
+        "String",
+        "Int",
+    );
+    assert_eq!(call_arg_diag.code(), Some("E300"));
+    assert!(
+        call_arg_diag
+            .message()
+            .is_some_and(|m| m.contains("argument to `greet` has the wrong type"))
+    );
+    assert!(
+        call_arg_diag
+            .labels()
+            .iter()
+            .any(|l| l.style == LabelStyle::Secondary && !l.text.is_empty())
+    );
+
+    let let_diag = let_annotation_type_mismatch(
+        "test.flx".to_string(),
+        span(1, 8, 11),
+        span(1, 14, 21),
+        "x",
+        "Int",
+        "String",
+    );
+    assert_eq!(let_diag.code(), Some("E300"));
+    assert!(
+        let_diag
+            .labels()
+            .iter()
+            .any(|l| l.style == LabelStyle::Primary && !l.text.is_empty())
+    );
+    assert!(
+        let_diag
+            .labels()
+            .iter()
+            .any(|l| l.style == LabelStyle::Secondary && !l.text.is_empty())
+    );
+
+    let ret_ann_diag = fun_return_annotation_mismatch(
+        "test.flx".to_string(),
+        span(1, 22, 25),
+        span(3, 5, 11),
+        "add",
+        "Int",
+        "String",
+    );
+    assert_eq!(ret_ann_diag.code(), Some("E300"));
+    assert!(
+        ret_ann_diag
+            .message()
+            .is_some_and(|m| m.contains("return value of `add`"))
     );
 }

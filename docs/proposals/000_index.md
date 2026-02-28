@@ -39,6 +39,8 @@ Feature state is evidence-driven:
 | 054 | [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](054_0_0_4_hm_adt_exhaustiveness_critical_path.md) | Draft | gap | proposal-only | canonical sequencing and gates for 0.0.4 HM/ADT/exhaustiveness + post-0.0.4 feature tracks |
 | 055 | [055_lexer_performance_and_architecture.md](055_lexer_performance_and_architecture.md) | Draft | gap | proposal-only | phased lexer perf + architecture hardening with parser-contract and benchmark gates |
 | 056 | [056_parser_performance_and_architecture.md](056_parser_performance_and_architecture.md) | Draft | gap | proposal-only | phased parser perf + architecture hardening with lexer/parser contract and benchmark gates |
+| 057 | [057_parser_diagnostics_with_inferred_types.md](057_parser_diagnostics_with_inferred_types.md) | Implemented | have | `src/ast/type_infer.rs`, `src/types/unify_error.rs`, `src/diagnostics/compiler_errors.rs`, fixtures 92–105, `tests/type_inference_tests.rs`, `tests/compiler_rules_tests.rs` | completed — ReportContext, if/match contextual E300, E056 arity, fun decomposition, parser recovery, multi-error continuation |
+| 058 | [058_contextual_diagnostics_callsite_let_return.md](058_contextual_diagnostics_callsite_let_return.md) | Draft | gap | proposal-only | named call-site argument diagnostics, let-annotation dual-label, function return dual-label — direct continuation of 057 |
 
 ## Backlog (Draft / Proposed)
 

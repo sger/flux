@@ -623,6 +623,97 @@ fn main() -> Unit {
 }
 
 #[test]
+fn hm_call_arg_named_fn_reports_contextual_message_and_definition_site() {
+    let rendered = compile_err_rendered(
+        r#"
+fn greet(name: String) -> String { name }
+fn main() -> Unit {
+    let _x = greet(42)
+}
+"#,
+    );
+    assert!(
+        rendered.contains("The 1st argument to `greet` has the wrong type."),
+        "expected named call-arg mismatch message, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_call_arg_unresolved_or_any_paths_do_not_report_contextual_message() {
+    let unresolved_rendered = compile_rendered_or_empty(
+        r#"
+fn main() -> Unit {
+    let _x = unknown_fn(42)
+}
+"#,
+    );
+    assert!(
+        !unresolved_rendered.contains("argument to `"),
+        "did not expect contextual call-arg mismatch text for unresolved callee, got:\n{}",
+        unresolved_rendered
+    );
+
+    let nested_any_rendered = compile_rendered_or_empty(
+        r#"
+fn accepts_any_param_fn(f: (Any) -> Int) -> Int { f(0) }
+fn concrete_fn(x: Int) -> Int { x }
+fn main() -> Unit {
+    let _x = accepts_any_param_fn(concrete_fn)
+}
+"#,
+    );
+    assert!(
+        !nested_any_rendered.contains("argument to `accepts_any_param_fn` has the wrong type."),
+        "did not expect contextual call-arg mismatch text when expected type contains Any, got:\n{}",
+        nested_any_rendered
+    );
+}
+
+#[test]
+fn hm_let_annotation_mismatch_reports_dual_labels() {
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit {
+    let x: Int = "hello"
+}
+"#,
+    );
+    assert!(
+        rendered.contains("The value of `x` does not match its type annotation."),
+        "expected contextual let annotation mismatch message, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Change `x` to a `Int` value or update the annotation to `String`."),
+        "expected actionable let-annotation help text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_function_return_annotation_mismatch_reports_dual_labels() {
+    let rendered = compile_err_rendered(
+        r#"
+fn add() -> Int {
+    "oops"
+}
+fn main() -> Unit { add() }
+"#,
+    );
+    assert!(
+        rendered.contains("The return value of `add` does not match its declared return type."),
+        "expected contextual return-annotation mismatch message, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Return a `Int` value from `add` or change the declared return type."),
+        "expected actionable return-annotation help text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
 fn known_call_too_many_args_emits_e056() {
     let code = compile_err(
         r#"
