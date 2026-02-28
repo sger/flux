@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/106_let_annotation_int_string.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `x` does not match its type annotation.
+
+  --> examples/type_system/failing/106_let_annotation_int_string.flx:2:18
+  |
+2 |     let x: Int = "hello"
+  |                  ^^^^^^^
+  |                  ------- this is `String`
+  |            --- but `x` was annotated as `Int`
+
+Help:
+  Change `x` to a `Int` value or update the annotation to `String`.
+== stdout ==
+<not executed>

@@ -1,0 +1,43 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/109_fun_return_bool_vs_unit.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `bad_bool` does not match its declared return type.
+
+  --> examples/type_system/failing/109_fun_return_bool_vs_unit.flx:2:5
+  |
+1 | fn bad_bool() -> Bool {
+
+  |                  ---- `bad_bool` was declared to return `Bool`
+2 |     0
+  |     ^
+  |     - this expression has type `Int`
+
+Help:
+  Return a `Bool` value from `bad_bool` or change the declared return type.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `main` does not match its declared return type.
+
+  --> examples/type_system/failing/109_fun_return_bool_vs_unit.flx:6:5
+  |
+5 | fn main() -> Unit {
+
+  |              ---- `main` was declared to return `Unit`
+6 |     bad_bool()
+  |     ^^^^^^^^^^
+  |     ---------- this expression has type `Bool`
+
+Help:
+  Return a `Unit` value from `main` or change the declared return type.
+
+Found 2 errors.
+== stdout ==
+<not executed>

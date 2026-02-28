@@ -7,16 +7,25 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify Int with String.
+The 1st argument to `add` has the wrong type.
 
   --> examples/type_system/failing/01_compile_type_mismatch.flx:6:5
   |
+1 | fn add(a: Int, b: Int) -> Int {
+
+2 |     a + b
+
+3 | }
+
+4 | 
+
+5 | 
+
 6 | add("x", 2)
   |     ^^^
-  |     --- expected Int, found String
-  |     --- argument type is known at compile time
+  |     --- this argument is `String`
 
 Help:
-  argument #1 does not match function contract
+  Expected `Int` as the 1st argument.
 == stdout ==
 <not executed>

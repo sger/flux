@@ -222,13 +222,14 @@ fn test_mutual_recursion_not_optimized() {
 #[test]
 fn test_tail_call_returns_correct_value() {
     // Test that tail calls return the correct final value
+    // Keep all branches type-consistent under HM contextual checks.
     let input = r#"
         fn find_value(n, target) {
             if n == target {
                 n
             } else {
                 if n > target {
-                    "not found"
+                    -1
                 } else {
                     find_value(n + 1, target)
                 }

@@ -98,6 +98,19 @@ Hint:
 
 --> compiler error[E011]: PRIVATE MEMBER
 
+Cannot access private member `day04a_from_lines`.
+
+  --> examples/aoc/2024/day04_part1_test.flx:67:15
+   |
+67 |     assert_eq(Day04.day04a_from_lines([|"XM"|]), 0)
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
 Cannot access private member `day04b_from_lines`.
 
   --> examples/aoc/2024/day04_part1_test.flx:71:15
@@ -134,6 +147,32 @@ Cannot access private member `day04b_from_lines`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 10 errors.
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day04b_from_memory`.
+
+  --> examples/aoc/2024/day04_part1_test.flx:94:15
+   |
+94 |     assert_eq(Day04.day04b_from_memory(""), 0)
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day04b_from_lines`.
+
+  --> examples/aoc/2024/day04_part1_test.flx:95:15
+   |
+95 |     assert_eq(Day04.day04b_from_lines([|"MAS"|]), 0)
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 13 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/119_fn_missing_parens.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Missing parameter list for function `foo`. Write `fn foo()` or `fn foo(x: Type)`.
+
+  --> examples/type_system/failing/119_fn_missing_parens.flx:1:8
+  |
+1 | fn foo -> Int { 1 }
+  |        ^^
+
+Hint:
+  Function declarations require a parameter list: `fn name(...) -> Type { ... }`
+== stdout ==
+<not executed>

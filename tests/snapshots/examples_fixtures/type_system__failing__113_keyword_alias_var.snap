@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/113_keyword_alias_var.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `var`. Flux uses `let` for bindings.
+
+  --> examples/type_system/failing/113_keyword_alias_var.flx:1:1
+  |
+1 | var x = 1
+  | ^^^
+
+Hint:
+  Did you mean `let`?
+== stdout ==
+<not executed>

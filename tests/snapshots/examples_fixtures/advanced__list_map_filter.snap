@@ -217,13 +217,40 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify String with Int.
+The 2nd argument to `zip` has the wrong type.
 
-  --> examples/advanced/list_map_filter.flx:138:13
+  --> examples/advanced/list_map_filter.flx:138:25
     |
+126 | fn zip(a, b) {
+
+127 |     match a {
+
+128 |         [ha | ta] -> match b {
+
+129 |             [hb | tb] -> [[ha, hb] | zip(ta, tb)],
+
+130 |             _ -> None,
+
+131 |         },
+
+132 |         _ -> None,
+
+133 |     }
+
+134 | }
+
+135 | 
+
+136 | let labels = ["a", "b", "c"];
+
+137 | let vals = [1, 2, 3];
+
 138 | let pairs = zip(labels, vals);
-    |             ^^^^^^^^^^^^^^^^^
-    |             ----------------- expected String, found Int
+    |                         ^^^^
+    |                         ---- this argument is `List<Int>`
+
+Help:
+  Expected `List<String>` as the 2nd argument.
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
