@@ -1,0 +1,10 @@
+// PASS 2 multi-error continuation: independent errors in one function body.
+fn bad() -> Unit {
+    let x = 1
+    x = 2
+    let y: Int = "oops"
+}
+
+fn main() -> Unit {
+    bad()
+}

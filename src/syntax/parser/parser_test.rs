@@ -495,8 +495,7 @@ fn type_adt_sugar_trailing_bar_reports_error() {
 
 #[test]
 fn missing_open_brace_reports_contextual_error() {
-    let (_program, parser) =
-        parse_with_errors("fn add(a: Int, b: Int) -> Int\n    a + b\n");
+    let (_program, parser) = parse_with_errors("fn add(a: Int, b: Int) -> Int\n    a + b\n");
     assert!(
         !parser.errors.is_empty(),
         "expected parser error for missing opening brace"
@@ -510,8 +509,7 @@ fn missing_open_brace_reports_contextual_error() {
 
 #[test]
 fn missing_open_brace_mentions_function_name() {
-    let (_program, parser) =
-        parse_with_errors("fn distance_tag(p: Int) -> String\n    p\n");
+    let (_program, parser) = parse_with_errors("fn distance_tag(p: Int) -> String\n    p\n");
     assert!(!parser.errors.is_empty());
     // The diagnostic should reference the function name in a label
     let has_fn_name = parser.errors[0]

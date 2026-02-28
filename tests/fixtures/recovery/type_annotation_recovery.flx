@@ -1,0 +1,15 @@
+let x: = 1
+let ok1 = 1
+
+fn f(a: , b: Int) {
+  b
+}
+let ok2 = 2
+
+fn g() -> {
+  1
+}
+let ok3 = 3
+
+let lam = \x: -> x
+let ok4 = 4

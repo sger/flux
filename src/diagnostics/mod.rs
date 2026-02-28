@@ -12,6 +12,7 @@ pub mod position;
 pub mod registry;
 pub mod rendering;
 pub mod runtime_errors;
+pub mod text_similarity;
 pub mod types;
 
 pub use aggregator::{

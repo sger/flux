@@ -2,16 +2,17 @@ use std::rc::Rc;
 
 use crate::{
     bytecode::{
-        compiler::{Compiler, contracts::convert_type_expr},
+        compiler::{Compiler, contracts::convert_type_expr, suggestions::suggest_effect_name},
         debug_info::FunctionDebugInfo,
         module_constants::compile_module_constants,
         op_code::OpCode,
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
+        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
         INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
         position::{Position, Span},
+        types::ErrorType,
     },
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
@@ -29,6 +30,50 @@ use crate::{
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 impl Compiler {
+    fn is_known_function_effect_annotation(&self, effect: Symbol) -> bool {
+        if self.effect_declared_ops(effect).is_some() || self.is_effect_variable(effect) {
+            return true;
+        }
+        matches!(self.sym(effect), "IO" | "Time" | "State")
+    }
+
+    fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {
+        match effect {
+            EffectExpr::Named { name, span } => (*name == target).then_some(*span),
+            EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
+                Self::effect_named_span(left, target)
+                    .or_else(|| Self::effect_named_span(right, target))
+            }
+        }
+    }
+
+    fn unknown_function_effect_diagnostic(&self, effect: Symbol, span: Span) -> Diagnostic {
+        let effect_name = self.sym(effect).to_string();
+        let hint = suggest_effect_name(&effect_name).unwrap_or_else(|| {
+            "Use a declared effect name in `with ...` or declare the effect first.".to_string()
+        });
+        Diagnostic::make_error_dynamic(
+            "E407",
+            "UNKNOWN FUNCTION EFFECT",
+            ErrorType::Compiler,
+            format!(
+                "Function effect annotation references unknown effect `{}`.",
+                effect_name
+            ),
+            Some(hint),
+            self.file_path.clone(),
+            span,
+        )
+        .with_primary_label(span, "unknown effect in function annotation")
+    }
+
+    fn compile_statement_collect_error(
+        &mut self,
+        statement: &Statement,
+    ) -> Option<Box<Diagnostic>> {
+        self.compile_statement(statement).err()
+    }
+
     pub(super) fn compile_statement(&mut self, statement: &Statement) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(statement.span());
@@ -328,18 +373,31 @@ impl Compiler {
         body: &Block,
         position: Position,
     ) -> CompileResult<()> {
+        let function_span = Span::new(position, position);
+
         if let Some(param) = Self::find_duplicate_name(parameters) {
             let param_str = self.sym(param);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
                 &[param_str],
                 self.file_path.clone(),
-                Span::new(position, position),
+                function_span,
             )));
         }
 
+        for effect_expr in effects {
+            for effect_name in effect_expr.normalized_names() {
+                if !self.is_known_function_effect_annotation(effect_name) {
+                    let span =
+                        Self::effect_named_span(effect_expr, effect_name).unwrap_or(function_span);
+                    return Err(Self::boxed(
+                        self.unknown_function_effect_diagnostic(effect_name, span),
+                    ));
+                }
+            }
+        }
+
         // Resolve the symbol - it may have been predeclared in pass 1
-        let function_span = Span::new(position, position);
         let symbol = if let Some(existing) = self.symbol_table.resolve(name) {
             // Use the existing symbol from pass 1
             existing
@@ -387,10 +445,10 @@ impl Compiler {
                 )?;
             }
 
-            let body_result = self.with_function_context(parameters.len(), effects, |compiler| {
-                compiler.compile_block_with_tail(body)
+            let body_errors = self.with_function_context(parameters.len(), effects, |compiler| {
+                compiler.compile_block_with_tail_collect_errors(body)
             });
-            if body_result.is_ok() {
+            if body_errors.is_empty() {
                 if self.block_has_value_tail(body) {
                     if self.is_last_instruction(OpCode::OpPop) {
                         self.replace_last_pop_with_return();
@@ -405,7 +463,10 @@ impl Compiler {
                     self.emit(OpCode::OpReturn, &[]);
                 }
             }
-            body_result
+            for err in body_errors {
+                self.errors.push(*err);
+            }
+            Ok(())
         })();
 
         let free_symbols = self.symbol_table.free_symbols.clone();
@@ -601,8 +662,7 @@ impl Compiler {
                     fn_body,
                     position,
                 ) {
-                    self.current_module_prefix = previous_module;
-                    return Err(err);
+                    self.errors.push(*err);
                 }
             }
         }
@@ -650,15 +710,17 @@ impl Compiler {
 
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
         for statement in &block.statements {
-            self.compile_statement(statement)?;
+            if let Some(err) = self.compile_statement_collect_error(statement) {
+                return Err(err);
+            }
         }
 
         Ok(())
     }
 
-    /// Compile a block with tail position awareness for the last statement
-    pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+    fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
         let len = block.statements.len();
+        let mut errors = Vec::new();
 
         for (i, statement) in block.statements.iter().enumerate() {
             let is_last = i == len - 1;
@@ -670,12 +732,31 @@ impl Compiler {
                 } | Statement::Return { .. }
             );
 
-            if is_last && tail_eligible {
+            let result = if is_last && tail_eligible {
                 // Only value producing terminal statements are in tail position.
-                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))?;
+                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))
             } else {
-                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))?;
+                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))
+            };
+
+            if let Err(err) = result {
+                errors.push(err);
             }
+        }
+
+        errors
+    }
+
+    /// Compile a block with tail position awareness for the last statement
+    pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+        let mut errors = self
+            .compile_block_with_tail_collect_errors(block)
+            .into_iter();
+        if let Some(first) = errors.next() {
+            for err in errors {
+                self.errors.push(*err);
+            }
+            return Err(first);
         }
 
         Ok(())

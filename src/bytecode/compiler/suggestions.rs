@@ -2,49 +2,7 @@
 //!
 //! Provides fuzzy matching and "did you mean?" suggestions for undefined identifiers.
 
-/// Calculate Levenshtein distance between two strings
-/// Returns the minimum number of single-character edits needed to transform one string into another
-fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let a_len = a.chars().count();
-    let b_len = b.chars().count();
-
-    if a_len == 0 {
-        return b_len;
-    }
-    if b_len == 0 {
-        return a_len;
-    }
-
-    let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
-
-    // Initialize first column and row
-    for (i, row) in matrix.iter_mut().enumerate() {
-        row[0] = i;
-    }
-    for (j, cell) in matrix[0].iter_mut().enumerate() {
-        *cell = j;
-    }
-
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
-
-    // Calculate edit distance
-    for (i, &a_char) in a_chars.iter().enumerate() {
-        for (j, &b_char) in b_chars.iter().enumerate() {
-            let cost = if a_char == b_char { 0 } else { 1 };
-            matrix[i + 1][j + 1] = *[
-                matrix[i][j + 1] + 1, // deletion
-                matrix[i + 1][j] + 1, // insertion
-                matrix[i][j] + cost,  // substitution
-            ]
-            .iter()
-            .min()
-            .unwrap();
-        }
-    }
-
-    matrix[a_len][b_len]
-}
+use crate::diagnostics::text_similarity::levenshtein_distance;
 
 /// Find similar strings from a list of candidates
 ///
@@ -118,18 +76,27 @@ pub fn find_similar_names(
         .collect()
 }
 
+const KNOWN_EFFECT_NAMES: &[&str] = &["IO", "Time", "State"];
+
+/// Suggest a known built-in effect name for unknown-effect diagnostics.
+pub fn suggest_effect_name(name: &str) -> Option<String> {
+    if KNOWN_EFFECT_NAMES.contains(&name) || name.len() < 1 {
+        return None;
+    }
+
+    let candidates: Vec<String> = KNOWN_EFFECT_NAMES
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    let suggestion = find_similar_names(name, &candidates, 1)
+        .into_iter()
+        .next()?;
+    Some(format!("did you mean `{}`?", suggestion))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_levenshtein_distance() {
-        assert_eq!(levenshtein_distance("", ""), 0);
-        assert_eq!(levenshtein_distance("cat", "cat"), 0);
-        assert_eq!(levenshtein_distance("cat", "cut"), 1);
-        assert_eq!(levenshtein_distance("cat", "cats"), 1);
-        assert_eq!(levenshtein_distance("saturday", "sunday"), 3);
-    }
 
     #[test]
     fn test_find_similar_names_typo() {
@@ -181,5 +148,11 @@ mod tests {
         let suggestions = find_similar_names("alp", &candidates, 2);
 
         assert!(suggestions.len() <= 2);
+    }
+
+    #[test]
+    fn test_suggest_effect_name_prefix() {
+        let suggestion = suggest_effect_name("I");
+        assert_eq!(suggestion.as_deref(), Some("did you mean `IO`?"));
     }
 }

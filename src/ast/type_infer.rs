@@ -3,8 +3,12 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     diagnostics::{
         Diagnostic,
-        compiler_errors::{occurs_check_failure, type_unification_error},
+        compiler_errors::{
+            fun_arity_mismatch, fun_param_type_mismatch, fun_return_type_mismatch,
+            if_branch_type_mismatch, occurs_check_failure, type_unification_error,
+        },
         position::Span,
+        text_similarity::levenshtein_distance,
     },
     syntax::{
         Identifier,
@@ -24,7 +28,7 @@ use crate::{
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
-        unify_error::{UnifyErrorKind, unify_with_span},
+        unify_error::{UnifyErrorDetail, UnifyErrorKind, unify_with_span},
     },
 };
 
@@ -41,21 +45,38 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
         InferType::Con(c) => display_type_constructor(c, interner),
         InferType::App(c, args) => {
             let base = display_type_constructor(c, interner);
-            let args_str: Vec<String> = args.iter().map(|a| display_infer_type(a, interner)).collect();
+            let args_str: Vec<String> = args
+                .iter()
+                .map(|a| display_infer_type(a, interner))
+                .collect();
             format!("{}<{}>", base, args_str.join(", "))
         }
         InferType::Fun(params, ret, effects) => {
-            let params_str: Vec<String> = params.iter().map(|p| display_infer_type(p, interner)).collect();
+            let params_str: Vec<String> = params
+                .iter()
+                .map(|p| display_infer_type(p, interner))
+                .collect();
             let ret_str = display_infer_type(ret, interner);
             if effects.is_empty() {
                 format!("({}) -> {}", params_str.join(", "), ret_str)
             } else {
-                let eff_str: Vec<String> = effects.iter().map(|e| interner.resolve(*e).to_string()).collect();
-                format!("({}) -> {} with {}", params_str.join(", "), ret_str, eff_str.join(", "))
+                let eff_str: Vec<String> = effects
+                    .iter()
+                    .map(|e| interner.resolve(*e).to_string())
+                    .collect();
+                format!(
+                    "({}) -> {} with {}",
+                    params_str.join(", "),
+                    ret_str,
+                    eff_str.join(", ")
+                )
             }
         }
         InferType::Tuple(elems) => {
-            let elems_str: Vec<String> = elems.iter().map(|e| display_infer_type(e, interner)).collect();
+            let elems_str: Vec<String> = elems
+                .iter()
+                .map(|e| display_infer_type(e, interner))
+                .collect();
             format!("({})", elems_str.join(", "))
         }
     }
@@ -83,7 +104,7 @@ pub fn suggest_type_name(name: &str) -> Option<String> {
     let best = KNOWN_TYPE_NAMES
         .iter()
         .filter_map(|&known| {
-            let d = edit_distance(name, known);
+            let d = levenshtein_distance(name, known);
             // Allow distance ≤ 2, or prefix match
             if d <= 2 || known.starts_with(name) || name.starts_with(known) {
                 Some((d, known))
@@ -94,29 +115,6 @@ pub fn suggest_type_name(name: &str) -> Option<String> {
         .min_by_key(|(d, _)| *d);
 
     best.map(|(_, known)| format!("did you mean `{known}`?"))
-}
-
-/// Simple Levenshtein edit distance.
-fn edit_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let (m, n) = (a.len(), b.len());
-    let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for i in 0..=m {
-        dp[i][0] = i;
-    }
-    for j in 0..=n {
-        dp[0][j] = j;
-    }
-    for i in 1..=m {
-        for j in 1..=n {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
-        }
-    }
-    dp[m][n]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +143,21 @@ struct AdtConstructorTypeInfo {
     adt_name: Identifier,
     type_params: Vec<Identifier>,
     fields: Vec<TypeExpr>,
+}
+
+/// Reporting mode for HM unification diagnostics.
+#[derive(Debug, Clone, Copy)]
+enum ReportContext {
+    Plain,
+    IfBranch {
+        then_span: Span,
+        else_span: Span,
+    },
+    MatchArm {
+        first_span: Span,
+        arm_span: Span,
+        arm_index: usize,
+    },
 }
 
 impl<'a> InferCtx<'a> {
@@ -255,12 +268,15 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Unify `t1` with `t2`, composing the result into `self.subst`.
-    ///
-    /// On success, returns the resolved first type.
-    /// On failure, emits a diagnostic and returns `Any` so that inference can
-    /// continue without cascading errors.
-    fn unify_reporting(&mut self, t1: &InferType, t2: &InferType, span: Span) -> InferType {
+    /// Unify `t1` with `t2`, composing the result into `self.subst` with an
+    /// explicit reporting context.
+    fn unify_with_context(
+        &mut self,
+        t1: &InferType,
+        t2: &InferType,
+        span: Span,
+        context: ReportContext,
+    ) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
         match unify_with_span(&t1_sub, &t2_sub, span) {
@@ -279,21 +295,97 @@ impl<'a> InferCtx<'a> {
                 // once the base-function signature is known.
                 let should_emit = e.expected.is_concrete()
                     && e.actual.is_concrete()
-                    && !e.expected.is_any()
-                    && !e.actual.is_any();
+                    && !e.expected.contains_any()
+                    && !e.actual.contains_any();
 
                 if should_emit {
                     let file = self.file_path.clone();
-                    let mut diag = match e.kind {
-                        UnifyErrorKind::OccursCheck(v) => {
+                    let function_detail_diag = || match &e.detail {
+                        UnifyErrorDetail::FunArityMismatch { expected, actual } => {
+                            Some(fun_arity_mismatch(file.clone(), span, *expected, *actual))
+                        }
+                        UnifyErrorDetail::FunParamMismatch { index } => {
+                            let exp_param = self.display_type(&e.expected);
+                            let act_param = self.display_type(&e.actual);
+                            Some(fun_param_type_mismatch(
+                                file.clone(),
+                                span,
+                                *index + 1,
+                                &exp_param,
+                                &act_param,
+                            ))
+                        }
+                        UnifyErrorDetail::FunReturnMismatch => {
+                            let exp_ret = self.display_type(&e.expected);
+                            let act_ret = self.display_type(&e.actual);
+                            Some(fun_return_type_mismatch(
+                                file.clone(),
+                                span,
+                                &exp_ret,
+                                &act_ret,
+                            ))
+                        }
+                        UnifyErrorDetail::None => None,
+                    };
+                    let mut diag = match (context, &e.kind) {
+                        (ReportContext::Plain, UnifyErrorKind::OccursCheck(v)) => {
                             let v_str = format!("t{v}");
                             let ty_str = self.display_type(&e.actual);
                             occurs_check_failure(file, span, &v_str, &ty_str)
                         }
-                        UnifyErrorKind::Mismatch => {
-                            let exp_str = self.display_type(&e.expected);
-                            let act_str = self.display_type(&e.actual);
-                            type_unification_error(file, span, &exp_str, &act_str)
+                        (ReportContext::Plain, UnifyErrorKind::Mismatch) => {
+                            if let Some(diag) = function_detail_diag() {
+                                diag
+                            } else {
+                                let exp_str = self.display_type(&e.expected);
+                                let act_str = self.display_type(&e.actual);
+                                type_unification_error(file, span, &exp_str, &act_str)
+                            }
+                        }
+                        (
+                            ReportContext::IfBranch {
+                                then_span,
+                                else_span,
+                            },
+                            UnifyErrorKind::Mismatch,
+                        ) => {
+                            if let Some(diag) = function_detail_diag() {
+                                diag
+                            } else {
+                                let then_ty = self.display_type(&e.expected);
+                                let else_ty = self.display_type(&e.actual);
+                                if_branch_type_mismatch(
+                                    file, then_span, else_span, &then_ty, &else_ty,
+                                )
+                            }
+                        }
+                        (ReportContext::IfBranch { .. }, UnifyErrorKind::OccursCheck(v)) => {
+                            let v_str = format!("t{v}");
+                            let ty_str = self.display_type(&e.actual);
+                            occurs_check_failure(file, span, &v_str, &ty_str)
+                        }
+                        (
+                            ReportContext::MatchArm {
+                                first_span,
+                                arm_span,
+                                arm_index,
+                            },
+                            UnifyErrorKind::Mismatch,
+                        ) => {
+                            if let Some(diag) = function_detail_diag() {
+                                diag
+                            } else {
+                                let first_ty = self.display_type(&e.expected);
+                                let arm_ty = self.display_type(&e.actual);
+                                crate::diagnostics::compiler_errors::match_arm_type_mismatch(
+                                    file, first_span, arm_span, &first_ty, &arm_ty, arm_index,
+                                )
+                            }
+                        }
+                        (ReportContext::MatchArm { .. }, UnifyErrorKind::OccursCheck(v)) => {
+                            let v_str = format!("t{v}");
+                            let ty_str = self.display_type(&e.actual);
+                            occurs_check_failure(file, span, &v_str, &ty_str)
                         }
                     };
                     // Add "did you mean?" hint for likely type name typos
@@ -301,11 +393,10 @@ impl<'a> InferCtx<'a> {
                         if let InferType::Con(TypeConstructor::Adt(sym)) = ty {
                             let name = self.interner.resolve(*sym);
                             if let Some(suggestion) = suggest_type_name(name) {
-                                diag.hints.push(
-                                    crate::diagnostics::types::Hint::help(
-                                        format!("Unknown type `{name}` — {suggestion}"),
-                                    ),
-                                );
+                                diag.hints
+                                    .push(crate::diagnostics::types::Hint::help(format!(
+                                        "Unknown type `{name}` — {suggestion}"
+                                    )));
                             }
                         }
                     }
@@ -314,6 +405,15 @@ impl<'a> InferCtx<'a> {
                 InferType::Con(TypeConstructor::Any)
             }
         }
+    }
+
+    /// Unify `t1` with `t2`, composing the result into `self.subst`.
+    ///
+    /// On success, returns the resolved first type.
+    /// On failure, emits a diagnostic and returns `Any` so that inference can
+    /// continue without cascading errors.
+    fn unify_reporting(&mut self, t1: &InferType, t2: &InferType, span: Span) -> InferType {
+        self.unify_with_context(t1, t2, span, ReportContext::Plain)
     }
 
     // ── Program / statement inference ─────────────────────────────────────────
@@ -661,9 +761,15 @@ impl<'a> InferCtx<'a> {
                 match alternative {
                     Some(alt) => {
                         let else_ty = self.infer_block(alt);
-                        // In Flux's gradual type system branches may legitimately
-                        // return different types — the result is `Any`.  No E300.
-                        self.join_types(&then_ty, &else_ty)
+                        self.unify_with_context(
+                            &then_ty,
+                            &else_ty,
+                            *span,
+                            ReportContext::IfBranch {
+                                then_span: consequence.span,
+                                else_span: alt.span,
+                            },
+                        )
                     }
                     None => then_ty,
                 }
@@ -688,11 +794,12 @@ impl<'a> InferCtx<'a> {
                     self.infer_expr(guard);
                 }
                 let first_ty = self.infer_expr(&arms[0].body);
+                let first_span = arms[0].body.span();
                 self.env.leave_scope();
 
                 // Unify remaining arms against the first.
-                let mut result_ty = first_ty;
-                for arm in arms.iter().skip(1) {
+                let mut result_ty = first_ty.clone();
+                for (i, arm) in arms.iter().skip(1).enumerate() {
                     self.env.enter_scope();
                     self.bind_pattern(&arm.pattern, &scrutinee_ty, *span);
                     if let Some(guard) = &arm.guard {
@@ -700,8 +807,16 @@ impl<'a> InferCtx<'a> {
                     }
                     let arm_ty = self.infer_expr(&arm.body);
                     self.env.leave_scope();
-                    // Same gradual-typing rationale as if/else: arms may differ.
-                    result_ty = self.join_types(&result_ty, &arm_ty);
+                    result_ty = self.unify_with_context(
+                        &first_ty,
+                        &arm_ty,
+                        arm.span,
+                        ReportContext::MatchArm {
+                            first_span,
+                            arm_span: arm.body.span(),
+                            arm_index: i + 2,
+                        },
+                    );
                 }
                 result_ty
             }

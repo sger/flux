@@ -251,6 +251,16 @@ fn has_diagnostic_code(result: &flux::ast::type_infer::InferProgramResult, code:
         .any(|diag| diag.code() == Some(code))
 }
 
+fn has_diagnostic_message_fragment(
+    result: &flux::ast::type_infer::InferProgramResult,
+    fragment: &str,
+) -> bool {
+    result
+        .diagnostics
+        .iter()
+        .any(|diag| diag.message().is_some_and(|m| m.contains(fragment)))
+}
+
 #[test]
 fn infer_adt_constructor_call_generic_ok() {
     let source = r#"
@@ -298,6 +308,336 @@ fn unwrap_plus(r: Result<Int, String>) -> Int {
         has_diagnostic_code(&result, "E300"),
         "expected E300 diagnostics, got: {:#?}",
         result.diagnostics
+    );
+}
+
+#[test]
+fn infer_if_concrete_branch_mismatch_emits_contextual_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(
+            &result,
+            "The branches of this `if` expression produce different types."
+        ),
+        "expected contextual if-branch mismatch message, got: {:#?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The branches of this `if` expression produce different types.")
+                })
+        })
+        .expect("expected contextual if E300 diagnostic");
+    assert!(
+        diag.labels()
+            .iter()
+            .any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
+        "expected primary label on contextual if diagnostic"
+    );
+    assert!(
+        diag.labels()
+            .iter()
+            .any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
+        "expected secondary label on contextual if diagnostic"
+    );
+}
+
+#[test]
+fn infer_if_with_any_branch_does_not_emit_contextual_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { mystery_value }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(
+            &result,
+            "The branches of this `if` expression produce different types."
+        ),
+        "did not expect contextual if-branch mismatch diagnostic when one branch is Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_if_with_nested_any_branch_type_does_not_emit_contextual_e300() {
+    let source = r#"
+fn concrete_fn(x: Int) -> Int { x }
+fn any_param_fn(x: Any) -> Int { 0 }
+fn main() -> Unit {
+    let _f = if true { concrete_fn } else { any_param_fn }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(
+            &result,
+            "The branches of this `if` expression produce different types."
+        ),
+        "did not expect contextual if-branch mismatch diagnostic when one branch contains nested Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_concrete_arm_mismatch_emits_contextual_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> "no",
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(
+            &result,
+            "The arms of this `match` expression produce different types."
+        ),
+        "expected contextual match-arm mismatch message, got: {:#?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+
+    let diag = result
+        .diagnostics
+        .iter()
+        .find(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The arms of this `match` expression produce different types.")
+                })
+        })
+        .expect("expected contextual match E300 diagnostic");
+    assert!(
+        diag.labels()
+            .iter()
+            .any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
+        "expected primary label on contextual match diagnostic"
+    );
+    assert!(
+        diag.labels()
+            .iter()
+            .any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
+        "expected secondary label on contextual match diagnostic"
+    );
+}
+
+#[test]
+fn infer_match_multiple_mismatching_arms_emits_multiple_contextual_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> "no",
+        _ -> false,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    let contextual: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.code() == Some("E300")
+                && d.message().is_some_and(|m| {
+                    m.contains("The arms of this `match` expression produce different types.")
+                })
+        })
+        .collect();
+    assert_eq!(
+        contextual.len(),
+        2,
+        "expected 2 contextual match-arm E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    let msgs: Vec<_> = contextual
+        .iter()
+        .filter_map(|d| {
+            d.labels()
+                .iter()
+                .find(|l| l.style == flux::diagnostics::LabelStyle::Primary)
+        })
+        .map(|l| l.text.clone())
+        .collect();
+    assert!(
+        msgs.iter().any(|m| m.contains("arm 2")),
+        "expected primary label mentioning arm 2, got: {:?}",
+        msgs
+    );
+    assert!(
+        msgs.iter().any(|m| m.contains("arm 3")),
+        "expected primary label mentioning arm 3, got: {:?}",
+        msgs
+    );
+}
+
+#[test]
+fn infer_match_any_or_unresolved_arm_does_not_emit_contextual_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> mystery_value,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(
+            &result,
+            "The arms of this `match` expression produce different types."
+        ),
+        "did not expect contextual match-arm mismatch diagnostic when one arm is Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_with_nested_any_arm_type_does_not_emit_contextual_e300() {
+    let source = r#"
+fn concrete_fn(x: Int) -> Int { x }
+fn any_param_fn(x: Any) -> Int { 0 }
+fn main() -> Unit {
+    let _f = match true {
+        true -> concrete_fn,
+        false -> any_param_fn,
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(
+            &result,
+            "The arms of this `match` expression produce different types."
+        ),
+        "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_fun_param_mismatch_emits_param_specific_e300() {
+    let source = r#"
+fn takes_int(x: Int) -> Int { x }
+fn takes_string(x: String) -> Int { 0 }
+fn main() -> Unit {
+    let _f = if true {
+        takes_int
+    } else {
+        takes_string
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(
+            &result,
+            "Function parameter 1 type does not match: expected `Int`, found `String`."
+        ),
+        "expected function param mismatch message, got: {:#?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_fun_return_mismatch_emits_return_specific_e300() {
+    let source = r#"
+fn ret_int() -> Int { 1 }
+fn ret_string() -> String { "x" }
+fn main() -> Unit {
+    let _f = if true {
+        ret_int
+    } else {
+        ret_string
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(
+            &result,
+            "Function return types do not match: expected `Int`, found `String`."
+        ),
+        "expected function return mismatch message, got: {:#?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_fun_arity_mismatch_emits_arity_specific_e300() {
+    let source = r#"
+fn one_arg(x: Int) -> Int { x }
+fn two_args(x: Int, y: Int) -> Int { x + y }
+fn main() -> Unit {
+    let _f = if true {
+        one_arg
+    } else {
+        two_args
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(&result, "Function arity does not match."),
+        "expected function arity mismatch message, got: {:#?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().unwrap_or(""))
+            .collect::<Vec<_>>()
     );
 }
 

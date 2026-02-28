@@ -671,8 +671,12 @@ fn t(x) {
         let interner = parser.take_interner();
 
         assert!(
-            parser.errors.iter().any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
-                && d.message().is_some_and(|m| m.contains(")") || m.contains("closing"))),
+            parser
+                .errors
+                .iter()
+                .any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
+                    && d.message()
+                        .is_some_and(|m| m.contains(")") || m.contains("closing"))),
             "expected missing `)` diagnostic: {:?}",
             parser.errors
         );
@@ -1217,6 +1221,135 @@ fn t(x) {
             }
             _ => panic!("expected function statement"),
         }
+    }
+
+    #[test]
+    fn test_malformed_let_type_annotation_keeps_value_and_followup_statement() {
+        let lexer = Lexer::new("let x: = 1;\nlet y = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed let annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Let {
+                name,
+                type_annotation,
+                value,
+                ..
+            } => {
+                assert_eq!(interner.resolve(*name), "x");
+                assert!(type_annotation.is_none(), "annotation should be dropped");
+                assert!(matches!(value, Expression::Integer { value, .. } if *value == 1));
+            }
+            _ => panic!("expected first statement to remain a let binding"),
+        }
+
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
+            "expected follow-up let statement after malformed annotation"
+        );
+    }
+
+    #[test]
+    fn test_malformed_function_param_annotation_keeps_later_valid_parameter_type() {
+        let lexer = Lexer::new("fn f(a: , b: Int) { b }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed function parameter annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Function {
+                parameters,
+                parameter_types,
+                ..
+            } => {
+                assert_eq!(parameters.len(), 2);
+                assert_eq!(parameter_types.len(), 2);
+                assert!(
+                    parameter_types[0].is_none(),
+                    "malformed annotation should become None"
+                );
+                assert!(
+                    parameter_types[1].is_some(),
+                    "later valid parameter annotation should be preserved"
+                );
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_malformed_function_return_annotation_recovers_to_body() {
+        let lexer = Lexer::new("fn f() -> { 1 }\nlet after = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed return annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Function {
+                return_type, body, ..
+            } => {
+                assert!(
+                    return_type.is_none(),
+                    "malformed return annotation should be dropped"
+                );
+                assert!(
+                    !body.statements.is_empty(),
+                    "function body should still be parsed after recovery"
+                );
+            }
+            _ => panic!("expected function statement"),
+        }
+
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
+            "expected parser to keep follow-up statement after malformed function return annotation"
+        );
+    }
+
+    #[test]
+    fn test_malformed_lambda_annotation_recovers_and_keeps_followup_statement() {
+        let lexer = Lexer::new("let g = \\x: -> x;\nlet after = 1;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed lambda annotation diagnostic"
+        );
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "g")
+            ),
+            "expected malformed lambda statement to remain parseable"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
+            "expected follow-up let statement after malformed lambda annotation"
+        );
     }
 
     #[test]
@@ -1853,5 +1986,83 @@ fn t(x) {
     fn test_optional_semicolons_multiple_expressions() {
         let (program, _interner) = parse("1 + 2\n3 * 4\n5 - 6\n7 / 8");
         assert_eq!(program.statements.len(), 4);
+    }
+
+    #[test]
+    fn missing_colon_let_annotation_has_targeted_message_and_recovers() {
+        let input = "let x Int = 1;\nlet y = 2;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message().is_some_and(|m| {
+                m.contains("Missing `:` in let binding type annotation") && m.contains("`x: Type`")
+            })
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+        ));
+    }
+
+    #[test]
+    fn missing_colon_function_param_has_targeted_message() {
+        let input = "fn f(x Int) -> Int { x }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in function parameter type annotation"))
+        }));
+    }
+
+    #[test]
+    fn missing_colon_lambda_param_has_targeted_message() {
+        let input = "let g = \\x Int -> x;\nlet after = 1;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in lambda parameter type annotation"))
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")
+        ));
+    }
+
+    #[test]
+    fn missing_colon_effect_op_has_targeted_message() {
+        let input = "effect Console { print String -> Unit }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in effect operation signature"))
+        }));
+    }
+
+    #[test]
+    fn missing_function_return_arrow_has_targeted_message() {
+        let input = "fn f() Int { 1 }\nlet ok = 1;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `->` before function return type"))
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")
+        ));
     }
 }
