@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
-    RelatedKind, Severity, render_display_path,
+    RelatedKind, Severity, render_display_path, types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
 
@@ -182,6 +182,13 @@ pub struct DiagnosticsAggregator<'a> {
     default_file: Option<String>,
     sources: HashMap<String, String>,
     show_file_headers: Option<bool>,
+    disable_stage_filtering: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StageFilterStats {
+    suppressed_type_count: usize,
+    suppressed_effect_count: usize,
 }
 
 impl<'a> DiagnosticsAggregator<'a> {
@@ -192,6 +199,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             default_file: None,
             sources: HashMap::new(),
             show_file_headers: None,
+            disable_stage_filtering: false,
         }
     }
 
@@ -209,6 +217,11 @@ impl<'a> DiagnosticsAggregator<'a> {
     /// When unset, headers are shown for consistency even in single-file output.
     pub fn with_file_headers(mut self, show: bool) -> Self {
         self.show_file_headers = Some(show);
+        self
+    }
+
+    pub fn with_stage_filtering(mut self, enabled: bool) -> Self {
+        self.disable_stage_filtering = !enabled;
         self
     }
 
@@ -257,6 +270,148 @@ impl<'a> DiagnosticsAggregator<'a> {
         suppress_nearby_duplicate_e300(unique, default_file)
     }
 
+    fn apply_stage_filtering(
+        &self,
+        diagnostics: Vec<Diagnostic>,
+    ) -> (Vec<Diagnostic>, StageFilterStats) {
+        if self.disable_stage_filtering {
+            return (diagnostics, StageFilterStats::default());
+        }
+
+        let has_parse_errors = diagnostics.iter().any(|d| {
+            d.severity() == Severity::Error && matches!(d.phase(), Some(DiagnosticPhase::Parse))
+        });
+        let has_type_errors = diagnostics.iter().any(|d| {
+            d.severity() == Severity::Error
+                && matches!(
+                    d.phase(),
+                    Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck)
+                )
+        });
+
+        let mut filtered = Vec::with_capacity(diagnostics.len());
+        let mut stats = StageFilterStats::default();
+
+        for diag in diagnostics {
+            let suppress = match diag.phase() {
+                None => false,
+                Some(DiagnosticPhase::Runtime) => false,
+                Some(DiagnosticPhase::Parse) => false,
+                Some(DiagnosticPhase::ModuleGraph) => false,
+                Some(DiagnosticPhase::Validation) => false,
+                Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
+                    has_parse_errors
+                }
+                Some(DiagnosticPhase::Effect) => has_parse_errors || has_type_errors,
+            };
+
+            if suppress {
+                if diag.severity() == Severity::Error {
+                    match diag.phase() {
+                        Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
+                            stats.suppressed_type_count += 1;
+                        }
+                        Some(DiagnosticPhase::Effect) => {
+                            stats.suppressed_effect_count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            filtered.push(diag);
+        }
+
+        (filtered, stats)
+    }
+
+    fn collapse_parser_cascades(&self, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+        if self.disable_stage_filtering || diagnostics.len() <= 1 {
+            return diagnostics;
+        }
+
+        let mut first_parse_idx = None;
+        for (idx, diag) in diagnostics.iter().enumerate() {
+            if matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+                && diag.severity() == Severity::Error
+            {
+                first_parse_idx = Some(idx);
+                break;
+            }
+        }
+        let Some(first_idx) = first_parse_idx else {
+            return diagnostics;
+        };
+
+        let mut out = Vec::with_capacity(diagnostics.len());
+        let mut root_file = effective_file(&diagnostics[first_idx], self.default_file.as_deref())
+            .map(ToString::to_string);
+        let mut root_line = diagnostics[first_idx]
+            .span()
+            .map(|s| s.start.line)
+            .unwrap_or(0);
+        let mut root_code = diagnostics[first_idx].code().map(ToString::to_string);
+        let mut seen_parse_error = false;
+        let mut suppressed_cascades = 0usize;
+
+        for diag in diagnostics {
+            let is_parse_error = matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+                && diag.severity() == Severity::Error;
+            if !is_parse_error {
+                out.push(diag);
+                continue;
+            }
+
+            let file = effective_file(&diag, self.default_file.as_deref()).map(ToString::to_string);
+            let line = diag.span().map(|s| s.start.line).unwrap_or(0);
+            let is_generic = diag.code() == Some("E034");
+            // Only collapse generic E034 errors that follow a *structural* root
+            // error which corrupts the token stream (unterminated string, unclosed
+            // delimiter).  Other root errors (e.g. E030 unknown keyword) recover
+            // cleanly, so nearby E034s are likely independent issues.
+            let root_is_structural = matches!(
+                root_code.as_deref(),
+                Some("E071" | "E076")
+            );
+            if seen_parse_error
+                && is_generic
+                && root_is_structural
+                && file == root_file
+                && line <= root_line.saturating_add(3)
+            {
+                suppressed_cascades += 1;
+                continue;
+            }
+
+            root_file = file;
+            root_line = line;
+            root_code = diag.code().map(ToString::to_string);
+            seen_parse_error = true;
+            out.push(diag);
+        }
+
+        if suppressed_cascades > 0
+            && let Some(last_parse) = out.iter_mut().rfind(|d| {
+                matches!(d.phase(), Some(DiagnosticPhase::Parse)) && d.severity() == Severity::Error
+            })
+        {
+            last_parse.hints.push(Hint::note(format!(
+                "Suppressed {} cascading parser diagnostic(s) likely caused by an earlier syntax error.",
+                suppressed_cascades
+            )));
+        }
+
+        out
+    }
+
+    fn process_with_metadata(&self) -> (Vec<Diagnostic>, StageFilterStats) {
+        let deduped = self.unique_sorted_suppressed();
+        let (filtered, stats) = self.apply_stage_filtering(deduped);
+        let collapsed = self.collapse_parser_cascades(filtered);
+        (collapsed, stats)
+    }
+
     fn apply_error_limit(&self, diagnostics: Vec<Diagnostic>) -> (Vec<Diagnostic>, usize) {
         let max_errors = self.max_errors.unwrap_or(usize::MAX);
         let mut errors_shown = 0usize;
@@ -276,8 +431,8 @@ impl<'a> DiagnosticsAggregator<'a> {
     /// Returns diagnostics after exact dedup + E300 neighborhood suppression
     /// + max-errors filtering, in deterministic render order.
     pub fn processed_diagnostics(&self) -> Vec<Diagnostic> {
-        let suppressed = self.unique_sorted_suppressed();
-        let (shown, _) = self.apply_error_limit(suppressed);
+        let (processed, _) = self.process_with_metadata();
+        let (shown, _) = self.apply_error_limit(processed);
         shown
     }
 
@@ -290,21 +445,54 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
 
         let default_file = self.default_file.as_deref();
-        let suppressed = self.unique_sorted_suppressed();
+        let (processed, stage_stats) = self.process_with_metadata();
         let counts = {
-            let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = suppressed
+            let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = processed
                 .iter()
                 .enumerate()
                 .map(|(index, diag)| IndexedDiagnostic { index, diag })
                 .collect();
             count_severity(&indexed_suppressed)
         };
-        let file_count = suppressed
+        let file_count = processed
             .iter()
             .filter_map(|d| effective_file(d, default_file))
             .collect::<HashSet<_>>()
             .len();
-        let (shown, errors_shown) = self.apply_error_limit(suppressed);
+        let (mut shown, errors_shown) = self.apply_error_limit(processed);
+
+        let suppressed_type_count = stage_stats.suppressed_type_count;
+        let suppressed_effect_count = stage_stats.suppressed_effect_count;
+        let suppressed_total = suppressed_type_count + suppressed_effect_count;
+        if suppressed_total > 0 {
+            let mut details = Vec::new();
+            if suppressed_type_count > 0 {
+                details.push(format!("{} type", suppressed_type_count));
+            }
+            if suppressed_effect_count > 0 {
+                details.push(format!("{} effect", suppressed_effect_count));
+            }
+            let breakdown = if details.is_empty() {
+                "downstream".to_string()
+            } else {
+                details.join(", ")
+            };
+            let mut suppression_note = Diagnostic::make_note(
+                "DOWNSTREAM ERRORS SUPPRESSED",
+                format!(
+                    "{} downstream diagnostic{} ({}) {} suppressed by stage filtering. Fix earlier-stage errors first.",
+                    suppressed_total,
+                    if suppressed_total == 1 { "" } else { "s" },
+                    breakdown,
+                    if suppressed_total == 1 { "was" } else { "were" }
+                ),
+                default_file.unwrap_or("<unknown>"),
+                Span::default(),
+            )
+            .with_phase(DiagnosticPhase::Validation);
+            suppression_note.span = None;
+            shown.push(suppression_note);
+        }
 
         let mut file_cache: HashMap<String, String> = self.sources.clone();
         // Default to always showing file headers for consistent output.

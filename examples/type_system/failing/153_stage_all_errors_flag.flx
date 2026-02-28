@@ -1,0 +1,8 @@
+// Same scenario as 150.
+// Verify `--all-errors` via `flux run` to expose downstream diagnostics hidden in default mode.
+
+import Stage150Type
+
+fn main() -> Unit {
+    let broken = "unterminated
+}

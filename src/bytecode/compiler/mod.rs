@@ -19,8 +19,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     diagnostics::{
-        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, ErrorType, UNKNOWN_BASE_MEMBER,
-        lookup_error_code,
+        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ErrorType,
+        UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
     runtime::{
@@ -54,6 +54,14 @@ mod statement;
 mod suggestions;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
+
+fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
+    for diag in diags {
+        if diag.phase().is_none() {
+            diag.phase = Some(phase);
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct FunctionEffectSeed {
@@ -1935,6 +1943,8 @@ impl Compiler {
             }
         }
 
+        tag_diagnostics(&mut self.errors, DiagnosticPhase::Validation);
+
         // HM type inference pass — runs after predeclaration, before code generation.
         // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
         // type lookup for unannotated bindings.
@@ -1961,18 +1971,21 @@ impl Compiler {
             self.expr_ptr_to_id = hm.expr_ptr_to_id;
             hm.diagnostics
         };
+        tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
 
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
-        self.errors.extend(validate_program_patterns(
-            program,
-            &self.file_path,
-            &self.interner,
-        ));
+        let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
+        tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
+        self.errors.extend(pattern_diags);
         for statement in &program.statements {
             // Continue compilation even if there are errors
             if let Err(err) = self.compile_statement(statement) {
-                self.errors.push(*err);
+                let mut diag = *err;
+                if diag.phase().is_none() {
+                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                }
+                self.errors.push(diag);
             }
         }
 

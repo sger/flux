@@ -2,13 +2,14 @@ use serde::Serialize;
 
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
-    Diagnostic, DiagnosticsAggregator, Hint, HintKind, InlineSuggestion, Label, LabelStyle,
-    RelatedDiagnostic, RelatedKind, Severity,
+    Diagnostic, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind, InlineSuggestion, Label,
+    LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
 };
 
 #[derive(Serialize)]
 struct JsonDiagnostic {
     severity: &'static str,
+    phase: Option<&'static str>,
     code: Option<String>,
     title: String,
     message: Option<String>,
@@ -67,8 +68,11 @@ pub fn render_diagnostics_json(
     diagnostics: &[Diagnostic],
     default_file: Option<&str>,
     max_errors: Option<usize>,
+    stage_filtering: bool,
 ) -> String {
-    let mut agg = DiagnosticsAggregator::new(diagnostics).with_max_errors(max_errors);
+    let mut agg = DiagnosticsAggregator::new(diagnostics)
+        .with_max_errors(max_errors)
+        .with_stage_filtering(stage_filtering);
     if let Some(file) = default_file {
         agg = agg.with_default_file(file.to_string());
     }
@@ -82,6 +86,7 @@ impl JsonDiagnostic {
     fn from_diag(diag: &Diagnostic) -> Self {
         Self {
             severity: severity_str(diag.severity()),
+            phase: diag.phase().map(phase_str),
             code: diag.code().map(ToString::to_string),
             title: diag.title().to_string(),
             message: diag.message().map(ToString::to_string),
@@ -100,6 +105,18 @@ impl JsonDiagnostic {
                 .map(JsonRelated::from_related)
                 .collect(),
         }
+    }
+}
+
+fn phase_str(phase: DiagnosticPhase) -> &'static str {
+    match phase {
+        DiagnosticPhase::Parse => "parse",
+        DiagnosticPhase::ModuleGraph => "module_graph",
+        DiagnosticPhase::Validation => "validation",
+        DiagnosticPhase::TypeInference => "type_inference",
+        DiagnosticPhase::TypeCheck => "type_check",
+        DiagnosticPhase::Effect => "effect",
+        DiagnosticPhase::Runtime => "runtime",
     }
 }
 

@@ -3,52 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/diagnostic_comment_trim.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/diagnostic_comment_trim.flx:10:1
-   |
-10 | print(len(arr))
-   | ^^^^^^^^^^^^^^^
-   | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/basics/diagnostic_comment_trim.flx:10:1
-   |
-10 | print(len(arr))
-   | ^^^^^^^^^^^^^^^
-   | --------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E004]: UNDEFINED VARIABLE
-
-I can't find a value named `prnt`.
-
-  --> examples/basics/diagnostic_comment_trim.flx:11:1
-   |
-11 | prnt(arr)
-   | ^^^^
-
-Hint:
-  Define it first: let prnt = ...;
-
-
-Help:
-  Did you mean one of: `print`, `put`?
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

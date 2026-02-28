@@ -17,7 +17,7 @@ use flux::{
         op_code::disassemble,
     },
     diagnostics::{
-        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span,
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator, position::Span,
         render_diagnostics_json,
     },
     runtime::{
@@ -60,6 +60,7 @@ fn main() {
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
     let strict_mode = args.iter().any(|arg| arg == "--strict");
+    let all_errors = args.iter().any(|arg| arg == "--all-errors");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -104,6 +105,9 @@ fn main() {
     if strict_mode {
         args.retain(|arg| arg != "--strict");
     }
+    if all_errors {
+        args.retain(|arg| arg != "--all-errors");
+    }
     let gc_threshold = match extract_gc_threshold(&mut args) {
         Some(value) => value,
         None => return,
@@ -144,6 +148,7 @@ fn main() {
                 test_filter.as_deref(),
                 strict_mode,
                 diagnostics_format,
+                all_errors,
             );
         } else {
             run_file(
@@ -164,6 +169,7 @@ fn main() {
                 show_stats,
                 strict_mode,
                 diagnostics_format,
+                all_errors,
             );
         }
         return;
@@ -197,6 +203,7 @@ fn main() {
                     test_filter.as_deref(),
                     strict_mode,
                     diagnostics_format,
+                    all_errors,
                 );
             } else {
                 run_file(
@@ -217,6 +224,7 @@ fn main() {
                     show_stats,
                     strict_mode,
                     diagnostics_format,
+                    all_errors,
                 );
             }
         }
@@ -336,6 +344,7 @@ Flags:
   --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
   --stats            Print execution analytics (parse/compile/execute times, module info)
   --strict           Enable strict type/effect boundary checks
+  --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -365,6 +374,7 @@ fn run_file(
     show_stats: bool,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
+    all_errors: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -445,6 +455,7 @@ fn run_file(
             // --- Collect all diagnostics into a single pool ---
             let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
             let mut parse_warnings = parser.take_warnings();
+            tag_diagnostics(&mut parse_warnings, DiagnosticPhase::Parse);
             for diag in &mut parse_warnings {
                 if diag.file().is_none() {
                     diag.set_file(path.to_string());
@@ -455,6 +466,7 @@ fn run_file(
             // Entry file parse errors: collect but do NOT exit early.
             let entry_has_errors = !parser.errors.is_empty();
             if entry_has_errors {
+                tag_diagnostics(&mut parser.errors, DiagnosticPhase::Parse);
                 for diag in &mut parser.errors {
                     if diag.file().is_none() {
                         diag.set_file(path.to_string());
@@ -471,7 +483,9 @@ fn run_file(
             let graph_result =
                 ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
             let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-            all_diagnostics.extend(graph_result.diagnostics);
+            let mut graph_diags = graph_result.diagnostics;
+            tag_diagnostics(&mut graph_diags, DiagnosticPhase::ModuleGraph);
+            all_diagnostics.extend(graph_diags);
 
             // Track all failed modules (parse + validation failures from graph).
             let mut failed: HashSet<PathBuf> = graph_result.failed_modules;
@@ -525,6 +539,7 @@ fn run_file(
                 let compile_result =
                     compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
                 let mut compiler_warnings = compiler.take_warnings();
+                tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
                 for diag in &mut compiler_warnings {
                     if diag.file().is_none() {
                         diag.set_file(node.path.to_string_lossy().to_string());
@@ -533,6 +548,7 @@ fn run_file(
                 all_diagnostics.append(&mut compiler_warnings);
 
                 if let Err(mut diags) = compile_result {
+                    tag_diagnostics(&mut diags, DiagnosticPhase::TypeCheck);
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -549,6 +565,7 @@ fn run_file(
                     .with_default_source(path, source.as_str())
                     .with_file_headers(is_multimodule)
                     .with_max_errors(Some(max_errors))
+                    .with_stage_filtering(!all_errors)
                     .report();
                 if report.counts.errors > 0 {
                     emit_diagnostics(
@@ -558,6 +575,7 @@ fn run_file(
                         is_multimodule,
                         max_errors,
                         diagnostics_format,
+                        all_errors,
                         true,
                     );
                     std::process::exit(1);
@@ -569,6 +587,7 @@ fn run_file(
                     is_multimodule,
                     max_errors,
                     diagnostics_format,
+                    all_errors,
                     true,
                 );
             }
@@ -741,6 +760,7 @@ fn run_test_file(
     test_filter: Option<&str>,
     strict_mode: bool,
     diagnostics_format: DiagnosticOutputFormat,
+    all_errors: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -760,6 +780,7 @@ fn run_test_file(
 
     let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
     let mut parse_warnings = parser.take_warnings();
+    tag_diagnostics(&mut parse_warnings, DiagnosticPhase::Parse);
     for diag in &mut parse_warnings {
         if diag.file().is_none() {
             diag.set_file(path.to_string());
@@ -768,6 +789,7 @@ fn run_test_file(
     all_diagnostics.append(&mut parse_warnings);
 
     if !parser.errors.is_empty() {
+        tag_diagnostics(&mut parser.errors, DiagnosticPhase::Parse);
         for diag in &mut parser.errors {
             if diag.file().is_none() {
                 diag.set_file(path.to_string());
@@ -780,6 +802,7 @@ fn run_test_file(
             false,
             max_errors,
             diagnostics_format,
+            all_errors,
             true,
         );
         std::process::exit(1);
@@ -790,7 +813,9 @@ fn run_test_file(
     // --- Build module graph ---
     let graph_result =
         ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
-    all_diagnostics.extend(graph_result.diagnostics);
+    let mut graph_diags = graph_result.diagnostics;
+    tag_diagnostics(&mut graph_diags, DiagnosticPhase::ModuleGraph);
+    all_diagnostics.extend(graph_diags);
 
     let failed = graph_result.failed_modules;
     let module_count = graph_result.graph.module_count();
@@ -811,6 +836,7 @@ fn run_test_file(
         let compile_result =
             compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
         let mut compiler_warnings = compiler.take_warnings();
+        tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
         for diag in &mut compiler_warnings {
             if diag.file().is_none() {
                 diag.set_file(node.path.to_string_lossy().to_string());
@@ -819,6 +845,7 @@ fn run_test_file(
         all_diagnostics.append(&mut compiler_warnings);
 
         if let Err(mut diags) = compile_result {
+            tag_diagnostics(&mut diags, DiagnosticPhase::TypeCheck);
             for diag in &mut diags {
                 if diag.file().is_none() {
                     diag.set_file(node.path.to_string_lossy().to_string());
@@ -833,6 +860,7 @@ fn run_test_file(
             .with_default_source(path, source.as_str())
             .with_file_headers(is_multimodule)
             .with_max_errors(Some(max_errors))
+            .with_stage_filtering(!all_errors)
             .report();
         if report.counts.errors > 0 {
             emit_diagnostics(
@@ -842,6 +870,7 @@ fn run_test_file(
                 is_multimodule,
                 max_errors,
                 diagnostics_format,
+                all_errors,
                 true,
             );
             std::process::exit(1);
@@ -853,6 +882,7 @@ fn run_test_file(
             is_multimodule,
             max_errors,
             diagnostics_format,
+            all_errors,
             true,
         );
     }
@@ -1155,6 +1185,14 @@ fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
     Some(max_errors)
 }
 
+fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
+    for diag in diags {
+        if diag.phase().is_none() {
+            *diag = diag.clone().with_phase(phase);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_diagnostics(
     diagnostics: &[Diagnostic],
@@ -1163,11 +1201,13 @@ fn emit_diagnostics(
     show_file_headers: bool,
     max_errors: usize,
     format: DiagnosticOutputFormat,
+    all_errors: bool,
     text_to_stderr: bool,
 ) {
     let mut agg = DiagnosticsAggregator::new(diagnostics)
         .with_file_headers(show_file_headers)
-        .with_max_errors(Some(max_errors));
+        .with_max_errors(Some(max_errors))
+        .with_stage_filtering(!all_errors);
     if let Some(file) = default_file {
         if let Some(source) = default_source {
             agg = agg.with_default_source(file.to_string(), source.to_string());
@@ -1186,7 +1226,8 @@ fn emit_diagnostics(
             }
         }
         DiagnosticOutputFormat::Json => {
-            let rendered = render_diagnostics_json(diagnostics, default_file, Some(max_errors));
+            let rendered =
+                render_diagnostics_json(diagnostics, default_file, Some(max_errors), !all_errors);
             eprintln!("{}", rendered);
         }
     }
@@ -1324,6 +1365,7 @@ fn show_bytecode(
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
                 std::process::exit(1);
@@ -1337,6 +1379,7 @@ fn show_bytecode(
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
             }
@@ -1360,6 +1403,7 @@ fn show_bytecode(
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
             }
@@ -1371,6 +1415,7 @@ fn show_bytecode(
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
                 std::process::exit(1);
@@ -1424,6 +1469,7 @@ fn lint_file(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutput
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
                 std::process::exit(1);
@@ -1437,6 +1483,7 @@ fn lint_file(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutput
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
             }
@@ -1451,6 +1498,7 @@ fn lint_file(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutput
                     false,
                     max_errors,
                     diagnostics_format,
+                    false,
                     false,
                 );
             }
@@ -1500,6 +1548,7 @@ fn analyze_free_vars(path: &str, max_errors: usize, diagnostics_format: Diagnost
                     true,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
                 std::process::exit(1);
@@ -1513,6 +1562,7 @@ fn analyze_free_vars(path: &str, max_errors: usize, diagnostics_format: Diagnost
                     true,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
             }
@@ -1562,6 +1612,7 @@ fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: Diagnos
                     true,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
                 std::process::exit(1);
@@ -1575,6 +1626,7 @@ fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: Diagnos
                     true,
                     max_errors,
                     diagnostics_format,
+                    false,
                     true,
                 );
             }

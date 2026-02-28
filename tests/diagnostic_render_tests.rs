@@ -1,5 +1,5 @@
 use flux::diagnostics::{
-    Diagnostic, DiagnosticBuilder, ErrorType,
+    Diagnostic, DiagnosticBuilder, DiagnosticPhase, ErrorType,
     position::{Position, Span},
     render_diagnostics_json,
 };
@@ -45,7 +45,7 @@ fn json_render_is_valid_array() {
         "test.flx",
         Span::new(Position::new(1, 1), Position::new(1, 2)),
     );
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50));
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     assert!(parsed.is_array(), "expected top-level JSON array");
@@ -62,7 +62,7 @@ fn json_render_contains_required_fields() {
         "test.flx",
         Span::new(Position::new(1, 1), Position::new(1, 2)),
     );
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50));
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let first = parsed
@@ -71,6 +71,7 @@ fn json_render_contains_required_fields() {
         .expect("expected at least one diagnostic");
     for key in [
         "severity",
+        "phase",
         "code",
         "title",
         "message",
@@ -83,6 +84,31 @@ fn json_render_contains_required_fields() {
     ] {
         assert!(first.get(key).is_some(), "missing required field `{key}`");
     }
+}
+
+#[test]
+fn json_render_includes_phase_when_tagged() {
+    let diag = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "type mismatch",
+        None,
+        "test.flx",
+        Span::new(Position::new(1, 1), Position::new(1, 2)),
+    )
+    .with_phase(DiagnosticPhase::TypeInference);
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
+    let first = parsed
+        .as_array()
+        .and_then(|arr| arr.first())
+        .expect("expected at least one diagnostic");
+    assert_eq!(
+        first.get("phase").and_then(|v| v.as_str()),
+        Some("type_inference")
+    );
 }
 
 #[test]
@@ -101,7 +127,7 @@ fn json_render_preserves_label_and_hint_payloads() {
     .with_secondary_label(span, "secondary label")
     .with_hint_text("example hint");
 
-    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50));
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let first = parsed
@@ -147,7 +173,7 @@ fn json_render_respects_max_errors_filter() {
             Span::new(Position::new(line, 1), Position::new(line, 2)),
         )
     };
-    let out = render_diagnostics_json(&[mk(1), mk(2), mk(3)], Some("test.flx"), Some(2));
+    let out = render_diagnostics_json(&[mk(1), mk(2), mk(3)], Some("test.flx"), Some(2), true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
     let len = parsed

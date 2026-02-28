@@ -10,8 +10,8 @@ use crate::{
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
-        INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ICE_SYMBOL_SCOPE_LET,
+        IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
         compiler_errors::{fun_return_annotation_mismatch, let_annotation_type_mismatch},
         position::{Position, Span},
         types::ErrorType,
@@ -102,6 +102,7 @@ impl Compiler {
             span,
         )
         .with_primary_label(span, "unknown effect in function annotation")
+        .with_phase(DiagnosticPhase::Effect)
     }
 
     fn compile_statement_collect_error(
@@ -527,7 +528,11 @@ impl Compiler {
                 }
             }
             for err in body_errors {
-                self.errors.push(*err);
+                let mut diag = *err;
+                if diag.phase().is_none() {
+                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                }
+                self.errors.push(diag);
             }
             Ok(())
         })();
@@ -725,7 +730,11 @@ impl Compiler {
                     fn_body,
                     position,
                 ) {
-                    self.errors.push(*err);
+                    let mut diag = *err;
+                    if diag.phase().is_none() {
+                        diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    }
+                    self.errors.push(diag);
                 }
             }
         }
@@ -817,7 +826,11 @@ impl Compiler {
             .into_iter();
         if let Some(first) = errors.next() {
             for err in errors {
-                self.errors.push(*err);
+                let mut diag = *err;
+                if diag.phase().is_none() {
+                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                }
+                self.errors.push(diag);
             }
             return Err(first);
         }
