@@ -978,6 +978,108 @@ fn format_call_skeleton(fn_name: &str, arity: usize) -> String {
     format!("{fn_name}({})", args.join(", "))
 }
 
+fn ordinal(index: usize) -> String {
+    let suffix = match index % 100 {
+        11..=13 => "th",
+        _ => match index % 10 {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th",
+        },
+    };
+    format!("{index}{suffix}")
+}
+
+/// Create a call-argument type mismatch diagnostic (E300).
+pub fn call_arg_type_mismatch(
+    file: String,
+    arg_span: Span,
+    fn_name: Option<&str>,
+    arg_index: usize,
+    fn_def_span: Option<Span>,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    let ord = ordinal(arg_index);
+    let mut diag = if let Some(name) = fn_name {
+        diag_enhanced(&TYPE_UNIFICATION_ERROR)
+            .with_file(file)
+            .with_span(arg_span)
+            .with_message(format!("The {ord} argument to `{name}` has the wrong type."))
+            .with_primary_label(arg_span, format!("this argument is `{actual}`"))
+    } else {
+        diag_enhanced(&TYPE_UNIFICATION_ERROR)
+            .with_file(file)
+            .with_span(arg_span)
+            .with_message(format!("The {ord} argument to this function has the wrong type."))
+            .with_primary_label(arg_span, format!("this argument is `{actual}`"))
+    };
+
+    if let Some(def_span) = fn_def_span {
+        if let Some(name) = fn_name {
+            diag = diag.with_secondary_label(
+                def_span,
+                format!("`{name}` expects `{expected}` as the {ord} parameter"),
+            );
+        } else {
+            diag = diag
+                .with_secondary_label(def_span, format!("this function expects `{expected}`"));
+        }
+    }
+
+    diag = diag.with_help(format!("Expected `{expected}` as the {ord} argument."));
+
+    diag
+}
+
+/// Create a typed-let annotation mismatch diagnostic (E300).
+pub fn let_annotation_type_mismatch(
+    file: String,
+    ann_span: Span,
+    value_span: Span,
+    name: &str,
+    ann_ty: &str,
+    value_ty: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(value_span)
+        .with_message(format!(
+            "The value of `{name}` does not match its type annotation."
+        ))
+        .with_primary_label(value_span, format!("this is `{value_ty}`"))
+        .with_secondary_label(ann_span, format!("but `{name}` was annotated as `{ann_ty}`"))
+        .with_help(format!(
+            "Change `{name}` to a `{ann_ty}` value or update the annotation to `{value_ty}`."
+        ))
+}
+
+/// Create a function return-annotation mismatch diagnostic (E300).
+pub fn fun_return_annotation_mismatch(
+    file: String,
+    ret_ann_span: Span,
+    return_expr_span: Span,
+    fn_name: &str,
+    declared_ty: &str,
+    actual_ty: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(return_expr_span)
+        .with_message(format!(
+            "The return value of `{fn_name}` does not match its declared return type."
+        ))
+        .with_primary_label(return_expr_span, format!("this expression has type `{actual_ty}`"))
+        .with_secondary_label(
+            ret_ann_span,
+            format!("`{fn_name}` was declared to return `{declared_ty}`"),
+        )
+        .with_help(format!(
+            "Return a `{declared_ty}` value from `{fn_name}` or change the declared return type."
+        ))
+}
+
 /// Create an if-branch mismatch diagnostic (E300).
 pub fn if_branch_type_mismatch(
     file: String,

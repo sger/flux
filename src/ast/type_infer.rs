@@ -4,7 +4,8 @@ use crate::{
     diagnostics::{
         Diagnostic,
         compiler_errors::{
-            fun_arity_mismatch, fun_param_type_mismatch, fun_return_type_mismatch,
+            call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
+            fun_return_type_mismatch,
             if_branch_type_mismatch, occurs_check_failure, type_unification_error,
         },
         position::Span,
@@ -146,7 +147,7 @@ struct AdtConstructorTypeInfo {
 }
 
 /// Reporting mode for HM unification diagnostics.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ReportContext {
     Plain,
     IfBranch {
@@ -157,6 +158,10 @@ enum ReportContext {
         first_span: Span,
         arm_span: Span,
         arm_index: usize,
+    },
+    CallArg {
+        fn_name: Option<String>,
+        fn_def_span: Option<Span>,
     },
 }
 
@@ -387,6 +392,37 @@ impl<'a> InferCtx<'a> {
                             let ty_str = self.display_type(&e.actual);
                             occurs_check_failure(file, span, &v_str, &ty_str)
                         }
+                        (
+                            ReportContext::CallArg {
+                                fn_name,
+                                fn_def_span,
+                            },
+                            UnifyErrorKind::Mismatch,
+                        ) => {
+                            if let Some(diag) = function_detail_diag() {
+                                diag
+                            } else {
+                                let exp_str = self.display_type(&e.expected);
+                                let act_str = self.display_type(&e.actual);
+                                // Fallback path is for dynamic/opaque callees where we do
+                                // not have per-argument mismatch detail. Keep `1` as a stable
+                                // placeholder until/if this path is upgraded with indexed detail.
+                                call_arg_type_mismatch(
+                                    file,
+                                    span,
+                                    fn_name.as_deref(),
+                                    1,
+                                    fn_def_span,
+                                    &exp_str,
+                                    &act_str,
+                                )
+                            }
+                        }
+                        (ReportContext::CallArg { .. }, UnifyErrorKind::OccursCheck(v)) => {
+                            let v_str = format!("t{v}");
+                            let ty_str = self.display_type(&e.actual);
+                            occurs_check_failure(file, span, &v_str, &ty_str)
+                        }
                     };
                     // Add "did you mean?" hint for likely type name typos
                     for ty in [&e.expected, &e.actual] {
@@ -426,9 +462,9 @@ impl<'a> InferCtx<'a> {
         // Phase A: pre-declare all top-level function names with a fresh type
         // variable so that mutually-recursive functions can reference each other.
         for stmt in &program.statements {
-            if let Statement::Function { name, .. } = stmt {
+            if let Statement::Function { name, span, .. } = stmt {
                 let v = self.env.fresh_infer_type();
-                self.env.bind(*name, Scheme::mono(v));
+                self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }
 
@@ -442,6 +478,7 @@ impl<'a> InferCtx<'a> {
         match stmt {
             Statement::Function {
                 name,
+                span,
                 type_params,
                 parameters,
                 parameter_types,
@@ -452,6 +489,7 @@ impl<'a> InferCtx<'a> {
             } => {
                 self.infer_fn(
                     *name,
+                    *span,
                     type_params,
                     parameters,
                     parameter_types,
@@ -546,6 +584,7 @@ impl<'a> InferCtx<'a> {
     fn infer_fn(
         &mut self,
         name: Identifier,
+        fn_span: Span,
         type_params: &[Identifier],
         parameters: &[Identifier],
         parameter_types: &[Option<TypeExpr>],
@@ -613,7 +652,7 @@ impl<'a> InferCtx<'a> {
         };
 
         // Update the pre-declared entry (from Phase A).
-        self.env.bind(name, scheme);
+        self.env.bind_with_span(name, scheme, Some(fn_span));
     }
 
     fn infer_let(&mut self, name: Identifier, annotation: Option<&TypeExpr>, value: &Expression) {
@@ -1172,17 +1211,87 @@ impl<'a> InferCtx<'a> {
         span: Span,
     ) -> InferType {
         let fn_ty = self.infer_expr(function);
+        let fn_ty_resolved = fn_ty.apply_type_subst(&self.subst);
 
-        // Infer argument types left-to-right.
+        let (fn_name, fn_def_span) = match function {
+            Expression::Identifier { name, .. } => {
+                let fn_name = self.interner.resolve(*name).to_string();
+                (Some(fn_name), self.env.lookup_span(*name))
+            }
+            _ => (None, None),
+        };
+
+        if let InferType::Fun(param_tys, ret_ty, _) = fn_ty_resolved.clone() {
+            let has_higher_order_params = param_tys
+                .iter()
+                .map(|t| t.apply_type_subst(&self.subst))
+                .any(|t| matches!(t, InferType::Fun(..)));
+            if has_higher_order_params {
+                // Preserve pre-058 higher-order behavior for now: keep the
+                // original whole-function unification path, which is less eager
+                // for function-typed argument diagnostics.
+                let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
+                let ret_var = self.env.fresh_infer_type();
+                let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
+                self.unify_reporting(&fn_ty, &expected_fn_ty, span);
+                return ret_var.apply_type_subst(&self.subst);
+            }
+
+            if param_tys.len() != arguments.len() {
+                // Keep arity diagnostics in compile pass (E056); do not emit HM arity
+                // diagnostics from call inference.
+                return ret_ty.apply_type_subst(&self.subst);
+            }
+
+            for (index, (arg_expr, expected_param_ty)) in
+                arguments.iter().zip(param_tys.iter()).enumerate()
+            {
+                let arg_ty = self.infer_expr(arg_expr);
+                let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
+                let actual_resolved = arg_ty.apply_type_subst(&self.subst);
+                let should_emit = expected_resolved.is_concrete()
+                    && actual_resolved.is_concrete()
+                    && !expected_resolved.contains_any()
+                    && !actual_resolved.contains_any();
+
+                match unify_with_span(&expected_resolved, &actual_resolved, arg_expr.span()) {
+                    Ok(s) => {
+                        self.subst = std::mem::take(&mut self.subst).compose(&s);
+                    }
+                    Err(_) => {
+                        if should_emit {
+                            let exp_str = self.display_type(&expected_resolved);
+                            let act_str = self.display_type(&actual_resolved);
+                            self.errors.push(call_arg_type_mismatch(
+                                self.file_path.clone(),
+                                arg_expr.span(),
+                                fn_name.as_deref(),
+                                index + 1,
+                                fn_def_span,
+                                &exp_str,
+                                &act_str,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            return ret_ty.apply_type_subst(&self.subst);
+        }
+
+        // Fallback for dynamic/unknown callees keeps prior behavior.
         let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
-
-        // Build the function type we expect and unify with the callee's type.
-        // A fresh return-type variable is solved by unification.
         let ret_var = self.env.fresh_infer_type();
         let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
-        self.unify_reporting(&fn_ty, &expected_fn_ty, span);
-
-        // The return variable is now resolved (or remains free → Any at use).
+        self.unify_with_context(
+            &fn_ty,
+            &expected_fn_ty,
+            span,
+            ReportContext::CallArg {
+                fn_name,
+                fn_def_span,
+            },
+        );
         ret_var.apply_type_subst(&self.subst)
     }
 

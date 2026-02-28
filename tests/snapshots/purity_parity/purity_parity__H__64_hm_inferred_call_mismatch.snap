@@ -16,10 +16,10 @@ $ flux --no-cache examples/type_system/failing/64_hm_inferred_call_mismatch.flx 
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `Int`, found `String`
+- E300 | TYPE UNIFICATION ERROR | this argument is `String`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `Int`, found `String`
+- E300 | TYPE UNIFICATION ERROR | this argument is `String`
 
 == parity ==
 match
