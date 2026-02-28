@@ -21,6 +21,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
+        expression::Pattern,
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
@@ -34,6 +35,59 @@ use super::hm_expr_typer::HmExprTypeResult;
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 impl Compiler {
+    fn destructure_pattern_expected_type(&mut self, pattern: &Pattern) -> Option<InferType> {
+        match pattern {
+            Pattern::Tuple { elements, .. } => Some(InferType::Tuple(
+                elements
+                    .iter()
+                    .map(|elem| {
+                        self.destructure_pattern_expected_type(elem)
+                            .unwrap_or_else(|| self.type_env.fresh_infer_type())
+                    })
+                    .collect(),
+            )),
+            Pattern::Some { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Option,
+                vec![
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                ],
+            )),
+            Pattern::None { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Option,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Left { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Either,
+                vec![
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                    self.type_env.fresh_infer_type(),
+                ],
+            )),
+            Pattern::Right { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Either,
+                vec![
+                    self.type_env.fresh_infer_type(),
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                ],
+            )),
+            Pattern::EmptyList { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::List,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Cons { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::List,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Identifier { .. } | Pattern::Wildcard { .. } => {
+                Some(self.type_env.fresh_infer_type())
+            }
+            Pattern::Literal { .. } | Pattern::Constructor { .. } => None,
+        }
+    }
+
     fn known_concrete_expr_type_mismatch(
         &self,
         expected: &InferType,
@@ -227,6 +281,16 @@ impl Compiler {
                     }
                 }
                 Statement::LetDestructure { pattern, value, .. } => {
+                    if let Some(expected_infer) = self.destructure_pattern_expected_type(pattern) {
+                        self.validate_expr_expected_type_with_policy(
+                            &expected_infer,
+                            value,
+                            "destructure source type is known at compile time",
+                            "destructure source does not match pattern shape".to_string(),
+                            "tuple destructure source",
+                            true,
+                        )?;
+                    }
                     self.compile_expression(value)?;
                     let temp_symbol = self.symbol_table.define_temp();
                     match temp_symbol.symbol_scope {

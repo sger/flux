@@ -425,3 +425,50 @@ fn t4_do_missing_brace_fixture_emits_contextual_e034_and_recovers() {
         "expected trailing `let after` to remain after recovery"
     );
 }
+
+#[test]
+fn t15_broad_contextual_expect_peek_fixtures_emit_e034_and_recover() {
+    let cases = [
+        (
+            "perform_missing_dot",
+            include_str!("../examples/type_system/failing/173_perform_missing_dot.flx"),
+        ),
+        (
+            "handle_missing_lbrace",
+            include_str!("../examples/type_system/failing/174_handle_missing_lbrace.flx"),
+        ),
+        (
+            "handle_arm_missing_arrow",
+            include_str!("../examples/type_system/failing/175_handle_arm_missing_arrow.flx"),
+        ),
+        (
+            "match_missing_open_brace",
+            include_str!("../examples/type_system/failing/176_match_missing_open_brace.flx"),
+        ),
+        (
+            "import_except_missing_open_bracket",
+            include_str!(
+                "../examples/type_system/failing/178_import_except_missing_open_bracket.flx"
+            ),
+        ),
+        (
+            "hash_missing_colon",
+            include_str!("../examples/type_system/failing/183_hash_missing_colon.flx"),
+        ),
+    ];
+
+    for (name, input) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T15 fixture parse should not panic");
+        assert!(
+            diagnostics.iter().any(|d| {
+                d.code() == Some("E034") && d.message().is_some() && !d.hints().is_empty()
+            }),
+            "expected contextual E034 with hint for case `{name}`"
+        );
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
+    }
+}

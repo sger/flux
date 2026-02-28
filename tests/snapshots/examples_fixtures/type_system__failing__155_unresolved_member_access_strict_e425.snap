@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/155_unresolved_member_access_strict_e425.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery`.
+
+  --> examples/type_system/failing/155_unresolved_member_access_strict_e425.flx:2:22
+  |
+2 |     let value: Int = mystery.field
+  |                      ^^^^^^^
+
+Hint:
+  Define it first: let mystery = ...;
+== stdout ==
+<not executed>

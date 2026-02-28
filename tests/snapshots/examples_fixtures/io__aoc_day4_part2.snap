@@ -5,47 +5,80 @@ Fixture: examples/io/aoc_day4_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Effectful operation is not allowed at top level (requires: IO).
+Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with String and Int.
 
-  --> examples/io/aoc_day4_part2.flx:85:1
+  --> examples/io/aoc_day4_part2.flx:54:80
    |
-85 | let raw_lines = read_lines("examples/io/aoc_day4.txt")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------------------------ top-level effectful expression
+54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
+   |                                                                                ^^^^^^^^^^^
+   |                                                                                ----------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found String and Int
+   |                                                                                ----------- operator operands are known at compile time
 
-Hint:
-  Move this code into `fn main() with ... { ... }`.
+Help:
+  adjust operand types or add explicit conversion
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Effectful program is missing `fn main` root effect handler.
+The 7th argument to `build_row_after_round` has the wrong type.
 
-  --> examples/io/aoc_day4_part2.flx:85:1
+  --> examples/io/aoc_day4_part2.flx:68:73
    |
-85 | let raw_lines = read_lines("examples/io/aoc_day4.txt")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------------------------ effectful top-level execution
+45 | fn build_row_after_round(lines, rows, cols, r, c, acc_line, removed) {
 
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+46 |     if c >= cols {
 
+47 |         [|acc_line, removed|]
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+48 |     } else {
 
-Effectful operation is not allowed at top level (requires: IO).
+49 |     let line = line_at(lines, r)
 
-  --> examples/io/aoc_day4_part2.flx:89:1
-   |
-89 | print(remove_until_stable(lines, rows, cols, 0))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------------------ top-level effectful expression
+50 |     let ch = char_at(line, c)
 
-Hint:
-  Move this code into `fn main() with ... { ... }`.
+51 |     if ch == "@" {
 
-Found 3 errors.
+52 |         let adj = adjacent_rolls(lines, rows, cols, r, c)
+
+53 |         if adj < 4 {
+
+54 |             build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ".", removed + 1)
+
+55 |         } else {
+
+56 |         build_row_after_round(lines, rows, cols, r, c + 1, acc_line + "@", removed)
+
+57 |     }
+
+58 | } else {
+
+59 | build_row_after_round(lines, rows, cols, r, c + 1, acc_line + ch, removed)
+
+60 | }
+
+61 | }
+
+62 | }
+
+63 | 
+
+64 | fn step_round(lines, rows, cols, r, next_lines, removed_total) {
+
+65 |     if r >= rows {
+
+66 |         [|next_lines, removed_total|]
+
+67 |     } else {
+
+68 |     let row_result = build_row_after_round(lines, rows, cols, r, 0, "", 0)
+   |                                                                         ^
+   |                                                                         - this argument is `Int`
+
+Help:
+  Expected `String` as the 7th argument.
+
+Found 2 errors.
 == stdout ==
 <not executed>

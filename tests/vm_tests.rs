@@ -1036,15 +1036,15 @@ fn test_fold_callback_runtime_error_propagates() {
 }
 
 #[test]
-fn test_map_mixed_element_types() {
-    // Map over array with mixed types (int, string, bool)
+fn test_map_type_of_homogeneous_array() {
+    // Map type_of over a homogeneous int array
     assert_eq!(
-        run(r#"map(#[1, "hello", true], type_of);"#),
+        run(r#"map(#[1, 2, 3], type_of);"#),
         Value::Array(
             vec![
                 Value::String("Int".into()),
-                Value::String("String".into()),
-                Value::String("Bool".into()),
+                Value::String("Int".into()),
+                Value::String("Int".into()),
             ]
             .into()
         )
@@ -1114,12 +1114,12 @@ fn test_fold_evaluation_order_deterministic() {
 }
 
 #[test]
-fn test_map_error_includes_index() {
-    // Verify error messages include element index
-    let err = run_error(r#"map(#[1, 2, "oops", 4], fn(x) { x + 10 });"#);
+fn test_map_heterogeneous_array_is_compile_error() {
+    // Mixed-type array literals are rejected at compile time (E300)
+    let err = run_any_error(r#"map(#[1, 2, "oops", 4], fn(x) { x + 10 });"#);
     assert!(
-        err.contains("index 2"),
-        "Expected error to include index, got: {}",
+        err.contains("E300") || err.contains("TYPE UNIFICATION ERROR"),
+        "Expected E300 compile error for heterogeneous array, got: {}",
         err
     );
 }

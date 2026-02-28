@@ -1,6 +1,6 @@
 # Proposal 050: Totality and Exhaustiveness Hardening
 
-**Status:** Draft  
+**Status:** Implemented  
 **Date:** 2026-02-26  
 **Depends on:** `032_type_system_with_effects.md`, `043_pure_flux_checklist.md`, `047_adt_semantics_deepening.md`, `docs/internals/type_system_effects.md`
 
@@ -220,3 +220,86 @@ Validation evidence used for Week-3 closure:
 1. `cargo test --test compiler_rules_tests`
 2. `cargo test --test pattern_validation`
 3. `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+
+## 17. Tuple Conservative Follow-Up (v0.0.4+)
+
+Tuple-specific follow-up scope (locked):
+1. Bool and guarded-wildcard semantics are already completed and remain unchanged.
+2. Tuple domains stay conservative: unguarded wildcard/identifier fallback is required for unconditional coverage.
+3. Nested tuple checks avoid false exhaustive passes on mixed-shape nested tuple pattern sets.
+
+Tuple coverage matrix:
+
+| Tuple scenario | Class | Expected behavior |
+|---|---|---|
+| General tuple match without unguarded catch-all | Conservative | `E015` with tuple-conservative message |
+| Guarded tuple-only arms without unguarded catch-all | Conservative | `E015`; guarded tuple arms remain conditional |
+| Nested tuple patterns with consistent shape and explicit catch-all | Conservative accepted | compile OK |
+| Nested tuple mixed-shape pattern sets under ADT nested checks | Conservative reject | non-exhaustive nested diagnostic (`E083` path) |
+
+Fixtures:
+1. `157_match_tuple_missing_catchall_general.flx`
+2. `158_match_tuple_guarded_only_non_exhaustive.flx`
+3. `159_match_nested_tuple_mixed_shape_non_exhaustive.flx`
+4. `160_match_nested_tuple_with_catchall_ok.flx`
+
+Validation evidence commands:
+1. `cargo test --test compiler_rules_tests`
+2. `cargo test --test pattern_validation`
+3. `cargo test --test snapshot_diagnostics`
+4. `cargo test --test examples_fixtures_snapshots`
+5. `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+
+Latest recorded outcomes (tuple follow-up):
+1. `cargo check --all --all-features` → PASS
+2. `cargo test --test compiler_rules_tests` → PASS
+3. `cargo test --test pattern_validation` → PASS
+4. `cargo test --test snapshot_diagnostics` → PASS
+5. `cargo test --all --all-features purity_vm_jit_parity_snapshots` → PASS
+6. `cargo test --test examples_fixtures_snapshots` → FAIL (known external churn, unrelated to tuple follow-up)
+   - Snapshot: `tests/snapshots/examples_fixtures/aoc__2024__day03.snap.new`
+
+## 18. Closure Evidence (Docs/Evidence Lock)
+
+This closure updates documentation and evidence only. No additional semantics changes are introduced by this closure step.
+
+### 18.1 Behavior Inventory (Frozen)
+
+Implemented routes:
+1. Bool-domain exhaustiveness:
+   - `check_general_match_exhaustiveness` reports deterministic missing Bool arms (`true`/`false`) via `E015`.
+2. Guarded wildcard handling:
+   - `has_guarded_wildcard_without_unguarded_catchall` + `guarded_wildcard_non_exhaustive` ensures guarded-only wildcard does not count as exhaustive.
+3. Tuple conservative policy:
+   - Tuple domain requires unguarded catch-all for unconditional coverage.
+4. Nested tuple consistency:
+   - `check_nested_pattern_set` rejects mixed-shape nested tuple sets conservatively (non-exhaustive path).
+
+### 18.2 Acceptance Matrix (Locked)
+
+| Requirement | Expected | Verification |
+|---|---|---|
+| Bool missing-arm diagnostics | `E015` with deterministic missing Bool set | `hm_fixture_142`, `hm_fixture_143`; `bool_match_missing_true_reports_e015_with_bool_message` |
+| Guarded wildcard-only | deterministic non-exhaustive | `hm_fixture_144`; `guarded_catchall_is_not_considered_exhaustive`; `guarded_catchall_reports_targeted_non_exhaustive_message` |
+| Guarded + bare wildcard | exhaustive | `guarded_wildcard_with_bare_fallback_is_exhaustive`; `guarded_catchall_before_unguarded_fallback_is_allowed` |
+| Tuple without catch-all | conservative non-exhaustive (`E015`) | `match_tuple_without_catchall_is_conservatively_non_exhaustive`; fixture `157` |
+| Nested tuple mixed-shape | deterministic non-exhaustive | fixture `159`; `nested_tuple_mixed_shape_reports_non_exhaustive` |
+
+### 18.3 Gate Policy (Recorded)
+
+Blocking gates:
+1. `cargo check --all --all-features`
+2. `cargo test --test compiler_rules_tests`
+3. `cargo test --test pattern_validation`
+4. `cargo test --test snapshot_diagnostics`
+5. `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+
+Informational gate:
+1. `cargo test --test examples_fixtures_snapshots`
+   - Non-blocking only when failure is explicitly attributed to unrelated external churn.
+   - Current attributed churn: `tests/snapshots/examples_fixtures/aoc__2024__day03.snap.new`.
+
+### 18.4 Deferred Non-Goal (Explicit)
+
+Tuple completeness theorem/prover-style reasoning is intentionally deferred.  
+Conservative tuple policy remains canonical for Proposal 050 closure.

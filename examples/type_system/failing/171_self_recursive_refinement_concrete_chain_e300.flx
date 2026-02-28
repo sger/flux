@@ -1,0 +1,11 @@
+fn sum_down(n) {
+    if n == 0 {
+        0
+    } else {
+        1 + sum_down(n - 1)
+    }
+}
+
+fn main() -> Unit {
+    let x: String = sum_down(3)
+}

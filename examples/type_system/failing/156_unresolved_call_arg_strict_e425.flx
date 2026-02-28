@@ -1,0 +1,5 @@
+fn takes_int(x: Int) -> Int { x }
+
+fn main() -> Unit {
+    let value: Int = takes_int(mystery_value)
+}

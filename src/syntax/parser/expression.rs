@@ -24,14 +24,24 @@ use super::{Parser, helpers::ParameterListContext};
 impl Parser {
     fn parse_parenthesized<T>(
         &mut self,
+        context: &str,
+        form_hint: &str,
         mut parse_inner: impl FnMut(&mut Self) -> Option<T>,
     ) -> Option<T> {
-        if !self.expect_peek(TokenType::LParen) {
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            format!("Expected `(` after {context}."),
+            format!("Use the form `{form_hint}`."),
+        ) {
             return None;
         }
         self.next_token();
         let inner = parse_inner(self)?;
-        if !self.expect_peek(TokenType::RParen) {
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            format!("Expected `)` to close {context}."),
+            format!("Use the form `{form_hint}`."),
+        ) {
             return None;
         }
         Some(inner)
@@ -311,7 +321,11 @@ impl Parser {
         self.next_token();
         let index = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek(TokenType::RBracket) {
+        if !self.expect_peek_context(
+            TokenType::RBracket,
+            "Expected `]` to close index expression.".to_string(),
+            "Index expressions use `expr[index]`.".to_string(),
+        ) {
             let _ = self.recover_to_matching_delimiter(TokenType::RBracket, &[TokenType::Comma]);
             return None;
         }
@@ -374,7 +388,11 @@ impl Parser {
             return Some(object);
         }
 
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected identifier after `.` in member access.".to_string(),
+            "Member access uses `value.member`.".to_string(),
+        ) {
             return None;
         }
 
@@ -524,7 +542,11 @@ impl Parser {
         // Empty array shorthand: [||]
         // Lexer tokenizes "||" as TokenType::Or.
         if self.consume_if_peek(TokenType::Or) {
-            if !self.expect_peek(TokenType::RBracket) {
+            if !self.expect_peek_context(
+                TokenType::RBracket,
+                "Expected `]` to close empty array literal.".to_string(),
+                "Empty arrays use `[||]`.".to_string(),
+            ) {
                 return None;
             }
             return Some(Expression::ArrayLiteral {
@@ -579,6 +601,20 @@ impl Parser {
                 && self.peek2_token.token_type == TokenType::LeftArrow
             {
                 return self.parse_list_comprehension(first, start);
+            }
+
+            // Malformed comprehension shape: `[expr | <- source]`
+            // should report a contextual parser diagnostic rather than
+            // falling through to generic expected-expression errors.
+            if self.is_peek_token(TokenType::LeftArrow) {
+                self.errors.push(
+                    unexpected_token(
+                        self.peek_token.span(),
+                        "Expected generator identifier before `<-` in list comprehension.",
+                    )
+                    .with_hint_text("List comprehensions use `[expr | name <- source, ...]`."),
+                );
+                return None;
             }
 
             // Otherwise: cons cell [head | tail]
@@ -647,7 +683,11 @@ impl Parser {
         // Parse first generator (required) — peek is Ident, peek2 is LeftArrow
         loop {
             // Expect identifier
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected generator identifier in list comprehension.".to_string(),
+                "List comprehensions use `[expr | name <- source, ...]`.".to_string(),
+            ) {
                 return None;
             }
             let var = self
@@ -656,7 +696,11 @@ impl Parser {
                 .intern(&self.current_token.literal);
 
             // Expect <-
-            if !self.expect_peek(TokenType::LeftArrow) {
+            if !self.expect_peek_context(
+                TokenType::LeftArrow,
+                "Expected `<-` after list-comprehension generator variable.".to_string(),
+                "List comprehensions use `[expr | name <- source, ...]`.".to_string(),
+            ) {
                 return None;
             }
 
@@ -798,7 +842,11 @@ impl Parser {
     pub(super) fn parse_array_literal_prefixed(&mut self) -> Option<Expression> {
         // Legacy syntax kept for compatibility: #[a, b, c]
         let start = self.current_token.position;
-        if !self.expect_peek(TokenType::LBracket) {
+        if !self.expect_peek_context(
+            TokenType::LBracket,
+            "Expected `[` after `#` to start legacy array literal.".to_string(),
+            "Legacy array literals use `#[a, b, c]`.".to_string(),
+        ) {
             return None;
         }
 
@@ -826,7 +874,11 @@ impl Parser {
             self.next_token();
             let key = self.parse_expression(Precedence::Lowest)?;
 
-            if !self.expect_peek(TokenType::Colon) {
+            if !self.expect_peek_context(
+                TokenType::Colon,
+                "Expected `:` between hash key and value.".to_string(),
+                "Hash literals use `{key: value, ...}`.".to_string(),
+            ) {
                 return None;
             }
 
@@ -957,7 +1009,11 @@ impl Parser {
         let start = self.current_token.position;
 
         // Effect name (Ident)
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name after `perform`.".to_string(),
+            "Perform expressions use `perform Effect.op(args...)`.".to_string(),
+        ) {
             return None;
         }
         let effect = self
@@ -966,12 +1022,20 @@ impl Parser {
             .intern(&self.current_token.literal);
 
         // `.`
-        if !self.expect_peek(TokenType::Dot) {
+        if !self.expect_peek_context(
+            TokenType::Dot,
+            "Expected `.` between effect and operation in `perform`.".to_string(),
+            "Perform expressions use `perform Effect.op(args...)`.".to_string(),
+        ) {
             return None;
         }
 
         // Operation name (Ident)
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected operation name after `perform Effect.`.".to_string(),
+            "Perform expressions use `perform Effect.op(args...)`.".to_string(),
+        ) {
             return None;
         }
         let operation = self
@@ -980,7 +1044,11 @@ impl Parser {
             .intern(&self.current_token.literal);
 
         // `(`
-        if !self.expect_peek(TokenType::LParen) {
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after performed operation name.".to_string(),
+            "Perform expressions use `perform Effect.op(args...)`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1002,7 +1070,11 @@ impl Parser {
         let start = left.span().start;
 
         // Expect the effect name (Ident)
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name after `handle`.".to_string(),
+            "Handle expressions use `expr handle Effect { op(resume, ...) -> body }`.".to_string(),
+        ) {
             return None;
         }
         let effect = self
@@ -1011,7 +1083,11 @@ impl Parser {
             .intern(&self.current_token.literal);
 
         // Expect `{`
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin `handle` arms.".to_string(),
+            "Handle expressions use `expr handle Effect { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1019,7 +1095,11 @@ impl Parser {
 
         while !self.is_peek_token(TokenType::RBrace) && !self.is_peek_token(TokenType::Eof) {
             // op name
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected operation name in `handle` arm.".to_string(),
+                "Handle arms use `op(resume, ...) -> body`.".to_string(),
+            ) {
                 return None;
             }
             let arm_start = self.current_token.position;
@@ -1029,12 +1109,20 @@ impl Parser {
                 .intern(&self.current_token.literal);
 
             // `(`
-            if !self.expect_peek(TokenType::LParen) {
+            if !self.expect_peek_context(
+                TokenType::LParen,
+                "Expected `(` after handle operation name.".to_string(),
+                "Handle arms use `op(resume, ...) -> body`.".to_string(),
+            ) {
                 return None;
             }
 
             // First param is the resume continuation
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected resume parameter in handle arm.".to_string(),
+                "Handle arms use `op(resume, arg1, ...) -> body`.".to_string(),
+            ) {
                 return None;
             }
             let resume_param = self
@@ -1046,7 +1134,11 @@ impl Parser {
             let mut params = Vec::new();
             while self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume `,`
-                if !self.expect_peek(TokenType::Ident) {
+                if !self.expect_peek_context(
+                    TokenType::Ident,
+                    "Expected parameter name after `,` in handle arm.".to_string(),
+                    "Handle arms use `op(resume, arg1, ...) -> body`.".to_string(),
+                ) {
                     return None;
                 }
                 let p = self
@@ -1057,12 +1149,20 @@ impl Parser {
             }
 
             // `)`
-            if !self.expect_peek(TokenType::RParen) {
+            if !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` after handle-arm parameter list.".to_string(),
+                "Handle arms use `op(resume, arg1, ...) -> body`.".to_string(),
+            ) {
                 return None;
             }
 
             // `->`
-            if !self.expect_peek(TokenType::Arrow) {
+            if !self.expect_peek_context(
+                TokenType::Arrow,
+                "Expected `->` in handle arm.".to_string(),
+                "Handle arms use `op(resume, arg1, ...) -> body`.".to_string(),
+            ) {
                 return None;
             }
 
@@ -1085,7 +1185,11 @@ impl Parser {
             }
         }
 
-        if !self.expect_peek(TokenType::RBrace) {
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close `handle` expression.".to_string(),
+            "Handle expressions use `expr handle Effect { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1103,7 +1207,11 @@ impl Parser {
         self.next_token();
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin match arms.".to_string(),
+            "Match expressions use `match value { pattern -> body, ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1224,7 +1332,11 @@ impl Parser {
             }
         }
 
-        if !self.expect_peek(TokenType::RBrace) {
+        if !self.expect_peek_context(
+            TokenType::RBrace,
+            "Expected `}` to close match expression.".to_string(),
+            "Match expressions use `match value { pattern -> body, ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1282,21 +1394,33 @@ impl Parser {
                 span: Span::new(start, self.current_token.end_position),
             }),
             TokenType::Some => {
-                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
+                let inner_pattern = self.parse_parenthesized(
+                    "`Some` pattern payload",
+                    "Some(pattern)",
+                    |parser| parser.parse_pattern(),
+                )?;
                 Some(Pattern::Some {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Left => {
-                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
+                let inner_pattern = self.parse_parenthesized(
+                    "`Left` pattern payload",
+                    "Left(pattern)",
+                    |parser| parser.parse_pattern(),
+                )?;
                 Some(Pattern::Left {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
                 })
             }
             TokenType::Right => {
-                let inner_pattern = self.parse_parenthesized(|parser| parser.parse_pattern())?;
+                let inner_pattern = self.parse_parenthesized(
+                    "`Right` pattern payload",
+                    "Right(pattern)",
+                    |parser| parser.parse_pattern(),
+                )?;
                 Some(Pattern::Right {
                     pattern: Box::new(inner_pattern),
                     span: Span::new(start, self.current_token.end_position),
@@ -1313,12 +1437,20 @@ impl Parser {
                 // Cons pattern: [head | tail]
                 self.next_token(); // advance to head pattern
                 let head = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::Bar) {
+                if !self.expect_peek_context(
+                    TokenType::Bar,
+                    "Expected `|` in cons pattern.".to_string(),
+                    "Cons patterns use `[head | tail]`.".to_string(),
+                ) {
                     return None;
                 }
                 self.next_token(); // advance to tail pattern
                 let tail = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::RBracket) {
+                if !self.expect_peek_context(
+                    TokenType::RBracket,
+                    "Expected `]` to close list pattern.".to_string(),
+                    "List patterns use `[]` or `[head | tail]`.".to_string(),
+                ) {
                     return None;
                 }
                 Some(Pattern::Cons {
@@ -1338,7 +1470,11 @@ impl Parser {
 
                 self.next_token();
                 let first = self.parse_pattern()?;
-                if !self.expect_peek(TokenType::Comma) {
+                if !self.expect_peek_context(
+                    TokenType::Comma,
+                    "Expected `,` in tuple pattern.".to_string(),
+                    "Tuple patterns use `(a, b, ...)`.".to_string(),
+                ) {
                     self.errors.push(unexpected_token(
                         self.peek_token.span(),
                         "Tuple patterns require a comma, for example `(x, y)`.".to_string(),
@@ -1365,7 +1501,11 @@ impl Parser {
                     }
                 }
 
-                if !self.expect_peek(TokenType::RParen) {
+                if !self.expect_peek_context(
+                    TokenType::RParen,
+                    "Expected `)` to close tuple pattern.".to_string(),
+                    "Tuple patterns use `(a, b, ...)`.".to_string(),
+                ) {
                     return None;
                 }
 
@@ -1398,14 +1538,22 @@ impl Parser {
 
     pub(super) fn parse_function_literal(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        if !self.expect_peek(TokenType::LParen) {
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after `fn` in function literal.".to_string(),
+            "Function literals use `fn(params) { ... }`.".to_string(),
+        ) {
             return None;
         }
 
         let parameters = self.parse_function_parameters()?;
         let parameter_types = vec![None; parameters.len()];
 
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin function literal body.".to_string(),
+            "Function literals use `fn(params) { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -1515,8 +1663,9 @@ impl Parser {
 
     pub(super) fn parse_some(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let value =
-            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
+        let value = self.parse_parenthesized("`Some` payload", "Some(value)", |parser| {
+            parser.parse_expression(Precedence::Lowest)
+        })?;
         Some(Expression::Some {
             value: Box::new(value),
             span: Span::new(start, self.current_token.end_position),
@@ -1525,8 +1674,9 @@ impl Parser {
 
     pub(super) fn parse_left(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let value =
-            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
+        let value = self.parse_parenthesized("`Left` payload", "Left(value)", |parser| {
+            parser.parse_expression(Precedence::Lowest)
+        })?;
 
         Some(Expression::Left {
             value: Box::new(value),
@@ -1536,8 +1686,9 @@ impl Parser {
 
     pub(super) fn parse_right(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
-        let value =
-            self.parse_parenthesized(|parser| parser.parse_expression(Precedence::Lowest))?;
+        let value = self.parse_parenthesized("`Right` payload", "Right(value)", |parser| {
+            parser.parse_expression(Precedence::Lowest)
+        })?;
 
         Some(Expression::Right {
             value: Box::new(value),

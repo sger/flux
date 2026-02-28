@@ -3,7 +3,7 @@ fn main() with IO {
 
     let nums    = [|1, 2, 3, 4, 5|]
     let words   = [|"banana", "fig", "apple", "kiwi"|]
-    let mixed   = [|1, "hello", true, 42|]
+    let evens   = [|2, 4, 6, 8|]
 
     // =============================================================================
     // any — true if at least one element satisfies the predicate (short-circuits)
@@ -88,7 +88,7 @@ fn main() with IO {
     // =============================================================================
 
     print(count(nums, \x -> x % 2 == 0))  // 2  (2 and 4)
-    print(count(mixed, is_int))            // 2  (1 and 42)
+    print(count(evens, \x -> x > 4))      // 2  (6 and 8)
     print(count([||], \x -> true))         // 0  (empty)
 
     // Practical: how many words are longer than 4 characters?

@@ -3,49 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/optimizations/tail_recursion.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/optimizations/tail_recursion.flx:48:1
-   |
-48 | print("Factorial(5):", result1);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/optimizations/tail_recursion.flx:48:1
-   |
-48 | print("Factorial(5):", result1);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/optimizations/tail_recursion.flx:49:1
-   |
-49 | print("Fibonacci(10):", result2);
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | --------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

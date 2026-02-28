@@ -5,47 +5,16 @@ Fixture: examples/io/aoc_day11_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `dfs_count2`.
 
-  --> examples/io/aoc_day11_part2.flx:133:1
-    |
-133 | let lines = read_lines("examples/io/aoc_day11.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day11_part2.flx:133:1
-    |
-133 | let lines = read_lines("examples/io/aoc_day11.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- effectful top-level execution
+  --> examples/io/aoc_day11_part2.flx:91:13
+   |
+91 |     let r = dfs_count2(nxt, seen_dac, seen_fft, graph, memo)
+   |             ^^^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day11_part2.flx:136:1
-    |
-136 | print(result_count(ans))
-    | ^^^^^^^^^^^^^^^^^^^^^^^^
-    | ------------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+  Define it first: let dfs_count2 = ...;
 == stdout ==
 <not executed>

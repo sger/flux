@@ -1,0 +1,2 @@
+data Maybe<T> Some(T), None }
+let after = 1

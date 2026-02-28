@@ -1,0 +1,3 @@
+fn main() -> Unit {
+    let xs: Array<Int> = [|1, "two"|]
+}

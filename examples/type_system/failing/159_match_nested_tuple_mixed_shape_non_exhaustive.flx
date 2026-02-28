@@ -1,0 +1,10 @@
+type Wrap<T> = W(T) | Z
+
+fn main() -> Unit {
+    let w = mystery_value
+    let _x = match w {
+        W((1, 2)) -> 1,
+        W(1) -> 2,
+        Z -> 0,
+    }
+}

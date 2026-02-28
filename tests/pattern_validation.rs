@@ -272,6 +272,61 @@ match b { false -> 0 };
 }
 
 #[test]
+fn tuple_match_without_catchall_reports_conservative_e015_message() {
+    let src = r#"
+let t = (1, true);
+match t { (1, true) -> 1, (2, false) -> 2 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for tuple exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from tuple exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+        "expected tuple-conservative E015 message, got: {:?}",
+        diag.message()
+    );
+}
+
+#[test]
+fn tuple_match_guarded_only_still_non_exhaustive() {
+    let src = r#"
+let t = (1, true);
+match t { (a, b) if a > 0 && b -> 1 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for guarded tuple exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags =
+        compile_result.expect_err("expected E015 from guarded tuple non-exhaustive");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+        "expected guarded tuple conservative E015 message, got: {:?}",
+        diag.message()
+    );
+}
+
+#[test]
 fn empty_match_reports_e014() {
     let src = r#"
 let x = 2;

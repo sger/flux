@@ -5,75 +5,45 @@ Fixture: examples/io/aoc_day3_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `best_with_digit`.
 
-  --> examples/io/aoc_day3_haskell_style.flx:83:1
+  --> examples/io/aoc_day3_haskell_style.flx:22:5
    |
-83 | let day03a = day03(2, "examples/io/aoc_day3.txt")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------------------- top-level effectful expression
+22 |     best_with_digit(line, start_idx, k, 9)
+   |     ^^^^^^^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let best_with_digit = ...;
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful program is missing `fn main` root effect handler.
+I can't find a value named `try_occurrences`.
 
-  --> examples/io/aoc_day3_haskell_style.flx:83:1
+  --> examples/io/aoc_day3_haskell_style.flx:32:11
    |
-83 | let day03a = day03(2, "examples/io/aoc_day3.txt")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------------------- effectful top-level execution
+32 |     match try_occurrences(line, digit_str, first_pos, k) {
+   |           ^^^^^^^^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Define it first: let try_occurrences = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E400]: MISSING EFFECT
 
-Effectful operation is not allowed at top level (requires: IO).
+Call to `read_lines` requires effect `IO` in this function signature.
 
-  --> examples/io/aoc_day3_haskell_style.flx:84:1
+  --> examples/io/aoc_day3_haskell_style.flx:78:30
    |
-84 | let day03b = day03(12, "examples/io/aoc_day3.txt")
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | -------------------------------------------------- top-level effectful expression
+78 |     match sum_values(to_list(read_lines(path)), n, 0) {
+   |                              ^^^^^^^^^^
+   |                              ---------- effectful call occurs here
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Add `with IO` to the enclosing function.
 
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day3_haskell_style.flx:86:1
-   |
-86 | print(day03a)
-   | ^^^^^^^^^^^^^
-   | ------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day3_haskell_style.flx:87:1
-   |
-87 | print(day03b)
-   | ^^^^^^^^^^^^^
-   | ------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 5 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

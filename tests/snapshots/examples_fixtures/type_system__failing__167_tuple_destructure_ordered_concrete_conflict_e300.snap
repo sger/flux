@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify (_, _, _) with (Int, Int).
+
+  --> examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx:2:21
+  |
+2 |     let (a, b, c) = (1, 2)
+  |                     ^^^^^^
+  |                     ------ expected (_, _, _), found (Int, Int)
+  |                     ------ destructure source type is known at compile time
+
+Help:
+  destructure source does not match pattern shape
+== stdout ==
+<not executed>

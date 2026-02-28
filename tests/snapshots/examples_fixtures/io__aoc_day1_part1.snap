@@ -5,47 +5,16 @@ Fixture: examples/io/aoc_day1_part1.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `solve_steps`.
 
-  --> examples/io/aoc_day1_part1.flx:37:1
+  --> examples/io/aoc_day1_part1.flx:28:5
    |
-37 | let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------- top-level effectful expression
+28 |     solve_steps(rest, (next_pos, next_hits))
+   |     ^^^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day1_part1.flx:37:1
-   |
-37 | let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part1.flx:40:1
-   |
-40 | print(password)
-   | ^^^^^^^^^^^^^^^
-   | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+  Define it first: let solve_steps = ...;
 == stdout ==
 <not executed>

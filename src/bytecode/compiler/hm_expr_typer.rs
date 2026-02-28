@@ -2,6 +2,7 @@ use crate::{
     bytecode::compiler::Compiler,
     diagnostics::{
         Diagnostic, DiagnosticBuilder, ErrorType, compiler_errors::type_unification_error,
+        types::LabelStyle,
     },
     syntax::expression::Expression,
     types::{infer_type::InferType, unify_error::unify},
@@ -153,10 +154,105 @@ impl Compiler {
         if !strict_unresolved_error || !self.strict_mode {
             return Ok(());
         }
+        if self.is_concrete_match_arm_conflict(expression) {
+            return Ok(());
+        }
+        if self.is_concrete_array_literal_conflict(expression) {
+            return Ok(());
+        }
+        if self.has_concrete_e300_for_expression(expression) {
+            return Ok(());
+        }
         self.check_private_module_member_access_for_expr(expression)?;
         Err(Box::new(
             self.unresolved_boundary_error(expression, unresolved_context),
         ))
+    }
+
+    fn is_concrete_array_literal_conflict(&self, expression: &Expression) -> bool {
+        let Expression::ArrayLiteral { elements, .. } = expression else {
+            return false;
+        };
+        if elements.len() < 2 {
+            return false;
+        }
+        let mut first_known: Option<InferType> = None;
+        for element in elements {
+            let HmExprTypeResult::Known(actual) = self.hm_expr_type_strict_path(element) else {
+                return false;
+            };
+            if actual.contains_any() || !actual.free_vars().is_empty() {
+                return false;
+            }
+            if let Some(expected) = &first_known {
+                if self.ensure_unify(expected, &actual).is_err() {
+                    return true;
+                }
+            } else {
+                first_known = Some(actual);
+            }
+        }
+        false
+    }
+
+    fn is_concrete_match_arm_conflict(&self, expression: &Expression) -> bool {
+        let Expression::Match { arms, .. } = expression else {
+            return false;
+        };
+        if arms.len() < 2 {
+            return false;
+        }
+
+        let concrete_arms: Vec<InferType> = arms
+            .iter()
+            .filter_map(|arm| match self.hm_expr_type_strict_path(&arm.body) {
+                HmExprTypeResult::Known(ty) if !ty.contains_any() && ty.free_vars().is_empty() => {
+                    Some(ty)
+                }
+                _ => None,
+            })
+            .collect();
+        if concrete_arms.len() < 2 {
+            return false;
+        }
+
+        let pivot = &concrete_arms[0];
+        for actual in concrete_arms.iter().skip(1) {
+            if self.ensure_unify(pivot, actual).is_err() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn has_concrete_e300_for_expression(&self, expression: &Expression) -> bool {
+        let expr_span = expression.span();
+        self.errors.iter().any(|diag| {
+            if diag.code() != Some("E300") {
+                return false;
+            }
+            let diag_file = diag.file().unwrap_or(self.file_path.as_str());
+            if diag_file != self.file_path {
+                return false;
+            }
+            if let Some(diag_span) = diag.span()
+                && Self::spans_overlap(diag_span, expr_span)
+            {
+                return true;
+            }
+            if let Some(diag_span) = diag.span()
+                && diag_span.start.line == expr_span.start.line
+            {
+                return true;
+            }
+            diag.labels().iter().any(|label| {
+                if label.style != LabelStyle::Primary {
+                    return false;
+                }
+                Self::spans_overlap(label.span, expr_span)
+                    || label.span.start.line == expr_span.start.line
+            })
+        })
     }
 
     fn check_private_module_member_access_for_expr(
