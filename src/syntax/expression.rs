@@ -14,6 +14,7 @@ pub enum StringPart {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Pattern {
     Wildcard {
         span: Span,

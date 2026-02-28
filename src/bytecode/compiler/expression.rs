@@ -2978,7 +2978,7 @@ impl Compiler {
                     missing.push("false");
                 }
                 let missing_text = missing.join(", ");
-                return Err(Self::boxed(
+                Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
@@ -2989,7 +2989,7 @@ impl Compiler {
                             "Add missing boolean arms or an unguarded `_ -> ...` catch-all."
                                 .to_string(),
                         ),
-                ));
+                ))
             }
             GeneralCoverageDomain::Option => {
                 let mut seen_none = false;
@@ -3012,7 +3012,7 @@ impl Compiler {
                     missing.push("Some(_)");
                 }
                 let missing_text = missing.join(", ");
-                return Err(Self::boxed(
+                Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
@@ -3023,7 +3023,7 @@ impl Compiler {
                             "Add missing Option arms or an unguarded `_ -> ...` catch-all."
                                 .to_string(),
                         ),
-                ));
+                ))
             }
             GeneralCoverageDomain::Either => {
                 let mut seen_left = false;
@@ -3046,7 +3046,7 @@ impl Compiler {
                     missing.push("Right(_)");
                 }
                 let missing_text = missing.join(", ");
-                return Err(Self::boxed(
+                Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
@@ -3057,7 +3057,7 @@ impl Compiler {
                             "Add missing Either arms or an unguarded `_ -> ...` catch-all."
                                 .to_string(),
                         ),
-                ));
+                ))
             }
             GeneralCoverageDomain::ListLike => {
                 let mut seen_empty = false;
@@ -3080,7 +3080,7 @@ impl Compiler {
                     missing.push("[h | t]");
                 }
                 let missing_text = missing.join(", ");
-                return Err(Self::boxed(
+                Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
@@ -3091,13 +3091,13 @@ impl Compiler {
                             "Add missing list arms or an unguarded `_ -> ...` catch-all."
                                 .to_string(),
                         ),
-                ));
+                ))
             }
             GeneralCoverageDomain::Tuple(_) | GeneralCoverageDomain::Unknown => {
                 if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
-                return Err(Self::boxed(
+                Err(Self::boxed(
                     diag_enhanced(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(
@@ -3108,7 +3108,7 @@ impl Compiler {
                             "Add an unguarded `_ -> ...` arm for conservative exhaustive coverage."
                                 .to_string(),
                         ),
-                ));
+                ))
             }
         }
     }
@@ -3535,27 +3535,26 @@ impl Compiler {
             } else {
                 None
             }
-        }) {
-            if patterns.iter().all(
+        }) && patterns.iter().all(
                 |p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len),
-            ) {
-                for idx in 0..tuple_len {
-                    let next: Vec<&Pattern> = patterns
-                        .iter()
-                        .filter_map(|p| match p {
-                            Pattern::Tuple { elements, .. } => elements.get(idx),
-                            _ => None,
-                        })
-                        .collect();
-                    if next.is_empty() {
-                        continue;
-                    }
-                    self.check_nested_pattern_set(
-                        &next,
-                        &format!("{} -> tuple position #{}", context, idx + 1),
-                        span,
-                    )?;
+            )
+        {
+            for idx in 0..tuple_len {
+                let next: Vec<&Pattern> = patterns
+                    .iter()
+                    .filter_map(|p| match p {
+                        Pattern::Tuple { elements, .. } => elements.get(idx),
+                        _ => None,
+                    })
+                    .collect();
+                if next.is_empty() {
+                    continue;
                 }
+                self.check_nested_pattern_set(
+                    &next,
+                    &format!("{} -> tuple position #{}", context, idx + 1),
+                    span,
+                )?;
             }
         }
 

@@ -667,6 +667,7 @@ impl<'a> InferCtx<'a> {
 
     // ── Function inference ────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     fn infer_fn(
         &mut self,
         name: Identifier,
@@ -1396,7 +1397,7 @@ impl<'a> InferCtx<'a> {
                     });
                 }
 
-                let arm_ty = arm_result.unwrap_or_else(|| InferType::Con(TypeConstructor::Any));
+                let arm_ty = arm_result.unwrap_or(InferType::Con(TypeConstructor::Any));
                 let _ = span;
                 self.join_types(&handled_ty, &arm_ty)
             }
@@ -1717,9 +1718,7 @@ impl<'a> InferCtx<'a> {
         } else {
             let mut args = Vec::with_capacity(info.type_params.len());
             for type_param in &info.type_params {
-                let Some(var) = type_param_map.get(type_param) else {
-                    return None;
-                };
+                let var = type_param_map.get(type_param)?;
                 args.push(InferType::Var(*var));
             }
             InferType::App(TypeConstructor::Adt(info.adt_name), args)

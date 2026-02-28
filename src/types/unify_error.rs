@@ -66,11 +66,13 @@ impl UnifyError {
 ///
 /// The substitution must be applied to both types to obtain the unified form.
 /// `Any` is compatible with everything (gradual typing escape).
+#[allow(clippy::result_large_err)]
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     unify_with_span(t1, t2, Span::default())
 }
 
 /// Unify with an explicit source span for error reporting.
+#[allow(clippy::result_large_err)]
 pub fn unify_with_span(
     t1: &InferType,
     t2: &InferType,
@@ -175,6 +177,7 @@ fn effect_sets_equal(
 }
 
 /// Unify two lists of types pairwise, composing the substitutions.
+#[allow(clippy::result_large_err)]
 fn unify_many(ts1: &[InferType], ts2: &[InferType], span: Span) -> Result<TypeSubst, UnifyError> {
     debug_assert_eq!(ts1.len(), ts2.len());
     let mut subst = TypeSubst::empty();
@@ -188,12 +191,13 @@ fn unify_many(ts1: &[InferType], ts2: &[InferType], span: Span) -> Result<TypeSu
 }
 
 /// Bind a type variable to a type, checking for infinite types.
+#[allow(clippy::result_large_err)]
 fn bind_var(v: TypeVarId, ty: &InferType, span: Span) -> Result<TypeSubst, UnifyError> {
     // Trivial: v is already the same variable
-    if let InferType::Var(w) = ty {
-        if *w == v {
-            return Ok(TypeSubst::empty());
-        }
+    if let InferType::Var(w) = ty
+        && *w == v
+    {
+        return Ok(TypeSubst::empty());
     }
 
     // Occurs check: v must not appear free in ty
