@@ -1,5 +1,7 @@
 // Student Grade Analyzer (self-contained)
 
+type Grade = GradeA | GradeB | GradeC | GradeD | GradeF
+
 fn make_student(name, scores) {
     {"name": name, "scores": scores}
 }
@@ -9,22 +11,23 @@ fn average(scores) {
 }
 
 fn letter_grade(avg) {
-    if avg >= 90.0 {
-        "A"
-    } else {
-        if avg >= 80.0 {
-            "B"
-        } else {
-            if avg >= 70.0 {
-                "C"
-            } else {
-                if avg >= 60.0 {
-                    "D"
-                } else {
-                    "F"
-                }
-            }
-        }
+    match avg {
+        _ if avg >= 90.0 -> GradeA,
+        _ if avg >= 80.0 -> GradeB,
+        _ if avg >= 70.0 -> GradeC,
+        _ if avg >= 60.0 -> GradeD,
+        _ -> GradeF,
+    }
+}
+
+fn grade_label(grade) {
+    match grade {
+        GradeA -> "A",
+        GradeB -> "B",
+        GradeC -> "C",
+        GradeD -> "D",
+        GradeF -> "F",
+        _ -> "?",
     }
 }
 
@@ -60,10 +63,26 @@ fn count_failed(results) {
     len(filter(values(results), \r -> r["passed"] == Some(false)))
 }
 
+fn format_result_line(name, r) {
+    let avg_text = match r["average"] {
+        Some(v) -> to_string(v),
+        _ -> "?",
+    }
+    let grade_text = match r["grade"] {
+        Some(v) -> grade_label(v),
+        _ -> "?",
+    }
+    let passed_text = match r["passed"] {
+        Some(v) -> to_string(v),
+        _ -> "?",
+    }
+    name + ": avg=" + avg_text + ", grade=" + grade_text + ", passed=" + passed_text
+}
+
 fn show(results, name) with IO {
     let maybe_result = results[name]
     match maybe_result {
-        Some(r) -> print(name + ": avg=" + to_string(r["average"]) + ", grade=" + to_string(r["grade"]) + ", passed=" + to_string(r["passed"])),
+        Some(r) -> print(format_result_line(name, r)),
         _ -> print(name + ": not found"),
     }
 }
