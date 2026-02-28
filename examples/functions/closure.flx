@@ -1,15 +1,17 @@
-let newClosure = fn(a) { 
-    fn() { 
-        a; 
-    }; 
-};
+fn main() with IO, Time {
+    let newClosure = fn(a) {
+        fn() {
+            a;
+        };
+    };
 
-let closure = newClosure(99);
+    let closure = newClosure(99);
 
-print(closure());
+    print(closure());
 
-let test_closure = fn(b) {
-    b;
-};
+    let test_closure = fn(b) {
+        b;
+    };
 
-print(test_closure(100));
+    print(test_closure(100));
+}

@@ -2,48 +2,49 @@
 // Inspired by AOC2025.Day04 using Set Point semantics.
 // Uses input file: examples/io/aoc_day4.txt
 
-fn line_at(lines, idx) {
-    match lines[idx] {
-        Some(v) -> v,
-        _ -> ""
+fn main() with IO, Time {
+    fn line_at(lines, idx) {
+        match lines[idx] {
+            Some(v) -> v,
+            _ -> ""
+        }
     }
-}
 
-fn char_at(line, col) {
-    substring(line, col, col + 1)
-}
-
-fn point_key(pt) {
-    to_string(pt.0) + "," + to_string(pt.1)
-}
-
-fn list_len(xs) {
-    match xs {
-        [_ | rest] -> 1 + list_len(rest),
-        _ -> 0
+    fn char_at(line, col) {
+        substring(line, col, col + 1)
     }
-}
 
-fn collect_row_points(lines, row, col, cols, acc) {
-    if col >= cols {
-        acc
-    } else {
+    fn point_key(pt) {
+        to_string(pt.0) + "," + to_string(pt.1)
+    }
+
+    fn list_len(xs) {
+        match xs {
+            [_ | rest] -> 1 + list_len(rest),
+            _ -> 0
+        }
+    }
+
+    fn collect_row_points(lines, row, col, cols, acc) {
+        if col >= cols {
+            acc
+        } else {
         let ch = char_at(line_at(lines, row), col)
         if ch == "@" {
             collect_row_points(lines, row, col + 1, cols, [(row, col) | acc])
         } else {
-            collect_row_points(lines, row, col + 1, cols, acc)
-        }
+        collect_row_points(lines, row, col + 1, cols, acc)
     }
+}
 }
 
 fn collect_points(lines, row, rows, cols, acc) {
     if row >= rows {
         reverse(acc)
     } else {
-        let next_acc = collect_row_points(lines, row, 0, cols, acc)
-        collect_points(lines, row + 1, rows, cols, next_acc)
-    }
+    let next_acc = collect_row_points(lines, row, 0, cols, acc)
+    collect_points(lines, row + 1, rows, cols, next_acc)
+}
 }
 
 fn points_to_set(points, acc) {
@@ -77,11 +78,11 @@ fn reachable_points(points, point_set, acc) {
             if neighbor_count(point_set, pt) < 4 {
                 reachable_points(rest, point_set, [pt | acc])
             } else {
-                reachable_points(rest, point_set, acc)
-            }
-        },
-        _ -> reverse(acc)
-    }
+            reachable_points(rest, point_set, acc)
+        }
+    },
+    _ -> reverse(acc)
+}
 }
 
 fn diff_points(points, removed_set, acc) {
@@ -90,11 +91,11 @@ fn diff_points(points, removed_set, acc) {
             if has_key(removed_set, point_key(pt)) {
                 diff_points(rest, removed_set, acc)
             } else {
-                diff_points(rest, removed_set, [pt | acc])
-            }
-        },
-        _ -> reverse(acc)
-    }
+            diff_points(rest, removed_set, [pt | acc])
+        }
+    },
+    _ -> reverse(acc)
+}
 }
 
 fn day04a(points) {
@@ -106,17 +107,17 @@ fn sum_removed_layers(points, acc) {
     if list_len(points) == 0 {
         acc
     } else {
-        let point_set = points_to_set(points, {})
-        let removed = reachable_points(points, point_set, None)
-        let removed_count = list_len(removed)
-        if removed_count == 0 {
-            acc
-        } else {
-            let removed_set = points_to_set(removed, {})
-            let remaining = diff_points(points, removed_set, None)
-            sum_removed_layers(remaining, acc + removed_count)
-        }
-    }
+    let point_set = points_to_set(points, {})
+    let removed = reachable_points(points, point_set, None)
+    let removed_count = list_len(removed)
+    if removed_count == 0 {
+        acc
+    } else {
+    let removed_set = points_to_set(removed, {})
+    let remaining = diff_points(points, removed_set, None)
+    sum_removed_layers(remaining, acc + removed_count)
+}
+}
 }
 
 fn day04b(points) {
@@ -130,3 +131,4 @@ let points = collect_points(lines, 0, rows, cols, None)
 
 print(day04a(points))
 print(day04b(points))
+}

@@ -1,9 +1,13 @@
 // Test Case 3: Multiple similar variables
 
-let userName = "Alice";
-let userEmail = "alice@example.com";
-let userId = 123;
-let userRole = "admin";
+let userName = "Alice"
+let userEmail = "alice@example.com"
+let userId = 123
+let userRole = "admin"
 
-// Typo: "userNam" missing 'e'
-print(userNam);
+fn main() with IO {
+    print(userName)
+    print(userEmail)
+    print(userId)
+    print(userRole)
+}

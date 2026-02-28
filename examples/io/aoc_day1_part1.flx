@@ -1,11 +1,12 @@
 // Advent of Code - Day 1 (Secret Entrance)
 // Uses input file: examples/io/aoc_day1.txt
 
-fn wrap_100(value) {
-    let reduced = value % 100
-    if reduced < 0 {
-        reduced + 100
-    } else {
+fn main() with IO, Time {
+    fn wrap_100(value) {
+        let reduced = value % 100
+        if reduced < 0 {
+            reduced + 100
+        } else {
         reduced
     }
 }
@@ -16,8 +17,8 @@ fn parse_rotation(line) {
     if dir == "L" {
         0 - distance
     } else {
-        distance
-    }
+    distance
+}
 }
 
 fn process_step(step, rest, state) {
@@ -38,3 +39,4 @@ let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
 let steps = [parse_rotation(trim(line)) | line <- lines, trim(line) != ""]
 let password = solve_steps(steps, (50, 0))
 print(password)
+}

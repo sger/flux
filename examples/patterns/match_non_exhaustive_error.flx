@@ -1,8 +1,9 @@
-    fn main() {
-        let value = 2;
-        let label = match value {
-            1 -> "one",
-            2 -> "two",
-        };
-        print(label);
+fn main() with IO {
+    let value = 2
+    let label = match value {
+        1 -> "one",
+        2 -> "two",
+        _ -> "other",
     }
+    print(label)
+}

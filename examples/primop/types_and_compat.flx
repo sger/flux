@@ -1,14 +1,16 @@
-print("== PrimOps: types + compat ==");
-let arr = [|10, 20, 30|];
-let m = put({}, "name", "flux");
-print(type_of(arr));
-print(type_of(m));
-print(is_int(1));
-print(is_float(1.0));
-print(is_string("x"));
-print(is_bool(true));
-print(is_array(arr));
-print(is_hash(m));
-print(is_none(None));
-print(is_some(Some(1)));
-print(to_string(arr));
+fn main() with IO {
+    print("== PrimOps: types + compat ==");
+    let arr = [|10, 20, 30|];
+    let m = put({}, "name", "flux");
+    print(type_of(arr));
+    print(type_of(m));
+    print(is_int(1));
+    print(is_float(1.0));
+    print(is_string("x"));
+    print(is_bool(true));
+    print(is_array(arr));
+    print(is_hash(m));
+    print(is_none(None));
+    print(is_some(Some(1)));
+    print(to_string(arr));
+}

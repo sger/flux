@@ -2,41 +2,42 @@
 // Count directed paths from "you" to "out".
 // Input: examples/io/aoc_day11.txt
 
-fn line_at(lines, idx) {
-    match lines[idx] {
-        Some(v) -> v,
-        _ -> ""
+fn main() with IO, Time {
+    fn line_at(lines, idx) {
+        match lines[idx] {
+            Some(v) -> v,
+            _ -> ""
+        }
     }
-}
 
-fn str_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> ""
+    fn str_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> ""
+        }
     }
-}
 
-fn arr_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> [||]
+    fn arr_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [||]
+        }
     }
-}
 
-fn char_at(s, idx) {
-    substring(s, idx, idx + 1)
-}
+    fn char_at(s, idx) {
+        substring(s, idx, idx + 1)
+    }
 
-fn find_char_from(s, ch, idx) {
-    if idx >= len(s) {
-        -1
-    } else {
+    fn find_char_from(s, ch, idx) {
+        if idx >= len(s) {
+            -1
+        } else {
         if char_at(s, idx) == ch {
             idx
         } else {
-            find_char_from(s, ch, idx + 1)
-        }
+        find_char_from(s, ch, idx + 1)
     }
+}
 }
 
 fn result(count, memo) {
@@ -74,12 +75,12 @@ fn sum_children(outs, i, graph, memo, acc) {
     if i >= len(outs) {
         result(acc, memo)
     } else {
-        let nxt = str_at(outs, i)
-        let r = dfs_count(nxt, graph, memo)
-        let cnt = result_count(r)
-        let memo2 = result_memo(r)
-        sum_children(outs, i + 1, graph, memo2, acc + cnt)
-    }
+    let nxt = str_at(outs, i)
+    let r = dfs_count(nxt, graph, memo)
+    let cnt = result_count(r)
+    let memo2 = result_memo(r)
+    sum_children(outs, i + 1, graph, memo2, acc + cnt)
+}
 }
 
 fn dfs_from_outs(node, outs, graph, memo) {
@@ -106,14 +107,15 @@ fn dfs_count(node, graph, memo) {
     if node == "out" {
         result(1, memo)
     } else {
-        match get(memo, node) {
-            Some(v) -> result(v, memo),
-            _ -> dfs_uncached(node, graph, memo)
-        }
+    match get(memo, node) {
+        Some(v) -> result(v, memo),
+        _ -> dfs_uncached(node, graph, memo)
     }
+}
 }
 
 let lines = read_lines("examples/io/aoc_day11.txt")
 let graph = parse_graph(lines)
 let ans = dfs_count("you", graph, {})
 print(result_count(ans))
+}
