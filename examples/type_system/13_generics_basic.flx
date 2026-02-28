@@ -2,17 +2,19 @@
 // The HM inference pass instantiates fresh type variables at each call site,
 // so the same function can be used at different types without duplication.
 
-fn identity<T>(x: T) -> T { x }
+fn main() with IO, Time {
+    fn identity<T>(x: T) -> T { x }
 
-fn swap<A, B>(a: A, b: B) -> (B, A) { (b, a) }
+    fn swap<A, B>(a: A, b: B) -> (B, A) { (b, a) }
 
-fn const_<A, B>(a: A, b: B) -> A { a }
+    fn const_<A, B>(a: A, b: B) -> A { a }
 
-print(identity(42))
-print(identity("hello"))
+    print(identity(42))
+    print(identity("hello"))
 
-let (y, x) = swap(1, "one")
-print(x)
-print(y)
+    let (y, x) = swap(1, "one")
+    print(x)
+    print(y)
 
-print(const_(true, 99))
+    print(const_(true, 99))
+}

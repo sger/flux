@@ -1,2 +1,4 @@
-let Math = { "square": fn(x) { x * x; } };
-print(Math.square(5));
+fn main() with IO, Time {
+    let Math = { "square": fn(x) { x * x; } };
+    print(Math.square(5));
+}

@@ -1,8 +1,11 @@
 // Test Case 2: Prefix matching
 
-let configuration = "prod";
-let config = "dev";
-let configured = true;
+let configuration = "prod"
+let config = "dev"
+let configured = true
 
-// Incomplete typing: "conf"
-print(conf);
+fn main() with IO {
+    print(configuration)
+    print(config)
+    print(configured)
+}

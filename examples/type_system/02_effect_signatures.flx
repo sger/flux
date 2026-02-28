@@ -1,15 +1,17 @@
-fn now_plus(delta: Int) -> Int with Time {
-    now_ms() + delta
-}
+fn main() with IO, Time {
+    fn now_plus(delta: Int) -> Int with Time {
+        now_ms() + delta
+    }
 
-fn log_now(prefix: String) with IO, Time {
-    let t = now_plus(0)
-    print("#{prefix}#{t}")
-}
+    fn log_now(prefix: String) with IO, Time {
+        let t = now_plus(0)
+        print("#{prefix}#{t}")
+    }
 
-fn greet(name: String) with IO {
-    print("Hello, #{name}")
-}
+    fn greet(name: String) with IO {
+        print("Hello, #{name}")
+    }
 
-log_now("timestamp=")
-greet("Flux")
+    log_now("timestamp=")
+    greet("Flux")
+}

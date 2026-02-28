@@ -1,18 +1,20 @@
-print("== PrimOps: arithmetic + comparison ==");
+fn main() with IO {
+    print("== PrimOps: arithmetic + comparison ==");
 
-print(iadd(10, 20));   // 30
-print(isub(20, 3));    // 17
-print(imul(6, 7));     // 42
-print(idiv(21, 3));    // 7
-print(imod(20, 6));    // 2
+    print(iadd(10, 20));   // 30
+    print(isub(20, 3));    // 17
+    print(imul(6, 7));     // 42
+    print(idiv(21, 3));    // 7
+    print(imod(20, 6));    // 2
 
-print(fadd(1.5, 2.25)); // 3.75
-print(fsub(5.5, 2.0));  // 3.5
-print(fmul(2.0, 4.5));  // 9.0
-print(fdiv(9.0, 2.0));  // 4.5
+    print(fadd(1.5, 2.25)); // 3.75
+    print(fsub(5.5, 2.0));  // 3.5
+    print(fmul(2.0, 4.5));  // 9.0
+    print(fdiv(9.0, 2.0));  // 4.5
 
-print(icmp_lt(2, 3));   // true
-print(icmp_ge(10, 10)); // true
-print(fcmp_gt(2.5, 1.5)); // true
-print(cmp_eq("flux", "flux")); // true
-print(cmp_ne(1, 2)); // true
+    print(icmp_lt(2, 3));   // true
+    print(icmp_ge(10, 10)); // true
+    print(fcmp_gt(2.5, 1.5)); // true
+    print(cmp_eq("flux", "flux")); // true
+    print(cmp_ne(1, 2)); // true
+}
