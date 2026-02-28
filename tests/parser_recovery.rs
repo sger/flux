@@ -52,6 +52,12 @@ fn has_print_call_with_int_arg(program: &Program, interner: &Interner, expected:
     })
 }
 
+fn has_function(program: &Program, interner: &Interner, name: &str) -> bool {
+    program.statements.iter().any(
+        |stmt| matches!(stmt, Statement::Function { name: n, .. } if interner.resolve(*n) == name),
+    )
+}
+
 #[test]
 fn malformed_expression_corpus_recovers_without_panicking() {
     let cases = [
@@ -221,4 +227,43 @@ fn malformed_statements_recover_and_keep_followup_statements() {
             );
         }
     }
+}
+
+#[test]
+fn type_annotation_recovery_fixture_keeps_followup_statements() {
+    let input = include_str!("fixtures/recovery/type_annotation_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("annotation recovery fixture should not panic");
+
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E034")),
+        "expected parser diagnostics for malformed annotations"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "ok1")
+            && has_let_binding(&program, &interner, "ok2")
+            && has_let_binding(&program, &interner, "ok3")
+            && has_let_binding(&program, &interner, "ok4"),
+        "expected follow-up let bindings to survive malformed annotation recovery"
+    );
+    assert!(
+        has_function(&program, &interner, "f") && has_function(&program, &interner, "g"),
+        "expected malformed annotation functions to remain in parsed output"
+    );
+}
+
+#[test]
+fn unterminated_string_recovery_fixture_keeps_followup_statement() {
+    let input = include_str!("../examples/type_system/failing/100_unclosed_string_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("unterminated-string recovery fixture should not panic");
+
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E071")),
+        "expected unterminated string diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected parser recovery to keep follow-up let binding after unterminated string"
+    );
 }

@@ -1,0 +1,3 @@
+effect Console {
+    print String -> Unit
+}

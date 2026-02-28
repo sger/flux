@@ -1,0 +1,8 @@
+// E300: concrete if branches now report contextual mismatch diagnostics with dual labels.
+fn main() -> Unit {
+    let _x = if true {
+        42
+    } else {
+        "nope"
+    }
+}

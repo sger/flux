@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
 };
 
+use super::suggestions::suggest_effect_name;
 use crate::{
     bytecode::{
         binding::Binding,
@@ -25,7 +26,7 @@ use crate::{
         LEGACY_LIST_TAIL_NONE, MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED, MODULE_NOT_IMPORTED,
         NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
         UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
-        compiler_errors::type_unification_error,
+        compiler_errors::{type_unification_error, wrong_argument_count},
         diag_enhanced,
         position::{Position, Span},
         types::ErrorType,
@@ -390,6 +391,7 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                self.check_known_call_arity(expression.span(), function, arguments)?;
                 self.check_static_contract_call(function, arguments)?;
 
                 if self.try_emit_adt_constructor_call(function, arguments, expression.span())? {
@@ -763,6 +765,60 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn call_function_name(&self, function: &Expression) -> String {
+        match function {
+            Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+            Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
+            _ => "<call>".to_string(),
+        }
+    }
+
+    fn call_definition_span(&mut self, function: &Expression) -> Option<Span> {
+        match function {
+            Expression::Identifier { name, .. } => {
+                self.resolve_visible_symbol(*name).map(|b| b.span)
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object)?;
+                let qualified = self.interner.intern_join(module_name, *member);
+                self.resolve_visible_symbol(qualified).map(|b| b.span)
+            }
+            _ => None,
+        }
+    }
+
+    fn check_known_call_arity(
+        &mut self,
+        call_span: Span,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<()> {
+        use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+
+        let HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
+            self.hm_expr_type_strict_path(function)
+        else {
+            return Ok(());
+        };
+
+        let expected = params.len();
+        let actual = arguments.len();
+        if expected == actual {
+            return Ok(());
+        }
+
+        let function_name = self.call_function_name(function);
+        let def_span = self.call_definition_span(function);
+        Err(Self::boxed(wrong_argument_count(
+            self.file_path.clone(),
+            call_span,
+            &function_name,
+            expected,
+            actual,
+            def_span,
+        )))
     }
 
     fn module_constructor_boundary_error_from_qualified_identifier(
@@ -2126,13 +2182,15 @@ impl Compiler {
             .map(|ops| ops.contains(&op))
         else {
             let effect_name = self.sym(effect).to_string();
+            let hint = suggest_effect_name(&effect_name)
+                .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string());
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E403",
                     "UNKNOWN EFFECT",
                     ErrorType::Compiler,
                     format!("Effect `{}` is not declared.", effect_name),
-                    Some("Declare the effect before using `perform`.".to_string()),
+                    Some(hint),
                     self.file_path.clone(),
                     span,
                 )
@@ -2254,6 +2312,9 @@ impl Compiler {
 
         let Some(declared_ops) = self.effect_declared_ops(effect) else {
             let effect_name = self.sym(effect).to_string();
+            let hint = suggest_effect_name(&effect_name).unwrap_or_else(|| {
+                "Declare the effect before using `handle`, or fix the effect name.".to_string()
+            });
             return Err(Self::boxed(
                 Diagnostic::make_error_dynamic(
                     "E405",
@@ -2263,10 +2324,7 @@ impl Compiler {
                         "Effect `{}` is not declared for this handle block.",
                         effect_name
                     ),
-                    Some(
-                        "Declare the effect before using `handle`, or fix the effect name."
-                            .to_string(),
-                    ),
+                    Some(hint),
                     self.file_path.clone(),
                     expr.span(),
                 )
