@@ -1326,6 +1326,39 @@ fn compile_statement(
             has_semicolon,
             ..
         } => {
+            if !*has_semicolon
+                && let Some(tc) = tail_call
+                && let Some(fn_name) = tc.function_name
+                && let Expression::Call {
+                    function,
+                    arguments,
+                    ..
+                } = expression
+                && let Expression::Identifier { name, .. } = function.as_ref()
+                && *name == fn_name
+                && arguments.len() == tc.params.len()
+            {
+                let mut arg_vals = Vec::with_capacity(arguments.len());
+                for arg in arguments {
+                    arg_vals.push(compile_expression(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        arg,
+                        interner,
+                    )?);
+                }
+                for (idx, (_, var)) in tc.params.iter().enumerate() {
+                    builder.def_var(*var, arg_vals[idx]);
+                }
+                builder.ins().jump(tc.loop_block, &[]);
+                return Ok(StmtOutcome::Returned);
+            }
+
             let val = compile_expression(
                 module,
                 helpers,

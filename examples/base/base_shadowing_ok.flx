@@ -2,11 +2,13 @@
 // Bare `len` resolves to local binding; `Base.len` resolves to Base.
 
 fn demo() {
-  let len = fn(x) { 999 };
-  let xs = [1, 2, 3];
+  let len = fn(x) { 999 }
+  let xs = [1, 2, 3]
 
-  print(len(xs));
-  print(Base.len(xs));
+  print(len(xs))
+  print(Base.len(xs))
 }
 
-demo();
+fn main() with IO {
+  demo()
+}

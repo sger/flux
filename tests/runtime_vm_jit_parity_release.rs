@@ -185,6 +185,22 @@ match r {
 }
 
 #[test]
+fn release_runtime_parity_tail_recursive_countdown() {
+    assert_vm_jit_value(
+        r#"
+fn countdown(n) {
+  if n == 0 {
+    0
+  } else {
+    countdown(n - 1)
+  }
+}
+countdown(100000)
+"#,
+    );
+}
+
+#[test]
 fn release_runtime_parity_effectful_error_signature() {
     assert_vm_jit_error_signature_contains(
         r#"panic("release parity panic")"#,
