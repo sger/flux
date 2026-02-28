@@ -3,69 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/multiline_strings.flx
 == compile ==
-failed (parse)
+ok
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected `IDENT`, got `data`.
-
-  --> examples/basics/multiline_strings.flx:56:5
-   |
-56 | let data = parse_grid(grid)
-   |     ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/basics/multiline_strings.flx:61:22
-   |
-61 | let rows_count = len(data)
-   |                      ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/basics/multiline_strings.flx:62:28
-   |
-62 | let cols_count = len(first(data))
-   |                            ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/basics/multiline_strings.flx:66:17
-   |
-66 | Row sums: #{map(data, sum)}
-   |                 ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/basics/multiline_strings.flx:67:18
-   |
-67 | Total: #{sum(map(data, sum))}
-   |                  ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found STRING_END.
-
-  --> examples/basics/multiline_strings.flx:67:30
-   |
-67 | Total: #{sum(map(data, sum))}
-   |                              ^
-68 | """
-   | ^^^
-
-Found 6 errors.
+<none>
 == stdout ==
 <not executed>

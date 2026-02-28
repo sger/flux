@@ -9,6 +9,10 @@ fn fixture_path(name: &str) -> PathBuf {
     workspace_root().join("tests").join("flux").join(name)
 }
 
+fn example_path(rel: &str) -> PathBuf {
+    workspace_root().join("examples").join(rel)
+}
+
 fn run_flux(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .args(args)
@@ -240,6 +244,78 @@ fn test_mode_primops_fixture_passes_on_vm() {
         text.contains("8 tests: 8 passed, 0 failed"),
         "unexpected summary, output:\n{}",
         text
+    );
+}
+
+#[test]
+fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
+    let file = example_path("type_system/failing/153_stage_all_errors_flag.flx");
+
+    let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let default_text = combined_output(&default_output);
+    assert!(
+        !default_output.status.success(),
+        "expected fixture to fail in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        default_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
+        "expected suppression note in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        !default_text.contains("error[E300]"),
+        "expected type diagnostic suppressed in default mode, output:\n{}",
+        default_text
+    );
+
+    let all_output = run_flux(&["--no-cache", "--all-errors", file.to_str().unwrap()]);
+    let all_text = combined_output(&all_output);
+    assert!(
+        !all_output.status.success(),
+        "expected fixture to fail with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("error[E300]"),
+        "expected downstream type diagnostic visible with --all-errors, output:\n{}",
+        all_text
+    );
+}
+
+#[test]
+fn test_mode_parse_errors_exit_early_even_with_all_errors() {
+    let file = fixture_path("parse_error.flx");
+
+    let normal = run_flux(&["--test", file.to_str().unwrap()]);
+    let normal_text = combined_output(&normal);
+    assert!(
+        !normal.status.success(),
+        "expected parse failure in test mode, output:\n{}",
+        normal_text
+    );
+    assert!(
+        normal_text.contains("error[E071]") || normal_text.contains("error[E076]"),
+        "expected parse diagnostics in test mode, output:\n{}",
+        normal_text
+    );
+
+    let all = run_flux(&["--test", "--all-errors", file.to_str().unwrap()]);
+    let all_text = combined_output(&all);
+    assert!(
+        !all.status.success(),
+        "expected parse failure in test mode with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("error[E071]") || all_text.contains("error[E076]"),
+        "expected parse diagnostics in test mode with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        !all_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
+        "test mode exits immediately on parse errors, so stage-filter suppression notes should not appear:\n{}",
+        all_text
     );
 }
 

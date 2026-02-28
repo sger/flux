@@ -156,5 +156,6 @@ pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
         suggestions: Vec::new(),
         hint_chains: Vec::new(),
         related: Vec::new(),
+        phase: None,
     }
 }

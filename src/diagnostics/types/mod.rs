@@ -4,6 +4,7 @@
 //! including severity levels, hints, labels, suggestions, related diagnostics,
 //! and error code definitions.
 
+mod diagnostic_phase;
 mod error_code;
 mod hint;
 mod label;
@@ -11,6 +12,7 @@ mod related;
 mod severity;
 mod suggestion;
 
+pub use diagnostic_phase::DiagnosticPhase;
 pub use error_code::{ErrorCode, ErrorType};
 pub use hint::{Hint, HintChain, HintKind};
 pub use label::{Label, LabelStyle};

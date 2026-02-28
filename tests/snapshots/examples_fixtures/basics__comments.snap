@@ -3,77 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/comments.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/comments.flx:114:1
-    |
-114 | print("Factorial of 5:");
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^
-    | ------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/basics/comments.flx:114:1
-    |
-114 | print("Factorial of 5:");
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^
-    | ------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/comments.flx:115:1
-    |
-115 | print(result1);
-    | ^^^^^^^^^^^^^^^
-    | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/comments.flx:116:1
-    |
-116 | print("Fibonacci(10):");
-    | ^^^^^^^^^^^^^^^^^^^^^^^^
-    | ------------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/comments.flx:117:1
-    |
-117 | print(result2);
-    | ^^^^^^^^^^^^^^^
-    | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 5 errors.
+<none>
 == stdout ==
 <not executed>

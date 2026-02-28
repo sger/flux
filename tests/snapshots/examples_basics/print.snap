@@ -3,77 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/print.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/print.flx:8:1
-  |
-8 | print("hello world");
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/basics/print.flx:8:1
-  |
-8 | print("hello world");
-  | ^^^^^^^^^^^^^^^^^^^^^
-  | --------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/print.flx:9:1
-  |
-9 | print(42);
-  | ^^^^^^^^^^
-  | ---------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/print.flx:10:1
-   |
-10 | print(true);
-   | ^^^^^^^^^^^^
-   | ------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/basics/print.flx:11:1
-   |
-11 | print(false);
-   | ^^^^^^^^^^^^^
-   | ------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 5 errors.
+<none>
 == stdout ==
 <not executed>
