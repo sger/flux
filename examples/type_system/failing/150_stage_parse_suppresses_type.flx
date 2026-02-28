@@ -1,0 +1,9 @@
+// Multi-module stage filtering fixture.
+// Entry has parse errors; imported module has type/effect diagnostics.
+// Entry is skipped, but independent imports still compile, so real suppression is exercised.
+
+import Stage150Type
+
+fn main() -> Unit {
+    let broken = "unterminated
+}

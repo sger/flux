@@ -26,8 +26,8 @@ pub use registry::{ERROR_CODES, diag_enhanced, lookup_error_code};
 pub use rendering::render_diagnostics_json;
 pub use rendering::{render_diagnostics, render_display_path};
 pub use types::{
-    ErrorCode, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle,
-    RelatedDiagnostic, RelatedKind, Severity,
+    DiagnosticPhase, ErrorCode, ErrorType, Hint, HintChain, HintKind, InlineSuggestion, Label,
+    LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
 };
 
 pub use compiler_errors::*;

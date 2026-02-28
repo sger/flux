@@ -3,37 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/using_list_module.flx
 == compile ==
-failed (parse)
+ok
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected `IDENT`, got `data`.
-
-  --> examples/advanced/using_list_module.flx:79:5
-   |
-79 | let data = [1, 2, 3, 4, 5];
-   |     ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/advanced/using_list_module.flx:80:42
-   |
-80 | print("Any negative? " + to_string(L.any(data, /x -> x < 0)));
-   |                                          ^^^^
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found data.
-
-  --> examples/advanced/using_list_module.flx:81:42
-   |
-81 | print("All positive? " + to_string(L.all(data, /x -> x > 0)));
-   |                                          ^^^^
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>
