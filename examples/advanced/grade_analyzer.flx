@@ -11,13 +11,11 @@ fn average(scores) {
 }
 
 fn letter_grade(avg) {
-    match avg {
-        _ if avg >= 90.0 -> GradeA,
-        _ if avg >= 80.0 -> GradeB,
-        _ if avg >= 70.0 -> GradeC,
-        _ if avg >= 60.0 -> GradeD,
-        _ -> GradeF,
-    }
+    if avg >= 90.0 { return GradeA }
+    if avg >= 80.0 { return GradeB }
+    if avg >= 70.0 { return GradeC }
+    if avg >= 60.0 { return GradeD }
+    GradeF
 }
 
 fn grade_label(grade) {

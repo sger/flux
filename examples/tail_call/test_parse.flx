@@ -1,13 +1,15 @@
 fn test(n) {
     if n == 0 {
-        "zero";
+        "zero"
     } else {
         if n == 1 {
-            "one";
+            "one"
         } else {
-            "other";
+            "other"
         }
     }
 }
 
-print(test(1));
+fn main() with IO {
+    print(test(1))
+}
