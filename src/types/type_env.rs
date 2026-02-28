@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    diagnostics::position::Span,
     runtime::runtime_type::RuntimeType,
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
     types::{
@@ -15,8 +16,14 @@ use crate::{
 /// type-variable counter used throughout the inference pass.
 #[derive(Debug, Clone)]
 pub struct TypeEnv {
-    scopes: Vec<HashMap<Identifier, Scheme>>,
+    scopes: Vec<HashMap<Identifier, TypeBindingEntry>>,
     pub counter: u32,
+}
+
+#[derive(Debug, Clone)]
+struct TypeBindingEntry {
+    scheme: Scheme,
+    def_span: Option<Span>,
 }
 
 impl TypeEnv {
@@ -41,17 +48,32 @@ impl TypeEnv {
 
     /// Bind a name to a scheme in the current (innermost) scope.
     pub fn bind(&mut self, name: Identifier, scheme: Scheme) {
+        self.bind_with_span(name, scheme, None);
+    }
+
+    /// Bind a name to a scheme and optional definition span in the current scope.
+    pub fn bind_with_span(&mut self, name: Identifier, scheme: Scheme, def_span: Option<Span>) {
         self.scopes
             .last_mut()
             .expect("at least one scope")
-            .insert(name, scheme);
+            .insert(name, TypeBindingEntry { scheme, def_span });
     }
 
     /// Look up a name, searching from innermost to outermost scope.
     pub fn lookup(&self, name: Identifier) -> Option<&Scheme> {
         for scope in self.scopes.iter().rev() {
-            if let Some(s) = scope.get(&name) {
-                return Some(s);
+            if let Some(entry) = scope.get(&name) {
+                return Some(&entry.scheme);
+            }
+        }
+        None
+    }
+
+    /// Look up a name's definition span, searching from innermost to outermost scope.
+    pub fn lookup_span(&self, name: Identifier) -> Option<Span> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(&name) {
+                return entry.def_span;
             }
         }
         None
@@ -77,7 +99,7 @@ impl TypeEnv {
         let mut set = HashSet::new();
         for scope in &self.scopes {
             for scheme in scope.values() {
-                set.extend(scheme.free_vars());
+                set.extend(scheme.scheme.free_vars());
             }
         }
         set
@@ -347,6 +369,19 @@ mod tests {
         assert!(free.contains(&1));
         assert!(free.contains(&2));
         assert!(!free.contains(&0));
+    }
+
+    #[test]
+    fn lookup_span_tracks_bound_definition_span() {
+        let mut interner = Interner::new();
+        let f = interner.intern("f");
+        let mut env = TypeEnv::new();
+        let def_span = Span::new(
+            crate::diagnostics::position::Position::new(2, 1),
+            crate::diagnostics::position::Position::new(2, 10),
+        );
+        env.bind_with_span(f, Scheme::mono(int()), Some(def_span));
+        assert_eq!(env.lookup_span(f), Some(def_span));
     }
 
     #[test]

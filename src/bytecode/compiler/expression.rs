@@ -18,6 +18,7 @@ use crate::{
         op_code::OpCode,
         symbol_scope::SymbolScope,
     },
+    ast::type_infer::display_infer_type,
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
         DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
@@ -26,7 +27,7 @@ use crate::{
         LEGACY_LIST_TAIL_NONE, MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED, MODULE_NOT_IMPORTED,
         NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
         UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
-        compiler_errors::{type_unification_error, wrong_argument_count},
+        compiler_errors::{call_arg_type_mismatch, type_unification_error, wrong_argument_count},
         diag_enhanced,
         position::{Position, Span},
         types::ErrorType,
@@ -48,7 +49,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst},
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify_error::unify},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
@@ -625,7 +626,10 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.check_direct_builtin_effect_call(function)?;
 
-        let Some(contract) = self.resolve_call_contract(function, arguments.len()) else {
+        let Some(contract) = self
+            .resolve_call_contract(function, arguments.len())
+            .cloned()
+        else {
             return Ok(());
         };
 
@@ -633,7 +637,7 @@ impl Compiler {
             let required_row = EffectRow::from_effect_exprs(&contract.effects, |effect| {
                 self.is_effect_variable(effect)
             });
-            let constraints = self.collect_effect_row_constraints(contract, arguments);
+            let constraints = self.collect_effect_row_constraints(&contract, arguments);
             let solution = solve_row_constraints(&constraints);
 
             if let Some(first_violation) = solution.violations.first() {
@@ -723,6 +727,9 @@ impl Compiler {
             }
         }
 
+        let function_name = self.call_function_name(function);
+        let def_span = self.call_definition_span(function);
+
         for (index, argument) in arguments.iter().enumerate() {
             let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
                 continue;
@@ -754,6 +761,42 @@ impl Compiler {
                 continue;
             };
             let expected_infer = TypeEnv::infer_type_from_runtime(&expected_runtime);
+            let maybe_contextual = match self.hm_expr_type_strict_path(argument) {
+                super::hm_expr_typer::HmExprTypeResult::Known(actual) => {
+                    if expected_infer.is_concrete()
+                        && actual.is_concrete()
+                        && !expected_infer.contains_any()
+                        && !actual.contains_any()
+                    {
+                        let compatible = if let Ok(subst) = unify(&expected_infer, &actual) {
+                            expected_infer.apply_type_subst(&subst) == actual.apply_type_subst(&subst)
+                        } else {
+                            false
+                        };
+                        if compatible {
+                            None
+                        } else {
+                            let expected_str = display_infer_type(&expected_infer, &self.interner);
+                            let actual_str = display_infer_type(&actual, &self.interner);
+                            Some(call_arg_type_mismatch(
+                                self.file_path.clone(),
+                                argument.span(),
+                                Some(&function_name),
+                                index + 1,
+                                def_span,
+                                &expected_str,
+                                &actual_str,
+                            ))
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(diag) = maybe_contextual {
+                return Err(Self::boxed(diag));
+            }
             self.validate_expr_expected_type_with_policy(
                 &expected_infer,
                 argument,

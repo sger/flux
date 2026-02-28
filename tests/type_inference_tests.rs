@@ -1128,3 +1128,77 @@ fn type_env_to_runtime_resolves_var() {
     let rt = TypeEnv::to_runtime(&var(0), &subst);
     assert_eq!(rt, RuntimeType::Int);
 }
+
+#[test]
+fn infer_call_arg_named_fn_emits_contextual_e300() {
+    let source = r#"
+fn greet(name: String) -> String { name }
+fn main() -> Unit {
+    let _x = greet(42)
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(&result, "The 1st argument to `greet` has the wrong type."),
+        "expected named call-arg contextual message, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_call_arg_anonymous_fn_emits_contextual_e300_without_name() {
+    let source = r#"
+fn greet(name: String) -> String { name }
+fn main() -> Unit {
+    let _x = (if true { greet } else { greet })(42)
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 diagnostics, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(&result, "The 1st argument to this function has the wrong type."),
+        "expected anonymous call-arg contextual message, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_call_with_unresolved_callee_does_not_emit_contextual_callarg_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _x = unknown_fn(42)
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(&result, "argument to `"),
+        "did not expect contextual call-arg mismatch for unresolved callee, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_call_with_nested_any_param_does_not_emit_contextual_callarg_e300() {
+    let source = r#"
+fn accepts_any_param_fn(f: (Any) -> Int) -> Int { f(0) }
+fn concrete_fn(x: Int) -> Int { x }
+fn main() -> Unit {
+    let _x = accepts_any_param_fn(concrete_fn)
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        !has_diagnostic_message_fragment(&result, "argument to `accepts_any_param_fn` has the wrong type."),
+        "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
+        result.diagnostics
+    );
+}
