@@ -10,13 +10,13 @@ fn findById(records, id) {
     if len(records) == 0 {
         None
     } else {
-        let record = first(records)
-        if opt_eq(record["id"], id) {
-            record
-        } else {
-            findById(rest(records), id)
-        }
-    }
+    let record = first(records)
+    if opt_eq(record["id"], id) {
+        record
+    } else {
+    findById(rest(records), id)
+}
+}
 }
 
 fn main() with IO {
@@ -30,12 +30,12 @@ fn main() with IO {
     // Some("Alice")
     // Some("Charlie")
     // Not found
-    
+
     // Database is an array of records (hashes)
     let db = [|
-        {"id": 1, "name": "Alice", "age": 30},
-        {"id": 2, "name": "Bob", "age": 25},
-        {"id": 3, "name": "Charlie", "age": 35}
+    {"id": 1, "name": "Alice", "age": 30},
+    {"id": 2, "name": "Bob", "age": 25},
+    {"id": 3, "name": "Charlie", "age": 35}
     |]
 
     // Get records by position

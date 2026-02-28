@@ -10,8 +10,8 @@ fn safeDivide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
-        Right(a / b)
-    }
+    Right(a / b)
+}
 }
 
 fn isRight(either) {
@@ -39,7 +39,7 @@ fn main() with IO {
     // Either Type Examples
     // Left and Right are used for values that can be one of two types
     // By convention: Left = error/failure, Right = success/value
-    
+
     // Basic Left and Right creation
     let success = Right(42)
     let failure = Left("error occurred")

@@ -4,45 +4,45 @@ fn main() with IO {
     // Rule 1: Semicolons are OPTIONAL for common statement forms
     // Rule 2: Trailing semicolons are also accepted
     // Rule 3: This parser is not newline-token based, so same-line forms can parse too
-    
+
     print("=== Semicolon Demonstration ===")
     print("")
-    
+
     // ============================================================================
     // OPTIONAL: Top-level statements on separate lines
     // ============================================================================
-    
+
     print("1. Top-level statements (no semicolons needed):")
-    
+
     let x = 42
     let y = 10
     print("   x + y = " + to_string(x + y))
-    
+
     // Note: After a block of lets, add a print/expression before next let block
     print("")
-    
+
     // ============================================================================
     // ALSO WORKS: Multiple statements on same line
     // ============================================================================
-    
+
     print("2. Same line (also parses):")
     let a = 1; let b = 2; let c = 3
     print("   a=" + to_string(a) + " b=" + to_string(b) + " c=" + to_string(c))
     print("")
-    
+
     // ============================================================================
     // FUNCTIONS: Comprehensive examples
     // ============================================================================
-    
+
     print("3. Functions:")
     print("")
-    
+
     // ---- Single expression (no semicolon) ----
     fn add(x, y) {
         x + y  // OPTIONAL semicolon (last expression)
     }
     print("   add(5, 3) = " + to_string(add(5, 3)))
-    
+
     // ---- Multiple statements (semicolons optional, accepted style) ----
     fn calculate(n) {
         let doubled = n * 2;     // semicolon accepted
@@ -50,7 +50,7 @@ fn main() with IO {
         doubled + squared        // OPTIONAL semicolon (last)
     }
     print("   calculate(5) = " + to_string(calculate(5)))
-    
+
     // ---- With return statements ----
     fn get_max(a, b) {
         if (a > b) {
@@ -59,7 +59,7 @@ fn main() with IO {
         return b                 // OPTIONAL semicolon (last in function)
     }
     print("   get_max(10, 20) = " + to_string(get_max(10, 20)))
-    
+
     // ---- Early return ----
     fn check_positive(n) {
         if (n <= 0) {
@@ -69,7 +69,7 @@ fn main() with IO {
     }
     print("   check_positive(5) = " + check_positive(5))
     print("   check_positive(-5) = " + check_positive(-5))
-    
+
     // ---- Nested functions ----
     fn outer(x) {
         fn inner(y) {
@@ -79,32 +79,32 @@ fn main() with IO {
     }
     print("   outer(5) = " + to_string(outer(5)))
     print("")
-    
+
     // ============================================================================
     // STYLE COMPARISON
     // ============================================================================
-    
+
     print("4. Style comparison:")
     print("")
-    
+
     // Style A: No semicolons (clean, recommended for top-level)
     let lang = "Flux"
     let version = "0.0.3"
     print("   Style A: " + lang + " v" + version)
-    
+
     // Styles can be mixed freely
     print("")
-    
+
     // Style B: No semicolons in this block (works after print statement)
     let name = "Language"
     let year = 2026
     print("   Style B: " + name + " " + to_string(year))
     print("")
-    
+
     // ============================================================================
     // SUMMARY
     // ============================================================================
-    
+
     print("=== Summary ===")
     print("")
     print("Semicolons OPTIONAL:")
