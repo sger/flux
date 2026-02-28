@@ -1498,6 +1498,39 @@ fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
 }
 
 #[test]
+fn strict_only_unresolved_fixtures_are_e425_in_strict_but_may_be_e004_in_non_strict() {
+    let strict_only = [
+        include_str!("../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"),
+        include_str!(
+            "../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
+        ),
+        include_str!("../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx"),
+        include_str!(
+            "../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+        ),
+        include_str!(
+            "../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+        ),
+    ];
+
+    for source in strict_only {
+        let strict_rendered = compile_err_strict_rendered(source);
+        assert!(
+            strict_rendered.contains("error[E425]"),
+            "expected strict E425 for strict-only unresolved fixture, got:\n{}",
+            strict_rendered
+        );
+
+        let non_strict_rendered = compile_err_rendered(source);
+        assert!(
+            non_strict_rendered.contains("error[E004]"),
+            "expected non-strict unresolved baseline E004 for strict-only unresolved fixture, got:\n{}",
+            non_strict_rendered
+        );
+    }
+}
+
+#[test]
 fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
     let source = include_str!(
         "../examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx"

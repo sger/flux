@@ -377,6 +377,7 @@ impl Parser {
         debug_assert!(self.is_current_token(TokenType::LParen));
         let mut identifiers = Vec::new();
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         // Empty list: ()
         if self.consume_if_peek(TokenType::RParen) {
@@ -416,15 +417,16 @@ impl Parser {
                 TokenType::RParen | TokenType::Eof => return Some(identifiers),
 
                 _ => {
-                    self.errors.push(
-                        unexpected_token(
-                            self.current_token.span(),
-                            "Expected `,` or `)` after function parameter.",
-                        )
-                        .with_hint_text(
-                            "Separate parameters with `,` and close the parameter list with `)`.",
-                        ),
+                    let followup = unexpected_token(
+                        self.current_token.span(),
+                        "Expected `,` or `)` after function parameter.",
+                    )
+                    .with_hint_text(
+                        "Separate parameters with `,` and close the parameter list with `)`.",
                     );
+                    if !self.push_followup_unless_structural_root(construct_checkpoint, followup) {
+                        return Some(identifiers);
+                    }
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
                         return Some(identifiers);
@@ -463,6 +465,7 @@ impl Parser {
         let mut identifiers = Vec::new();
         let mut types = Vec::new();
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         if self.consume_if_peek(TokenType::RParen) {
             return Some((identifiers, types));
@@ -530,15 +533,18 @@ impl Parser {
                         self.errors
                             .push(missing_lambda_close_paren(self.current_token.span()));
                     } else {
-                        self.errors.push(
-                            unexpected_token(
-                                self.current_token.span(),
-                                "Expected `,` or `)` after function parameter.",
-                            )
-                            .with_hint_text(
-                                "Separate parameters with `,` and close the parameter list with `)`.",
-                            ),
+                        let followup = unexpected_token(
+                            self.current_token.span(),
+                            "Expected `,` or `)` after function parameter.",
+                        )
+                        .with_hint_text(
+                            "Separate parameters with `,` and close the parameter list with `)`.",
                         );
+                        if !self
+                            .push_followup_unless_structural_root(construct_checkpoint, followup)
+                        {
+                            return Some((identifiers, types));
+                        }
                     }
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
@@ -1086,6 +1092,7 @@ impl Parser {
     ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
         let mut need_advance = advance_first;
 
         loop {
@@ -1192,13 +1199,16 @@ impl Parser {
                 TokenType::RBracket => "array element",
                 _ => "item",
             };
-            self.errors.push(unexpected_token(
+            let followup = unexpected_token(
                 self.peek_token.span(),
                 format!(
                     "Expected `,` or `{}` after {}, got {}.",
                     end, context, self.peek_token.token_type
                 ),
-            ));
+            );
+            if !self.push_followup_unless_structural_root(construct_checkpoint, followup) {
+                return Some(list);
+            }
             if self.check_list_error_limit(diag_start, end, "list") {
                 return Some(list);
             }
@@ -1254,8 +1264,12 @@ impl Parser {
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
             };
-            self.errors
-                .push(unexpected_token(self.peek_token.span(), message));
+            if !self.push_followup_unless_structural_root(
+                construct_checkpoint,
+                unexpected_token(self.peek_token.span(), message),
+            ) {
+                return Some(list);
+            }
             if self.check_list_error_limit(diag_start, end, "list") {
                 return Some(list);
             }

@@ -1,5 +1,6 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
 ---
 Fixture: examples/type_system/failing/184_type_expr_missing_close_paren.flx
 == compile ==
@@ -20,29 +21,17 @@ Hint:
 
 --> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected `,` or `)` after parameter, got IDENT.
+Expected `{` to begin function body, found `}`.
 
-  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:33
+  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:35
   |
 1 | fn bad(x: (Int, String -> Int { x }
-  |                                 ^
-
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected `{` to begin function body, found end of file.
-
-  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:3:1
-  |
-1 | fn bad(x: (Int, String -> Int { x }
-
+  |                                   ^
   | - function `bad` defined here
-2 | let after = 1
-
 
 Help:
   Add `{` after the function signature: `fn bad(...) {`
 
-Found 3 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -43,6 +43,8 @@ Feature state is evidence-driven:
 | 058 | [058_contextual_diagnostics_callsite_let_return.md](058_contextual_diagnostics_callsite_let_return.md) | Implemented | have | `src/ast/type_infer.rs`, `src/bytecode/compiler/statement.rs`, `src/types/type_env.rs`, `src/diagnostics/compiler_errors.rs`, fixtures 106–111 | completed — call-site arg dual-label, let-annotation dual-label, function return dual-label, TypeEnv span plumbing |
 | 059 | [059_parser_error_experience.md](059_parser_error_experience.md) | Implemented | have | `src/syntax/parser/statement.rs`, `src/syntax/parser/expression.rs`, `src/diagnostics/compiler_errors.rs`, `tests/parser_tests.rs`, `tests/parser_recovery.rs`, fixtures 112–121 | completed — keyword alias diagnostics, contextual structural parser messages, match `|`/`=>` suggestions + recovery |
 | 060 | [060_parser_diagnostics_hm_typechecker_hardening.md](060_parser_diagnostics_hm_typechecker_hardening.md) | Draft | gap | proposal-only | four-track hardening: parser recovery breadth (P1–P4), diagnostic precision (D1–D3), HM Any-fallback reduction (H1–H4), type checker completeness (T1–T4); fixtures 122–150, new codes E085/E086/W201 |
+| 062 | [062_performance_stabilization_program.md](062_performance_stabilization_program.md) | Draft | gap | proposal-only | stabilization-first perf gates and evidence consolidation across compiler throughput, runtime parity, and cache/harness determinism |
+| 063 | [063_true_fp_completion_program.md](063_true_fp_completion_program.md) | Draft | gap | proposal-only | true-FP feature closure program across principal effect rows, typed determinism/exhaustiveness, typed immutable records, and core FP abstractions (currying + traits) |
 
 ## Backlog (Draft / Proposed)
 

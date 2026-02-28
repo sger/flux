@@ -310,6 +310,22 @@ Post-milestone candidates:
 
 These are explicitly non-blocking for this milestone closure.
 
+## 5.7 Runtime E1004 Parity Refresh (VM/JIT)
+
+Runtime-focused parity was extended with a dedicated typed-boundary `E1004` lane:
+- fixtures: `185_runtime_boundary_arg_e1004.flx`, `186_runtime_boundary_return_e1004.flx`, `187_runtime_list_boundary_e1004.flx`, `188_runtime_either_boundary_e1004.flx`
+- module-qualified dynamic sources require `--root examples/type_system` in focused runtime runs
+- parity assertions lock:
+  - VM/JIT exit-code parity
+  - presence of `runtime error[E1004]`
+  - matching expected type fragments (`Expected ..., got ...`)
+
+Evidence command:
+- `cargo test --all --all-features --test runtime_vm_jit_parity_release`
+
+Note:
+- legacy fixtures `02/03` are compile-time `E300` under current HM hardening and are no longer treated as runtime-`E1004` canonical checks.
+
 ---
 
 ## 6. Out of Scope

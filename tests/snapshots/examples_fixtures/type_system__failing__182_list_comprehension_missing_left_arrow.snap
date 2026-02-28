@@ -1,17 +1,21 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
 ---
 Fixture: examples/type_system/failing/182_list_comprehension_missing_left_arrow.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
+--> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected expression, found <-.
+Expected generator identifier before `<-` in list comprehension.
 
   --> examples/type_system/failing/182_list_comprehension_missing_left_arrow.flx:1:15
   |
 1 | let xs = [x | <- [1, 2, 3]]
   |               ^^
+
+Hint:
+  List comprehensions use `[expr | name <- source, ...]`.
 == stdout ==
 <not executed>

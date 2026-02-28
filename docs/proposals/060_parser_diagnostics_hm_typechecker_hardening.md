@@ -1041,3 +1041,66 @@ Tracks are independent. Recommended order within the 0.0.4 gate:
   - `173` to `184`
 - **Risk:** Medium (message and snapshot churn across parser transcripts).
 - **Done When:** Broad parser structure sites no longer emit bare generic `Expected \`X\`, got Y.` diagnostics.
+
+#### T15 Closure Note (Snapshot Policy Lock)
+- Intentional parser-message drift from P5 contextualization is accepted and snapshotted.
+  - Accepted drift includes:
+    - `tests/snapshots/examples_fixtures/type_system__failing__182_list_comprehension_missing_left_arrow.snap`
+    - `tests/snapshots/examples_fixtures/type_system__failing__184_type_expr_missing_close_paren.snap`
+    - `tests/snapshots/examples_fixtures/type_system__failing__85_hm_function_effect_mismatch.snap`
+  - Change rationale: parser diagnostics moved from generic token text to contextual `E034` wording with construct-specific hints.
+- Gate policy for T15:
+  - Blocking: `parser_tests`, `parser_recovery`, `snapshot_parser`, `snapshot_diagnostics`, `cargo check --all --all-features`.
+  - Informational: `examples_fixtures_snapshots` only when failure is explicitly unrelated to P5.
+- `examples_fixtures_snapshots` classification rules:
+  - P5-related contextual parser message drift is intentional and should be accepted.
+  - Non-blocking external churn must be logged with snapshot path, reason, and owning task.
+
+#### T15 Evidence Commands
+- `cargo test --test parser_tests`
+- `cargo test --test parser_recovery`
+- `cargo test --test snapshot_parser`
+- `cargo test --test snapshot_diagnostics`
+- `cargo check --all --all-features`
+- `cargo test --test examples_fixtures_snapshots`
+
+#### T15 Evidence Outcomes
+- `cargo test --test parser_tests` -> PASS (blocking)
+- `cargo test --test parser_recovery` -> PASS (blocking)
+- `cargo test --test snapshot_parser` -> PASS (blocking)
+- `cargo test --test snapshot_diagnostics` -> PASS (blocking)
+- `cargo check --all --all-features` -> PASS (blocking)
+- `cargo test --test examples_fixtures_snapshots` -> PASS (informational)
+
+#### T15 Known External Churn
+- None in this closure run.
+- If future unrelated drift appears in `examples_fixtures_snapshots`, record: snapshot path, unrelated reason, and owning task.
+
+### T16 — P6 Parser Cascade Suppression (Construct-Scoped)
+- **Goal:** Reduce secondary parser noise by suppressing follow-up delimiter/shape diagnostics once a primary structural root error is emitted in the same construct.
+- **Files:**
+  - `src/syntax/parser/mod.rs`
+  - `src/syntax/parser/helpers.rs`
+  - `src/syntax/parser/expression.rs`
+  - `src/syntax/parser/statement.rs`
+- **Changes:**
+  - add construct-local diagnostic checkpoint helpers
+  - suppress follow-up parser diagnostics when a structural root (`E034`/`E076`) already exists in the active construct
+  - keep recovery behavior local and deterministic; no global diagnostic suppression
+- **Tests:**
+  - `tests/parser_tests.rs` cascade suppression assertion for malformed signature fixture `184`
+  - `tests/parser_recovery.rs` recovery coverage includes fixture `184`
+- **Fixtures:**
+  - lock `184` as the signature-cascade sentinel
+- **Risk:** Medium (over-suppression if guard is too broad).
+- **Done When:** malformed-signature/root-delimiter cases emit one root parser error with minimal actionable follow-ups.
+- **Evidence commands:**
+  - `cargo test --test parser_tests`
+  - `cargo test --test parser_recovery`
+  - `cargo test --test snapshot_parser`
+  - `cargo test --test snapshot_diagnostics`
+  - `cargo check --all --all-features`
+  - `cargo test --test examples_fixtures_snapshots` (informational)
+- **Known External Churn:**
+  - `tests/snapshots/examples_fixtures/type_system__failing__185_runtime_boundary_arg_e1004.snap.new`
+    - out-of-scope for T16 parser-cascade semantics; reflects examples snapshot harness root policy for module-qualified fixtures (Owner: runtime E1004 parity lane / proposal 043).
