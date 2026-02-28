@@ -6,7 +6,7 @@ fn main() with IO {
     // keeping the output clean and focused on the real problem.
     //
     // Run with:  cargo run -- run examples/basics/diagnostic_comment_trim.flx
-    
+
     let arr = [|1, 2, 3|];
     print(len(arr))      // 3
     print(arr)

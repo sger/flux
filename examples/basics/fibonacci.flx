@@ -9,7 +9,7 @@ fn main() with IO {
     // 5
     // 8
     // 55
-    
+
     print(fib(0))
     print(fib(1))
     print(fib(2))
@@ -24,6 +24,6 @@ fn fib(n) {
     if n < 2 {
         n
     } else {
-        fib(n - 1) + fib(n - 2)
-    }
+    fib(n - 1) + fib(n - 2)
+}
 }

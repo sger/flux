@@ -2,25 +2,25 @@ fn printAll(arr) with IO {
     if len(arr) == 0 {
         print("done")
     } else {
-        print(first(arr))
-        printAll(rest(arr))
-    }
+    print(first(arr))
+    printAll(rest(arr))
+}
 }
 
 fn mySum(arr) {
     if len(arr) == 0 {
         0
     } else {
-        first(arr) + mySum(rest(arr))
-    }
+    first(arr) + mySum(rest(arr))
+}
 }
 
 fn countItems(arr) {
     if len(arr) == 0 {
         0
     } else {
-        1 + countItems(rest(arr))
-    }
+    1 + countItems(rest(arr))
+}
 }
 
 fn main() with IO {
@@ -34,7 +34,7 @@ fn main() with IO {
     // done
     // 15
     // 3
-    
+
     // Print each element
     printAll([|1, 2, 3, 4, 5|])
 

@@ -5,7 +5,7 @@ fn main() with IO {
     // 42
     // true
     // false
-    
+
     print("hello world");
     print(42);
     print(true);

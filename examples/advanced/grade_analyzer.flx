@@ -1,121 +1,92 @@
-// Student Grade Analyzer
-// Demonstrates multi-module imports, persistent maps, higher-order functions,
-// pattern matching, and pipe operator.
-// Run with: cargo run -- --root examples examples/advanced/grade_analyzer.flx
-// Expected output:
-// === Student Grade Analysis ===
-// Alice: avg=91.5, grade=A, passed=true
-// Bob: avg=78.75, grade=C, passed=true
-// Charlie: avg=95.5, grade=A, passed=true
-// Diana: avg=68.75, grade=D, passed=true
-// Eve: avg=53.75, grade=F, passed=false
-// === Grade Distribution ===
-// (map with grade counts, key order may vary)
-// === Summary ===
-// Passed: 4
-// Failed: 1
-// === Bonus: Map Utilities ===
-// (demonstrates from_pairs, invert, group_by)
+// Student Grade Analyzer (self-contained)
 
-import Modules.StudentGrades as SG
-import Modules.MapUtils as M
-import Modules.ListUtils as L
-
-// =============================================================================
-// Create Student Data
-// =============================================================================
-
-let student_rows = [|
-    ("Alice", [|92, 88, 95, 91|]),
-    ("Bob", [|78, 82, 75, 80|]),
-    ("Charlie", [|95, 98, 92, 97|]),
-    ("Diana", [|65, 70, 68, 72|]),
-    ("Eve", [|55, 60, 48, 52|]),
-|]
-let students = map(student_rows, \row -> SG.make_student(row.0, row.1))
-
-// =============================================================================
-// Run Analysis
-// =============================================================================
-
-print("=== Student Grade Analysis ===")
-let results = SG.analyze(students)
-
-// Print each student's results
-fn show(results, name) {
-    let r = M.val(results, name)
-    let summary = (
-        to_string(M.val(r, "average")),
-        M.val(r, "grade"),
-        to_string(M.val(r, "passed"))
-    )
-    print(name + ": avg=" + summary.0 + ", grade=" + summary.1 + ", passed=" + summary.2)
+fn make_student(name, scores) {
+    {"name": name, "scores": scores}
 }
 
-show(results, "Alice")
-show(results, "Bob")
-show(results, "Charlie")
-show(results, "Diana")
-show(results, "Eve")
+fn average(scores) {
+    fold(scores, 0.0, \(acc, x) -> acc + x) / len(scores)
+}
 
-// =============================================================================
-// Grade Distribution
-// =============================================================================
+fn letter_grade(avg) {
+    if avg >= 90.0 {
+        "A"
+    } else {
+        if avg >= 80.0 {
+            "B"
+        } else {
+            if avg >= 70.0 {
+                "C"
+            } else {
+                if avg >= 60.0 {
+                    "D"
+                } else {
+                    "F"
+                }
+            }
+        }
+    }
+}
 
-print("=== Grade Distribution ===")
-let dist = SG.grade_distribution(results)
-print(dist)
+fn summarize(student) {
+    let scores = match student["scores"] {
+        Some(v) -> v,
+        _ -> [||],
+    }
+    let avg = average(scores)
+    let grade = letter_grade(avg)
+    let passed = avg >= 60.0
+    {
+        "average": avg,
+        "grade": grade,
+        "passed": passed,
+    }
+}
 
-// =============================================================================
-// Pass/Fail Summary
-// =============================================================================
+fn analyze(students) {
+    fold(students, {}, \(acc, s) ->
+    match s["name"] {
+        Some(name) -> put(acc, name, summarize(s)),
+        _ -> acc,
+    }
+    )
+}
 
-print("=== Summary ===")
-print("Passed: " + to_string(SG.count_passed(results)))
-print("Failed: " + to_string(SG.count_failed(results)))
+fn count_passed(results) {
+    len(filter(values(results), \r -> r["passed"] == Some(true)))
+}
 
-// =============================================================================
-// Bonus: Map Utilities
-// =============================================================================
+fn count_failed(results) {
+    len(filter(values(results), \r -> r["passed"] == Some(false)))
+}
 
-print("=== Bonus: Map Utilities ===")
+fn show(results, name) with IO {
+    let maybe_result = results[name]
+    match maybe_result {
+        Some(r) -> print(name + ": avg=" + to_string(r["average"]) + ", grade=" + to_string(r["grade"]) + ", passed=" + to_string(r["passed"])),
+        _ -> print(name + ": not found"),
+    }
+}
 
-// Create a grade-to-points mapping from pairs
-let grade_points = M.from_pairs([|["A", 4], [|"B", 3|], [|"C", 2|], [|"D", 1|], [|"F", 0|]|])
-print("Grade points:", grade_points)
+fn main() with IO {
+    let students = [|
+    make_student("Alice", [|92.0, 88.0, 95.0, 91.0|]),
+    make_student("Bob", [|78.0, 82.0, 75.0, 80.0|]),
+    make_student("Charlie", [|95.0, 98.0, 92.0, 97.0|]),
+    make_student("Diana", [|65.0, 70.0, 68.0, 72.0|]),
+    make_student("Eve", [|55.0, 60.0, 48.0, 52.0|]),
+    |]
 
-// Invert the map: points -> grade
-let points_to_grade = M.invert(grade_points)
-print("Points to grade:", points_to_grade)
+    print("=== Student Grade Analysis ===")
+    let results = analyze(students)
 
-// Group students by their letter grade
-let by_grade = M.group_by(keys(results), \name -> M.val(M.val(results, name), "grade"))
-print("Students by grade:", by_grade)
+    show(results, "Alice")
+    show(results, "Bob")
+    show(results, "Charlie")
+    show(results, "Diana")
+    show(results, "Eve")
 
-// Double all point values using map_values
-let doubled_points = M.map_values(grade_points, \v -> v * 2)
-print("Doubled points:", doubled_points)
-
-// Filter to only passing grades (value >= 1)
-let passing_grades = M.filter_entries(grade_points, \(k, v) -> v >= 1)
-print("Passing grades:", passing_grades)
-
-// =============================================================================
-// Bonus: List Operations with ListUtils
-// =============================================================================
-
-print("=== Bonus: List Operations ===")
-
-// Create a range and compute sum
-let nums = L.range(1, 10)
-print("Range 1..10:", nums)
-print("Sum: " + to_string(L.sum(nums)))
-
-// Take and drop
-let slices = (L.take(nums, 3), L.drop(nums, 7))
-print("First 3:", slices.0)
-print("Last 3:", slices.1)
-
-// Pipeline: range -> filter evens -> map square -> sum
-let even_squares_sum = L.sum(map(filter(nums, \x -> x % 2 == 0), \x -> x * x))
-print("Sum of squared evens (1..10): " + to_string(even_squares_sum))
+    print("=== Summary ===")
+    print("Passed: " + to_string(count_passed(results)))
+    print("Failed: " + to_string(count_failed(results)))
+}

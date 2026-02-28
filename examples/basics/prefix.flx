@@ -7,7 +7,7 @@ fn main() with IO {
     // false
     // true
     // true
-    
+
     print(-5);
     print(-10);
     print(-(-5));

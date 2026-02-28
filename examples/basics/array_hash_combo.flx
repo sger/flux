@@ -8,11 +8,11 @@ fn main() with IO {
     // python
     // rust
     // 3
-    
+
     // Array of hashes
     let users = [|
-        {"name": "Alice", "age": 25},
-        {"name": "Bob", "age": 30}
+    {"name": "Alice", "age": 25},
+    {"name": "Bob", "age": 30}
     |]
 
     let first_user = users[0]
@@ -42,9 +42,9 @@ fn main() with IO {
     print(first_name)
 
     match first_name {
-      Some(v) -> print("unwrap value #{v}"),
-      None -> print("unknown"),
-      _ -> print("unknown"),
+        Some(v) -> print("unwrap value #{v}"),
+        None -> print("unknown"),
+        _ -> print("unknown"),
     }
 
     print(second_name)

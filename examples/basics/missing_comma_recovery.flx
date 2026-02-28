@@ -6,18 +6,18 @@ fn main() with IO {
     //
     // Run with:
     //   cargo run -- run examples/basics/missing_comma_recovery.flx
-    
+
     fn f(a, b, c, d) with IO {
         print(a);
         print(b);
         print(c);
         print(d);
     }
-    
+
     print(1, 2, 3);
     [true, false, true];
     f(10, 20, 30, 40);
-    
+
     let parsed_after_errors = "parser should still reach this statement";
     print(parsed_after_errors);
 }

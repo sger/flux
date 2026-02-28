@@ -2,8 +2,8 @@ fn factorial(n, acc) {
     if n == 0 {
         acc
     } else {
-        factorial(n - 1, n * acc)  // Tail call!
-    }
+    factorial(n - 1, n * acc)  // Tail call!
+}
 }
 
 fn main() with IO {
