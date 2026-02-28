@@ -1,17 +1,19 @@
-let a = 3.14;
-let b = -0.5;
-let c = 100.0;
-
-print(a);
-print(b);
-print(c);
-
-print(a + b);
-print(a * 2.0);
-print(1 + 2.5);
-
-fn add_floats(a, b) {
-    return a + b;
+fn main() with IO {
+    let a = 3.14;
+    let b = -0.5;
+    let c = 100.0;
+    
+    print(a);
+    print(b);
+    print(c);
+    
+    print(a + b);
+    print(a * 2.0);
+    print(1.0 + 2.5);
+    
+    fn add_floats(a, b) {
+        return a + b;
+    }
+    
+    print(add_floats(10.2, 10.2));
 }
-
-print(add_floats(10.2, 10.2));
