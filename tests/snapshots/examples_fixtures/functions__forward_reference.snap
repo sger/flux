@@ -5,17 +5,58 @@ Fixture: examples/functions/forward_reference.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E001]: DUPLICATE NAME
 
-Effectful operation is not allowed at top level (requires: IO).
+Duplicate binding: `main` is already defined.
 
-  --> examples/functions/forward_reference.flx:43:1
+  --> examples/functions/forward_reference.flx:9:5
    |
-43 | main();
-   | ^^^^^^^
-   | ------- top-level effectful expression
+ 9 |     fn main() {
+   |     ^^^^^^^^^^^
+10 |         print("Testing forward references...");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |         let result = greet("World");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |         print(result);
+   | ^^^^^^^^^^^^^^^^^^^^^^
+13 | 
+   | ^
+14 |         print("Testing mutual recursion...");
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 |         print(isEven(10));  // Should print true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |         print(isOdd(10));   // Should print false
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+17 |         print(isEven(7));   // Should print false
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |         print(isOdd(7));    // Should print true
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     }
+   | ^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Use a different name or remove the previous definition.
+  Use a different name or remove the previous definition
+
+   = note: first defined here
+  --> examples/functions/forward_reference.flx:8:1
+  |
+8 | fn main() with IO, Time {
+  | ^
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `isOdd`.
+
+  --> examples/functions/forward_reference.flx:31:9
+   |
+31 |         isOdd(n - 1);
+   |         ^^^^^
+
+Hint:
+  Define it first: let isOdd = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,43 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:4:13
+  |
+4 |     let w = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+
+
+--> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+
+Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 are mixed-shape and cannot be proven exhaustive conservatively.
+
+  --> examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx:5:14
+  |
+5 |     let _x = match w {
+  |              ^^^^^^^^^
+6 |         W((1, 2)) -> 1,
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+7 |         W(1) -> 2,
+  | ^^^^^^^^^^^^^^^^^^
+8 |         Z -> 0,
+  | ^^^^^^^^^^^^^^^
+9 |     }
+  | ^^^^^
+
+Hint:
+  Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`).
+
+Found 2 errors.
+== stdout ==
+<not executed>

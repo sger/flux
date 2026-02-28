@@ -266,6 +266,23 @@ fn constructor_pattern_arity_mismatch_uses_e085() {
 }
 
 #[test]
+fn constructor_call_arity_mismatch_uses_diagnostic_not_panic() {
+    let rendered = compile_err_rendered(
+        r#"
+type BoxI = BoxI(Int) | EmptyI
+fn main() -> Unit {
+    let _x = BoxI(1, 2)
+}
+"#,
+    );
+    assert!(
+        rendered.contains("error[E082]"),
+        "expected E082 constructor call arity diagnostic, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
 fn public_module_function_access_ok() {
     compile_ok_in(
         "examples/test.flx",
@@ -474,6 +491,65 @@ fn guarded_wildcard_with_bare_fallback_is_exhaustive() {
 fn match_tuple_without_catchall_is_conservatively_non_exhaustive() {
     let code = compile_err("let t = (1, true); match t { (1, true) -> 1, (2, false) -> 2 }");
     assert_eq!(code, "E015");
+}
+
+#[test]
+fn match_tuple_without_catchall_reports_tuple_conservative_message() {
+    let rendered = compile_err_rendered(include_str!(
+        "../examples/type_system/failing/157_match_tuple_missing_catchall_general.flx"
+    ));
+    assert!(
+        rendered.contains("error[E015]"),
+        "expected E015 for tuple conservative fixture 157, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("tuple domains is conservatively non-exhaustive"),
+        "expected tuple-conservative message for fixture 157, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn match_tuple_guarded_only_is_non_exhaustive() {
+    let rendered = compile_err_rendered(include_str!(
+        "../examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx"
+    ));
+    assert!(
+        rendered.contains("error[E015]"),
+        "expected E015 for guarded tuple fixture 158, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("tuple domains is conservatively non-exhaustive"),
+        "expected tuple-conservative guarded-arm message for fixture 158, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn nested_tuple_mixed_shape_reports_non_exhaustive() {
+    let rendered = compile_err_rendered(include_str!(
+        "../examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx"
+    ));
+    assert!(
+        rendered.contains("error[E083]"),
+        "expected E083 for nested tuple mixed-shape fixture 159, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("nested tuple patterns"),
+        "expected nested tuple mixed-shape message for fixture 159, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn nested_tuple_with_catchall_compiles() {
+    compile_ok_in(
+        "test.flx",
+        include_str!("../examples/type_system/160_match_nested_tuple_with_catchall_ok.flx"),
+    );
 }
 
 #[test]
@@ -836,6 +912,96 @@ fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
     assert!(
         rendered.contains("guarded wildcard"),
         "expected targeted guarded wildcard message for fixture 144, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_151_array_literal_concrete_conflict_prefers_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 151, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "did not expect strict unresolved E425 when concrete array mismatch already exists in fixture 151, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_152_array_literal_callarg_conflict_prefers_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 152, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "did not expect strict unresolved E425 when concrete array arg mismatch already exists in fixture 152, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_153_match_branch_conflict_prefers_e300() {
+    let source =
+        include_str!("../examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx");
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 153, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_154_unresolved_projection_strict_e425() {
+    let source =
+        include_str!("../examples/type_system/failing/154_unresolved_projection_strict_e425.flx");
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 for fixture 154, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_155_unresolved_member_access_strict_e425() {
+    let source = include_str!(
+        "../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 for fixture 155, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_156_unresolved_call_arg_strict_e425() {
+    let source =
+        include_str!("../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx");
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 for fixture 156, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E300]"),
+        "did not expect concrete E300 for unresolved call-arg fixture 156, got:\n{}",
         rendered
     );
 }
@@ -1208,6 +1374,187 @@ fn pass2_multi_error_continuation_reports_independent_errors_in_order() {
     assert!(
         e002_idx < e300_idx,
         "expected deterministic source-order diagnostics (E002 before E300), got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 161, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "did not expect E425 for concrete destructure mismatch fixture 161, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_162_tuple_destructure_unresolved_strict_e425() {
+    let source = include_str!(
+        "../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 for unresolved destructure fixture 162, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_163_match_concrete_disagreement_prefers_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 163, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_164_match_unresolved_arm_stays_suppressed() {
+    let source = include_str!(
+        "../examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        !rendered.contains("The arms of this `match` expression produce different types."),
+        "did not expect contextual match-arm mismatch for unresolved-arm fixture 164, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_165_self_recursive_precision_prefers_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 165, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_166_self_recursive_guard_stable_unresolved() {
+    let source = include_str!(
+        "../examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E004]"),
+        "expected unresolved symbol baseline for fixture 166, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("The function return type does not match its annotation."),
+        "did not expect recursion hardening to introduce unrelated return-mismatch noise for fixture 166, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 167, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "did not expect E425 for concrete tuple-destructure conflict fixture 167, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
+    let source = include_str!(
+        "../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E425]"),
+        "expected E425 for unresolved tuple-destructure fixture 168, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 169, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "did not expect E425 to mask concrete match disagreement in fixture 169, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_170_match_disagreement_all_concrete_ordering_invariant_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx"
+    );
+    let rendered = compile_err_strict_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 170, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_171_self_recursive_refinement_concrete_chain_e300() {
+    let source = include_str!(
+        "../examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E300]"),
+        "expected E300 for fixture 171, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fixture_172_self_recursive_unresolved_guard_no_false_positive() {
+    let source = include_str!(
+        "../examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E004]"),
+        "expected unresolved symbol baseline for fixture 172, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("The function return type does not match its annotation."),
+        "did not expect recursion hardening to introduce unrelated return-mismatch noise for fixture 172, got:\n{}",
         rendered
     );
 }

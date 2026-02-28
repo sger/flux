@@ -3093,7 +3093,23 @@ impl Compiler {
                         ),
                 ))
             }
-            GeneralCoverageDomain::Tuple(_) | GeneralCoverageDomain::Unknown => {
+            GeneralCoverageDomain::Tuple(_) => {
+                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
+                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
+                }
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(
+                            "Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm."
+                                .to_string(),
+                        )
+                        .with_hint_text(
+                            "Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.".to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::Unknown => {
                 if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
@@ -3535,9 +3551,9 @@ impl Compiler {
             } else {
                 None
             }
-        }) && patterns.iter().all(
-                |p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len),
-            )
+        }) && patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len))
         {
             for idx in 0..tuple_len {
                 let next: Vec<&Pattern> = patterns
@@ -3556,6 +3572,19 @@ impl Compiler {
                     span,
                 )?;
             }
+        } else if patterns.iter().any(|p| matches!(p, Pattern::Tuple { .. })) {
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match is non-exhaustive: nested tuple patterns {} are mixed-shape and cannot be proven exhaustive conservatively.",
+                        context
+                    ))
+                    .with_hint_text(
+                        "Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`)."
+                            .to_string(),
+                    ),
+            ));
         }
 
         // List nested coverage: enforce empty/non-empty partition when list patterns are used.

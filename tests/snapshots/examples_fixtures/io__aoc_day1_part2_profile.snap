@@ -5,145 +5,16 @@ Fixture: examples/io/aoc_day1_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `solve`.
 
-  --> examples/io/aoc_day1_part2_profile.flx:75:1
+  --> examples/io/aoc_day1_part2_profile.flx:43:9
    |
-75 | let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------- top-level effectful expression
+43 |         solve(rest, pos, hits)
+   |         ^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day1_part2_profile.flx:75:1
-   |
-75 | let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ----------------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: Time).
-
-  --> examples/io/aoc_day1_part2_profile.flx:78:1
-   |
-78 | let t0 = now_ms()
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: Time).
-
-  --> examples/io/aoc_day1_part2_profile.flx:80:1
-   |
-80 | let t1 = now_ms()
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:82:1
-   |
-82 | print("iterations:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:83:1
-   |
-83 | print(iterations)
-   | ^^^^^^^^^^^^^^^^^
-   | ----------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:84:1
-   |
-84 | print("checksum:")
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:85:1
-   |
-85 | print(checksum)
-   | ^^^^^^^^^^^^^^^
-   | --------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:86:1
-   |
-86 | print("elapsed_ms:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day1_part2_profile.flx:87:1
-   |
-87 | print(t1 - t0)
-   | ^^^^^^^^^^^^^^
-   | -------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 10 errors.
+  Define it first: let solve = ...;
 == stdout ==
 <not executed>

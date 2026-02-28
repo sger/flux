@@ -5,46 +5,16 @@ Fixture: examples/imports/except/import_except_ok.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/imports/except/import_except_ok.flx:6:1
-  |
-6 | print(Lib.keep());
-  | ^^^^^^^^^^^^^^^^^^
-  | ------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/imports/except/import_except_ok.flx:6:1
-  |
-6 | print(Lib.keep());
-  | ^^^^^^^^^^^^^^^^^^
-  | ------------------ effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
 --> compiler error[E011]: PRIVATE MEMBER
 
 Cannot access private member `keep`.
 
-  --> examples/imports/except/import_except_ok.flx:6:7
+  --> examples/imports/except/import_except_ok.flx:7:11
   |
-6 | print(Lib.keep());
-  |       ^^^^^^^^
+7 |     print(Lib.keep());
+  |           ^^^^^^^^
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-Found 3 errors.
 == stdout ==
 <not executed>

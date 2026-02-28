@@ -1,0 +1,6 @@
+fn main() -> Unit {
+    let x: Int = match true {
+        true -> 1,
+        false -> "oops",
+    }
+}

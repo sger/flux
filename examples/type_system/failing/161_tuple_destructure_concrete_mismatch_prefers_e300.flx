@@ -1,0 +1,3 @@
+fn main() -> Unit {
+    let (a, b) = 1
+}

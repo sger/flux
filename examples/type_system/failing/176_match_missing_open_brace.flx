@@ -1,0 +1,2 @@
+let x = match 1 0 -> 0
+let after = 1

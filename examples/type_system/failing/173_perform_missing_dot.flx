@@ -1,0 +1,2 @@
+let x = perform IO print("hi")
+let after = 1

@@ -1,0 +1,39 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:2:13
+  |
+2 |     let x = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The arms of this `match` expression produce different types.
+
+  --> examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:6:14
+  |
+5 |         1 -> 10,
+
+  |              -- first arm returns `Int`
+6 |         _ -> "oops",
+  |              ^^^^^^
+  |              ------ arm 2 returns `String`
+
+Help:
+  All match arms must return the same type. Change arm 2 to return `Int`.
+
+Found 2 errors.
+== stdout ==
+<not executed>

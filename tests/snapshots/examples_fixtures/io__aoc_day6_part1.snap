@@ -3,49 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day6_part1.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day6_part1.flx:104:1
-    |
-104 | let lines = read_lines("examples/io/aoc_day6.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | -------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day6_part1.flx:104:1
-    |
-104 | let lines = read_lines("examples/io/aoc_day6.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | -------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day6_part1.flx:107:1
-    |
-107 | print(solve_cols(lines, num_rows, width, 0, 0))
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | ----------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

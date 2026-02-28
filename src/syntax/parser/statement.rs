@@ -269,7 +269,11 @@ impl Parser {
     pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected function name after `fn`.".to_string(),
+            "Function declarations start with `fn name(...) { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -284,7 +288,11 @@ impl Parser {
             self.next_token(); // consume '<'
 
             loop {
-                if !self.expect_peek(TokenType::Ident) {
+                if !self.expect_peek_context(
+                    TokenType::Ident,
+                    "Expected generic type parameter name.".to_string(),
+                    "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
+                ) {
                     return None;
                 }
                 type_params.push(
@@ -298,7 +306,11 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek(TokenType::Gt) {
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` to close generic parameter list.".to_string(),
+                "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
+            ) {
                 return None;
             }
         }
@@ -313,7 +325,11 @@ impl Parser {
             return None;
         }
 
-        if !self.expect_peek(TokenType::LParen) {
+        if !self.expect_peek_context(
+            TokenType::LParen,
+            "Expected `(` after function name.".to_string(),
+            "Function declarations use `fn name(params) { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -426,7 +442,11 @@ impl Parser {
             self.next_token(); // consume '(' so parse_pattern sees tuple pattern start
             let pattern = self.parse_pattern()?;
 
-            if !self.expect_peek(TokenType::Assign) {
+            if !self.expect_peek_context(
+                TokenType::Assign,
+                "Expected `=` in tuple destructuring `let` binding.".to_string(),
+                "Tuple destructuring uses `let (a, b) = value`.".to_string(),
+            ) {
                 return None;
             }
 
@@ -447,7 +467,11 @@ impl Parser {
             });
         }
 
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected binding name after `let`.".to_string(),
+            "Let bindings use `let name = value`.".to_string(),
+        ) {
             return None;
         }
 
@@ -504,7 +528,11 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
-        if !self.expect_peek(TokenType::Assign) {
+        if !self.expect_peek_context(
+            TokenType::Assign,
+            "Expected `=` in assignment statement.".to_string(),
+            "Assignments use `name = value`.".to_string(),
+        ) {
             return None;
         }
 
@@ -532,13 +560,21 @@ impl Parser {
     pub(super) fn parse_module_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected module name after `module`.".to_string(),
+            "Module declarations use `module Name { ... }`.".to_string(),
+        ) {
             return None;
         }
 
         let name = self.parse_qualified_name()?;
 
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin module body.".to_string(),
+            "Module declarations use `module Name { ... }`.".to_string(),
+        ) {
             return None;
         }
 
@@ -554,7 +590,11 @@ impl Parser {
     pub(super) fn parse_import_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected module path after `import`.".to_string(),
+            "Import statements use `import Module.Name`.".to_string(),
+        ) {
             return None;
         }
 
@@ -564,7 +604,11 @@ impl Parser {
 
         if self.is_peek_token(TokenType::As) {
             self.next_token(); // consume 'as'
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected alias name after `as`.".to_string(),
+                "Import aliases use `import Module as Alias`.".to_string(),
+            ) {
                 return None;
             }
             alias = Some(
@@ -590,7 +634,11 @@ impl Parser {
     }
 
     fn parse_import_except_list(&mut self) -> Option<Vec<crate::syntax::Identifier>> {
-        if !self.expect_peek(TokenType::LBracket) {
+        if !self.expect_peek_context(
+            TokenType::LBracket,
+            "Expected `[` after `except` in import.".to_string(),
+            "Import exclusions use `import Module except [Name1, Name2]`.".to_string(),
+        ) {
             return None;
         }
 
@@ -601,7 +649,11 @@ impl Parser {
         }
 
         loop {
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected identifier in import `except` list.".to_string(),
+                "Import exclusions use `import Module except [Name1, Name2]`.".to_string(),
+            ) {
                 return None;
             }
             names.push(
@@ -639,7 +691,11 @@ impl Parser {
         let start = self.current_token.position;
 
         // current: 'data' — advance to type name
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected type name after `data`.".to_string(),
+            "Data declarations use `data TypeName { Ctor, ... }`.".to_string(),
+        ) {
             return None;
         }
         let name = self
@@ -653,7 +709,11 @@ impl Parser {
         if self.is_peek_token(TokenType::Lt) {
             self.next_token(); // consume '<'
             loop {
-                if !self.expect_peek(TokenType::Ident) {
+                if !self.expect_peek_context(
+                    TokenType::Ident,
+                    "Expected generic type parameter name.".to_string(),
+                    "Data generics use `data Type<T, U> { ... }`.".to_string(),
+                ) {
                     return None;
                 }
                 type_params.push(
@@ -667,13 +727,21 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek(TokenType::Gt) {
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` to close data type parameters.".to_string(),
+                "Data generics use `data Type<T, U> { ... }`.".to_string(),
+            ) {
                 return None;
             }
         }
 
         // Expect opening brace
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin data constructors.".to_string(),
+            "Data declarations use `data TypeName { Ctor, ... }`.".to_string(),
+        ) {
             return None;
         }
         self.next_token(); // move past '{'
@@ -770,7 +838,11 @@ impl Parser {
         let start = self.current_token.position;
 
         // current: 'type' — advance to type name
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected type name after `type`.".to_string(),
+            "ADT sugar uses `type TypeName = Ctor(...) | Other`.".to_string(),
+        ) {
             return None;
         }
         let name = self
@@ -783,7 +855,11 @@ impl Parser {
         if self.is_peek_token(TokenType::Lt) {
             self.next_token(); // consume '<'
             loop {
-                if !self.expect_peek(TokenType::Ident) {
+                if !self.expect_peek_context(
+                    TokenType::Ident,
+                    "Expected generic type parameter name.".to_string(),
+                    "Type generics use `type Name<T, U> = ...`.".to_string(),
+                ) {
                     return None;
                 }
                 type_params.push(
@@ -797,17 +873,21 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek(TokenType::Gt) {
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` to close type parameters.".to_string(),
+                "Type generics use `type Name<T, U> = ...`.".to_string(),
+            ) {
                 return None;
             }
         }
 
         // Expect '='
-        if !self.expect_peek(TokenType::Assign) {
-            self.errors.push(unexpected_token(
-                self.peek_token.span(),
-                "Expected `=` after `type` declaration name.".to_string(),
-            ));
+        if !self.expect_peek_context(
+            TokenType::Assign,
+            "Expected `=` after type declaration name.".to_string(),
+            "ADT sugar uses `type Name = Ctor(...) | Other`.".to_string(),
+        ) {
             return None;
         }
         self.next_token(); // move past '=' to first constructor token
@@ -895,7 +975,11 @@ impl Parser {
         let start = self.current_token.position;
 
         // Effect name
-        if !self.expect_peek(TokenType::Ident) {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name after `effect`.".to_string(),
+            "Effect declarations use `effect Name { op: Type -> Return, ... }`.".to_string(),
+        ) {
             return None;
         }
         let name = self
@@ -904,7 +988,11 @@ impl Parser {
             .expect("ident token should have symbol");
 
         // `{`
-        if !self.expect_peek(TokenType::LBrace) {
+        if !self.expect_peek_context(
+            TokenType::LBrace,
+            "Expected `{` to begin effect declaration body.".to_string(),
+            "Effect declarations use `effect Name { op: Type -> Return, ... }`.".to_string(),
+        ) {
             return None;
         }
         self.next_token(); // move past `{`
@@ -943,7 +1031,11 @@ impl Parser {
                     "Missing `:` in effect operation signature. Write it as `op: Type -> Return`.",
                 ));
                 self.next_token(); // move to start of TypeExpr
-            } else if !self.expect_peek(TokenType::Colon) {
+            } else if !self.expect_peek_context(
+                TokenType::Colon,
+                "Expected `:` after effect operation name.".to_string(),
+                "Effect operation signatures use `op: Type -> Return`.".to_string(),
+            ) {
                 return None;
             } else {
                 self.next_token(); // move to start of TypeExpr

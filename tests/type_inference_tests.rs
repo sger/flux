@@ -657,6 +657,64 @@ fn main() -> Unit {
 }
 
 #[test]
+fn infer_array_literal_with_concrete_heterogeneous_elements_emits_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let _xs = [|1, "x"|]
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for concrete heterogeneous array literal, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_tuple_destructure_from_concrete_non_tuple_emits_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let (a, b) = 1
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for tuple destructure from concrete non-tuple source, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_match_with_unresolved_first_arm_and_concrete_conflict_still_emits_e300() {
+    let source = r#"
+fn main() -> Unit {
+    let x = mystery_value
+    let _y = match 1 {
+        0 -> x,
+        1 -> 10,
+        _ -> "oops",
+    }
+}
+"#;
+    let (result, _) = infer_program_from_source(source);
+    assert!(
+        has_diagnostic_code(&result, "E300"),
+        "expected E300 for concrete match-arm conflict even when first arm is unresolved, got: {:#?}",
+        result.diagnostics
+    );
+    assert!(
+        has_diagnostic_message_fragment(
+            &result,
+            "The arms of this `match` expression produce different types."
+        ),
+        "expected contextual match-arm mismatch message, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
 fn infer_match_family_consistent_arms_propagate_scrutinee_constraint() {
     let source = r#"
 fn main() -> Unit {
@@ -819,6 +877,69 @@ fn main() -> Unit {
     assert!(
         result.diagnostics.is_empty(),
         "expected no HM diagnostics for non-recursive baseline function, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn infer_unannotated_self_recursive_concrete_chain_keeps_refined_int_type() {
+    let source = r#"
+fn sum_down(n) {
+    if n == 0 {
+        0
+    } else {
+        1 + sum_down(n - 1)
+    }
+}
+
+fn main() -> Unit {
+    let value: String = sum_down(2)
+}
+"#;
+    let (result, program) = infer_program_from_source(source);
+    let call_expr = match &program.statements[1] {
+        Statement::Function { body, .. } => match &body.statements[0] {
+            Statement::Let {
+                value:
+                    Expression::Call {
+                        function: _,
+                        arguments: _,
+                        ..
+                    },
+                ..
+            } => {
+                if let Statement::Let {
+                    value: call @ Expression::Call { .. },
+                    ..
+                } = &body.statements[0]
+                {
+                    call
+                } else {
+                    unreachable!("shape checked above")
+                }
+            }
+            other => panic!("unexpected main statement shape: {other:?}"),
+        },
+        other => panic!("unexpected program statement shape: {other:?}"),
+    };
+    let key = call_expr as *const Expression as usize;
+    let node_id = result
+        .expr_ptr_to_id
+        .get(&key)
+        .expect("expected expr node id for recursive call in main");
+    let inferred_call_ty = result
+        .expr_types
+        .get(node_id)
+        .cloned()
+        .expect("expected inferred type for recursive call in main");
+    assert_eq!(
+        inferred_call_ty,
+        int(),
+        "expected refined recursive call type to stay Int, got: {inferred_call_ty:?}"
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no HM diagnostics in infer_program path, got: {:#?}",
         result.diagnostics
     );
 }

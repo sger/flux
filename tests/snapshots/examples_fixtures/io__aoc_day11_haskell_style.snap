@@ -5,61 +5,35 @@ Fixture: examples/io/aoc_day11_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `paths_to`.
 
-  --> examples/io/aoc_day11_haskell_style.flx:133:1
-    |
-133 | let lines = read_lines("examples/io/aoc_day11.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day11_haskell_style.flx:133:1
-    |
-133 | let lines = read_lines("examples/io/aoc_day11.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- effectful top-level execution
+  --> examples/io/aoc_day11_haskell_style.flx:60:13
+   |
+60 |     let r = paths_to(str_at(outs, i), graph, memo, end_node)
+   |             ^^^^^^^^
 
 Hint:
-  Define `fn main() with ... { ... }` and move execution there.
+  Define it first: let paths_to = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `paths_to2`.
 
-  --> examples/io/aoc_day11_haskell_style.flx:136:1
+  --> examples/io/aoc_day11_haskell_style.flx:103:13
     |
-136 | print(day11a(graph))
-    | ^^^^^^^^^^^^^^^^^^^^
-    | -------------------- top-level effectful expression
+103 |     let r = paths_to2(str_at(outs, i), seen_dac, seen_fft, graph, memo)
+    |             ^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let paths_to2 = ...;
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Help:
+  Did you mean `paths_to`?
 
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day11_haskell_style.flx:137:1
-    |
-137 | print(day11b(graph))
-    | ^^^^^^^^^^^^^^^^^^^^
-    | -------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 4 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

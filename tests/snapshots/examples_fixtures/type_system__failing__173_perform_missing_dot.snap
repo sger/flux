@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/173_perform_missing_dot.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `.` between effect and operation in `perform`.
+
+  --> examples/type_system/failing/173_perform_missing_dot.flx:1:20
+  |
+1 | let x = perform IO print("hi")
+  |                    ^^^^^
+
+Hint:
+  Perform expressions use `perform Effect.op(args...)`.
+== stdout ==
+<not executed>

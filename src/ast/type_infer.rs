@@ -785,11 +785,23 @@ impl<'a> InferCtx<'a> {
         let second_body_ty = self.infer_block(body);
         let refined_ret = self.unify_propagate(&second_body_ty, &ret_slot);
         self.env.leave_scope();
+        let refined_resolved = refined_ret.apply_type_subst(&self.subst);
+        let current_resolved = current_ret.apply_type_subst(&self.subst);
+        let current_concrete = Self::is_concrete_non_any(&current_resolved);
+        let refined_concrete = Self::is_concrete_non_any(&refined_resolved);
 
-        if current_ret.contains_any() {
-            refined_ret.apply_type_subst(&self.subst)
+        if current_concrete && !refined_concrete {
+            current_resolved
+        } else if refined_concrete && !current_concrete {
+            refined_resolved
+        } else if current_ret.contains_any() {
+            refined_resolved
+        } else if refined_resolved.contains_any() {
+            // Keep the prior concrete inference when the refinement pass did not
+            // increase precision and would otherwise fall back to Any.
+            current_resolved
         } else {
-            self.unify_propagate(current_ret, &refined_ret)
+            self.unify_propagate(&current_resolved, &refined_resolved)
                 .apply_type_subst(&self.subst)
         }
     }
@@ -1115,8 +1127,11 @@ impl<'a> InferCtx<'a> {
                 let first_span = arms[0].body.span();
                 self.env.leave_scope();
 
-                // Unify remaining arms against the first.
+                // Keep historical arm-join unification behavior so unresolved
+                // first-arm variables can still be refined by later concrete arms.
                 let mut result_ty = first_ty.clone();
+                let mut arm_types: Vec<(InferType, Span, usize)> =
+                    vec![(first_ty.clone(), first_span, 1)];
                 for (i, arm) in arms.iter().skip(1).enumerate() {
                     self.env.enter_scope();
                     self.bind_pattern(&arm.pattern, &propagated_scrutinee_ty, *span);
@@ -1135,6 +1150,35 @@ impl<'a> InferCtx<'a> {
                             arm_index: i + 2,
                         },
                     );
+                    arm_types.push((arm_ty, arm.body.span(), i + 1));
+                }
+
+                // Additional concrete-pivot check only when first arm is not
+                // concrete, so ordering does not hide concrete conflicts.
+                if !Self::is_concrete_non_any(&first_ty) {
+                    let pivot = arm_types
+                        .iter()
+                        .find(|(ty, _, _)| Self::is_concrete_non_any(ty))
+                        .cloned();
+                    if let Some((pivot_ty, pivot_span, pivot_index)) = pivot {
+                        for (arm_ty, arm_span, arm_index) in &arm_types {
+                            if *arm_index == pivot_index {
+                                continue;
+                            }
+                            if Self::is_concrete_non_any(arm_ty) {
+                                let _ = self.unify_with_context(
+                                    &pivot_ty,
+                                    arm_ty,
+                                    *arm_span,
+                                    ReportContext::MatchArm {
+                                        first_span: pivot_span,
+                                        arm_span: *arm_span,
+                                        arm_index: *arm_index,
+                                    },
+                                );
+                            }
+                        }
+                    }
                 }
                 result_ty
             }
@@ -1244,6 +1288,10 @@ impl<'a> InferCtx<'a> {
                         let f_r = first.apply_type_subst(&self.subst);
                         if t_r != f_r {
                             homogeneous = false;
+                            // Strict-first Any-fallback reduction: emit concrete
+                            // mismatches at the literal site when possible so strict
+                            // validation doesn't only observe unresolved Array<Any>.
+                            self.unify_reporting(&first, &t, e.span());
                         }
                     }
                     let elem_ty = if homogeneous {
@@ -1666,8 +1714,20 @@ impl<'a> InferCtx<'a> {
                         self.bind_pattern(elem, elem_ty, span);
                     }
                 } else {
+                    if Self::is_concrete_non_any(&resolved_scrutinee) {
+                        let expected =
+                            self.display_type(&tuple_shape.apply_type_subst(&self.subst));
+                        let actual = self.display_type(&resolved_scrutinee);
+                        self.errors.push(type_unification_error(
+                            self.file_path.clone(),
+                            span,
+                            &expected,
+                            &actual,
+                        ));
+                    }
                     for elem in elements {
-                        self.bind_pattern(elem, &InferType::Con(TypeConstructor::Any), span);
+                        let fallback = self.env.fresh_infer_type();
+                        self.bind_pattern(elem, &fallback, span);
                     }
                 }
             }
@@ -1692,6 +1752,10 @@ impl<'a> InferCtx<'a> {
                 }
             }
         }
+    }
+
+    fn is_concrete_non_any(ty: &InferType) -> bool {
+        ty.is_concrete() && !ty.contains_any()
     }
 
     fn instantiate_constructor_parts(

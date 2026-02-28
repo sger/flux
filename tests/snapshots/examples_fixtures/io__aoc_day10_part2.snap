@@ -5,47 +5,20 @@ Fixture: examples/io/aoc_day10_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
+--> compiler error[E004]: UNDEFINED VARIABLE
 
-Effectful operation is not allowed at top level (requires: IO).
+I can't find a value named `iter_free_bounded`.
 
-  --> examples/io/aoc_day10_part2.flx:750:1
+  --> examples/io/aoc_day10_part2.flx:687:1
     |
-750 | let lines = read_lines("examples/io/aoc_day10.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- top-level effectful expression
+687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+    | ^^^^^^^^^^^^^^^^^
 
 Hint:
-  Move this code into `fn main() with ... { ... }`.
+  Define it first: let iter_free_bounded = ...;
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/io/aoc_day10_part2.flx:750:1
-    |
-750 | let lines = read_lines("examples/io/aoc_day10.txt")
-    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    | --------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/io/aoc_day10_part2.flx:753:1
-    |
-753 | print(sum(presses))
-    | ^^^^^^^^^^^^^^^^^^^
-    | ------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+Help:
+  Did you mean one of: `search_free_bounded`, `search_free_bounded`?
 == stdout ==
 <not executed>

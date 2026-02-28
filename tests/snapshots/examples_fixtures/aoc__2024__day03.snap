@@ -5,87 +5,31 @@ Fixture: examples/aoc/2024/day03.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/aoc/2024/day03.flx:6:1
-  |
-6 | let memory = read_file("examples/aoc/2024/day03.txt")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/aoc/2024/day03.flx:6:1
-  |
-6 | let memory = read_file("examples/aoc/2024/day03.txt")
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/aoc/2024/day03.flx:7:1
-  |
-7 | print(Day03.day03a_from_memory(memory))
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | --------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
 --> compiler error[E011]: PRIVATE MEMBER
 
 Cannot access private member `day03a_from_memory`.
 
-  --> examples/aoc/2024/day03.flx:7:7
+  --> examples/aoc/2024/day03.flx:8:11
   |
-7 | print(Day03.day03a_from_memory(memory))
-  |       ^^^^^^^^^^^^^^^^^^^^^^^^
+8 |     print(Day03.day03a_from_memory(memory))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/aoc/2024/day03.flx:8:1
-  |
-8 | print(Day03.day03b_from_memory(memory))
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | --------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
 
 
 --> compiler error[E011]: PRIVATE MEMBER
 
 Cannot access private member `day03b_from_memory`.
 
-  --> examples/aoc/2024/day03.flx:8:7
+  --> examples/aoc/2024/day03.flx:9:11
   |
-8 | print(Day03.day03b_from_memory(memory))
-  |       ^^^^^^^^^^^^^^^^^^^^^^^^
+9 |     print(Day03.day03b_from_memory(memory))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 6 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

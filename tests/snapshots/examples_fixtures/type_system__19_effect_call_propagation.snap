@@ -3,49 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/19_effect_call_propagation.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/19_effect_call_propagation.flx:19:1
-   |
-19 | print(to_string(process_and_log(21)))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------- top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E414]: MISSING MAIN FUNCTION
-
-Effectful program is missing `fn main` root effect handler.
-
-  --> examples/type_system/19_effect_call_propagation.flx:19:1
-   |
-19 | print(to_string(process_and_log(21)))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------------- effectful top-level execution
-
-Hint:
-  Define `fn main() with ... { ... }` and move execution there.
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
-
-Effectful operation is not allowed at top level (requires: IO).
-
-  --> examples/type_system/19_effect_call_propagation.flx:20:1
-   |
-20 | print(to_string(pure_math(9)))
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   | ------------------------------ top-level effectful expression
-
-Hint:
-  Move this code into `fn main() with ... { ... }`.
-
-Found 3 errors.
+<none>
 == stdout ==
 <not executed>

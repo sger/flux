@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E015]: NON-EXHAUSTIVE MATCH
 
-Match is non-exhaustive without an unguarded catch-all arm.
+Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
 
   --> examples/type_system/failing/84_match_tuple_gap_no_fallback.flx:4:1
   |
@@ -21,6 +21,6 @@ Match is non-exhaustive without an unguarded catch-all arm.
   | ^
 
 Hint:
-  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+  Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.
 == stdout ==
 <not executed>

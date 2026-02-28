@@ -1969,53 +1969,53 @@ fn compile_expression(
                 let name_str = interner.resolve(*name);
                 let bytes = name_str.as_bytes().to_vec();
 
-                    let data = module
-                        .declare_anonymous_data(false, false)
-                        .map_err(|e| e.to_string())?;
-                    let mut desc = DataDescription::new();
-                    desc.define(bytes.into_boxed_slice());
-                    module.define_data(data, &desc).map_err(|e| e.to_string())?;
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())?;
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).map_err(|e| e.to_string())?;
 
-                    let global_value = module.declare_data_in_func(data, builder.func);
-                    let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
-                    let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
 
-                    let mut arg_vals = Vec::with_capacity(arguments.len());
+                let mut arg_vals = Vec::with_capacity(arguments.len());
 
-                    for arg in arguments {
-                        let value = compile_expression(
-                            module,
-                            helpers,
-                            builder,
-                            scope,
-                            ctx_val,
-                            return_block,
-                            tail_call,
-                            arg,
-                            interner,
-                        )?;
-                        arg_vals.push(value);
-                    }
+                for arg in arguments {
+                    let value = compile_expression(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        arg,
+                        interner,
+                    )?;
+                    arg_vals.push(value);
+                }
 
-                    let n = arg_vals.len();
-                    let slot = builder.create_sized_stack_slot(StackSlotData::new(
-                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                        (n as u32).max(1) * 8,
-                        3,
-                    ));
+                let n = arg_vals.len();
+                let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    (n as u32).max(1) * 8,
+                    3,
+                ));
 
-                    for (i, value) in arg_vals.iter().enumerate() {
-                        builder.ins().stack_store(*value, slot, (i * 8) as i32);
-                    }
+                for (i, value) in arg_vals.iter().enumerate() {
+                    builder.ins().stack_store(*value, slot, (i * 8) as i32);
+                }
 
-                    let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
-                    let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
-                    let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
+                let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
 
-                    let call = builder.ins().call(
-                        make_adt,
-                        &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
-                    );
+                let call = builder.ins().call(
+                    make_adt,
+                    &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
+                );
 
                 return Ok(builder.inst_results(call)[0]);
             }

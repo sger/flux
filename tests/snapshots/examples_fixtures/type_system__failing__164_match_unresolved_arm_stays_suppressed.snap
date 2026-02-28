@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx:2:13
+  |
+2 |     let x = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+== stdout ==
+<not executed>

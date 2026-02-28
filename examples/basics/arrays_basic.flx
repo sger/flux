@@ -20,11 +20,10 @@ fn main() with IO {
     let nums = [|1, 2, 3, 4, 5|];
     print(nums);
 
-    // Mixed types (if supported)
-    let mixed = [|"hello", 42, true|];
-    print(mixed[0]);
-    print(mixed[1]);
-    print(mixed[2]);
+    // Arrays are homogeneous — each element must share a type
+    print("hello");
+    print(42);
+    print(true);
 
     let left = [|1, 2, 3|];
     let right = [|4, 5, 6|];

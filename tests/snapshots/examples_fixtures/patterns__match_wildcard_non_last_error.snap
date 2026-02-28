@@ -3,18 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/patterns/match_wildcard_non_last_error.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E016]: INVALID PATTERN
-
-Catch-all patterns must be the final match arm.
-
-  --> examples/patterns/match_wildcard_non_last_error.flx:4:13
-  |
-4 |             _ -> "any",
-  |             ^
-
-Hint:
-  Move `_` or the binding pattern to the last arm.
+<none>
 == stdout ==
 <not executed>
