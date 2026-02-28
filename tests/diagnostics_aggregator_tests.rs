@@ -1,7 +1,7 @@
 mod diagnostics_env;
 
 use flux::diagnostics::{
-    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic,
+    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType, RelatedDiagnostic,
     position::{Position, Span},
     render_diagnostics_multi,
 };
@@ -286,4 +286,126 @@ fn aggregator_related_without_source_renders_no_snippet() {
 
     assert!(output.contains("  --> missing_related.flx:1:1"));
     assert!(!output.contains(related_source));
+}
+
+#[test]
+fn aggregator_suppresses_nearby_duplicate_e300_same_message() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let mk = |line: usize, start_col: usize, end_col: usize| {
+        let s = Span::new(Position::new(line, start_col), Position::new(line, end_col));
+        Diagnostic::make_error_dynamic(
+            "E300",
+            "TYPE UNIFICATION ERROR",
+            ErrorType::Compiler,
+            "The branches of this `if` expression produce different types.",
+            None,
+            "a.flx",
+            s,
+        )
+        .with_primary_label(s, "primary")
+    };
+
+    let d1 = mk(10, 5, 12);
+    let d2 = mk(10, 8, 16); // overlaps line 10
+    let d3 = mk(11, 2, 6); // adjacent line to retained span
+
+    let output = render_diagnostics_multi(&[d1, d2, d3], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 1);
+    assert!(output.contains("Suppressed 2 nearby duplicate E300 diagnostic(s)."));
+}
+
+#[test]
+fn aggregator_does_not_suppress_e300_with_different_messages() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s1 = Span::new(Position::new(5, 1), Position::new(5, 6));
+    let s2 = Span::new(Position::new(6, 1), Position::new(6, 6)); // adjacent line
+    let d1 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "a.flx",
+        s1,
+    )
+    .with_primary_label(s1, "if");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The 1st argument to `f` has the wrong type.",
+        None,
+        "a.flx",
+        s2,
+    )
+    .with_primary_label(s2, "arg");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert!(!output.contains("Suppressed "));
+}
+
+#[test]
+fn aggregator_does_not_suppress_e300_across_files() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s = Span::new(Position::new(3, 2), Position::new(3, 8));
+    let d1 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "a.flx",
+        s,
+    )
+    .with_primary_label(s, "a");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "b.flx",
+        s,
+    )
+    .with_primary_label(s, "b");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert!(!output.contains("Suppressed "));
+}
+
+#[test]
+fn aggregator_does_not_suppress_non_e300() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s1 = Span::new(Position::new(7, 1), Position::new(7, 3));
+    let s2 = Span::new(Position::new(8, 1), Position::new(8, 3));
+    let d1 = Diagnostic::make_error_dynamic(
+        "E031",
+        "EXPECTED EXPRESSION",
+        ErrorType::Compiler,
+        "Expected expression, found `}`.",
+        None,
+        "a.flx",
+        s1,
+    )
+    .with_primary_label(s1, "e1");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E031",
+        "EXPECTED EXPRESSION",
+        ErrorType::Compiler,
+        "Expected expression, found `}`.",
+        None,
+        "a.flx",
+        s2,
+    )
+    .with_primary_label(s2, "e2");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E031]").count(), 2);
+    assert!(!output.contains("Suppressed "));
 }

@@ -195,6 +195,33 @@ match x { _ if true -> 1 };
 }
 
 #[test]
+fn guarded_catchall_reports_targeted_non_exhaustive_message() {
+    let src = r#"
+let x = 2;
+match x { _ if x > 0 -> 1 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for pattern validation test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("guarded wildcard")),
+        "expected targeted guarded wildcard message, got: {:?}",
+        diag.message()
+    );
+}
+
+#[test]
 fn guarded_catchall_before_unguarded_fallback_is_allowed() {
     let src = r#"
 let x = 2;
@@ -214,6 +241,33 @@ match x { _ if true -> 1, _ -> 2 };
         compile_result.is_ok(),
         "expected guarded catch-all plus fallback to validate, got compile diagnostics: {:?}",
         compile_result.err()
+    );
+}
+
+#[test]
+fn bool_match_missing_true_reports_e015_with_bool_message() {
+    let src = r#"
+let b = false;
+match b { false -> 0 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for bool exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from bool exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("missing Bool case(s): true")),
+        "expected bool missing-true message, got: {:?}",
+        diag.message()
     );
 }
 

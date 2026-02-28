@@ -16,7 +16,10 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span},
+    diagnostics::{
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span,
+        render_diagnostics_json,
+    },
     runtime::{
         gc::GcHeap,
         value::Value,
@@ -36,6 +39,12 @@ use flux::{
     runtime::jit_closure::JitClosure,
     runtime::vm::test_runner::run_test_fns,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticOutputFormat {
+    Text,
+    Json,
+}
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
@@ -99,6 +108,10 @@ fn main() {
         Some(value) => value,
         None => return,
     };
+    let diagnostics_format = match extract_diagnostic_format(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
     let max_errors = match extract_max_errors(&mut args) {
         Some(value) => value,
         None => return,
@@ -130,6 +143,7 @@ fn main() {
                 use_jit,
                 test_filter.as_deref(),
                 strict_mode,
+                diagnostics_format,
             );
         } else {
             run_file(
@@ -149,6 +163,7 @@ fn main() {
                 use_jit,
                 show_stats,
                 strict_mode,
+                diagnostics_format,
             );
         }
         return;
@@ -181,6 +196,7 @@ fn main() {
                     use_jit,
                     test_filter.as_deref(),
                     strict_mode,
+                    diagnostics_format,
                 );
             } else {
                 run_file(
@@ -200,6 +216,7 @@ fn main() {
                     use_jit,
                     show_stats,
                     strict_mode,
+                    diagnostics_format,
                 );
             }
         }
@@ -225,6 +242,7 @@ fn main() {
                 enable_analyze,
                 max_errors,
                 strict_mode,
+                diagnostics_format,
             );
         }
         "lint" => {
@@ -232,7 +250,7 @@ fn main() {
                 eprintln!("Usage: flux lint <file.flx>");
                 return;
             }
-            lint_file(&args[2], max_errors);
+            lint_file(&args[2], max_errors, diagnostics_format);
         }
         "fmt" => {
             if args.len() < 3 {
@@ -266,14 +284,14 @@ fn main() {
                 eprintln!("Usage: flux analyze-free-vars <file.flx>");
                 return;
             }
-            analyze_free_vars(&args[2], max_errors);
+            analyze_free_vars(&args[2], max_errors, diagnostics_format);
         }
         "analyze-tail-calls" | "analyze-tails-calls" | "tail-calls" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux analyze-tail-calls <file.flx>");
                 return;
             }
-            analyze_tail_calls(&args[2], max_errors);
+            analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
         "repl" => {
             repl(trace);
@@ -311,6 +329,7 @@ Flags:
   --no-cache         Disable bytecode cache for this run
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)
+  --format <f>       Diagnostics format: text|json (default: text)
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
@@ -345,6 +364,7 @@ fn run_file(
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     show_stats: bool,
     strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -502,9 +522,17 @@ fn run_file(
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
                 let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
                 compiler.set_strict_require_main(is_entry_module);
-                if let Err(mut diags) =
-                    compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
-                {
+                let compile_result =
+                    compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+                let mut compiler_warnings = compiler.take_warnings();
+                for diag in &mut compiler_warnings {
+                    if diag.file().is_none() {
+                        diag.set_file(node.path.to_string_lossy().to_string());
+                    }
+                }
+                all_diagnostics.append(&mut compiler_warnings);
+
+                if let Err(mut diags) = compile_result {
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -523,10 +551,26 @@ fn run_file(
                     .with_max_errors(Some(max_errors))
                     .report();
                 if report.counts.errors > 0 {
-                    eprintln!("{}", report.rendered);
+                    emit_diagnostics(
+                        &all_diagnostics,
+                        Some(path),
+                        Some(source.as_str()),
+                        is_multimodule,
+                        max_errors,
+                        diagnostics_format,
+                        true,
+                    );
                     std::process::exit(1);
                 }
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &all_diagnostics,
+                    Some(path),
+                    Some(source.as_str()),
+                    is_multimodule,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
             }
 
             // --- JIT execution path ---
@@ -696,6 +740,7 @@ fn run_test_file(
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     test_filter: Option<&str>,
     strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -728,12 +773,15 @@ fn run_test_file(
                 diag.set_file(path.to_string());
             }
         }
-        let report = DiagnosticsAggregator::new(&parser.errors)
-            .with_default_source(path, source.as_str())
-            .with_file_headers(false)
-            .with_max_errors(Some(max_errors))
-            .report();
-        eprintln!("{}", report.rendered);
+        emit_diagnostics(
+            &parser.errors,
+            Some(path),
+            Some(source.as_str()),
+            false,
+            max_errors,
+            diagnostics_format,
+            true,
+        );
         std::process::exit(1);
     }
 
@@ -760,9 +808,17 @@ fn run_test_file(
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
         compiler.set_strict_require_main(is_entry_module);
-        if let Err(mut diags) =
-            compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
-        {
+        let compile_result =
+            compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+        let mut compiler_warnings = compiler.take_warnings();
+        for diag in &mut compiler_warnings {
+            if diag.file().is_none() {
+                diag.set_file(node.path.to_string_lossy().to_string());
+            }
+        }
+        all_diagnostics.append(&mut compiler_warnings);
+
+        if let Err(mut diags) = compile_result {
             for diag in &mut diags {
                 if diag.file().is_none() {
                     diag.set_file(node.path.to_string_lossy().to_string());
@@ -779,10 +835,26 @@ fn run_test_file(
             .with_max_errors(Some(max_errors))
             .report();
         if report.counts.errors > 0 {
-            eprintln!("{}", report.rendered);
+            emit_diagnostics(
+                &all_diagnostics,
+                Some(path),
+                Some(source.as_str()),
+                is_multimodule,
+                max_errors,
+                diagnostics_format,
+                true,
+            );
             std::process::exit(1);
         }
-        eprintln!("{}", report.rendered);
+        emit_diagnostics(
+            &all_diagnostics,
+            Some(path),
+            Some(source.as_str()),
+            is_multimodule,
+            max_errors,
+            diagnostics_format,
+            true,
+        );
     }
 
     // --- Collect test functions ---
@@ -1019,6 +1091,39 @@ fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {
     Some(threshold)
 }
 
+fn extract_diagnostic_format(args: &mut Vec<String>) -> Option<DiagnosticOutputFormat> {
+    let mut format = DiagnosticOutputFormat::Text;
+    let mut i = 0;
+    while i < args.len() {
+        let value = if args[i] == "--format" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --format <text|json>");
+                return None;
+            }
+            let v = args.remove(i + 1);
+            args.remove(i);
+            v
+        } else if let Some(v) = args[i].strip_prefix("--format=") {
+            let v = v.to_string();
+            args.remove(i);
+            v
+        } else {
+            i += 1;
+            continue;
+        };
+
+        format = match value.as_str() {
+            "text" => DiagnosticOutputFormat::Text,
+            "json" => DiagnosticOutputFormat::Json,
+            _ => {
+                eprintln!("Error: --format expects one of: text, json.");
+                return None;
+            }
+        };
+    }
+    Some(format)
+}
+
 fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
     let mut max_errors = DEFAULT_MAX_ERRORS;
     let mut i = 0;
@@ -1048,6 +1153,43 @@ fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
         }
     }
     Some(max_errors)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_diagnostics(
+    diagnostics: &[Diagnostic],
+    default_file: Option<&str>,
+    default_source: Option<&str>,
+    show_file_headers: bool,
+    max_errors: usize,
+    format: DiagnosticOutputFormat,
+    text_to_stderr: bool,
+) {
+    let mut agg = DiagnosticsAggregator::new(diagnostics)
+        .with_file_headers(show_file_headers)
+        .with_max_errors(Some(max_errors));
+    if let Some(file) = default_file {
+        if let Some(source) = default_source {
+            agg = agg.with_default_source(file.to_string(), source.to_string());
+        } else {
+            agg = agg.with_default_file(file.to_string());
+        }
+    }
+
+    match format {
+        DiagnosticOutputFormat::Text => {
+            let rendered = agg.report().rendered;
+            if text_to_stderr {
+                eprintln!("{}", rendered);
+            } else {
+                println!("{}", rendered);
+            }
+        }
+        DiagnosticOutputFormat::Json => {
+            let rendered = render_diagnostics_json(diagnostics, default_file, Some(max_errors));
+            eprintln!("{}", rendered);
+        }
+    }
 }
 
 fn extract_test_filter(args: &mut Vec<String>) -> Option<Option<String>> {
@@ -1160,6 +1302,7 @@ fn show_bytecode(
     enable_analyze: bool,
     max_errors: usize,
     strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -1174,36 +1317,62 @@ fn show_bytecode(
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
             compiler.set_strict_mode(strict_mode);
-            if let Err(diags) =
-                compiler.compile_with_opts(&program, enable_optimize, enable_analyze)
-            {
-                let report = DiagnosticsAggregator::new(&diags)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+            let compile_result =
+                compiler.compile_with_opts(&program, enable_optimize, enable_analyze);
+            let mut compiler_warnings = compiler.take_warnings();
+            for diag in &mut compiler_warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
+            if !compiler_warnings.is_empty() {
+                emit_diagnostics(
+                    &compiler_warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
+            }
+            if let Err(diags) = compile_result {
+                emit_diagnostics(
+                    &diags,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
                 std::process::exit(1);
             }
 
@@ -1234,7 +1403,7 @@ fn show_bytecode(
     }
 }
 
-fn lint_file(path: &str, max_errors: usize) {
+fn lint_file(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1248,33 +1417,42 @@ fn lint_file(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
             let lints = Linter::new(Some(path.to_string()), &interner).lint(&program);
             if !lints.is_empty() {
-                let report = DiagnosticsAggregator::new(&lints)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                println!("{}", report.rendered);
+                emit_diagnostics(
+                    &lints,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                );
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
@@ -1301,7 +1479,7 @@ fn fmt_file(path: &str, check: bool) {
     }
 }
 
-fn analyze_free_vars(path: &str, max_errors: usize) {
+fn analyze_free_vars(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1315,20 +1493,28 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
@@ -1355,7 +1541,7 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
     }
 }
 
-fn analyze_tail_calls(path: &str, max_errors: usize) {
+fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1369,20 +1555,28 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    true,
+                );
             }
 
             let tail_calls = find_tail_calls(&program);
@@ -1586,7 +1780,17 @@ fn repl(trace: bool) {
         let mut compiler = Compiler::new_with_state(symbol_table, constants, interner);
         compiler.set_file_path("<repl>");
 
-        if let Err(errs) = compiler.compile(&program) {
+        let compile_result = compiler.compile(&program);
+        let warnings = compiler.take_warnings();
+        if !warnings.is_empty() {
+            let report = DiagnosticsAggregator::new(&warnings)
+                .with_default_source("<repl>", &input)
+                .with_file_headers(false)
+                .report();
+            eprintln!("{}", report.rendered);
+        }
+
+        if let Err(errs) = compile_result {
             let report = DiagnosticsAggregator::new(&errs)
                 .with_default_source("<repl>", &input)
                 .with_file_headers(false)

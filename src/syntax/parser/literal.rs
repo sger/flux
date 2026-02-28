@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        invalid_float, invalid_integer,
+        invalid_float, invalid_integer, missing_string_interpolation_close,
         position::{Position, Span},
         unterminated_interpolation,
     },
@@ -210,7 +210,11 @@ impl Parser {
             parts.push(StringPart::Interpolation(Box::new(expr)));
 
             // Expect closing brace of interpolation
-            if !self.expect_peek(TokenType::RBrace) {
+            if self.is_peek_token(TokenType::RBrace) {
+                self.next_token();
+            } else {
+                self.errors
+                    .push(missing_string_interpolation_close(self.peek_token.span()));
                 return None;
             }
 

@@ -1,24 +1,27 @@
 ---
 source: tests/purity_vm_jit_parity_snapshots.rs
+assertion_line: 53
 ---
 Fixture: examples/type_system/failing/66_module_constructor_not_public_api.flx
 Category: H
-Strict: false
+Strict: true
 Expect compile error: true
 
 == vm command ==
-$ flux --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
+$ flux --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx
 exit_code: 1
 
 == jit command ==
-$ flux --no-cache --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
+$ flux --no-cache --strict --root examples/type_system examples/type_system/failing/66_module_constructor_not_public_api.flx --jit
 exit_code: 1
 
 == vm tuples ==
-- E084 | MODULE ADT CONSTRUCTOR NOT EXPORTED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | runtime boundary check is unresolved in strict mode
+- E086 | CROSS-MODULE CONSTRUCTOR ACCESS | 
 
 == jit tuples ==
-- E084 | MODULE ADT CONSTRUCTOR NOT EXPORTED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | runtime boundary check is unresolved in strict mode
+- E086 | CROSS-MODULE CONSTRUCTOR ACCESS | 
 
 == parity ==
 match

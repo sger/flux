@@ -1,0 +1,42 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:2:13
+  |
+2 |     let x = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `y` does not match its type annotation.
+
+  --> examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:3:21
+  |
+3 |     let y: String = match x {
+  |                     ^^^^^^^^^
+  |            ------ but `y` was annotated as `String`
+4 |         Some(n) -> n,
+  | ^^^^^^^^^^^^^^^^^^^^^
+5 |         None -> 0,
+  | ^^^^^^^^^^^^^^^^^^
+6 |     }
+  | ^^^^^
+
+Help:
+  Change `y` to a `String` value or update the annotation to `Int`.
+
+Found 2 errors.
+== stdout ==
+<not executed>

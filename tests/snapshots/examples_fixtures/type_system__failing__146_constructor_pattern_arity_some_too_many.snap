@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E085]: CONSTRUCTOR PATTERN ARITY MISMATCH
+
+Constructor pattern `BoxI` expects 1 argument(s) but got 2.
+
+  --> examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:8:9
+  |
+8 |         BoxI(a, b) -> a,
+  |         ^^^^^^^^^^
+
+Hint:
+  Check the constructor's declared pattern field count.
+== stdout ==
+<not executed>

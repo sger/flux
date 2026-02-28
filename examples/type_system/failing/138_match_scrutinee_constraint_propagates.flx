@@ -1,0 +1,7 @@
+fn main() -> Unit {
+    let x = mystery_value
+    let y: String = match x {
+        Some(n) -> n,
+        None -> 0,
+    }
+}

@@ -133,6 +133,25 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_do_missing_brace_reports_contextual_e034() {
+        let lexer = Lexer::new("let y = do x + 1;");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing do-block brace");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("begin the `do` block")),
+            "expected contextual do-block message, got: {:?}",
+            diag.message()
+        );
+    }
+
+    #[test]
     fn expression_statement_tracks_semicolon_presence() {
         let (program, _interner) = parse("x; y");
         assert_eq!(program.statements.len(), 2);
@@ -456,6 +475,42 @@ fn t(x) {
             e071_count, 1,
             "expected one unterminated string error after recovery"
         );
+    }
+
+    #[test]
+    fn t1_named_delimiter_diagnostics_are_contextual() {
+        let cases = [
+            (
+                "let h = {one: 1, two: 2",
+                "Expected `}` to close hash literal.",
+            ),
+            ("let xs = [|1, 2|", "Expected `]` to close array literal."),
+            (
+                "let add = \\(x, y -> x + y",
+                "Expected `)` to close lambda parameter list.",
+            ),
+            (
+                "let msg = \"Hello #{name\"",
+                "Expected `}` to close string interpolation.",
+            ),
+            (
+                "let ys = [x + 1 | x <- [1, 2]",
+                "Expected `]` to close list comprehension.",
+            ),
+        ];
+
+        for (input, expected_msg) in cases {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            assert!(
+                parser.errors.iter().any(|d| d.code() == Some("E034")
+                    && d.message().is_some_and(|m| m.contains(expected_msg))),
+                "expected contextual E034 `{expected_msg}` for input `{input}`, got: {:?}",
+                parser.errors
+            );
+        }
     }
 
     #[test]
@@ -940,9 +995,12 @@ fn t(x) {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E036"))
-            .expect("expected E036 diagnostic for missing lambda arrow");
-        assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing lambda arrow");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `->` after lambda parameters"))
+        );
         assert!(
             diag.hints()
                 .iter()
@@ -951,15 +1009,56 @@ fn t(x) {
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start.line, 1);
         assert_eq!(span.start.column, 3);
-        assert_eq!(
-            parser
-                .errors
-                .iter()
-                .filter(|d| d.code() == Some("E034"))
-                .count(),
-            0,
-            "missing-arrow lambda should not emit generic E034"
+    }
+
+    #[test]
+    fn test_match_missing_arrow_reports_contextual_e034() {
+        let lexer = Lexer::new("match 1 { 0 1, _ -> 0 }");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing match arm arrow");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `->` in match arm")),
+            "expected contextual match-arrow message, got: {:?}",
+            diag.message()
         );
+    }
+
+    #[test]
+    fn test_orphan_constructor_pattern_statement_reports_contextual_e034() {
+        let lexer = Lexer::new("Some(x);\nlet after = 1;");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 orphan constructor-pattern diagnostic");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("outside `match`")),
+            "expected orphan-constructor contextual message, got: {:?}",
+            diag.message()
+        );
+    }
+
+    #[test]
+    fn test_orphan_constructor_pattern_does_not_misfire_in_expression_contexts() {
+        let (program, _interner) = parse(
+            r#"
+let v = Some(1);
+print(Some(1));
+let w = match x { Some(n) -> n, None -> 0 };
+"#,
+        );
+        assert_eq!(program.statements.len(), 3);
     }
 
     #[test]
@@ -2096,7 +2195,9 @@ fn t(x) {
 
         let case_msgs = collect("case 1 { 0 -> 0, _ -> 1 }");
         assert!(
-            case_msgs.iter().any(|m| m.contains("Unknown keyword `case`")),
+            case_msgs
+                .iter()
+                .any(|m| m.contains("Unknown keyword `case`")),
             "expected `case` alias diagnostic, got: {:#?}",
             case_msgs
         );
@@ -2115,12 +2216,14 @@ fn t(x) {
             .collect();
         assert!(
             msgs.iter()
-                .any(|m| m.contains("Unknown keyword `elif`") || m.contains("Unknown keyword `elsif`")),
+                .any(|m| m.contains("Unknown keyword `elif`")
+                    || m.contains("Unknown keyword `elsif`")),
             "expected elif/elsif alias diagnostic, got: {:#?}",
             msgs
         );
         assert!(
-            msgs.iter().any(|m| m.contains("`end` is not a keyword in Flux")),
+            msgs.iter()
+                .any(|m| m.contains("`end` is not a keyword in Flux")),
             "expected end-keyword diagnostic, got: {:#?}",
             msgs
         );
@@ -2141,7 +2244,8 @@ fn t(x) {
 
         let fn_msgs = collect("fn foo -> Int { 1 }");
         assert!(
-            fn_msgs.iter()
+            fn_msgs
+                .iter()
                 .any(|m| m.contains("Missing parameter list for function `foo`")),
             "expected missing-parameter-list message, got: {:#?}",
             fn_msgs
@@ -2193,10 +2297,9 @@ fn t(x) {
             msgs
         );
         assert!(
-            program
-                .statements
-                .iter()
-                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")),
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
             "expected parser recovery after `|` separator diagnostic"
         );
     }

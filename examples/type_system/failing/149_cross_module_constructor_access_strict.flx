@@ -1,0 +1,7 @@
+// E086 (strict): cross-module constructor access is blocked in strict mode.
+
+import TypeSystem.BoundaryCtor
+
+fn main() {
+    let _x = TypeSystem.BoundaryCtor.SomeInt(1)
+}

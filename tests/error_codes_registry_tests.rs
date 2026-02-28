@@ -1,10 +1,15 @@
 use flux::diagnostics::position::{Position, Span};
 use flux::diagnostics::{
-    ERROR_CODES, LabelStyle, call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
-    fun_return_annotation_mismatch, fun_return_type_mismatch, if_branch_type_mismatch,
+    ERROR_CODES, LabelStyle, Severity, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+    cross_module_constructor_access_error, cross_module_constructor_access_warning,
+    fun_arity_mismatch, fun_param_type_mismatch, fun_return_annotation_mismatch,
+    fun_return_type_mismatch, guarded_wildcard_non_exhaustive, if_branch_type_mismatch,
     let_annotation_type_mismatch, lookup_error_code, match_arm_type_mismatch, match_fat_arrow,
-    match_pipe_separator, missing_else_body_brace, missing_fn_param_list, missing_if_body_brace,
-    missing_let_assign, unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
+    match_pipe_separator, missing_array_close_bracket, missing_comprehension_close_bracket,
+    missing_do_block_brace, missing_else_body_brace, missing_fn_param_list,
+    missing_hash_close_brace, missing_if_body_brace, missing_lambda_close_paren,
+    missing_let_assign, missing_string_interpolation_close, orphan_constructor_pattern,
+    unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
 };
 
 fn span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -210,7 +215,9 @@ fn parser_diagnostic_constructor_shapes_for_059() {
         "expected keyword-alias message"
     );
     assert!(
-        kw.hints().iter().any(|h| h.text.contains("Did you mean `fn`")),
+        kw.hints()
+            .iter()
+            .any(|h| h.text.contains("Did you mean `fn`")),
         "expected alias hint"
     );
 
@@ -228,6 +235,18 @@ fn parser_diagnostic_constructor_shapes_for_059() {
         else_brace
             .message()
             .is_some_and(|m| m.contains("begin the `else` body"))
+    );
+
+    let do_brace = missing_do_block_brace(span(2, 30, 31));
+    assert_eq!(do_brace.code(), Some("E034"));
+    assert!(
+        do_brace
+            .message()
+            .is_some_and(|m| m.contains("begin the `do` block"))
+    );
+    assert!(
+        !do_brace.hints().is_empty(),
+        "expected missing-do-block-brace help hint"
     );
 
     let let_assign = missing_let_assign(span(3, 11, 12), "x");
@@ -253,6 +272,48 @@ fn parser_diagnostic_constructor_shapes_for_059() {
     assert_eq!(fat.code(), Some("E034"));
     assert!(fat.message().is_some_and(|m| m.contains("found `=>`")));
 
+    let miss_match_arrow = flux::diagnostics::missing_match_arrow(span(6, 20, 21), ",");
+    assert_eq!(miss_match_arrow.code(), Some("E034"));
+    assert!(
+        miss_match_arrow
+            .message()
+            .is_some_and(|m| m.contains("Expected `->` in match arm")),
+        "expected contextual missing match arrow message"
+    );
+    assert!(
+        !miss_match_arrow.hints().is_empty(),
+        "expected missing match arrow help hint"
+    );
+
+    let miss_lambda_arrow = flux::diagnostics::missing_lambda_arrow(span(7, 3, 4), "Ident");
+    assert_eq!(miss_lambda_arrow.code(), Some("E034"));
+    assert!(
+        miss_lambda_arrow
+            .message()
+            .is_some_and(|m| m.contains("Expected `->` after lambda parameters")),
+        "expected contextual missing lambda arrow message"
+    );
+    assert!(
+        !miss_lambda_arrow.hints().is_empty(),
+        "expected missing lambda arrow help hint"
+    );
+
+    let orphan_ctor = orphan_constructor_pattern(span(8, 1, 7), "Some");
+    assert_eq!(orphan_ctor.code(), Some("E034"));
+    assert!(
+        orphan_ctor
+            .message()
+            .is_some_and(|m| m.contains("outside `match`")),
+        "expected contextual orphan constructor message"
+    );
+    assert!(
+        orphan_ctor
+            .hints()
+            .iter()
+            .any(|h| h.text.contains("match value") && h.text.contains("Some(x) ->")),
+        "expected actionable match-pattern hint"
+    );
+
     let end_kw = unexpected_end_keyword(span(7, 9, 12));
     assert_eq!(end_kw.code(), Some("E034"));
     assert!(
@@ -260,4 +321,89 @@ fn parser_diagnostic_constructor_shapes_for_059() {
             .message()
             .is_some_and(|m| m.contains("`end` is not a keyword"))
     );
+
+    let hash_close = missing_hash_close_brace(span(8, 20, 21));
+    assert_eq!(hash_close.code(), Some("E034"));
+    assert!(
+        hash_close
+            .message()
+            .is_some_and(|m| m.contains("close hash literal"))
+    );
+    assert!(!hash_close.hints().is_empty(), "expected help hint");
+
+    let array_close = missing_array_close_bracket(span(9, 20, 21));
+    assert_eq!(array_close.code(), Some("E034"));
+    assert!(
+        array_close
+            .message()
+            .is_some_and(|m| m.contains("close array literal"))
+    );
+    assert!(!array_close.hints().is_empty(), "expected help hint");
+
+    let lambda_close = missing_lambda_close_paren(span(10, 15, 16));
+    assert_eq!(lambda_close.code(), Some("E034"));
+    assert!(
+        lambda_close
+            .message()
+            .is_some_and(|m| m.contains("close lambda parameter list"))
+    );
+    assert!(!lambda_close.hints().is_empty(), "expected help hint");
+
+    let interp_close = missing_string_interpolation_close(span(11, 18, 19));
+    assert_eq!(interp_close.code(), Some("E034"));
+    assert!(
+        interp_close
+            .message()
+            .is_some_and(|m| m.contains("close string interpolation"))
+    );
+    assert!(!interp_close.hints().is_empty(), "expected help hint");
+
+    let comp_close = missing_comprehension_close_bracket(span(12, 18, 19));
+    assert_eq!(comp_close.code(), Some("E034"));
+    assert!(
+        comp_close
+            .message()
+            .is_some_and(|m| m.contains("close list comprehension"))
+    );
+    assert!(!comp_close.hints().is_empty(), "expected help hint");
+}
+
+#[test]
+fn guarded_wildcard_non_exhaustive_constructor_shape() {
+    let diag = guarded_wildcard_non_exhaustive(span(4, 1, 20));
+    assert_eq!(diag.code(), Some("E015"));
+    assert_eq!(diag.title(), "NON-EXHAUSTIVE MATCH");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("guarded wildcard") && m.contains("guard may fail")),
+        "expected targeted guarded wildcard message"
+    );
+    assert!(
+        diag.hints()
+            .iter()
+            .any(|h| h.text.contains("unguarded `_ -> ...` fallback")),
+        "expected actionable fallback hint"
+    );
+}
+
+#[test]
+fn t14_constructor_and_boundary_diagnostic_shapes() {
+    let pattern = constructor_pattern_arity_mismatch(span(3, 10, 20), "Some", 1, 2);
+    assert_eq!(pattern.code(), Some("E085"));
+    assert_eq!(pattern.title(), "CONSTRUCTOR PATTERN ARITY MISMATCH");
+    assert!(
+        pattern
+            .message()
+            .is_some_and(|m| m.contains("Some") && m.contains("1") && m.contains("2"))
+    );
+
+    let strict = cross_module_constructor_access_error(span(4, 12, 25), "SomeInt", "M");
+    assert_eq!(strict.code(), Some("E086"));
+    assert_eq!(strict.title(), "CROSS-MODULE CONSTRUCTOR ACCESS");
+    assert_eq!(strict.severity(), Severity::Error);
+
+    let non_strict = cross_module_constructor_access_warning(span(4, 12, 25), "SomeInt", "M");
+    assert_eq!(non_strict.code(), Some("W201"));
+    assert_eq!(non_strict.title(), "CROSS-MODULE CONSTRUCTOR ACCESS");
+    assert_eq!(non_strict.severity(), Severity::Warning);
 }

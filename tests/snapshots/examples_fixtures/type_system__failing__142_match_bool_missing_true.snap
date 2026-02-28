@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/142_match_bool_missing_true.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive: missing Bool case(s): true.
+
+  --> examples/type_system/failing/142_match_bool_missing_true.flx:4:14
+  |
+4 |     let _x = match b {
+  |              ^^^^^^^^^
+5 |         false -> 0
+  | ^^^^^^^^^^^^^^^^^^
+6 |     }
+  | ^^^^^
+
+Hint:
+  Add missing boolean arms or an unguarded `_ -> ...` catch-all.
+== stdout ==
+<not executed>
