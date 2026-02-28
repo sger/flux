@@ -464,9 +464,9 @@ pub const TYPE_MISMATCH: ErrorCode = ErrorCode {
 
 pub const TYPE_ERROR: ErrorCode = ErrorCode {
     code: "E056",
-    title: "TYPE ERROR",
+    title: "WRONG NUMBER OF ARGUMENTS",
     error_type: ErrorType::Compiler,
-    message: "Type error: {}.",
+    message: "Expected {} arguments, got {}.",
     hint: None,
 };
 
@@ -726,6 +726,14 @@ pub const MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED: ErrorCode = ErrorCode {
     ),
 };
 
+pub const UNKNOWN_FUNCTION_EFFECT: ErrorCode = ErrorCode {
+    code: "E407",
+    title: "UNKNOWN FUNCTION EFFECT",
+    error_type: ErrorType::Compiler,
+    message: "Function effect annotation references unknown effect `{}`.",
+    hint: Some("Use a declared effect name in `with ...` or declare the effect first."),
+};
+
 // ============================================================================
 // Type Inference Errors (E300–E399)
 // ============================================================================
@@ -917,6 +925,147 @@ pub fn type_unification_error(
         .with_span(span)
         .with_message(format!("Cannot unify {expected} with {actual}."))
         .with_primary_label(span, format!("expected {expected}, found {actual}"))
+}
+
+/// Create a wrong-argument-count diagnostic (E056).
+pub fn wrong_argument_count(
+    file: String,
+    call_span: Span,
+    fn_name: &str,
+    expected: usize,
+    actual: usize,
+    def_span: Option<Span>,
+) -> Diagnostic {
+    let mut diag = diag_enhanced(&TYPE_ERROR)
+        .with_file(file)
+        .with_span(call_span)
+        .with_message(format!(
+            "The `{fn_name}` function takes {expected} arguments, but {actual} were provided."
+        ))
+        .with_primary_label(
+            call_span,
+            format!("{actual} arguments provided here, expected {expected}"),
+        );
+
+    let expected_call = format_call_skeleton(fn_name, expected);
+    if actual > expected {
+        let extra = actual - expected;
+        diag = diag.with_help(format!(
+            "Remove {extra} extra argument(s), for example: `{expected_call}`."
+        ));
+    } else if actual < expected {
+        let missing = expected - actual;
+        diag = diag.with_help(format!(
+            "Add {missing} missing argument(s), for example: `{expected_call}`."
+        ));
+    }
+
+    if let Some(span) = def_span {
+        diag = diag.with_secondary_label(
+            span,
+            format!("`{fn_name}` is defined with {expected} parameters"),
+        );
+    }
+
+    diag
+}
+
+fn format_call_skeleton(fn_name: &str, arity: usize) -> String {
+    if arity == 0 {
+        return format!("{fn_name}()");
+    }
+    let args: Vec<String> = (1..=arity).map(|i| format!("arg{i}")).collect();
+    format!("{fn_name}({})", args.join(", "))
+}
+
+/// Create an if-branch mismatch diagnostic (E300).
+pub fn if_branch_type_mismatch(
+    file: String,
+    then_span: Span,
+    else_span: Span,
+    then_ty: &str,
+    else_ty: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(else_span)
+        .with_message("The branches of this `if` expression produce different types.")
+        .with_primary_label(else_span, format!("`else` branch returns `{else_ty}`"))
+        .with_secondary_label(then_span, format!("`then` branch returns `{then_ty}`"))
+        .with_help(format!(
+            "Both branches must return the same type. Change one branch to match `{then_ty}` or `{else_ty}`."
+        ))
+}
+
+/// Create a match-arm mismatch diagnostic (E300).
+pub fn match_arm_type_mismatch(
+    file: String,
+    first_span: Span,
+    arm_span: Span,
+    first_ty: &str,
+    arm_ty: &str,
+    arm_index: usize,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(arm_span)
+        .with_message("The arms of this `match` expression produce different types.")
+        .with_primary_label(arm_span, format!("arm {arm_index} returns `{arm_ty}`"))
+        .with_secondary_label(first_span, format!("first arm returns `{first_ty}`"))
+        .with_help(format!(
+            "All match arms must return the same type. Change arm {arm_index} to return `{first_ty}`."
+        ))
+}
+
+/// Create a function return-type mismatch diagnostic (E300).
+pub fn fun_return_type_mismatch(
+    file: String,
+    span: Span,
+    expected_ret: &str,
+    actual_ret: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(span)
+        .with_message(format!(
+            "Function return types do not match: expected `{expected_ret}`, found `{actual_ret}`."
+        ))
+        .with_primary_label(
+            span,
+            format!("expected return type `{expected_ret}`, found `{actual_ret}`"),
+        )
+}
+
+/// Create a function parameter-type mismatch diagnostic (E300).
+pub fn fun_param_type_mismatch(
+    file: String,
+    span: Span,
+    index: usize,
+    expected: &str,
+    actual: &str,
+) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(span)
+        .with_message(format!(
+            "Function parameter {index} type does not match: expected `{expected}`, found `{actual}`."
+        ))
+        .with_primary_label(
+            span,
+            format!("parameter {index}: expected `{expected}`, found `{actual}`"),
+        )
+}
+
+/// Create a function arity mismatch diagnostic (E300).
+pub fn fun_arity_mismatch(file: String, span: Span, expected: usize, actual: usize) -> Diagnostic {
+    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+        .with_file(file)
+        .with_span(span)
+        .with_message("Function arity does not match.")
+        .with_primary_label(
+            span,
+            format!("expected {expected} parameters, found {actual}"),
+        )
 }
 
 /// Create an occurs-check failure (E301) with a source snippet at `span`.

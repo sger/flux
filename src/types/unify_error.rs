@@ -15,22 +15,37 @@ pub enum UnifyErrorKind {
     OccursCheck(TypeVarId),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnifyErrorDetail {
+    None,
+    FunArityMismatch { expected: usize, actual: usize },
+    FunParamMismatch { index: usize },
+    FunReturnMismatch,
+}
+
 /// Error produced when two types cannot be unified.
 #[derive(Debug, Clone)]
 pub struct UnifyError {
     pub expected: InferType,
     pub actual: InferType,
     pub kind: UnifyErrorKind,
+    pub detail: UnifyErrorDetail,
     /// Source span where the mismatch was detected (may be `Span::default()`).
     pub span: Span,
 }
 
 impl UnifyError {
-    fn mismatch(expected: InferType, actual: InferType, span: Span) -> Self {
+    fn mismatch(
+        expected: InferType,
+        actual: InferType,
+        span: Span,
+        detail: UnifyErrorDetail,
+    ) -> Self {
         UnifyError {
             expected,
             actual,
             kind: UnifyErrorKind::Mismatch,
+            detail,
             span,
         }
     }
@@ -41,6 +56,7 @@ impl UnifyError {
             expected,
             actual: ty,
             kind: UnifyErrorKind::OccursCheck(v),
+            detail: UnifyErrorDetail::None,
             span,
         }
     }
@@ -87,14 +103,52 @@ pub fn unify_with_span(
             if params1.len() == params2.len() =>
         {
             if !effect_sets_equal(effects1, effects2) {
-                return Err(UnifyError::mismatch(t1.clone(), t2.clone(), span));
+                return Err(UnifyError::mismatch(
+                    t1.clone(),
+                    t2.clone(),
+                    span,
+                    UnifyErrorDetail::None,
+                ));
             }
-            let subst = unify_many(params1, params2, span)?;
+
+            let mut subst = TypeSubst::empty();
+            for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
+                let p1_sub = p1.apply_type_subst(&subst);
+                let p2_sub = p2.apply_type_subst(&subst);
+                let s = unify_with_span(&p1_sub, &p2_sub, span).map_err(|e| {
+                    UnifyError::mismatch(
+                        e.expected,
+                        e.actual,
+                        e.span,
+                        UnifyErrorDetail::FunParamMismatch { index },
+                    )
+                })?;
+                subst = subst.compose(&s);
+            }
+
             let ret1_sub = ret1.apply_type_subst(&subst);
             let ret2_sub = ret2.apply_type_subst(&subst);
-            let s2 = unify_with_span(&ret1_sub, &ret2_sub, span)?;
+            let s2 = unify_with_span(&ret1_sub, &ret2_sub, span).map_err(|e| {
+                UnifyError::mismatch(
+                    e.expected,
+                    e.actual,
+                    e.span,
+                    UnifyErrorDetail::FunReturnMismatch,
+                )
+            })?;
             Ok(subst.compose(&s2))
         }
+
+        // Function types with different arity.
+        (InferType::Fun(params1, ..), InferType::Fun(params2, ..)) => Err(UnifyError::mismatch(
+            t1.clone(),
+            t2.clone(),
+            span,
+            UnifyErrorDetail::FunArityMismatch {
+                expected: params1.len(),
+                actual: params2.len(),
+            },
+        )),
 
         // Tuple types: same length
         (InferType::Tuple(elems1), InferType::Tuple(elems2)) if elems1.len() == elems2.len() => {
@@ -102,7 +156,12 @@ pub fn unify_with_span(
         }
 
         // Everything else is a mismatch
-        _ => Err(UnifyError::mismatch(t1.clone(), t2.clone(), span)),
+        _ => Err(UnifyError::mismatch(
+            t1.clone(),
+            t2.clone(),
+            span,
+            UnifyErrorDetail::None,
+        )),
     }
 }
 
@@ -154,7 +213,7 @@ mod tests {
         types::{
             infer_type::InferType,
             type_constructor::TypeConstructor,
-            unify_error::{UnifyErrorKind, unify, unify_with_span},
+            unify_error::{UnifyErrorDetail, UnifyErrorKind, unify, unify_with_span},
         },
     };
 
@@ -192,6 +251,7 @@ mod tests {
 
         let err = unify(&left, &right).expect_err("occurs check should fail");
         assert_eq!(err.kind, UnifyErrorKind::OccursCheck(0));
+        assert_eq!(err.detail, UnifyErrorDetail::None);
         assert_eq!(err.expected, infer_var(0));
         assert_eq!(err.actual, right);
     }
@@ -202,6 +262,7 @@ mod tests {
         let err = unify_with_span(&int(), &bool_t(), span).expect_err("should mismatch");
 
         assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+        assert_eq!(err.detail, UnifyErrorDetail::None);
         assert_eq!(err.expected, int());
         assert_eq!(err.actual, bool_t());
         assert_eq!(err.span, span);
@@ -213,5 +274,38 @@ mod tests {
         let tuple = InferType::Tuple(vec![int(), bool_t()]);
         let subst = unify(&any, &tuple).expect("Any should unify with every type");
         assert!(subst.is_empty());
+    }
+
+    #[test]
+    fn unify_fun_arity_mismatch_sets_detail() {
+        let left = InferType::Fun(vec![int()], Box::new(int()), vec![]);
+        let right = InferType::Fun(vec![int(), int()], Box::new(int()), vec![]);
+        let err = unify(&left, &right).expect_err("should mismatch on arity");
+        assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+        assert_eq!(
+            err.detail,
+            UnifyErrorDetail::FunArityMismatch {
+                expected: 1,
+                actual: 2
+            }
+        );
+    }
+
+    #[test]
+    fn unify_fun_param_mismatch_sets_detail() {
+        let left = InferType::Fun(vec![int()], Box::new(int()), vec![]);
+        let right = InferType::Fun(vec![bool_t()], Box::new(int()), vec![]);
+        let err = unify(&left, &right).expect_err("should mismatch on parameter type");
+        assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+        assert_eq!(err.detail, UnifyErrorDetail::FunParamMismatch { index: 0 });
+    }
+
+    #[test]
+    fn unify_fun_return_mismatch_sets_detail() {
+        let left = InferType::Fun(vec![int()], Box::new(int()), vec![]);
+        let right = InferType::Fun(vec![int()], Box::new(bool_t()), vec![]);
+        let err = unify(&left, &right).expect_err("should mismatch on return type");
+        assert_eq!(err.kind, UnifyErrorKind::Mismatch);
+        assert_eq!(err.detail, UnifyErrorDetail::FunReturnMismatch);
     }
 }

@@ -130,6 +130,40 @@ fn compile_err_message(input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_err_rendered(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    render_diagnostics(&err, None, None)
+}
+
+fn compile_rendered_or_empty(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    match compiler.compile(&program) {
+        Ok(()) => String::new(),
+        Err(err) => render_diagnostics(&err, None, None),
+    }
+}
+
 #[test]
 fn import_top_level_ok() {
     compile_ok_in(
@@ -500,6 +534,268 @@ fn main() -> Unit {
 }
 
 #[test]
+fn hm_if_concrete_branch_mismatch_reports_contextual_message() {
+    let code = compile_err(
+        r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}
+"#,
+    );
+    assert!(
+        rendered.contains("The branches of this `if` expression produce different types."),
+        "expected contextual if mismatch text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_if_any_or_unresolved_branch_does_not_report_contextual_e300() {
+    let unresolved_rendered = compile_rendered_or_empty(
+        r#"
+fn main() -> Unit {
+    let _x = if true { 42 } else { mystery_value }
+}
+"#,
+    );
+    assert!(
+        !unresolved_rendered
+            .contains("The branches of this `if` expression produce different types."),
+        "did not expect contextual if mismatch text for unresolved/Any branch, got:\n{}",
+        unresolved_rendered
+    );
+
+    let nested_any_rendered = compile_rendered_or_empty(
+        r#"
+fn concrete_fn(x: Int) -> Int { x }
+fn any_param_fn(x: Any) -> Int { 0 }
+fn main() -> Unit {
+    let _f = if true { concrete_fn } else { any_param_fn }
+}
+"#,
+    );
+    assert!(
+        !nested_any_rendered
+            .contains("The branches of this `if` expression produce different types."),
+        "did not expect contextual if mismatch text for nested Any branch type, got:\n{}",
+        nested_any_rendered
+    );
+}
+
+#[test]
+fn hm_match_concrete_arm_mismatch_reports_contextual_message() {
+    let code = compile_err(
+        r#"
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> "no",
+    }
+}
+"#,
+    );
+    assert_eq!(code, "E300");
+
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> "no",
+    }
+}
+"#,
+    );
+    assert!(
+        rendered.contains("The arms of this `match` expression produce different types."),
+        "expected contextual match-arm mismatch text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn known_call_too_many_args_emits_e056() {
+    let code = compile_err(
+        r#"
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+fn main() -> Unit {
+    let _x = add(1, 2, 3)
+}
+"#,
+    );
+    assert_eq!(code, "E056");
+
+    let rendered = compile_err_rendered(
+        r#"
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+fn main() -> Unit {
+    let _x = add(1, 2, 3)
+}
+"#,
+    );
+    assert!(
+        rendered.contains("WRONG NUMBER OF ARGUMENTS"),
+        "expected E056 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Remove 1 extra argument(s), for example: `add(arg1, arg2)`."),
+        "expected actionable too-many-args hint in rendered diagnostics, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn known_call_too_few_args_emits_e056() {
+    let code = compile_err(
+        r#"
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+fn main() -> Unit {
+    let _x = add(1)
+}
+"#,
+    );
+    assert_eq!(code, "E056");
+
+    let rendered = compile_err_rendered(
+        r#"
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+fn main() -> Unit {
+    let _x = add(1)
+}
+"#,
+    );
+    assert!(
+        rendered.contains("takes 2 arguments, but 1 were provided"),
+        "expected contextual arity text in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Add 1 missing argument(s), for example: `add(arg1, arg2)`."),
+        "expected actionable too-few-args hint in rendered diagnostics, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn known_call_correct_arity_no_e056() {
+    compile_ok_in(
+        "<unknown>",
+        r#"
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+fn main() -> Unit {
+    let _x = add(1, 2)
+}
+"#,
+    );
+}
+
+#[test]
+fn pass2_multi_error_continuation_reports_independent_errors_in_order() {
+    let source = include_str!("../examples/type_system/failing/99_multi_error_continuation.flx");
+    let rendered = compile_err_rendered(source);
+
+    let e002_idx = rendered
+        .find("error[E002]")
+        .expect("expected E002 immutability error in rendered diagnostics");
+    let e300_idx = rendered
+        .find("error[E300]")
+        .expect("expected E300 type-unification error in rendered diagnostics");
+
+    assert!(
+        e002_idx < e300_idx,
+        "expected deterministic source-order diagnostics (E002 before E300), got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fun_param_mismatch_reports_param_specific_message() {
+    let rendered = compile_err_rendered(
+        r#"
+fn takes_int(x: Int) -> Int { x }
+fn takes_string(x: String) -> Int { 0 }
+fn main() -> Unit {
+    let _f = if true {
+        takes_int
+    } else {
+        takes_string
+    }
+}
+"#,
+    );
+    assert!(
+        rendered
+            .contains("Function parameter 1 type does not match: expected `Int`, found `String`."),
+        "expected function parameter mismatch text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fun_return_mismatch_reports_return_specific_message() {
+    let rendered = compile_err_rendered(
+        r#"
+fn ret_int() -> Int { 1 }
+fn ret_string() -> String { "x" }
+fn main() -> Unit {
+    let _f = if true {
+        ret_int
+    } else {
+        ret_string
+    }
+}
+"#,
+    );
+    assert!(
+        rendered.contains("Function return types do not match: expected `Int`, found `String`."),
+        "expected function return mismatch text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn hm_fun_arity_mismatch_reports_arity_specific_message() {
+    let rendered = compile_err_rendered(
+        r#"
+fn one_arg(x: Int) -> Int { x }
+fn two_args(x: Int, y: Int) -> Int { x + y }
+fn main() -> Unit {
+    let _f = if true {
+        one_arg
+    } else {
+        two_args
+    }
+}
+"#,
+    );
+    assert!(
+        rendered.contains("Function arity does not match."),
+        "expected function arity mismatch text, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
 fn perform_arg_type_mismatch_fails_compile_e300() {
     let code = compile_err(
         r#"
@@ -623,6 +919,65 @@ fn main() -> Unit {
     assert!(
         rendered.contains("unresolved expression type in function return expression"),
         "expected unresolved-context message in rendered diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn unknown_effect_in_perform_has_did_you_mean_hint() {
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit with IO {
+    perform I.print("x")
+}
+"#,
+    );
+    assert!(
+        rendered.contains("did you mean `IO`?"),
+        "expected effect suggestion hint in perform diagnostic, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn unknown_effect_in_function_annotation_has_did_you_mean_hint() {
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit with I {
+}
+"#,
+    );
+    assert!(
+        rendered.contains("error[E407]"),
+        "expected E407 in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("UNKNOWN FUNCTION EFFECT"),
+        "expected E407 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("did you mean `IO`?"),
+        "expected effect suggestion hint in function-annotation diagnostic, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn unknown_effect_in_handle_has_did_you_mean_hint() {
+    let rendered = compile_err_rendered(
+        r#"
+fn main() -> Unit with IO {
+    1 handle I {
+        print(resume, _msg) -> resume(())
+    }
+}
+"#,
+    );
+    assert!(
+        rendered.contains("did you mean `IO`?"),
+        "expected effect suggestion hint in handle diagnostic, got:\n{}",
         rendered
     );
 }

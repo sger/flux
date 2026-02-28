@@ -1,0 +1,16 @@
+// E300: function-type return mismatch should report return-specific diagnostics.
+fn ret_int() -> Int {
+    1
+}
+
+fn ret_string() -> String {
+    "x"
+}
+
+fn main() -> Unit {
+    let _f = if true {
+        ret_int
+    } else {
+        ret_string
+    }
+}

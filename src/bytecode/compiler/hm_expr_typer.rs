@@ -4,9 +4,7 @@ use crate::{
         Diagnostic, DiagnosticBuilder, ErrorType, compiler_errors::type_unification_error,
     },
     syntax::expression::Expression,
-    types::{
-        infer_type::InferType, type_constructor::TypeConstructor, unify_error::unify,
-    },
+    types::{infer_type::InferType, unify_error::unify},
 };
 
 use crate::ast::type_infer::{display_infer_type, suggest_type_name};
@@ -56,20 +54,8 @@ impl Compiler {
         self.hm_expr_types.get(&node_id).cloned()
     }
 
-    fn contains_any(infer: &InferType) -> bool {
-        match infer {
-            InferType::Con(TypeConstructor::Any) => true,
-            InferType::App(_, args) | InferType::Tuple(args) => args.iter().any(Self::contains_any),
-            InferType::Fun(params, ret, _) => {
-                params.iter().any(Self::contains_any) || Self::contains_any(ret)
-            }
-            InferType::Var(_) => false,
-            InferType::Con(_) => false,
-        }
-    }
-
     fn is_hm_type_resolved(infer: &InferType) -> bool {
-        infer.free_vars().is_empty() && !Self::contains_any(infer)
+        infer.free_vars().is_empty() && !infer.contains_any()
     }
 
     fn format_infer_type(&self, infer: &InferType) -> String {
@@ -93,7 +79,11 @@ impl Compiler {
         ))
     }
 
-    fn ensure_unify(&self, expected: &InferType, actual: &InferType) -> Result<(), (String, String)> {
+    fn ensure_unify(
+        &self,
+        expected: &InferType,
+        actual: &InferType,
+    ) -> Result<(), (String, String)> {
         if let Some((resolved_expected, resolved_actual)) =
             Self::resolved_unify_types(expected, actual)
             && resolved_expected == resolved_actual
@@ -119,9 +109,10 @@ impl Compiler {
         // Add "did you mean?" hint for likely type name typos
         for name in [expected, actual] {
             if let Some(suggestion) = suggest_type_name(name) {
-                diag.hints.push(crate::diagnostics::types::Hint::help(
-                    format!("Unknown type `{name}` — {suggestion}"),
-                ));
+                diag.hints
+                    .push(crate::diagnostics::types::Hint::help(format!(
+                        "Unknown type `{name}` — {suggestion}"
+                    )));
             }
         }
         diag

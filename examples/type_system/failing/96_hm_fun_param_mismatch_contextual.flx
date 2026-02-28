@@ -1,0 +1,16 @@
+// E300: function-type parameter mismatch should report parameter-specific diagnostics.
+fn takes_int(x: Int) -> Int {
+    x
+}
+
+fn takes_string(x: String) -> Int {
+    0
+}
+
+fn main() -> Unit {
+    let _f = if true {
+        takes_int
+    } else {
+        takes_string
+    }
+}

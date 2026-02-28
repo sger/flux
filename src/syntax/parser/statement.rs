@@ -1,7 +1,7 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, missing_function_body_brace,
-        position::Span, unexpected_token, unknown_keyword,
+        DiagnosticBuilder, missing_function_body_brace, position::Span, unexpected_token,
+        unknown_keyword,
     },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
@@ -167,11 +167,7 @@ impl Parser {
     }
 
     pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
-        let start = if is_public {
-            self.current_token.position
-        } else {
-            self.current_token.position
-        };
+        let start = self.current_token.position;
 
         if !self.expect_peek(TokenType::Ident) {
             return None;
@@ -216,14 +212,41 @@ impl Parser {
         let return_type = if self.is_peek_token(TokenType::Arrow) {
             self.next_token(); // ->
             self.next_token(); // start of return type
-            self.parse_type_expr()
+            let ty = self.parse_type_expr();
+            if ty.is_none() {
+                self.recover_to_type_anchor(&[
+                    TokenType::With,
+                    TokenType::LBrace,
+                    TokenType::Semicolon,
+                    TokenType::RBrace,
+                    TokenType::Eof,
+                ]);
+            }
+            ty
+        } else if self.token_starts_type(self.peek_token.token_type) {
+            self.errors.push(unexpected_token(
+                self.peek_token.span(),
+                "Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.",
+            ));
+            self.next_token(); // start of return type
+            let ty = self.parse_type_expr();
+            if ty.is_none() {
+                self.recover_to_type_anchor(&[
+                    TokenType::With,
+                    TokenType::LBrace,
+                    TokenType::Semicolon,
+                    TokenType::RBrace,
+                    TokenType::Eof,
+                ]);
+            }
+            ty
         } else {
             None
         };
 
         let effects = self.parse_effect_list()?;
 
-        if !self.is_peek_token(TokenType::LBrace) {
+        if !self.is_current_token(TokenType::LBrace) && !self.is_peek_token(TokenType::LBrace) {
             let fn_name = self.lexer.interner().resolve(name).to_string();
             let fn_span = Span::new(start, start);
             let found_desc = match self.peek_token.token_type {
@@ -239,7 +262,9 @@ impl Parser {
             ));
             return None;
         }
-        self.next_token(); // consume `{`
+        if self.is_peek_token(TokenType::LBrace) {
+            self.next_token(); // consume `{`
+        }
 
         let fn_name_str = self.lexer.interner().resolve(name).to_string();
         let body = self.parse_block_with_context(Some(&fn_name_str));
@@ -295,13 +320,10 @@ impl Parser {
             }
 
             self.next_token();
-            let value = match self.parse_expression(Precedence::Lowest) {
-                Some(expression) => expression,
-                None => {
-                    self.synchronize(SyncMode::Stmt);
-                    return None;
-                }
-            };
+            let value = self.parse_required(
+                |parser| parser.parse_expression(Precedence::Lowest),
+                SyncMode::Stmt,
+            )?;
 
             if self.is_peek_token(TokenType::Semicolon) {
                 self.next_token();
@@ -323,27 +345,28 @@ impl Parser {
             .symbol
             .expect("ident token should have symbol");
 
-        let type_annotation = if self.is_peek_token(TokenType::Colon) {
-            self.next_token(); // :
-            self.next_token(); // type start
-            self.parse_type_expr()
-        } else {
-            None
-        };
+        let binding_name = self.lexer.interner().resolve(name).to_string();
+        let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
+            &[
+                TokenType::Assign,
+                TokenType::Semicolon,
+                TokenType::RBrace,
+                TokenType::Eof,
+            ],
+            "let binding",
+            Some(binding_name.as_str()),
+        );
 
-        if !self.expect_peek(TokenType::Assign) {
+        if !self.is_current_token(TokenType::Assign) && !self.expect_peek(TokenType::Assign) {
             return None;
         }
 
         self.next_token();
 
-        let value = match self.parse_expression(Precedence::Lowest) {
-            Some(expression) => expression,
-            None => {
-                self.synchronize(SyncMode::Stmt);
-                return None;
-            }
-        };
+        let value = self.parse_required(
+            |parser| parser.parse_expression(Precedence::Lowest),
+            SyncMode::Stmt,
+        )?;
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
@@ -798,10 +821,20 @@ impl Parser {
                 .expect("ident token should have symbol");
 
             // `:` before the type expression
-            if !self.expect_peek(TokenType::Colon) {
+            if self.is_peek_token(TokenType::Colon) {
+                self.next_token(); // consume `:`
+                self.next_token(); // move to start of TypeExpr
+            } else if self.token_starts_type(self.peek_token.token_type) {
+                self.errors.push(unexpected_token(
+                    self.peek_token.span(),
+                    "Missing `:` in effect operation signature. Write it as `op: Type -> Return`.",
+                ));
+                self.next_token(); // move to start of TypeExpr
+            } else if !self.expect_peek(TokenType::Colon) {
                 return None;
+            } else {
+                self.next_token(); // move to start of TypeExpr
             }
-            self.next_token(); // move to start of TypeExpr
 
             let type_expr = self.parse_type_expr()?;
             let op_end = self.current_token.span().end;

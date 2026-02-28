@@ -102,6 +102,20 @@ impl InferType {
     pub fn is_any(&self) -> bool {
         matches!(self, InferType::Con(TypeConstructor::Any))
     }
+
+    /// Returns `true` if this type contains `Any` at any nesting depth.
+    pub fn contains_any(&self) -> bool {
+        match self {
+            InferType::Con(TypeConstructor::Any) => true,
+            InferType::App(_, args) | InferType::Tuple(args) => {
+                args.iter().any(InferType::contains_any)
+            }
+            InferType::Fun(params, ret, _) => {
+                params.iter().any(InferType::contains_any) || ret.contains_any()
+            }
+            InferType::Var(_) | InferType::Con(_) => false,
+        }
+    }
 }
 
 impl fmt::Display for InferType {
@@ -216,13 +230,45 @@ mod tests {
         let concrete = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Bool)]);
         assert!(concrete.is_concrete());
         assert!(!concrete.is_any());
+        assert!(!concrete.contains_any());
 
         let not_concrete = InferType::Fun(vec![infer_var(0)], Box::new(int()), vec![]);
         assert!(!not_concrete.is_concrete());
+        assert!(!not_concrete.contains_any());
 
         let any = InferType::Con(TypeConstructor::Any);
         assert!(any.is_any());
         assert!(any.is_concrete());
+        assert!(any.contains_any());
+    }
+
+    #[test]
+    fn contains_any_checks_nested_types() {
+        let nested_any_app = InferType::App(
+            TypeConstructor::List,
+            vec![InferType::Con(TypeConstructor::Any)],
+        );
+        assert!(nested_any_app.contains_any());
+
+        let nested_any_tuple = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Any)]);
+        assert!(nested_any_tuple.contains_any());
+
+        let nested_any_fun = InferType::Fun(
+            vec![InferType::Con(TypeConstructor::Any)],
+            Box::new(int()),
+            vec![],
+        );
+        assert!(nested_any_fun.contains_any());
+
+        let nested_any_fun_ret = InferType::Fun(
+            vec![int()],
+            Box::new(InferType::App(
+                TypeConstructor::Option,
+                vec![InferType::Con(TypeConstructor::Any)],
+            )),
+            vec![],
+        );
+        assert!(nested_any_fun_ret.contains_any());
     }
 
     #[test]

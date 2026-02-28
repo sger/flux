@@ -1373,21 +1373,28 @@ impl Parser {
             let mut types = Vec::new();
             if let Some(param) = self.validate_parameter_identifier() {
                 params.push(param);
-
-                let type_annotation = if self.is_peek_token(TokenType::Colon) {
-                    self.next_token();
-                    self.next_token();
-                    self.parse_type_expr()
-                } else {
-                    None
-                };
+                let param_name = self.lexer.interner().resolve(param).to_string();
+                let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
+                    &[
+                        TokenType::Arrow,
+                        TokenType::LBrace,
+                        TokenType::Semicolon,
+                        TokenType::Eof,
+                    ],
+                    "lambda parameter",
+                    Some(param_name.as_str()),
+                );
                 types.push(type_annotation);
             }
             (params, types)
         };
 
         // Expect ->
-        if !self.is_peek_token(TokenType::Arrow) {
+        if self.is_current_token(TokenType::Arrow) {
+            // already at arrow via annotation recovery
+        } else if self.is_peek_token(TokenType::Arrow) {
+            self.next_token(); // consume `->`
+        } else {
             self.errors.push(
                 lambda_syntax_error(
                     self.peek_token.span(),
@@ -1400,7 +1407,6 @@ impl Parser {
             );
             return None;
         }
-        self.next_token(); // consume `->`
         self.next_token(); // move to lambda body
 
         // Parse body

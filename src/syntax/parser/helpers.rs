@@ -72,6 +72,20 @@ impl Parser {
         }
     }
 
+    /// Runs a required parser step and synchronizes on failure.
+    pub(super) fn parse_required<T, F>(&mut self, parse: F, sync_mode: SyncMode) -> Option<T>
+    where
+        F: FnOnce(&mut Parser) -> Option<T>,
+    {
+        match parse(self) {
+            Some(value) => Some(value),
+            None => {
+                self.synchronize(sync_mode);
+                None
+            }
+        }
+    }
+
     /// Returns the maximum number of list-related diagnostics emitted before bailing out.
     pub(super) fn list_error_limit(&self) -> usize {
         LIST_ERROR_LIMIT
@@ -175,6 +189,27 @@ impl Parser {
         )
     }
 
+    /// Returns whether `token_type` can begin a type expression.
+    pub(super) fn token_starts_type(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Ident | TokenType::LParen | TokenType::None
+        )
+    }
+
+    fn looks_like_type_annotation_start(&self) -> bool {
+        match self.peek_token.token_type {
+            TokenType::Ident => self
+                .peek_token
+                .literal
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_uppercase()),
+            TokenType::LParen | TokenType::None => true,
+            _ => false,
+        }
+    }
+
     /// Attempts delimiter-aware recovery until `expected` is found at top level.
     ///
     /// Returns `true` if `expected` was consumed, or `false` if recovery stopped
@@ -244,7 +279,7 @@ impl Parser {
                     matches!(
                         token_type,
                         TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
-                    )
+                    ) || self.token_starts_statement(self.peek_token.token_type)
                 }
                 SyncMode::Block => matches!(token_type, TokenType::RBrace | TokenType::Eof),
             };
@@ -384,16 +419,39 @@ impl Parser {
             }
 
             if let Some(param) = self.parse_parameter_identifier_or_recover() {
-                let mut type_annotation = None;
-                if self.is_peek_token(TokenType::Colon) {
-                    self.next_token(); // :
-                    self.next_token(); // start of type
-                    type_annotation = self.parse_type_expr();
-                }
+                let param_name = self.lexer.interner().resolve(param).to_string();
+                let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
+                    &[
+                        TokenType::Comma,
+                        TokenType::RParen,
+                        TokenType::Arrow,
+                        TokenType::With,
+                        TokenType::LBrace,
+                        TokenType::Eof,
+                    ],
+                    "function parameter",
+                    Some(param_name.as_str()),
+                );
 
                 identifiers.push(param);
                 types.push(type_annotation);
-                self.next_token();
+                // Move from the parameter/type tail token to the parameter-list delimiter.
+                // Keep recovery anchors (e.g. `,` from malformed `a: , b`) in place.
+                let current_is_delimiter = matches!(
+                    self.current_token.token_type,
+                    TokenType::Comma | TokenType::RParen | TokenType::Eof
+                );
+                if current_is_delimiter {
+                    let peek_is_delimiter = matches!(
+                        self.peek_token.token_type,
+                        TokenType::Comma | TokenType::RParen | TokenType::Eof
+                    );
+                    if peek_is_delimiter {
+                        self.next_token();
+                    }
+                } else {
+                    self.next_token();
+                }
             }
 
             if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list") {
@@ -439,11 +497,14 @@ impl Parser {
     ///
     /// If no `with` keyword is present, returns an empty effect list.
     pub(super) fn parse_effect_list(&mut self) -> Option<Vec<EffectExpr>> {
-        if !self.is_peek_token(TokenType::With) {
+        if self.is_current_token(TokenType::With) {
+            // already positioned at `with` (possible recovery path)
+        } else if self.is_peek_token(TokenType::With) {
+            self.next_token(); // with
+        } else {
             return Some(Vec::new());
         }
 
-        self.next_token(); // with
         let mut effects = Vec::new();
 
         loop {
@@ -458,6 +519,103 @@ impl Parser {
         }
 
         Some(effects)
+    }
+
+    /// Parses an optional `: Type` annotation and recovers to top-level anchors
+    /// on malformed type expressions.
+    pub(super) fn parse_type_annotation_opt(&mut self, anchors: &[TokenType]) -> Option<TypeExpr> {
+        if !self.is_peek_token(TokenType::Colon) {
+            return None;
+        }
+
+        self.next_token(); // :
+        self.next_token(); // start of type
+
+        match self.parse_type_expr() {
+            Some(ty) => Some(ty),
+            None => {
+                self.recover_to_type_anchor(anchors);
+                None
+            }
+        }
+    }
+
+    /// Parses an optional type annotation and emits a targeted diagnostic when
+    /// a likely `:` separator is missing (e.g. `let x Int = 1`).
+    pub(super) fn parse_type_annotation_opt_with_missing_colon(
+        &mut self,
+        anchors: &[TokenType],
+        context: &str,
+        binding_name: Option<&str>,
+    ) -> Option<TypeExpr> {
+        if self.is_peek_token(TokenType::Colon) {
+            return self.parse_type_annotation_opt(anchors);
+        }
+
+        if !self.looks_like_type_annotation_start() {
+            return None;
+        }
+
+        let message = if let Some(name) = binding_name {
+            format!(
+                "Missing `:` in {} type annotation. Write it as `{name}: Type`.",
+                context
+            )
+        } else {
+            format!(
+                "Missing `:` in {} type annotation. Write it as `name: Type`.",
+                context
+            )
+        };
+        self.errors
+            .push(unexpected_token(self.peek_token.span(), message));
+
+        self.next_token(); // move to start of type expression
+        match self.parse_type_expr() {
+            Some(ty) => Some(ty),
+            None => {
+                self.recover_to_type_anchor(anchors);
+                None
+            }
+        }
+    }
+
+    /// Recovers malformed type parsing until `current_token` is a top-level anchor.
+    /// The anchor token is not consumed.
+    pub(super) fn recover_to_type_anchor(&mut self, anchors: &[TokenType]) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        let mut scanned = 0usize;
+
+        while self.current_token.token_type != TokenType::Eof && scanned < DELIMITER_RECOVERY_BUDGET
+        {
+            let token_type = self.current_token.token_type;
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+
+            if at_top_level
+                && (anchors.contains(&token_type)
+                    || token_type == TokenType::Semicolon
+                    || token_type == TokenType::RBrace
+                    || token_type == TokenType::Eof
+                    || self.token_starts_statement(token_type))
+            {
+                return;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
+            scanned += 1;
+        }
     }
 
     fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
@@ -573,6 +731,24 @@ impl Parser {
                         self.current_token.token_type
                     ),
                 ));
+                // For annotation contexts, callers may already anchor recovery on
+                // tokens like `=`/`with`/`{`; avoid consuming those anchors here.
+                let at_safe_anchor = matches!(
+                    self.current_token.token_type,
+                    TokenType::Assign
+                        | TokenType::Semicolon
+                        | TokenType::Comma
+                        | TokenType::RParen
+                        | TokenType::RBracket
+                        | TokenType::RBrace
+                        | TokenType::Arrow
+                        | TokenType::With
+                        | TokenType::LBrace
+                        | TokenType::Eof
+                );
+                if !at_safe_anchor {
+                    self.synchronize(SyncMode::Expr);
+                }
                 None
             }
         }
@@ -718,9 +894,11 @@ impl Parser {
             let mut diag = unclosed_delimiter(open_span, "{", "}", None);
             diag.message = Some(msg);
             if let Some(name) = context {
-                diag.hints.push(crate::diagnostics::types::Hint::help(
-                    format!("Add `}}` to close the body of function `{}`.", name),
-                ));
+                diag.hints
+                    .push(crate::diagnostics::types::Hint::help(format!(
+                        "Add `}}` to close the body of function `{}`.",
+                        name
+                    )));
             }
             self.errors.push(diag);
         }

@@ -170,6 +170,34 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E084`) because direct ADT constructor access is rejected across module boundaries even through alias imports
 - `91_adt_nested_pattern_binding_type_mismatch.flx`
   - Expected: compile-time failure (`E300`) because nested constructor-pattern binding keeps concrete `Int` field typing
+- `92_hm_if_branch_contextual_mismatch.flx`
+  - Expected: compile-time failure (`E300`) with contextual if-branch mismatch message and dual labels
+- `93_hm_match_arm_contextual_mismatch.flx`
+  - Expected: compile-time failure (`E300`) with contextual match-arm mismatch message and dual labels
+- `94_wrong_argument_count_too_many.flx`
+  - Expected: compile-time failure (`E056`) for statically-known function call with too many arguments
+- `95_wrong_argument_count_too_few.flx`
+  - Expected: compile-time failure (`E056`) for statically-known function call with too few arguments
+- `96_hm_fun_param_mismatch_contextual.flx`
+  - Expected: compile-time failure (`E300`) with function parameter mismatch diagnostics naming the mismatching parameter index and types
+- `97_hm_fun_return_mismatch_contextual.flx`
+  - Expected: compile-time failure (`E300`) with function return mismatch diagnostics naming expected vs actual return types
+- `98_hm_fun_arity_mismatch_contextual.flx`
+  - Expected: compile-time failure (`E300`) with function arity mismatch diagnostics naming expected vs actual parameter counts
+- `99_multi_error_continuation.flx`
+  - Expected: compile-time failure with multiple independent diagnostics in one compile run (e.g. `E002` and `E300`) preserved in source order
+- `100_unclosed_string_recovery.flx`
+  - Expected: parse/compile failure with `E071` and deterministic recovery that preserves subsequent statements
+- `101_missing_colon_let_annotation.flx`
+  - Expected: parser diagnostic with targeted missing-colon message for let annotation
+- `102_missing_colon_function_param.flx`
+  - Expected: parser diagnostic with targeted missing-colon message for function parameter annotation
+- `103_missing_colon_lambda_param.flx`
+  - Expected: parser diagnostic with targeted missing-colon message for lambda parameter annotation
+- `104_missing_colon_effect_op.flx`
+  - Expected: parser diagnostic with targeted missing-colon message for effect operation signature
+- `105_unknown_effect_suggestion.flx`
+  - Expected: compile-time failure (`E407`) for unknown function `with ...` effect annotation, with hint suggesting `IO`
 
 ## A3 Pure-Context Matrix
 
@@ -347,6 +375,20 @@ cargo run -- --no-cache examples/type_system/failing/88_effect_op_signature_argu
 cargo run -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
 cargo run -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx
 cargo run -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx
+cargo run -- --no-cache examples/type_system/failing/94_wrong_argument_count_too_many.flx
+cargo run -- --no-cache examples/type_system/failing/95_wrong_argument_count_too_few.flx
+cargo run -- --no-cache examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx
+cargo run -- --no-cache examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx
+cargo run -- --no-cache examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx
+cargo run -- --no-cache examples/type_system/failing/99_multi_error_continuation.flx
+cargo run -- --no-cache examples/type_system/failing/100_unclosed_string_recovery.flx
+cargo run -- --no-cache examples/type_system/failing/101_missing_colon_let_annotation.flx
+cargo run -- --no-cache examples/type_system/failing/102_missing_colon_function_param.flx
+cargo run -- --no-cache examples/type_system/failing/103_missing_colon_lambda_param.flx
+cargo run -- --no-cache examples/type_system/failing/104_missing_colon_effect_op.flx
+cargo run -- --no-cache examples/type_system/failing/105_unknown_effect_suggestion.flx
 cargo run -- --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
 cargo run -- --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.flx
 cargo run -- --no-cache examples/type_system/failing/44_effect_poly_hof_nested_missing_effect.flx
@@ -444,4 +486,18 @@ cargo run --features jit -- --no-cache examples/type_system/failing/88_effect_op
 cargo run --features jit -- --no-cache examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx --jit
 cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx --jit
 cargo run --features jit -- --no-cache examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/94_wrong_argument_count_too_many.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/95_wrong_argument_count_too_few.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/99_multi_error_continuation.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/100_unclosed_string_recovery.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/101_missing_colon_let_annotation.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/102_missing_colon_function_param.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/103_missing_colon_lambda_param.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/104_missing_colon_effect_op.flx --jit
+cargo run --features jit -- --no-cache examples/type_system/failing/105_unknown_effect_suggestion.flx --jit
 ```
