@@ -1,7 +1,7 @@
 - Feature Name: Index
 - Start Date: 2026-02-26
-- Proposal PR: 
-- Flux Issue: 
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0000: Index
 
@@ -42,7 +42,7 @@ The technical details below consolidate implementation, validation, and policy n
 
 ## Proposal Index and Canonical State
 
-This is the canonical inventory for `docs/proposals`.  
+This is the canonical inventory for `docs/proposals`.
 Feature state is evidence-driven:
 - `have` = implemented and exercised in `src/` plus tests/examples
 - `partial` = implemented in part or implemented without full hardening/coverage
@@ -65,16 +65,17 @@ Feature state is evidence-driven:
 | 0031 | [0031_cranelift_jit_backend.md](0031_cranelift_jit_backend.md) | Draft | partial | JIT compile path in CLI/tests (`--features jit`, `tests/jit_phase3_tests.rs`, `tests/jit_phase4_tests.rs`) | align proposal with actual backend scope |
 | 0032 | [0032_type_system_with_effects.md](0032_type_system_with_effects.md) | Implemented | have | `src/bytecode/compiler/mod.rs`, `src/bytecode/compiler/expression.rs`, `examples/type_system/*` | keep as semantic source of truth |
 | 0034 | [0034_builtin_primops.md](0034_builtin_primops.md) | In Progress | partial | `src/primop/mod.rs`, `tests/primop_*`, `examples/primop/all_primops.flx` | continue phase completion |
-| 0042 | [0042_effect_rows_and_constraints.md](0042_effect_rows_and_constraints.md) | In Progress | partial | effect-row fixtures `examples/type_system/30..45`, compiler effect solver paths in `src/bytecode/compiler/*` | continue row hardening |
+| 0042 | [0042_effect_rows_and_constraints.md](0042_effect_rows_and_constraints.md) | Implemented | have | effect-row fixtures `examples/type_system/30..45`, `61`, `162`, compiler effect solver paths in `src/bytecode/compiler/*`, plus closure evidence in proposal 0042 | keep as baseline closure for current scope |
 | 0043 | [0043_pure_flux_checklist.md](0043_pure_flux_checklist.md) | Implemented | have | `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`, A-G fixtures | keep as closure evidence |
 | 0044 | [0044_compiler_phase_pipeline_refactor.md](0044_compiler_phase_pipeline_refactor.md) | Draft | gap | proposal-only | next architecture/perf workstream |
 | 0046 | [0046_typed_ast_hm_architecture.md](0046_typed_ast_hm_architecture.md) | Draft | gap | proposal-only | post-0.0.4 HM architecture deepening |
-| 0049 | [0049_effect_rows_completeness.md](0049_effect_rows_completeness.md) | Draft | gap | proposal-only | complete row solver semantics and deterministic diagnostics after 042 baseline |
-| 0050 | [0050_totality_and_exhaustiveness_hardening.md](0050_totality_and_exhaustiveness_hardening.md) | Draft | gap | proposal-only | stage-1 exhaustiveness hardening owner under roadmap 054 |
-| 0051 | [0051_any_fallback_reduction.md](0051_any_fallback_reduction.md) | Draft | gap | proposal-only | stage-1 HM zero-fallback owner under roadmap 054 |
+| 0047 | [0047_adt_semantics_deepening.md](0047_adt_semantics_deepening.md) | Implemented | have | ADT semantics deepening completed; deterministic constructor typing, generic field mismatch diagnostics, module constructor boundary policy, nested ADT pass/fail consistency; all stage-1 gates passed | completed — track 2 under roadmap 054 |
+| 0049 | [0049_effect_rows_completeness.md](0049_effect_rows_completeness.md) | Implemented | have | full subtraction/absence solver closure (including deferred multi-arg `Absent` evaluation), deterministic diagnostics `E419/E420/E421/E422`, fixtures `162..166` + `194..200`, and HM/compiler seam coverage in compiler/type tests | keep as baseline closure for principal row-solving scope |
+| 0050 | [0050_totality_and_exhaustiveness_hardening.md](0050_totality_and_exhaustiveness_hardening.md) | Implemented | have | exhaustiveness hardening completed; deterministic compile-time totality over supported domains; guard semantics locked; all stage-1 gates passed | completed — track 3 under roadmap 054 |
+| 0051 | [0051_any_fallback_reduction.md](0051_any_fallback_reduction.md) | Implemented | have | HM zero-fallback completed; disallowed Any-fallback sites tightened in typed/HM-known contexts; deterministic E300/E425 diagnostics for mismatch and unresolved boundaries | completed — track 1 under roadmap 054 |
 | 0052 | [0052_auto_currying_and_partial_application.md](0052_auto_currying_and_partial_application.md) | Draft | gap | proposal-only | stage-2 post-0.0.4 currying/placeholder feature track under roadmap 054 |
 | 0053 | [0053_traits_and_typeclasses.md](0053_traits_and_typeclasses.md) | Draft | gap | proposal-only | stage-2 post-0.0.4 trait/typeclass feature track under roadmap 054 |
-| 0054 | [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](0054_0_0_4_hm_adt_exhaustiveness_critical_path.md) | Draft | gap | proposal-only | canonical sequencing and gates for 0.0.4 HM/ADT/exhaustiveness + post-0.0.4 feature tracks |
+| 0054 | [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](0054_0_0_4_hm_adt_exhaustiveness_critical_path.md) | Implemented | have | all three 0.0.4 tracks completed: track 1 (0051 HM zero-fallback), track 2 (0047 ADT semantics), track 3 (0050 exhaustiveness hardening) | roadmap closure — all stage-1 gates passed; post-0.0.4 tracks (0052, 0053, 0048, 0063) remain sequenced |
 | 0055 | [0055_lexer_performance_and_architecture.md](0055_lexer_performance_and_architecture.md) | Draft | gap | proposal-only | phased lexer perf + architecture hardening with parser-contract and benchmark gates |
 | 0056 | [0056_parser_performance_and_architecture.md](0056_parser_performance_and_architecture.md) | Draft | gap | proposal-only | phased parser perf + architecture hardening with lexer/parser contract and benchmark gates |
 | 0057 | [0057_parser_diagnostics_with_inferred_types.md](0057_parser_diagnostics_with_inferred_types.md) | Implemented | have | `src/ast/type_infer.rs`, `src/types/unify_error.rs`, `src/diagnostics/compiler_errors.rs`, fixtures 92–105, `tests/type_inference_tests.rs`, `tests/compiler_rules_tests.rs` | completed — ReportContext, if/match contextual E300, E056 arity, fun decomposition, parser recovery, multi-error continuation |
@@ -117,7 +118,6 @@ Feature state is evidence-driven:
 | 0040 | [0040_macro_system.md](0040_macro_system.md) | Draft | gap | proposal-only | canonical macro proposal going forward |
 | 0041 | [0041_nan_boxing_runtime_optimization.md](0041_nan_boxing_runtime_optimization.md) | Proposed | gap | proposal-only | keep in runtime perf backlog |
 | 0045 | [0045_gc.md](0045_gc.md) | Draft | gap | proposal-only (renamed from `0010_gc.md`) | continue as canonical GC proposal |
-| 0047 | [0047_adt_semantics_deepening.md](0047_adt_semantics_deepening.md) | Draft | gap | proposal-only | stage-1 ADT hardening owner under roadmap 054 |
 | 0048 | [0048_typed_record_types.md](0048_typed_record_types.md) | Draft | gap | proposal-only | typed immutable records with compile-time field checking and spread update |
 
 ### Superseded Historical Docs

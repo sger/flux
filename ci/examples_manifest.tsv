@@ -17,6 +17,18 @@
 2	parser	module_missing_open_brace_177	examples/type_system/failing/177_module_missing_open_brace.flx	-	false	both	1	E034
 2	type_system	strict_public_checked_60	examples/type_system/60_strict_module_public_checked.flx	examples/type_system	true	both	0	-
 2	type_system	strict_private_allowed_61	examples/type_system/61_strict_module_private_unannotated_allowed.flx	examples/type_system	true	both	0	-
+2	type_system	effect_row_order_ok_162	examples/type_system/162_effect_row_order_equivalence_ok.flx	-	false	both	0	-
+2	type_system	effect_row_multi_missing_e400_194	examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx	-	false	both	1	E400
+2	type_system	effect_row_subtract_ok_163	examples/type_system/163_effect_row_subtract_concrete_ok.flx	-	false	both	0	-
+2	type_system	effect_row_subtract_var_ok_164	examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx	-	false	both	0	-
+2	type_system	effect_row_multivar_ok_165	examples/type_system/165_effect_row_multivar_disambiguated_ok.flx	-	false	both	0	-
+2	type_system	effect_row_invalid_subtract_e421_195	examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx	-	false	both	1	E421
+2	type_system	effect_row_unresolved_single_e419_196	examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx	-	false	both	1	E419
+2	type_system	effect_row_unresolved_multi_e420_197	examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx	-	false	both	1	E420
+2	type_system	effect_row_subset_unsatisfied_e422_198	examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx	-	false	both	1	E422
+2	type_system	effect_row_subset_sorted_e422_199	examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx	-	false	both	1	E422
+2	type_system	effect_row_absent_ordering_ok_166	examples/type_system/166_effect_row_absent_ordering_linked_ok.flx	-	false	both	0	-
+2	type_system	effect_row_absent_ordering_violation_e421_200	examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx	-	false	both	1	E421
 2	type_system	runtime_boundary_list_187	examples/type_system/failing/187_runtime_list_boundary_e1004.flx	examples/type_system	false	both	1	E1004
 2	jit	flow_wrapper_test	tests/flux/flow_wrapper.flx	lib	false	both	0	-
 

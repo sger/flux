@@ -88,6 +88,11 @@ ADT declaration note:
 - `145_guarded_wildcard_with_fallback_ok.flx` - guarded wildcard plus unguarded wildcard fallback remains exhaustive
 - `160_match_nested_tuple_with_catchall_ok.flx` - nested tuple `match` remains accepted with explicit unguarded catch-all fallback
 - `161_contextual_boundary_effect_module_ok.flx` - module-qualified boundary + effect flow remains accepted when typed boundary and effect annotation are compatible
+- `162_effect_row_order_equivalence_ok.flx` - effect-row concrete atom ordering remains non-semantic for higher-order callbacks
+- `163_effect_row_subtract_concrete_ok.flx` - concrete subtraction contract (`IO + Console - Console`) remains accepted when callback satisfies remaining effects
+- `164_effect_row_subtract_var_satisfied_ok.flx` - row-variable subtraction (`e - Console`) is accepted when callback effects are concrete and satisfiable
+- `165_effect_row_multivar_disambiguated_ok.flx` - multi-variable effect rows are disambiguated by concrete callback effects
+- `166_effect_row_absent_ordering_linked_ok.flx` - deferred `Absent` validation across multi-arg shared row vars remains accepted when final binding excludes `IO`
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -163,6 +168,11 @@ cargo run -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx
 cargo run -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx
 cargo run -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx
 cargo run -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx
+cargo run -- examples/type_system/162_effect_row_order_equivalence_ok.flx
+cargo run -- examples/type_system/163_effect_row_subtract_concrete_ok.flx
+cargo run -- examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx
+cargo run -- examples/type_system/165_effect_row_multivar_disambiguated_ok.flx
+cargo run -- examples/type_system/166_effect_row_absent_ordering_linked_ok.flx
 ```
 
 JIT:
@@ -223,6 +233,11 @@ cargo run --features jit -- examples/type_system/95_adt_generic_nested_pattern_h
 cargo run --features jit -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx --jit
 cargo run --features jit -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx --jit
+cargo run --features jit -- examples/type_system/162_effect_row_order_equivalence_ok.flx --jit
+cargo run --features jit -- examples/type_system/163_effect_row_subtract_concrete_ok.flx --jit
+cargo run --features jit -- examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx --jit
+cargo run --features jit -- examples/type_system/165_effect_row_multivar_disambiguated_ok.flx --jit
+cargo run --features jit -- examples/type_system/166_effect_row_absent_ordering_linked_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests
