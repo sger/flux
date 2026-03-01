@@ -2,12 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     diagnostics::{
-        Diagnostic,
+        CONSTRUCTOR_ARITY_MISMATCH, Diagnostic, DiagnosticBuilder,
         compiler_errors::{
             call_arg_type_mismatch, fun_arity_mismatch, fun_param_type_mismatch,
             fun_return_type_mismatch, if_branch_type_mismatch, occurs_check_failure,
             type_unification_error,
         },
+        diag_enhanced,
         position::Span,
         text_similarity::levenshtein_distance,
     },
@@ -1769,11 +1770,8 @@ impl<'a> InferCtx<'a> {
         let field_tys: Vec<InferType> = info
             .fields
             .iter()
-            .map(|field| {
-                TypeEnv::infer_type_from_type_expr(field, &type_param_map, self.interner)
-                    .unwrap_or(InferType::Con(TypeConstructor::Any))
-            })
-            .collect();
+            .map(|field| TypeEnv::infer_type_from_type_expr(field, &type_param_map, self.interner))
+            .collect::<Option<Vec<_>>>()?;
 
         let result_ty = if info.type_params.is_empty() {
             InferType::Con(TypeConstructor::Adt(info.adt_name))
@@ -1800,6 +1798,18 @@ impl<'a> InferCtx<'a> {
             return InferType::Con(TypeConstructor::Any);
         };
         if arg_tys.len() != param_tys.len() {
+            let name_str = self.interner.resolve(constructor).to_string();
+            self.errors.push(
+                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Constructor `{}` expects {} argument(s) but got {}.",
+                        name_str,
+                        param_tys.len(),
+                        arg_tys.len()
+                    ))
+                    .with_file(self.file_path.clone()),
+            );
             return InferType::Con(TypeConstructor::Any);
         }
         for (actual, expected) in arg_tys.iter().zip(param_tys.iter()) {
