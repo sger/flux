@@ -7,6 +7,7 @@
 1	smoke	aoc_day05_part1_test	examples/aoc/2024/day05_part1_test.flx	lib,examples/aoc/2024	false	both	0	-
 1	smoke	type_system_ctx_ok_161	examples/type_system/161_contextual_boundary_effect_module_ok.flx	examples/type_system	false	both	0	-
 1	smoke	type_system_ctx_e425_189	examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx	examples/type_system	true	both	1	E425
+1	smoke	type_system_perform_arg_e425_192	examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx	-	true	both	1	E425
 1	smoke	type_system_ctx_e1004_190	examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx	examples/type_system	false	both	1	E1004
 1	smoke	type_system_ctx_e400_191	examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx	examples/type_system	false	both	1	E400
 

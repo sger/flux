@@ -1,0 +1,15 @@
+// E425: strict mode rejects unresolved perform argument types.
+// When a perform argument's type cannot be resolved by HM, strict mode
+// requires a concrete type annotation on the argument expression.
+
+effect Foo {
+    ask: String -> Int
+}
+
+fn wrap(transform) -> Int with Foo {
+    perform Foo.ask(transform("input"))
+}
+
+fn main() -> Unit {
+    None
+}
