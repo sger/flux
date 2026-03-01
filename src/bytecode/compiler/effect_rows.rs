@@ -81,11 +81,14 @@ impl EffectRow {
 pub(crate) enum RowConstraint {
     Eq(EffectRow, EffectRow),
     Contains(EffectRow, Symbol),
+    Absent(EffectRow, Symbol),
+    // Reserved: not currently emitted by compiler callers; kept for solver completeness.
     Extend {
         out: EffectRow,
         input: EffectRow,
         atom: Symbol,
     },
+    // Reserved: not currently emitted by compiler callers; kept for solver completeness.
     Subtract {
         out: EffectRow,
         input: EffectRow,
@@ -97,6 +100,7 @@ pub(crate) enum RowConstraint {
 #[derive(Debug, Clone)]
 pub(crate) enum RowConstraintViolation {
     InvalidSubtract { atom: Symbol },
+    UnresolvedVars { vars: Vec<Symbol> },
     UnsatisfiedSubset { missing: Vec<Symbol> },
 }
 
@@ -161,6 +165,7 @@ impl RowSolveState {
 pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolution {
     let mut state = RowSolveState::default();
     let mut queue: VecDeque<RowConstraint> = constraints.iter().cloned().collect();
+    let mut deferred_absent: Vec<(EffectRow, Symbol)> = Vec::new();
 
     while let Some(constraint) = queue.pop_front() {
         match constraint {
@@ -188,12 +193,25 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
             }
             RowConstraint::Contains(row, atom) => {
                 state.mark_vars_constrained(&row);
-                if row.atoms.contains(&atom) || row.vars.is_empty() {
+                if row.atoms.contains(&atom) {
+                    continue;
+                }
+                if row.vars.is_empty() {
+                    state
+                        .violations
+                        .push(RowConstraintViolation::UnsatisfiedSubset {
+                            missing: vec![atom],
+                        });
                     continue;
                 }
                 for var in row.vars {
                     state.bindings.entry(var).or_default().insert(atom);
                 }
+            }
+            RowConstraint::Absent(row, atom) => {
+                // Evaluate `Absent` after row bindings stabilize; queue-order checks can miss
+                // conflicts when later argument constraints bind shared effect variables.
+                deferred_absent.push((row, atom));
             }
             RowConstraint::Extend { out, input, atom } => {
                 let mut extended = input.clone();
@@ -241,10 +259,56 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
     }
 
     state.resolve_links();
+    apply_absent_constraints(&mut state, &deferred_absent);
 
     RowSolution {
         bindings: state.bindings,
         constrained_vars: state.constrained_vars,
         violations: state.violations,
+    }
+}
+
+fn apply_absent_constraints(state: &mut RowSolveState, absent: &[(EffectRow, Symbol)]) {
+    let mut unresolved_vars: HashSet<Symbol> = HashSet::new();
+
+    for (row, atom) in absent {
+        if row.atoms.contains(atom) {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        let found_bound = row.vars.iter().any(|var| {
+            state
+                .bindings
+                .get(var)
+                .is_some_and(|bound| bound.contains(atom))
+        });
+
+        if found_bound {
+            state
+                .violations
+                .push(RowConstraintViolation::InvalidSubtract { atom: *atom });
+            continue;
+        }
+
+        // Absence is proven if at least one var is bound (and its bindings don't contain
+        // the atom — already checked above). Only flag unresolved when *all* vars lack
+        // bindings, meaning we cannot confirm or deny the atom's presence.
+        let all_unbound = row.vars.iter().all(|var| !state.bindings.contains_key(var));
+        if all_unbound {
+            for var in &row.vars {
+                unresolved_vars.insert(*var);
+            }
+        }
+    }
+
+    if !unresolved_vars.is_empty() {
+        let mut vars: Vec<Symbol> = unresolved_vars.into_iter().collect();
+        vars.sort_by_key(|symbol| symbol.as_u32());
+        state
+            .violations
+            .push(RowConstraintViolation::UnresolvedVars { vars });
     }
 }

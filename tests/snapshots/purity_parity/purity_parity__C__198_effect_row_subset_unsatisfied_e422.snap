@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
+Category: C
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E422 | UNSATISFIED EFFECT SUBSET | effect row constraint failed
+
+== jit tuples ==
+- E422 | UNSATISFIED EFFECT SUBSET | effect row constraint failed
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

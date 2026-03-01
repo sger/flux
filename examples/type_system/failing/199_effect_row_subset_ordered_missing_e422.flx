@@ -1,0 +1,14 @@
+// E422: missing-effect list is deterministic and sorted.
+
+fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+    f()
+}
+
+fn pure_worker() -> Int {
+    0
+}
+
+fn main() with IO, Time {
+    run_needs_io_time(pure_worker)
+    print("done")
+}

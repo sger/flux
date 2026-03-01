@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E421]: INVALID EFFECT SUBTRACTION
+
+Cannot subtract effect `Console` from a row that does not contain it.
+
+  --> examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:18:5
+   |
+18 |     run_filtered(io_console_work)
+   |     ^^^^^^^^^^^^
+   |     ------------ effect row constraint failed
+
+Hint:
+  Handle or include this effect before subtracting it from an effect row.
+== stdout ==
+<not executed>

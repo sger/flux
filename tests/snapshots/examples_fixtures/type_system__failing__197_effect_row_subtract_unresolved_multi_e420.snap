@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E420]: AMBIGUOUS EFFECT VARIABLES
+
+Call leaves multiple effect variables unresolved: e, t.
+
+  --> examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx:8:5
+  |
+8 |     unresolved_many(1)
+  |     ^^^^^^^^^^^^^^^
+  |     --------------- effect variables are ambiguous
+
+Hint:
+  Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.
+== stdout ==
+<not executed>

@@ -1089,18 +1089,18 @@ impl Compiler {
                 let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
                     self.is_effect_variable(effect)
                 });
-                let actual = self.infer_argument_effect_row_for_inference(
+                let Some(actual) = self.infer_argument_effect_row_for_inference(
                     argument,
                     params.len(),
                     raw_effects,
                     arguments,
-                );
-                if actual.atoms.is_empty() && actual.vars.is_empty() {
+                ) else {
                     continue;
-                }
+                };
                 constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-                for required_atom in expected.atoms {
-                    constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+                constraints.push(RowConstraint::Subset(expected, actual.clone()));
+                for effect in param_effects {
+                    self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
                 }
             }
         }
@@ -1115,13 +1115,14 @@ impl Compiler {
         expected_arity: usize,
         inferred_effects: &HashSet<Symbol>,
         call_arguments: &[Expression],
-    ) -> crate::bytecode::compiler::effect_rows::EffectRow {
+    ) -> Option<crate::bytecode::compiler::effect_rows::EffectRow> {
         use crate::bytecode::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => {
-                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
-            }
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(
+                effects,
+                |effect| self.is_effect_variable(effect),
+            )),
             Expression::Identifier { name, .. } => self
                 .lookup_unqualified_contract(*name, expected_arity)
                 .map(|contract| {
@@ -1143,8 +1144,7 @@ impl Compiler {
                     EffectRow::from_effect_exprs(&effect_exprs, |effect| {
                         self.is_effect_variable(effect)
                     })
-                })
-                .unwrap_or_default(),
+                }),
             Expression::MemberAccess { object, member, .. } => self
                 .resolve_module_name_from_expr(object)
                 .and_then(|module| self.lookup_contract(Some(module), *member, expected_arity))
@@ -1152,11 +1152,10 @@ impl Compiler {
                     EffectRow::from_effect_exprs(&contract.effects, |effect| {
                         self.is_effect_variable(effect)
                     })
-                })
-                .unwrap_or_default(),
+                }),
             _ => {
                 let _ = call_arguments;
-                EffectRow::default()
+                None
             }
         }
     }
