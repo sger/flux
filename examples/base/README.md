@@ -1,6 +1,6 @@
 # Base Phase 3 Examples
 
-Examples for Proposal 028 Phase 3 (`import Base except [...]`, `Base.name(...)`, and directive diagnostics).
+Examples for Proposal 0028 Phase 3 (`import Base except [...]`, `Base.name(...)`, and directive diagnostics).
 
 ## Valid examples
 
