@@ -52,7 +52,8 @@ impl Parser {
 
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
-        // TODO: Remove pascal case keep only first letter uppercase
+        // Deferred identifier policy cleanup: keep PascalCase module-path heuristic for v0.0.4.
+        // Follow-up track: docs/proposals/0055_lexer_performance_and_architecture.md.
         if !self.is_peek_token(TokenType::Dot) || !super::is_pascal_case_ident(&self.peek2_token) {
             return Some(Expression::Identifier {
                 name: self

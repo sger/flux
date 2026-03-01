@@ -1,5 +1,5 @@
 mod diagnostics_env;
-#[path = "common/purity_parity.rs"]
+#[path = "support/purity_parity.rs"]
 mod purity_parity;
 
 use std::path::Path;

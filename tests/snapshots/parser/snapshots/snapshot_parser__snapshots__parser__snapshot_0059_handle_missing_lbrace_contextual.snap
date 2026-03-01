@@ -1,0 +1,6 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Parse Errors:
+  - Diagnostic { severity: Error, title: "UNEXPECTED TOKEN", code: Some("E034"), error_type: Some(Compiler), message: Some("Expected `{` to begin `handle` arms."), file: None, span: Some(Span { start: Position { line: 1, column: 20 }, end: Position { line: 1, column: 25 } }), labels: [], hints: [Hint { kind: Hint, text: "Handle expressions use `expr handle Effect { ... }`.", span: None, label: None, file: None }], suggestions: [], hint_chains: [], related: [], phase: None }

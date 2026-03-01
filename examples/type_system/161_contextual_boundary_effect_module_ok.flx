@@ -1,0 +1,13 @@
+import TypeSystem.BoundaryUnknown
+import TypeSystem.EffectsChain
+import TypeSystem.RealProgramEffects
+
+fn echo_string(v: String) -> String {
+    v
+}
+
+fn main() with IO {
+    let msg: String = TypeSystem.BoundaryUnknown.dynamic_string()
+    let stepped = TypeSystem.RealProgramEffects.run_io(1)
+    print("#{echo_string(msg)} #{to_string(stepped)}")
+}

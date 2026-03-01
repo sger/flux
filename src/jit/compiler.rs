@@ -1934,8 +1934,14 @@ fn compile_expression(
                 interner,
             )? {
                 BlockEval::Returned => {
+                    // The do-block already terminated control-flow (e.g. tail-call jump).
+                    // Continue emission in a fresh block to avoid appending instructions
+                    // after a terminator in the previous block.
+                    let continue_block = builder.create_block();
+                    builder.switch_to_block(continue_block);
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
+                    builder.seal_block(continue_block);
                     Ok(builder.inst_results(call)[0])
                 }
                 BlockEval::Value(v) => Ok(v),

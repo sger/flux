@@ -169,7 +169,12 @@ Total: 4 weeks (March 2026 release window)
    - `examples/aoc/2024/day05_part1_test.flx` (`--test`): VM/JIT both pass all 4 tests.
 
 6. Residual risk note  
-   Outcome: full `examples/aoc/2024/day05.flx` remains outside the curated release matrix due known VM stack-overflow behavior in Part 2 recursion; tracked as post-0.0.4 runtime hardening follow-up.
+   Outcome: full `examples/aoc/2024/day05.flx` remains outside the curated release matrix due known VM stack-overflow behavior in Part 2 recursion; follow-up: [0016_tail_call_accumulator_optimization.md](../proposals/0016_tail_call_accumulator_optimization.md) (owner: Proposal 0016 track).
+
+7. Release-note diagnostics summary (0058/0059)  
+   Outcome:
+   - `0058` contextual diagnostics are delivered for call-site argument mismatch, let annotation mismatch, and function return mismatch; named context + dual-span behavior is locked, and the snapshot/parity lock surface is enforced as `code/title/primary label`.
+   - `0059` parser UX is delivered for keyword alias suggestions, structural contextual parser messages, and symbol-level corrections (including let/match structural guidance); targeted parser paths remain deterministic without cascade-heavy generic fallback, and the parser snapshot lock surface is governed as `code/title/primary label`.
 
 ---
 
@@ -278,61 +283,211 @@ cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/202
 1. Benchmark harness expansion
 - Added `benches/parser_bench.rs` (4 corpora: declaration/expression/string+interp+comments/malformed-recovery).
 - Added `benches/compiler_compile_bench.rs` (`compile_with_opts(false,false)` and `compile_with_opts(false,true)`).
-- Added tooling guides:
-  - `docs/tooling/parser_benchmarking.md`
-  - `docs/tooling/compiler_benchmarking.md`
 
-2. Hot-path optimization #1 (parser Pratt loop)
-- Added single-table parse-loop precedence lookup and switched parser loop to one lookup:
-  - `src/syntax/precedence.rs`
-  - `src/syntax/parser/expression.rs`
+---
 
-3. Hot-path optimization #2 (compiler clone elimination)
-- `compile_with_opts` now borrows original `Program` on non-optimized paths and only allocates transformed AST on optimize path:
-  - `src/bytecode/compiler/mod.rs`
+## Open Tasks (Merge + Post-0.0.4 Tracking)
 
-4. Baseline vs current benchmark evidence (time ranges)
+### R4-T01: Add 0058/0059 release-note summary in roadmap
+**Status:** Complete (pre-merge)  
+Week-4 release evidence now includes explicit 0058/0059 diagnostics release-note bullets and lock surface (`code/title/primary label`) under Week-4 Evidence item 7.
 
-| Benchmark | Baseline | Current | Delta summary |
-|---|---|---|---|
-| `lexer/next_token_loop/identifier_heavy` | `3.7637 .. 3.8832 ms` | `3.7306 .. 3.8499 ms` | ~0.8-3.0% faster (within noise threshold on latest run) |
-| `lexer/next_token_loop/string_escape_interp_heavy` | `2.7487 .. 2.8046 ms` | `2.6624 .. 2.7470 ms` | ~2.6-4.3% faster |
-| `parser/parse_program/expression_operator_heavy` | `18.951 .. 19.278 ms` | `18.527 .. 18.933 ms` | ~2.0% faster median |
-| `parser/parse_program/string_interp_comment_heavy` | `4.6056 .. 4.6790 ms` | `4.4197 .. 4.5559 ms` | ~3.3% faster median |
-| `parser/parse_program/malformed_recovery_heavy` | `5.5701 .. 5.6711 ms` | `5.3812 .. 5.4969 ms` (isolated rerun) | no regression after isolated rerun; earlier slower run treated as noise |
-| `compiler/compile_with_opts_no_analyze/typed_function_heavy` | `17.331 .. 18.369 ms` | `17.368 .. 17.789 ms` | effectively neutral/slight improvement |
-| `compiler/compile_with_opts_analyze/typed_function_heavy` | `17.494 .. 17.726 ms` | `17.753 .. 18.149 ms` | slight regression (~1.5-2.5%), within low-risk envelope |
+### R4-T02: Track Day05 Part 2 VM recursion risk as explicit follow-up
+**Status:** Complete (pre-merge)  
+Week-4 Evidence item 6 now includes the concrete follow-up tracker [0016_tail_call_accumulator_optimization.md](../proposals/0016_tail_call_accumulator_optimization.md) and explicit owner (`Proposal 0016 track`) for the Day05 Part 2 VM recursion risk.
 
-Reproducibility logs:
-- lexer baseline: `perf_logs/lexer-bench-20260227-163754.log`
-- lexer current: `perf_logs/lexer-bench-20260227-174828.log`
-- parser baseline: `perf_logs/parser-bench-20260227-164004.log`
-- parser current: `perf_logs/parser-bench-20260227-175000.log`
-- parser malformed isolated reruns:
-  - `perf_logs/parser-malformed-only-20260227-175351.log`
-  - `perf_logs/parser-malformed-only-20260227-175409.log`
-- compiler baseline: `perf_logs/compiler-bench-20260227-164429.log`
-- compiler current: `perf_logs/compiler-bench-20260227-175048.log`
+### R4-T03: Add contextual boundary/effect mismatch fixtures (0058 follow-up)
+**Status:** Complete (post-0.0.4 follow-up landed)  
+Fixtures `161` (pass) and `189/190/191` (fail) are present with runnable VM/JIT commands in `examples/type_system/README.md` and `examples/type_system/failing/README.md`, and validation confirms expected outcomes (`E425`, `E1004`, `E400`) with `--root examples/type_system` where required.
 
-Command pack used:
-- `cargo bench --bench lexer_bench`
-- `cargo bench --bench parser_bench`
-- `cargo bench --bench compiler_compile_bench`
+### R4-T04: Snapshot lock for 0058 contextual diagnostics
+**Status:** Complete (pre-merge)  
+0058 contextual diagnostics are snapshot-locked via dedicated full-rendered snapshots for call-site argument mismatch, let-annotation dual-span, and function-return dual-span; `cargo test --test snapshot_diagnostics` is green.
 
-5. Regression/parity lock (post-optimization)
+### R4-T05: Expand 0059 parser contextual coverage
+**Status:** Complete (post-0.0.4 follow-up landed)  
+Contextual coverage for `perform`/`handle` (including arm) and `module` delimiter failures is present in `parser_tests`, `parser_recovery`, and `snapshot_parser` using the 0059 fixtures, and validation is green (`cargo test --test parser_tests`, `cargo test --test parser_recovery`, `cargo test --test snapshot_parser`).
+
+### R4-T06: Add parser-message regression guard
+**Status:** Complete (pre-merge)  
+Exact contextual `E034` message/hint regression guards are in place for perform/handle/handle-arm/module paths in parser + recovery tests, and `cargo test --test parser_tests` plus `cargo test --test parser_recovery` are green.
+
+### R4-T07: Materialize 0032 deferred tracks into execution tasks
+**Priority:** Medium | **Target:** post-0.0.4 planning  
+**Status:** Materialized (planning)  
+These entries are a post-0.0.4 execution queue. They are explicitly out of v0.0.4 scope and exist to prepare the next planning cycle.
+
+#### Post-0.0.4 Execution Queue (Not in v0.0.4)
+
+What to do now:
+1. Keep v0.0.4 focused on hardening and release sign-off.
+2. After v0.0.4, start `R4-T07A`, then `R4-T07B`, then `R4-T07C`.
+3. Use each entry's checklist and validation gates as the execution contract.
+4. Record owner/status/target-release consolidation in `R4-T08`.
+
+##### R4-T07A — Traits/Typeclasses (`0053`)
+**Proposal:** [0053_traits_and_typeclasses.md](../proposals/0053_traits_and_typeclasses.md)
+
+**Objective:** Stage an executable plan for nominal/coherent trait/typeclass delivery.
+
+**In Scope:**
+- Trait/impl syntax and environment tables.
+- Coherence/orphan-rule diagnostics.
+- Constraint-carrying HM integration (bounded scope).
+- Deterministic diagnostics coverage.
+
+**Out of Scope:**
+- Advanced typeclass ecosystem beyond stated baseline.
+- GADT/higher-rank/dependent typing.
+
+**Execution Checklist:**
+- A1 syntax + parser acceptance matrix.
+- A2 trait/impl table build + coherence enforcement.
+- A3 constrained-function checks + obligation diagnostics.
+- A4 fixtures (`examples/type_system/` + `failing/`) and README command entries.
+- A5 snapshot/parity review for new diagnostics.
+
+**Validation Gates:**
+- `cargo test --test parser_tests`
+- `cargo test --test type_inference_tests`
+- `cargo test --test compiler_rules_tests`
+- `cargo test --test snapshot_diagnostics`
+
+**Exit Criteria:**
+- Coherence/orphan diagnostics stable.
+- Constraint mismatch diagnostics deterministic (`code/title/primary label`).
+- Fixture and README coverage landed.
+
+**Dependencies / Sequencing:**
+- Runs as a post-0.0.4 stage-2 feature track under roadmap/proposal sequencing.
+- Coordinate with `0052` (currying/partials) only where trait ergonomics overlap.
+
+**Owner Track:**
+- Proposal `0053` owner track.
+
+##### R4-T07B — JIT Type-Specialization/Perf (`0062`)
+**Proposal:** [0062_performance_stabilization_program.md](../proposals/0062_performance_stabilization_program.md)
+
+**Objective:** Create a stabilization-first execution lane for perf without semantic expansion.
+
+**In Scope:**
+- Baseline corpus and reproducible command packs.
+- Perf artifact schema + ownership.
+- Low-risk stabilization tasks with parity protection.
+
+**Out of Scope:**
+- New language/runtime semantics.
+- Broad architecture rewrites under this track.
+
+**Execution Checklist:**
+- B1 baseline freeze + command inventory.
+- B2 artifact contract (`perf_logs/...` context + command logs).
+- B3 lane gates (compiler throughput, runtime parity, cache/harness determinism).
+- B4 low-risk optimization candidate queue with evidence requirements.
+
+**Validation Gates:**
+- `cargo check --all --all-features`
+- `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+- Bench command pack documented and reproducible.
+
+**Exit Criteria:**
+- No un-attributed perf diffs.
+- No parity/diagnostic tuple regressions.
+- Evidence logs attached to each stabilization item.
+
+**Dependencies / Sequencing:**
+- Sequence after v0.0.4 hardening lock and coordinate with `044/055/056` architecture/perf tracks.
+- Block semantic optimizations that exceed stabilization-first scope.
+
+**Owner Track:**
+- Proposal `0062` owner track.
+
+##### R4-T07C — Effect-Handler Compilation Strategy (`0063`)
+**Proposal:** [0063_true_fp_completion_program.md](../proposals/0063_true_fp_completion_program.md)
+
+**Objective:** Materialize effect-handler strategy work as an executable lane with deterministic semantics gates.
+
+**In Scope:**
+- Lane-A effect/principal row completion tasks linked from `0063`.
+- Deterministic handler diagnostics behavior.
+- Sequencing with `049/042` closure dependencies.
+
+**Out of Scope:**
+- Perf-only work (`0062` lane).
+- Tooling/editor/package-manager expansions.
+
+**Execution Checklist:**
+- C1 readiness matrix row for handler strategy.
+- C2 explicit subtask list for compilation/lowering strategy decisions.
+- C3 fixture expansion for handler edge paths (`examples/type_system` + `failing`).
+- C4 diagnostics + parser/recovery guards for handler-context errors.
+
+**Validation Gates:**
+- `cargo test --test type_inference_tests`
+- `cargo test --test compiler_rules_tests`
+- `cargo test --test parser_tests`
+- `cargo test --test parser_recovery`
+- `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+
+**Exit Criteria:**
+- Handler strategy tasks are fully enumerated and sequenced.
+- Deterministic diagnostics and recovery coverage for targeted handler paths.
+- Clear dependency mapping to `049/042` and `0063` milestone lane.
+
+**Dependencies / Sequencing:**
+- Depends on principal effect-row closure milestones from `042` baseline and `049` completion.
+- Coordinate with `0063` lane sequencing and post-0.0.4 FP completion readiness.
+
+**Owner Track:**
+- Proposal `0063` owner track.
+
+R4-T08 consolidates these scoped entries into the deferred-policy owner/status/target-release matrix.
+
+### R4-T08: Add deferred-policy tracker section
+**Priority:** Medium | **Target:** pre-merge  
+**Status:** Complete (pre-merge)  
+The deferred-policy matrix below is the single tracking surface for deferred items from `0032`, `0058`, and `0059`.
+
+#### Deferred-Policy Tracker (0032/0058/0059)
+
+| Item | Source Proposal | Owner | Status | Target Release | Tracker |
+|---|---|---|---|---|---|
+| Traits/typeclasses (`0053`) | `0032` | Proposal `0053` track | Planned (post-0.0.4) | Post-0.0.4 (stage-2) | [0053_traits_and_typeclasses.md](../proposals/0053_traits_and_typeclasses.md) |
+| Effect-handler compilation strategy (`0063`) | `0032` | Proposal `0063` track | Planned (post-0.0.4) | Post-0.0.4 | [0063_true_fp_completion_program.md](../proposals/0063_true_fp_completion_program.md) |
+| JIT type-specialization/perf (`0062`) | `0032` | Proposal `0062` track | Planned (post-0.0.4) | Post-0.0.4 | [0062_performance_stabilization_program.md](../proposals/0062_performance_stabilization_program.md) |
+| Contextual boundary/effect mismatch expansion | `0058` | Proposal `0058` follow-up track | Complete (pre-merge + follow-up landed) | v0.0.4 hardening follow-up lane | [R4-T03](#r4-t03-add-contextual-boundaryeffect-mismatch-fixtures-0058-follow-up), [R4-T04](#r4-t04-snapshot-lock-for-0058-contextual-diagnostics) |
+| Parser contextual coverage + regression guard hardening | `0059` | Proposal `0059` follow-up track | Complete (pre-merge + follow-up landed) | v0.0.4 hardening follow-up lane | [R4-T05](#r4-t05-expand-0059-parser-contextual-coverage), [R4-T06](#r4-t06-add-parser-message-regression-guard) |
+
+### R4-T09: Record dated merge-gate evidence
+**Priority:** High | **Target:** pre-merge  
+**Status:** Complete (pre-merge)  
+**Run date:** 2026-03-01 (EET)
+
+Recorded command evidence:
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --test type_inference_tests`
+- `cargo test --test compiler_rules_tests`
+- `cargo test --test parser_tests`
+- `cargo test --test parser_recovery`
+- `cargo test --test snapshot_parser`
+- `cargo test --test snapshot_diagnostics`
+- `cargo test --all --all-features purity_vm_jit_parity_snapshots`
+
+Merge-gate results:
 - `cargo fmt --all -- --check`: pass
-- `cargo check --all --all-features`: pass
-- `cargo test --test lexer_tests`: pass (62/62)
-- `cargo test --test parser_tests`: pass (92/92)
-- `cargo test --test parser_recovery`: pass (2/2)
-- `cargo test --test snapshot_lexer`: pass (12/12)
-- `cargo test --test snapshot_parser`: pass (13/13)
+- `cargo clippy --all-targets --all-features -- -D warnings`: pass
+- `cargo test --test type_inference_tests`: pass (73/73)
+- `cargo test --test compiler_rules_tests`: pass (132/132)
+- `cargo test --test parser_tests`: pass (115/115)
+- `cargo test --test parser_recovery`: pass (11/11)
+- `cargo test --test snapshot_parser`: pass (16/16)
+- `cargo test --test snapshot_diagnostics`: pass (6/6)
 - `cargo test --all --all-features purity_vm_jit_parity_snapshots`: pass
-- `cargo test --all --all-features --test runtime_vm_jit_parity_release`: pass (5/5)
 
-M5 closure:
-- Acceptance criteria satisfied for v0.0.4 safe-performance scope.
-- Remaining parser/compiler architecture deepening continues post-0.0.4 under 044/055/056 full tracks.
+Tooling guide presence:
+- `docs/tooling/parser_benchmarking.md`: present
+- `docs/tooling/compiler_benchmarking.md`: present
 
 ---
 

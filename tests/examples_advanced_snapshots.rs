@@ -1,5 +1,5 @@
 mod diagnostics_env;
-#[path = "common/examples_snapshot.rs"]
+#[path = "support/examples_snapshot.rs"]
 mod examples_snapshot;
 
 use std::path::Path;

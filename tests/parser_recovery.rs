@@ -470,6 +470,81 @@ fn t15_broad_contextual_expect_peek_fixtures_emit_e034_and_recover() {
             }),
             "expected contextual E034 with hint for case `{name}`"
         );
+        if name == "handle_arm_missing_arrow" {
+            let diag = diagnostics
+                .iter()
+                .find(|d| {
+                    d.code() == Some("E034") && d.message() == Some("Expected `->` in handle arm.")
+                })
+                .expect("expected exact handle-arm E034 diagnostic");
+            let first_hint = diag
+                .hints()
+                .first()
+                .map(|h| h.text.as_str())
+                .expect("expected handle-arm hint");
+            assert_eq!(
+                first_hint, "Handle arms use `op(resume, arg1, ...) -> body`.",
+                "handle-arm hint text regressed"
+            );
+        }
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
+    }
+}
+
+#[test]
+fn t16_contextual_recovery_fixtures_emit_e034_and_recover() {
+    let cases = [
+        (
+            "perform_missing_dot_fixture",
+            include_str!("fixtures/recovery/t16_perform_missing_dot_contextual.flx"),
+            "Expected `.` between effect and operation in `perform`.",
+            "Perform expressions use `perform Effect.op(args...)`.",
+        ),
+        (
+            "handle_missing_lbrace_fixture",
+            include_str!("fixtures/recovery/t16_handle_missing_lbrace_contextual.flx"),
+            "Expected `{` to begin `handle` arms.",
+            "Handle expressions use `expr handle Effect { ... }`.",
+        ),
+        (
+            "module_missing_lbrace_fixture",
+            include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+            "Expected `{` to begin module body.",
+            "Module declarations use `module Name { ... }`.",
+        ),
+    ];
+
+    for (name, input, expected_message, expected_hint) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T16 fixture parse should not panic");
+        let diag = diagnostics
+            .iter()
+            .find(|d| d.code() == Some("E034") && d.message() == Some(expected_message))
+            .unwrap_or_else(|| panic!("expected exact E034 message for case `{name}`"));
+        let msg = diag
+            .message()
+            .unwrap_or_else(|| panic!("expected message for case `{name}`"));
+        assert_eq!(
+            msg, expected_message,
+            "unexpected E034 message for case `{name}`"
+        );
+        assert_ne!(
+            msg.trim(),
+            "Unexpected token.",
+            "regressed to generic E034 wording for case `{name}`"
+        );
+        let first_hint = diag
+            .hints()
+            .first()
+            .map(|h| h.text.as_str())
+            .unwrap_or_else(|| panic!("expected hint for case `{name}`"));
+        assert_eq!(
+            first_hint, expected_hint,
+            "unexpected E034 hint for case `{name}`"
+        );
         assert!(
             has_let_binding(&program, &interner, "after"),
             "expected trailing `let after` to remain after recovery for case `{name}`"

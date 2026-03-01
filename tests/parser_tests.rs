@@ -2443,4 +2443,133 @@ let w = match x { Some(n) -> n, None -> 0 };
             );
         }
     }
+
+    #[test]
+    fn t16_contextual_recovery_fixtures_emit_e034_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            message_fragment: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot_fixture",
+                input: include_str!("fixtures/recovery/t16_perform_missing_dot_contextual.flx"),
+                message_fragment: "perform",
+            },
+            Case {
+                name: "handle_missing_lbrace_fixture",
+                input: include_str!("fixtures/recovery/t16_handle_missing_lbrace_contextual.flx"),
+                message_fragment: "handle",
+            },
+            Case {
+                name: "module_missing_lbrace_fixture",
+                input: include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+                message_fragment: "module",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034"))
+                .unwrap_or_else(|| panic!("expected E034 for case `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert!(
+                msg.to_lowercase().contains(case.message_fragment),
+                "expected contextual message to mention `{}` for case `{}`, got: {}",
+                case.message_fragment,
+                case.name,
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn t17_contextual_e034_regression_guard_exact_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            expected_message: &'static str,
+            expected_hint: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot",
+                input: include_str!("../examples/type_system/failing/173_perform_missing_dot.flx"),
+                expected_message: "Expected `.` between effect and operation in `perform`.",
+                expected_hint: "Perform expressions use `perform Effect.op(args...)`.",
+            },
+            Case {
+                name: "handle_missing_lbrace",
+                input: include_str!(
+                    "../examples/type_system/failing/174_handle_missing_lbrace.flx"
+                ),
+                expected_message: "Expected `{` to begin `handle` arms.",
+                expected_hint: "Handle expressions use `expr handle Effect { ... }`.",
+            },
+            Case {
+                name: "handle_arm_missing_arrow",
+                input: include_str!(
+                    "../examples/type_system/failing/175_handle_arm_missing_arrow.flx"
+                ),
+                expected_message: "Expected `->` in handle arm.",
+                expected_hint: "Handle arms use `op(resume, arg1, ...) -> body`.",
+            },
+            Case {
+                name: "module_missing_lbrace",
+                input: include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+                expected_message: "Expected `{` to begin module body.",
+                expected_hint: "Module declarations use `module Name { ... }`.",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034") && d.message() == Some(case.expected_message))
+                .unwrap_or_else(|| panic!("expected exact E034 message for `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert_eq!(
+                msg, case.expected_message,
+                "unexpected E034 message for case `{}`",
+                case.name
+            );
+            assert_ne!(
+                msg.trim(),
+                "Unexpected token.",
+                "regressed to generic E034 wording for case `{}`",
+                case.name
+            );
+
+            let first_hint = diag
+                .hints()
+                .first()
+                .map(|h| h.text.as_str())
+                .unwrap_or_else(|| panic!("expected hint for case `{}`", case.name));
+            assert_eq!(
+                first_hint, case.expected_hint,
+                "unexpected E034 hint for case `{}`",
+                case.name
+            );
+        }
+    }
 }
