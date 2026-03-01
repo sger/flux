@@ -35,7 +35,7 @@ pub struct AdtValue {
 /// **Why this matters:**
 /// - `Rc` cannot handle reference cycles (would cause memory leaks)
 /// - The language design enforces this through immutability and lack of mutable cells
-/// - Future features requiring cycles must migrate to cycle-aware GC (Proposal 017)
+/// - Future features requiring cycles must migrate to cycle-aware GC (Proposal 0017)
 ///
 /// **Validation:**
 /// - Tests verify deeply nested captures complete without leaks
@@ -46,7 +46,7 @@ pub struct AdtValue {
 /// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
 /// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
 ///
-/// See [Proposal 019](../../docs/proposals/019_zero_copy_value_passing.md) for details.
+/// See [Proposal 0019](../../docs/proposals/0019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Internal VM stack sentinel for uninitialized/inactive slots.
