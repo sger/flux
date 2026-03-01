@@ -1,0 +1,17 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx
+exit_code: 1
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin `handle` arms.
+
+  --> tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx:1:21
+  |
+1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+  |                     ^^^^^
+
+Hint:
+  Handle expressions use `expr handle Effect { ... }`.

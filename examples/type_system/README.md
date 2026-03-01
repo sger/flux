@@ -87,6 +87,7 @@ ADT declaration note:
 - `95_adt_generic_nested_pattern_hm_ok.flx` - nested generic constructor patterns preserve concrete HM field typing
 - `145_guarded_wildcard_with_fallback_ok.flx` - guarded wildcard plus unguarded wildcard fallback remains exhaustive
 - `160_match_nested_tuple_with_catchall_ok.flx` - nested tuple `match` remains accepted with explicit unguarded catch-all fallback
+- `161_contextual_boundary_effect_module_ok.flx` - module-qualified boundary + effect flow remains accepted when typed boundary and effect annotation are compatible
 
 Module source used by `07`:
 - `TypeSystem/Hof.flx`
@@ -161,6 +162,7 @@ cargo run -- --root examples/type_system examples/type_system/94_adt_module_fact
 cargo run -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx
 cargo run -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx
 cargo run -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx
+cargo run -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx
 ```
 
 JIT:
@@ -220,6 +222,7 @@ cargo run --features jit -- --root examples/type_system examples/type_system/94_
 cargo run --features jit -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx --jit
 cargo run --features jit -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx --jit
 cargo run --features jit -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

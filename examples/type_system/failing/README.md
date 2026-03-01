@@ -128,6 +128,12 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: runtime failure (`E1004`) because `List<Int>` boundary receives a `String` from module boundary
 - `188_runtime_either_boundary_e1004.flx`
   - Expected: runtime failure (`E1004`) because `Either<String, Int>` boundary receives a `String` from module boundary
+- `189_contextual_boundary_unresolved_strict_e425.flx`
+  - Expected: compile-time failure (`E425`) in `--strict` for unresolved generic boundary checks on module-qualified calls
+- `190_contextual_boundary_arg_runtime_e1004.flx`
+  - Expected: runtime failure (`E1004`) for typed argument boundary mismatch from module-qualified dynamic source
+- `191_contextual_effect_missing_module_call_e400.flx`
+  - Expected: compile-time failure (`E400`) when module-qualified call requires `IO` inside a `with Time` function
 - `64_hm_inferred_call_mismatch.flx`
   - Expected: compile-time failure (`E300`) from HM-inferred numeric function called with `String`
 - `65_adt_nested_constructor_non_exhaustive.flx`
@@ -755,3 +761,13 @@ Runtime E1004 focused commands (`185..188`):
   - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/187_runtime_list_boundary_e1004.flx --jit`
   - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/188_runtime_either_boundary_e1004.flx --jit`
   - Note: in `examples_fixtures_snapshots`, these may show `E018` due harness roots; canonical E1004 parity assertions live in `runtime_vm_jit_parity_release`.
+
+0058 follow-up: contextual boundary/effect commands (`189..191`):
+- VM:
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx`
+- JIT:
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx --jit`

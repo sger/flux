@@ -792,9 +792,7 @@ impl<'a> InferCtx<'a> {
 
         if current_concrete && !refined_concrete {
             current_resolved
-        } else if refined_concrete && !current_concrete {
-            refined_resolved
-        } else if current_ret.contains_any() {
+        } else if (refined_concrete && !current_concrete) || current_ret.contains_any() {
             refined_resolved
         } else if refined_resolved.contains_any() {
             // Keep the prior concrete inference when the refinement pass did not
