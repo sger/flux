@@ -4,12 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  core:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
 
@@ -46,7 +49,113 @@ jobs:
       - name: Build (debug)
         run: cargo build --all --all-features
 
-      - name: Smoke test (VM/JIT --test)
-        run: |
-          cargo run -- --test examples/tests/array_test.flx
-          cargo run --features jit -- --test examples/tests/array_test.flx --jit
+  examples-smoke:
+    name: Examples Tier 1 (PR smoke)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build flux (all features)
+        run: cargo build --all --all-features
+
+      - name: Run tier 1 manifest
+        run: scripts/ci/run_flux_manifest.sh --tier 1
+
+  examples-changed:
+    name: Examples Tier 2 (changed-path expansion)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            parser:
+              - 'src/syntax/**'
+              - 'tests/parser_tests.rs'
+              - 'tests/parser_recovery.rs'
+              - 'tests/snapshots/parser/**'
+              - 'examples/type_system/failing/17[3-9]_*.flx'
+            type_system:
+              - 'src/ast/**'
+              - 'src/bytecode/**'
+              - 'examples/type_system/**'
+            jit:
+              - 'src/jit/**'
+              - 'src/runtime/**'
+              - 'tests/runtime_vm_jit_parity_release.rs'
+            examples_misc:
+              - 'examples/**'
+              - 'lib/**'
+
+      - name: Build flux (all features)
+        if: steps.filter.outputs.parser == 'true' || steps.filter.outputs.type_system == 'true' || steps.filter.outputs.jit == 'true' || steps.filter.outputs.examples_misc == 'true'
+        run: cargo build --all --all-features
+
+      - name: Tier 2 parser cases
+        if: steps.filter.outputs.parser == 'true'
+        run: scripts/ci/run_flux_manifest.sh --tier 2 --category parser
+
+      - name: Tier 2 type-system cases
+        if: steps.filter.outputs.type_system == 'true'
+        run: scripts/ci/run_flux_manifest.sh --tier 2 --category type_system
+
+      - name: Tier 2 jit-sensitive cases
+        if: steps.filter.outputs.jit == 'true'
+        run: scripts/ci/run_flux_manifest.sh --tier 2 --category jit
+
+      - name: Tier 2 misc example cases
+        if: steps.filter.outputs.examples_misc == 'true'
+        run: scripts/ci/run_flux_manifest.sh --tier 2 --category smoke
+
+  examples-full-sweep:
+    name: Examples Tier 1-3 (nightly/full)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard_index: [1, 2, 3]
+        shard_total: [3]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build flux (all features)
+        run: cargo build --all --all-features
+
+      - name: Run tier 1 (sharded)
+        run: scripts/ci/run_flux_manifest.sh --tier 1 --shard-index ${{ matrix.shard_index }} --shard-total ${{ matrix.shard_total }}
+
+      - name: Run tier 2 (sharded)
+        run: scripts/ci/run_flux_manifest.sh --tier 2 --shard-index ${{ matrix.shard_index }} --shard-total ${{ matrix.shard_total }}
+
+      - name: Run tier 3 (sharded)
+        run: scripts/ci/run_flux_manifest.sh --tier 3 --shard-index ${{ matrix.shard_index }} --shard-total ${{ matrix.shard_total }}

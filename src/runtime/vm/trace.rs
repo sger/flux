@@ -32,7 +32,7 @@ impl VM {
         } else if title.contains("expected") || title.contains("expects") {
             "E1004" // RUNTIME_TYPE_ERROR
         } else {
-            "EXXX" // Unmigrated error - needs proper error code
+            "E1009" // INVALID_OPERATION fallback for unmapped runtime failures
         };
 
         // Create a dynamic runtime error using Diagnostic::make_error_dynamic

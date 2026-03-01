@@ -1154,7 +1154,7 @@ pub extern "C" fn rt_perform(
                 }
                 // Found effect but no matching op — error
                 ctx_mut.error = Some(ctx_mut.render_runtime_error(
-                    "EXXX",
+                    "E1009",
                     "UNHANDLED OPERATION",
                     &format!("unhandled operation: {}.{}", effect_name, op_name),
                     line,
@@ -1167,7 +1167,7 @@ pub extern "C" fn rt_perform(
             Some(c) => c,
             None => {
                 ctx_mut.error = Some(ctx_mut.render_runtime_error(
-                    "EXXX",
+                    "E1009",
                     "UNHANDLED EFFECT",
                     &format!(
                         "unhandled effect: {} (no matching handle block)",
