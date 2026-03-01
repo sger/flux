@@ -4,22 +4,80 @@
 
 ## Learning Goals
 
-- Write higher-order functions over typed callbacks.
-- Use `with e` to preserve callback effects through wrappers.
-- Recognize propagation failures (`E400`).
+- Write higher-order functions that accept typed callbacks.
+- Use `with e` (row variable) to preserve the callback's effect through the wrapper.
+- Understand how effect rows are propagated and why pure callbacks stay pure.
+- Recognize effect propagation failures (`E400`).
 
-## Core Concepts
+## The Problem: Higher-Order Functions and Effects
 
-- `with e` means the wrapper carries the callback's effect row.
-- Pure callback keeps wrapper pure.
-- IO callback forces IO effect requirement through call chains.
+Consider a generic `apply_twice` that calls a function `f` twice:
 
-## Example
+```flux
+fn apply_twice(f: Int -> Int, x: Int) -> Int {
+    f(f(x))
+}
+```
 
-`06_hof_with_e_compose.flx` runs `apply_twice` with:
+This works for pure callbacks. But what if the callback has an `IO` effect?
 
-- a pure callback (`plus_one`), and
-- an IO callback (`log_inc`) inside `main with IO`.
+```flux
+fn log_and_inc(x: Int) -> Int with IO {
+    print("x = #{x}")
+    x + 1
+}
+
+fn main() with IO {
+    apply_twice(log_and_inc, 1)   // E400: apply_twice doesn't carry IO
+}
+```
+
+The problem: `apply_twice` declares a pure callback type (`Int -> Int`). When an IO callback is passed, the effect requirement leaks out but the wrapper has no room for it.
+
+---
+
+## The Solution: `with e` Effect Row Variables
+
+The `with e` syntax introduces an **effect row variable** — a variable that stands for "whatever effects the callback carries":
+
+```flux
+fn apply_twice(f: (Int -> Int with e), x: Int) -> Int with e {
+    f(f(x))
+}
+```
+
+Now:
+- When `f` is a pure callback (`Int -> Int`), `e` resolves to empty — `apply_twice` is pure.
+- When `f` is an IO callback (`Int -> Int with IO`), `e` resolves to `IO` — `apply_twice` carries `IO` too.
+
+The effect row variable `e` propagates the callback's effect through the wrapper transparently.
+
+---
+
+## Worked Example
+
+```flux
+fn apply_twice(f: (Int -> Int with e), x: Int) -> Int with e {
+    f(f(x))
+}
+
+fn plus_one(x: Int) -> Int { x + 1 }
+
+fn log_inc(x: Int) -> Int with IO {
+    print("incrementing #{x}")
+    x + 1
+}
+
+fn main() with IO {
+    // Pure callback — apply_twice is effectively pure here
+    let a = apply_twice(plus_one, 5)
+    print(a)    // 7
+
+    // IO callback — apply_twice carries IO here
+    let b = apply_twice(log_inc, 5)
+    print(b)    // 7 (with log output)
+}
+```
 
 Run:
 
@@ -28,9 +86,73 @@ cargo run -- --no-cache examples/guide_type_system/06_hof_with_e_compose.flx
 cargo run --features jit -- --no-cache examples/guide_type_system/06_hof_with_e_compose.flx --jit
 ```
 
-## Failure Pattern to Remember
+---
 
-If a caller declares incompatible effects for a polymorphic callback chain, Flux emits `E400`.
+## Effect Row Composition
+
+Effect rows support additive composition in annotations:
+
+| Syntax | Meaning |
+|--------|---------|
+| `with e` | Row variable — inherits callback's effects |
+| `with IO` | Fixed `IO` effect |
+| `with IO, e` | `IO` plus whatever `e` resolves to |
+| `with IO, Time` | Fixed `IO` and `Time` |
+| `with e + IO - Console` | Row extension/subtraction (advanced) |
+
+The most common pattern in practice is `with e` for generic wrappers and `with IO` or `with IO, Time` for concrete effectful functions.
+
+---
+
+## Propagation Through Chains
+
+Effect rows propagate through multi-level call chains:
+
+```flux
+fn step(f: (Int -> Int with e), x: Int) -> Int with e {
+    f(x + 1)
+}
+
+fn pipeline(f: (Int -> Int with e), x: Int) -> Int with e {
+    step(f, step(f, x))
+}
+
+fn main() with IO {
+    // Entire pipeline carries IO when callback is IO
+    pipeline(\x -> do { print(x); x }, 0)
+}
+```
+
+The `e` variable threads through `step` → `pipeline` → `main` without any explicit re-annotation at each intermediate level.
+
+---
+
+## Rule: Missing Effect in Caller
+
+If a caller declares an incompatible effect for a polymorphic callback chain, Flux emits `E400`:
+
+```flux
+fn apply(f: (Int -> Int with e), x: Int) -> Int with e { f(x) }
+
+// pure context — but f is IO
+fn bad_pure() -> Int {
+    apply(\x -> do { print(x); x }, 1)   // E400: IO not in scope
+}
+```
+
+The fix is either to declare `with IO` on `bad_pure` or use a pure callback.
+
+---
+
+## Failure Patterns to Remember
+
+| Pattern | Error |
+|---------|-------|
+| IO callback passed to a wrapper without `with e` or `with IO` | `E400` |
+| Caller context doesn't carry the propagated effect | `E400` |
+| Using `with e` but not declaring `e` in callback signature | type mismatch |
+
+---
 
 ## Next
 
