@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `call_requires_io_time` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:14:5
+   |
+14 |     call_requires_io_time(worker)
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |     --------------------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

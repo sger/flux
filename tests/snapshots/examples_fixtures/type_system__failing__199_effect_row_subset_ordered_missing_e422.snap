@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E422]: UNSATISFIED EFFECT SUBSET
+
+Effect row is missing required effects: IO, Time.
+
+  --> examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:12:5
+   |
+12 |     run_needs_io_time(pure_worker)
+   |     ^^^^^^^^^^^^^^^^^
+   |     ----------------- effect row constraint failed
+
+Hint:
+  Add missing effects to the enclosing function or handle them before this call.
+== stdout ==
+<not executed>

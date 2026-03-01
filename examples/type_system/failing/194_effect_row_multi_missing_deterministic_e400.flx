@@ -1,0 +1,20 @@
+// E400: deterministic first missing effect selection for multi-effect rows.
+// Expected: missing `IO` is reported first (stable ordering).
+
+fn call_requires_io_time(f: (() -> Int with Time, IO)) -> Int with Time, IO {
+    f()
+}
+
+fn worker() -> Int with IO, Time {
+    print("worker")
+    now_ms()
+}
+
+fn caller() -> Int {
+    call_requires_io_time(worker)
+}
+
+fn main() -> Unit {
+    caller()
+    None
+}

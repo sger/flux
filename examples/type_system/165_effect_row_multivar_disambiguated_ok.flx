@@ -1,0 +1,15 @@
+// Multiple effect variables are disambiguated by concrete callback effects.
+
+fn run_poly(f: (() -> Int with e, t)) -> Int with e, t {
+    f()
+}
+
+fn io_time() -> Int with IO, Time {
+    let _ = now_ms()
+    print("io-time")
+    11
+}
+
+fn main() with IO, Time {
+    print(to_string(run_poly(io_time)))
+}

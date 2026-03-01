@@ -1748,6 +1748,203 @@ fn main() -> Unit with IO {
 }
 
 #[test]
+fn effect_row_order_equivalence_fixture_compiles() {
+    let source = include_str!("../examples/type_system/162_effect_row_order_equivalence_ok.flx");
+    compile_ok_in(
+        "examples/type_system/162_effect_row_order_equivalence_ok.flx",
+        source,
+    );
+}
+
+#[test]
+fn effect_row_multi_missing_reports_deterministic_first_effect() {
+    let source = include_str!(
+        "../examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E400]"),
+        "expected E400 for deterministic multi-missing fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("requires effect `IO`"),
+        "expected deterministic first missing effect `IO`, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_subtract_concrete_fixture_compiles() {
+    let source = include_str!("../examples/type_system/163_effect_row_subtract_concrete_ok.flx");
+    compile_ok_in(
+        "examples/type_system/163_effect_row_subtract_concrete_ok.flx",
+        source,
+    );
+}
+
+#[test]
+fn effect_row_subtract_var_satisfied_fixture_compiles() {
+    let source =
+        include_str!("../examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx");
+    compile_ok_in(
+        "examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx",
+        source,
+    );
+}
+
+#[test]
+fn effect_row_multivar_disambiguated_fixture_compiles() {
+    let source =
+        include_str!("../examples/type_system/165_effect_row_multivar_disambiguated_ok.flx");
+    compile_ok_in(
+        "examples/type_system/165_effect_row_multivar_disambiguated_ok.flx",
+        source,
+    );
+}
+
+#[test]
+fn effect_row_absent_ordering_linked_ok_fixture_compiles() {
+    let source =
+        include_str!("../examples/type_system/166_effect_row_absent_ordering_linked_ok.flx");
+    compile_ok_in(
+        "examples/type_system/166_effect_row_absent_ordering_linked_ok.flx",
+        source,
+    );
+}
+
+#[test]
+fn effect_row_invalid_subtract_reports_e421() {
+    let source =
+        include_str!("../examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E421]"),
+        "expected E421 for invalid subtraction fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("INVALID EFFECT SUBTRACTION"),
+        "expected E421 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Cannot subtract effect `Console`"),
+        "expected concrete subtract message for `Console`, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_unresolved_single_subtract_reports_e419() {
+    let source = include_str!(
+        "../examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E419]"),
+        "expected E419 for unresolved single subtraction fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("UNRESOLVED EFFECT VARIABLE"),
+        "expected E419 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Cannot resolve effect variable `e`"),
+        "expected unresolved variable `e` message, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_unresolved_multi_subtract_reports_e420() {
+    let source = include_str!(
+        "../examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E420]"),
+        "expected E420 for unresolved multi subtraction fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("AMBIGUOUS EFFECT VARIABLES"),
+        "expected E420 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("e, t"),
+        "expected sorted unresolved variable list (`e, t`), got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_subset_unsatisfied_reports_e422() {
+    let source =
+        include_str!("../examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx");
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E422]"),
+        "expected E422 for unsatisfied subset fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("UNSATISFIED EFFECT SUBSET"),
+        "expected E422 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("missing required effects: Time"),
+        "expected missing `Time` subset message, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_subset_missing_list_is_sorted() {
+    let source = include_str!(
+        "../examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E422]"),
+        "expected E422 for ordered missing-list fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("IO, Time"),
+        "expected sorted missing effects list (`IO, Time`), got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn effect_row_absent_ordering_linked_violation_reports_e421() {
+    let source = include_str!(
+        "../examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx"
+    );
+    let rendered = compile_err_rendered(source);
+    assert!(
+        rendered.contains("error[E421]"),
+        "expected E421 for deferred-absent ordering fixture, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("INVALID EFFECT SUBTRACTION"),
+        "expected E421 title in rendered diagnostics, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Cannot subtract effect `IO`"),
+        "expected deferred absent violation message for `IO`, got:\n{}",
+        rendered
+    );
+}
+
+#[test]
 fn strict_member_access_non_module_path_reports_unresolved_boundary() {
     let code = compile_err_strict(
         r#"
