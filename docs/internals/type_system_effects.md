@@ -1,5 +1,7 @@
 # Flux Type System and Effects (Canonical Internal Spec)
 
+> **Related guide chapters:** [Chapter 9 — Type System Basics](../guide/09_type_system_basics.md) · [Chapter 10 — Effects and Purity](../guide/10_effects_and_purity.md) · [Chapter 11 — HOF and Effect Polymorphism](../guide/11_hof_effect_polymorphism.md)
+
 This document is the canonical implementation reference for Flux type/effect behavior as of v0.0.4 work.
 
 Supporting documents:
@@ -193,6 +195,96 @@ Diagnostics ordering contract for entry/strict class is intentionally determinis
 - top-level purity (`E413`, `E414`)
 - root discharge (`E406`) when main signature is valid
 - strict mode (`E415+`).
+
+## 4a. Type System Architecture — Key Files and Responsibilities
+
+This section maps each conceptual layer of the type system to its source files.
+
+### Type Representation Layer (`src/types/`)
+
+| File | Responsibility |
+|------|---------------|
+| `infer_type.rs` | `InferType` enum — the HM-internal type AST: `Var(u32)`, `Con(TypeConstructor)`, `App(Box<InferType>, Vec<InferType>)`, `Fun(Vec<InferType>, Box<InferType>, EffectSet)`, `Tuple(Vec<InferType>)` |
+| `type_subst.rs` | `TypeSubst` — substitution map with `compose`, `apply_to_type`, `apply_to_scheme` |
+| `scheme.rs` | `Scheme` — polymorphic type with `forall` binders; `generalize(env, ty)` and `instantiate(scheme)` |
+| `type_env.rs` | `TypeEnv` — scoped identifier-to-scheme map; `TypeExpr ↔ InferType` bridge; `RuntimeType ↔ InferType` bridge |
+| `type_constructor.rs` | `TypeConstructor` — built-in constructors (`Int`, `Bool`, `String`, …) and ADT constructors |
+| `unify_error.rs` | `unify_with_span` — unification with occurs-check; emits `E300`/`E301` on concrete mismatches |
+| `mod.rs` | Re-exports the above |
+
+### HM Inference Engine (`src/ast/type_infer.rs`)
+
+The engine is organized as:
+- **`InferCtx`** — holds the type environment, fresh-variable counter, substitution accumulator, and diagnostics list.
+- **`infer_program`** — top-level entry point called by the compiler between PASS 1 and PASS 2. Returns `(TypeEnv, ExprTypeMap, expr_ptr_to_id, diagnostics)`.
+- **Statement inference** — prebinds top-level functions to fresh variables (enabling mutual recursion), then infers each statement.
+- **Expression inference** — returns `InferType`; records the type in `ExprTypeMap` keyed by pointer-stable `ExprNodeId`.
+- **Let-polymorphism** — `generalize` is called only when the binding has explicit `<T>` parameters or is a top-level `let`. Unannotated local `let` bindings remain monomorphic.
+- **Recovery** — unification failures return `Any` so inference continues without cascading errors.
+
+### Compiler Integration (`src/bytecode/compiler/`)
+
+| File | Responsibility |
+|------|---------------|
+| `mod.rs` | `Compiler::compile` — orchestrates PASS 1 → HM → PASS 2; stores `TypeEnv`, `ExprTypeMap`, `expr_ptr_to_id` |
+| `hm_expr_typer.rs` | `hm_expr_type_strict_path` — resolves `ExprNodeId` and fetches inferred type; `validate_expr_expected_type_with_policy` — strict policy check |
+| `expression.rs` | Call-site effect validation, PrimOp resolution, fastcall allowlist, `ensure_base_call_effect_available` |
+| `statement.rs` | Function/let codegen; uses `hm_expr_typer` to validate annotated return types and let bindings |
+| `contracts.rs` | `TypeExpr → RuntimeType` conversion at compile time; populates `FunctionContract` |
+
+### Runtime Boundary Layer (`src/runtime/`)
+
+| File | Responsibility |
+|------|---------------|
+| `runtime_type.rs` | `RuntimeType` enum — the subset of types that can be checked at runtime boundaries: `Int`, `Float`, `Bool`, `String`, `Unit`, `Option<T>`, `List<T>`, `Either<L,R>`, `Array<T>`, `Map<K,V>`, tuples |
+| `function_contract.rs` | `FunctionContract { params: Vec<Option<RuntimeType>>, ret: Option<RuntimeType> }` — attached to `CompiledFunction` |
+| `vm/function_call.rs` | Checks `FunctionContract` on every call; emits `E055` (compile-time mismatch) or `E1004` (runtime `Any → T` violation) |
+
+### Surface Syntax Layer (`src/syntax/`)
+
+| File | Responsibility |
+|------|---------------|
+| `type_expr.rs` | `TypeExpr` enum — the AST-level type representation: `Named(String)`, `Tuple(Vec<TypeExpr>)`, `Function(Vec<TypeExpr>, Box<TypeExpr>)`, `Generic(String, Vec<TypeExpr>)` |
+| `effect_expr.rs` | `EffectExpr` — `with IO`, `with State<T>`, `with e`, `with IO, e`, row extension/subtraction |
+
+### Separation of Concerns
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Source AST (TypeExpr, EffectExpr)                          │  syntax/
+└──────────────────┬──────────────────────────────────────────┘
+                   │ parse
+                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│  HM Internal Types (InferType, TypeSubst, Scheme, TypeEnv)  │  types/
+│  — used only during compilation, not at runtime             │
+└──────────────────┬──────────────────────────────────────────┘
+                   │ infer_program
+                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Compiler (Compiler::compile, hm_expr_typer, contracts)     │  bytecode/compiler/
+│  — validates annotated boundaries against HM output         │
+└──────────────────┬──────────────────────────────────────────┘
+                   │ contracts.rs: TypeExpr → RuntimeType
+                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Runtime Boundary (RuntimeType, FunctionContract)           │  runtime/
+│  — enforced on function calls; subset of HM type space      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Effect System Architecture
+
+Effects are validated at two points:
+
+**Compile-time** (authoritative):
+- `ensure_base_call_effect_available` — checks `IO`/`Time` base calls have the required ambient effect.
+- `collect_effect_row_constraints` + `infer_argument_function_effect_row` — row solver for `with e` propagation.
+- `compile_perform` / `compile_handle` — validates `perform`/`handle` operation names and arity against effect declarations.
+- `validate_main_entrypoint` + `validate_top_level_effectful_code` — enforces main-boundary and top-level purity policies.
+
+**Runtime** (fallback only):
+- Unhandled custom-effect paths that escape static analysis fall through to runtime error paths. These are rare for fully-typed programs.
 
 ## 5. Diagnostics Contract Matrix
 
