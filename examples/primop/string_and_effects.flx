@@ -1,16 +1,18 @@
-println("== PrimOps: strings + effects ==");
+fn main() with IO, Time {
+    println("== PrimOps: strings + effects ==");
 
-let s = "hello flux";
-print(string_len(s)); // 10
-print(string_concat("hello", " world")); // "hello world"
-print(string_slice(s, 0, 5)); // "hello"
-print(string_slice(s, 6, 10)); // "flux"
+    let s = "hello flux";
+    print(string_len(s)); // 10
+    print(string_concat("hello", " world")); // "hello world"
+    print(string_slice(s, 0, 5)); // "hello"
+    print(string_slice(s, 6, 10)); // "flux"
 
-let t0 = clock_now();
-println("clock_now captured");
-let t1 = clock_now();
-print(t1 >= t0);
+    let t0 = clock_now();
+    println("clock_now captured");
+    let t1 = clock_now();
+    print(t1 >= t0);
 
-// Reuse an existing repo file for read_file demo.
-let content = read_file("examples/io/input.txt");
-print(string_len(content) > 0);
+    // Reuse an existing repo file for read_file demo.
+    let content = read_file("examples/io/input.txt");
+    print(string_len(content) > 0);
+}

@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/114_keyword_alias_case.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `case`. Flux uses `match` for pattern matching.
+
+  --> examples/type_system/failing/114_keyword_alias_case.flx:2:5
+  |
+2 |     case 1 {
+  |     ^^^^
+
+Hint:
+  Did you mean `match`?
+== stdout ==
+<not executed>

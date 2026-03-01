@@ -1,0 +1,9 @@
+// Tuple matches are conservative: explicit unguarded catch-all closes coverage.
+let t = (1, true);
+
+let out = match t {
+    (1, true) -> 1,
+    _ -> 0
+};
+
+out;

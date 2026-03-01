@@ -1,0 +1,11 @@
+fn loop_back(n) {
+    if n == 0 {
+        0
+    } else {
+        loop_back(n - 1)
+    }
+}
+
+fn main() -> Unit {
+    let x: String = loop_back(3)
+}

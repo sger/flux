@@ -1,0 +1,7 @@
+fn main() -> Unit {
+    let x = 2
+    let _y = match x {
+        _ if x > 0 -> 1,
+        _ -> 0
+    }
+}

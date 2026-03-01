@@ -1,0 +1,6 @@
+public fn bad(x) -> Int {
+    x + 1
+}
+
+fn main() -> Unit {
+}

@@ -1,9 +1,11 @@
-print("Testing Option types");
+fn main() with IO {
+    print("Testing Option types");
 
-let none_val = None;
-print(none_val);
+    let none_val = None;
+    print(none_val);
 
-let some_val = Some(42);
-print(some_val);
+    let some_val = Some(42);
+    print(some_val);
 
-print("Done");
+    print("Done");
+}

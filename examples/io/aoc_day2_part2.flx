@@ -3,4 +3,6 @@
 
 import Day2Part2 as Day2
 
-print(Day2.solve_file("examples/io/aoc_day2.txt"))
+fn main() with IO, Time {
+    print(Day2.solve_file("examples/io/aoc_day2.txt"))
+}

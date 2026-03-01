@@ -1,0 +1,13 @@
+import TypeSystem.RealProgramBaseInterop as B
+
+fn main() with IO {
+    let sorted = B.sorted_copy([|5, 2, 4, 1|])
+    let has_two = B.has_value(sorted, 2)
+    let scores = {"alpha": 7}
+
+    print(to_string(sorted))
+    print(to_string(has_two))
+    print(to_string(B.max_pair(10, 4)))
+    print(to_string(B.score_or_zero(scores, "alpha")))
+    print(to_string(B.score_or_zero(scores, "missing")))
+}

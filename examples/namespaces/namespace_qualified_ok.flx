@@ -1,3 +1,5 @@
 import Modules.Data.MyFile
 
-print(Modules.Data.MyFile.value());
+fn main() with IO, Time {
+    print(Modules.Data.MyFile.value());
+}

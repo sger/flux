@@ -1,0 +1,272 @@
+module Day05Solver {
+    data Section {
+        RulesPart,
+        UpdatesPart,
+    }
+
+    fn int_at(xs: Array<Int>, idx: Int) -> Int {
+        match xs[idx] {
+            Some(v) -> v,
+            _ -> 0,
+        }
+    }
+
+    fn part_at(parts: Array<String>, idx: Int) -> String {
+        match parts[idx] {
+            Some(v) -> v,
+            _ -> "",
+        }
+    }
+
+    fn reverse_list(xs, acc) {
+        match xs {
+            [h | t] -> reverse_list(t, [h | acc]),
+            _ -> acc,
+        }
+    }
+
+    fn parse_rule(line: String) {
+        if len(parts) != 2 {
+            Left("invalid rule: " + line)
+        } else {
+            Right((
+                parse_int(trim(part_at(parts, 0))),
+                parse_int(trim(part_at(parts, 1)))
+            ))
+        }
+        where parts = split(trim(line), "|")
+    }
+
+    fn parse_update(line: String) -> Either<String, Array<Int>> {
+        if len(pages) == 0 {
+            Left("invalid update: " + line)
+        } else {
+            Right(pages)
+        }
+        where pages =
+            split(trim(line), ",")
+            |> map(\s -> trim(s))
+            |> filter(\s -> s != "")
+            |> map(\s -> parse_int(s))
+    }
+
+    fn parse_sections(lines, section: Section, rules, updates) {
+        match lines {
+            [line | rest] -> do {
+                let cleaned = trim(line)
+                if cleaned == "" {
+                    parse_sections(rest, UpdatesPart, rules, updates)
+                } else {
+                    match section {
+                        RulesPart -> match parse_rule(cleaned) {
+                            Right(rule) -> parse_sections(rest, RulesPart, [rule | rules], updates),
+                            Left(err) -> Left(err),
+                        },
+                        UpdatesPart -> match parse_update(cleaned) {
+                            Right(update) -> parse_sections(rest, UpdatesPart, rules, [update | updates]),
+                            Left(err) -> Left(err),
+                        },
+                    }
+                }
+            },
+            _ -> Right((reverse_list(rules, [||]), reverse_list(updates, [||]))),
+        }
+    }
+
+    fn find_index(xs: Array<Int>, target: Int, idx: Int) -> Int {
+        if idx >= len(xs) {
+            -1
+        } else if int_at(xs, idx) == target {
+            idx
+        } else {
+            find_index(xs, target, idx + 1)
+        }
+    }
+
+    fn respects_rule(update: Array<Int>, rule: (Int, Int)) -> Bool {
+        if left_idx == -1 || right_idx == -1 {
+            true
+        } else {
+            left_idx < right_idx
+        }
+        where left_idx = find_index(update, rule.0, 0)
+        where right_idx = find_index(update, rule.1, 0)
+    }
+
+    fn rules_all_valid(rules, update: Array<Int>) -> Bool {
+        match rules {
+            [r | rest] -> respects_rule(update, r) && rules_all_valid(rest, update),
+            _ -> true,
+        }
+    }
+
+    fn update_is_valid(update: Array<Int>, rules) -> Bool {
+        rules_all_valid(rules, update)
+    }
+
+    fn middle_page(update: Array<Int>) -> Int {
+        int_at(update, len(update) / 2)
+    }
+
+    fn list_contains(xs, target: Int) -> Bool {
+        match xs {
+            [h | t] -> if h == target { true } else { list_contains(t, target) },
+            _ -> false,
+        }
+    }
+
+    fn list_count_incoming(rules, remaining, node: Int, acc: Int) -> Int {
+        match rules {
+            [r | rest] -> if r.1 == node && list_contains(remaining, r.0) {
+                list_count_incoming(rest, remaining, node, acc + 1)
+            } else {
+                list_count_incoming(rest, remaining, node, acc)
+            },
+            _ -> acc,
+        }
+    }
+
+    fn relevant_rules(rules, update: Array<Int>) {
+        match rules {
+            [r | rest] -> if find_index(update, r.0, 0) != -1 && find_index(update, r.1, 0) != -1 {
+                [r | relevant_rules(rest, update)]
+            } else {
+                relevant_rules(rest, update)
+            },
+            _ -> [||],
+        }
+    }
+
+    fn pick_zero_indegree(candidates, remaining, rules) {
+        match candidates {
+            [h | t] -> if list_count_incoming(rules, remaining, h, 0) == 0 {
+                Some(h)
+            } else {
+                pick_zero_indegree(t, remaining, rules)
+            },
+            _ -> None,
+        }
+    }
+
+    fn contains_array(xs: Array<Int>, target: Int, idx: Int) -> Bool {
+        if idx >= len(xs) {
+            false
+        } else if int_at(xs, idx) == target {
+            true
+        } else {
+            contains_array(xs, target, idx + 1)
+        }
+    }
+
+    fn list_count_incoming_array(rules, remaining: Array<Int>, node: Int, acc: Int) -> Int {
+        match rules {
+            [r | rest] -> if r.1 == node && contains_array(remaining, r.0, 0) {
+                list_count_incoming_array(rest, remaining, node, acc + 1)
+            } else {
+                list_count_incoming_array(rest, remaining, node, acc)
+            },
+            _ -> acc,
+        }
+    }
+
+    fn pick_zero_indegree_array(remaining: Array<Int>, rules, idx: Int) {
+        if idx >= len(remaining) {
+            None
+        } else {
+            if list_count_incoming_array(rules, remaining, candidate, 0) == 0 {
+                Some(candidate)
+            } else {
+                pick_zero_indegree_array(remaining, rules, idx + 1)
+            }
+            where candidate = int_at(remaining, idx)
+        }
+    }
+
+    fn remove_value_array(xs: Array<Int>, target: Int) -> Array<Int> {
+        filter(xs, \x -> x != target)
+    }
+
+    fn sort_update_by_rules(update: Array<Int>, rules) -> Array<Int> {
+        topo_sort_array(update, rel, [||])
+        where rel = relevant_rules(rules, update)
+    }
+
+    fn topo_sort_array(remaining: Array<Int>, rules, acc: Array<Int>) -> Array<Int> {
+        if len(remaining) == 0 {
+            acc
+        } else {
+            match pick_zero_indegree_array(remaining, rules, 0) {
+                Some(next) -> topo_sort_array(remove_value_array(remaining, next), rules, push(acc, next)),
+                _ -> concat(acc, remaining),
+            }
+        }
+    }
+
+    fn sum_valid_middles(updates, rules, acc: Int) -> Int {
+        match updates {
+            [u | rest] -> if update_is_valid(u, rules) {
+                sum_valid_middles(rest, rules, acc + middle_page(u))
+            } else {
+                sum_valid_middles(rest, rules, acc)
+            },
+            _ -> acc,
+        }
+    }
+
+    fn sum_fixed_invalid_middles(updates, rules, acc: Int) -> Int {
+        match updates {
+            [u | rest] -> do {
+                if update_is_valid(u, rules) {
+                    sum_fixed_invalid_middles(rest, rules, acc)
+                } else {
+                    sum_fixed_invalid_middles(rest, rules, acc + middle_page(sorted))
+                    where sorted = sort_update_by_rules(u, rules)
+                }
+            },
+            _ -> acc,
+        }
+    }
+
+    fn list_to_array(xs, acc) {
+        match xs {
+            [h | t] -> list_to_array(t, push(acc, h)),
+            _ -> acc,
+        }
+    }
+
+    public fn parse_day05_input(lines: Array<String>) {
+        parse_sections(lines_list, RulesPart, [||], [||])
+        where lines_list = to_list(lines)
+    }
+
+    public fn day05a_from_lines(lines: Array<String>) -> Int {
+        match parse_day05_input(lines) {
+            Right(parsed) ->
+                list_to_array(parsed.1, [||])
+                |> filter(\u -> update_is_valid(u, parsed.0))
+                |> map(\u -> middle_page(u))
+                |> fold(0, \(acc, x) -> acc + x),
+            Left(_err) -> 0,
+        }
+    }
+
+    public fn day05a_from_memory(memory: String) -> Int {
+        day05a_from_lines(split(memory, "\n"))
+    }
+
+    public fn day05b_from_lines(lines: Array<String>) -> Int {
+        match parse_day05_input(lines) {
+            Right(parsed) ->
+                list_to_array(parsed.1, [||])
+                |> filter(\u -> if update_is_valid(u, parsed.0) { false } else { true })
+                |> map(\u -> sort_update_by_rules(u, parsed.0))
+                |> map(\u -> middle_page(u))
+                |> fold(0, \(acc, x) -> acc + x),
+            Left(_err) -> 0,
+        }
+    }
+
+    public fn day05b_from_memory(memory: String) -> Int {
+        day05b_from_lines(split(memory, "\n"))
+    }
+}

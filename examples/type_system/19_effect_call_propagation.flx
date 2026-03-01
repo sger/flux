@@ -1,0 +1,22 @@
+// Effect propagation through function calls.
+//
+// `log_line` requires IO. Any typed function that calls it must also declare IO.
+
+fn main() with IO, Time {
+    fn log_line(msg: String) -> Unit with IO {
+        print(msg)
+    }
+
+    fn process_and_log(x: Int) -> Int with IO {
+        let y = x * 2
+        log_line("processed=#{to_string(y)}")
+        y
+    }
+
+    fn pure_math(x: Int) -> Int {
+        x + 1
+    }
+
+    print(to_string(process_and_log(21)))
+    print(to_string(pure_math(9)))
+}

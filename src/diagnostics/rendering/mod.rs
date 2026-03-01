@@ -5,11 +5,13 @@
 
 pub mod colors;
 pub mod formatter;
+pub mod json;
 pub mod renderer;
 pub mod source;
 
 pub use colors::Colors;
 pub use formatter::{render_diagnostics, render_display_path};
+pub use json::render_diagnostics_json;
 pub use renderer::{
     render_header, render_hints, render_location, render_message, render_related,
     render_suggestions,

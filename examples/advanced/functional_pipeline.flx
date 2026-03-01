@@ -25,84 +25,86 @@
 // Example 1: Pipeline with Base Functions
 // =============================================================================
 
-print("Pipeline with base functions:");
+fn main() with IO {
+    print("Pipeline with base functions:");
 
-// Chain string operations with pipe
-let greeting = "  HELLO WORLD  " |> trim |> lower;
-print(greeting);  // "hello world"
+    // Chain string operations with pipe
+    let greeting = "  HELLO WORLD  " |> trim |> lower;
+    print(greeting);  // "hello world"
 
-let shouting = "hello world" |> upper;
-print(shouting);  // "HELLO WORLD"
+    let shouting = "hello world" |> upper;
+    print(shouting);  // "HELLO WORLD"
 
-// =============================================================================
-// Example 2: Higher-Order Functions with Lambdas
-// =============================================================================
+    // =============================================================================
+    // Example 2: Higher-Order Functions with Lambdas
+    // =============================================================================
 
-print("Higher-order functions with lambdas:");
+    print("Higher-order functions with lambdas:");
 
-let numbers = [|1, 2, 3, 4, 5, 6|];
+    let numbers = [|1, 2, 3, 4, 5, 6|];
 
-// Double all numbers using lambda
-let doubled = map(numbers, \x -> x * 2);
-print("Doubled: " + to_string(doubled));  // [|2, 4, 6, 8, 10, 12|]
+    // Double all numbers using lambda
+    let doubled = map(numbers, \x -> x * 2);
+    print("Doubled: " + to_string(doubled));  // [|2, 4, 6, 8, 10, 12|]
 
-// Filter numbers greater than 3
-let bigNums = filter(numbers, \x -> x > 3);
-print("Filtered: " + to_string(bigNums));  // [|4, 5, 6|]
+    // Filter numbers greater than 3
+    let bigNums = filter(numbers, \x -> x > 3);
+    print("Filtered: " + to_string(bigNums));  // [|4, 5, 6|]
 
-// Sum all numbers using reduce with lambda
-let total = fold(numbers, 0, \(acc, x) -> acc + x);
-print("Sum: " + to_string(total));  // 21
+    // Sum all numbers using reduce with lambda
+    let total = fold(numbers, 0, \(acc, x) -> acc + x);
+    print("Sum: " + to_string(total));  // 21
 
-// Product of all numbers
-let totalProduct = fold(numbers, 1, \(acc, x) -> acc * x);
-print("Product: " + to_string(totalProduct));  // 720
+    // Product of all numbers
+    let totalProduct = fold(numbers, 1, \(acc, x) -> acc * x);
+    print("Product: " + to_string(totalProduct));  // 720
 
-// =============================================================================
-// Example 3: Function Composition with Lambdas
-// =============================================================================
+    // =============================================================================
+    // Example 3: Function Composition with Lambdas
+    // =============================================================================
 
-print("Function composition:");
+    print("Function composition:");
 
-// Define reusable transformations as lambdas
-let double = \x -> x * 2;
-let addTen = \x -> x + 10;
-let square = \x -> x * x;
+    // Define reusable transformations as lambdas
+    let double = \x -> x * 2;
+    let addTen = \x -> x + 10;
+    let square = \x -> x * x;
 
-// Compose two functions: compose(f, g)(x) = f(g(x))
-fn compose(f, g) {
-    \x -> f(g(x))
+    // Compose two functions: compose(f, g)(x) = f(g(x))
+    fn compose(f, g) {
+        \x -> f(g(x))
+    }
+
+    // Build a pipeline: addTen(double(square(x)))
+    // For x=5: square(5)=25, double(25)=50, addTen(50)=60
+    let transform = compose(addTen, compose(double, square));
+    print("Result: " + to_string(transform(5)));  // 60
+
+    // =============================================================================
+    // Example 4: Data Processing Pipeline
+    // =============================================================================
+
+    print("Data pipeline:");
+
+    // Process a list of names
+    let names = [|"alice", "bob"|];
+
+    // Transform with pipe + base functions
+    let name1 = first(names) |> upper;
+    print(name1);  // ALICE
+
+    let name2 = first(rest(names)) |> upper;
+    print(name2);  // BOB
+
+    // =============================================================================
+    // Example 5: Complex Pipeline with Map + Lambda
+    // =============================================================================
+
+    print("Complex pipeline:");
+
+    let words = [|"hello", "world", "flux"|];
+
+    // Transform all words to uppercase using map + lambda
+    let uppercased = map(words, \w -> w |> upper);
+    print(to_string(uppercased));  // [|HELLO, WORLD, FLUX|]
 }
-
-// Build a pipeline: addTen(double(square(x)))
-// For x=5: square(5)=25, double(25)=50, addTen(50)=60
-let transform = compose(addTen, compose(double, square));
-print("Result: " + to_string(transform(5)));  // 60
-
-// =============================================================================
-// Example 4: Data Processing Pipeline
-// =============================================================================
-
-print("Data pipeline:");
-
-// Process a list of names
-let names = [|"alice", "bob"|];
-
-// Transform with pipe + base functions
-let name1 = first(names) |> upper;
-print(name1);  // ALICE
-
-let name2 = first(rest(names)) |> upper;
-print(name2);  // BOB
-
-// =============================================================================
-// Example 5: Complex Pipeline with Map + Lambda
-// =============================================================================
-
-print("Complex pipeline:");
-
-let words = [|"hello", "world", "flux"|];
-
-// Transform all words to uppercase using map + lambda
-let uppercased = map(words, \w -> w |> upper);
-print(to_string(uppercased));  // [|HELLO, WORLD, FLUX|]

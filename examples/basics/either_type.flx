@@ -1,15 +1,3 @@
-// Either Type Examples
-// Left and Right are used for values that can be one of two types
-// By convention: Left = error/failure, Right = success/value
-
-// Basic Left and Right creation
-let success = Right(42);
-let failure = Left("error occurred");
-
-print(success);
-print(failure);
-
-// Pattern matching on Either
 fn describe(result) {
     match result {
         Left(err) -> "Error: " + err,
@@ -18,38 +6,14 @@ fn describe(result) {
     }
 }
 
-print(describe(success));
-print(describe(failure));
-
-// Safe division that returns Either
 fn safeDivide(a, b) {
     if b == 0 {
         Left("division by zero")
     } else {
-        Right(a / b)
-    }
+    Right(a / b)
+}
 }
 
-let result1 = safeDivide(10, 2);
-let result2 = safeDivide(10, 0);
-
-print(result1);
-print(result2);
-
-// Handle the results
-match result1 {
-    Left(err) -> print("Failed: " + err),
-    Right(val) -> print("Result: " + to_string(val)),
-    _ -> print("unknown"),
-}
-
-match result2 {
-    Left(err) -> print("Failed: " + err),
-    Right(val) -> print("Result: " + to_string(val)),
-    _ -> print("unknown"),
-}
-
-// Using wildcard pattern
 fn isRight(either) {
     match either {
         Right(_) -> true,
@@ -64,12 +28,6 @@ fn isLeft(either) {
     }
 }
 
-print(isRight(Right(1)));
-print(isRight(Left("x")));
-print(isLeft(Left("x")));
-print(isLeft(Right(1)));
-
-// Get value or default
 fn getOrElse(either, defaultVal) {
     match either {
         Right(x) -> x,
@@ -77,5 +35,49 @@ fn getOrElse(either, defaultVal) {
     }
 }
 
-print(getOrElse(Right(100), 0));
-print(getOrElse(Left("error"), 0));
+fn main() with IO {
+    // Either Type Examples
+    // Left and Right are used for values that can be one of two types
+    // By convention: Left = error/failure, Right = success/value
+
+    // Basic Left and Right creation
+    let success = Right(42)
+    let failure = Left("error occurred")
+
+    print(success)
+    print(failure)
+
+    // Pattern matching on Either
+    print(describe(success))
+    print(describe(failure))
+
+    // Safe division that returns Either
+    let result1 = safeDivide(10, 2)
+    let result2 = safeDivide(10, 0)
+
+    print(result1)
+    print(result2)
+
+    // Handle the results
+    match result1 {
+        Left(err) -> print("Failed: " + err),
+        Right(val) -> print("Result: " + to_string(val)),
+        _ -> print("unknown"),
+    }
+
+    match result2 {
+        Left(err) -> print("Failed: " + err),
+        Right(val) -> print("Result: " + to_string(val)),
+        _ -> print("unknown"),
+    }
+
+    // Using wildcard pattern
+    print(isRight(Right(1)))
+    print(isRight(Left("x")))
+    print(isLeft(Left("x")))
+    print(isLeft(Right(1)))
+
+    // Get value or default
+    print(getOrElse(Right(100), 0))
+    print(getOrElse(Left("error"), 0))
+}

@@ -1,0 +1,8 @@
+// E425: strict mode rejects unresolved generic runtime boundary checks on module-qualified calls.
+
+import TypeSystem.HmGenericModule
+
+fn main() -> Unit {
+    TypeSystem.HmGenericModule.id(1)
+    None
+}

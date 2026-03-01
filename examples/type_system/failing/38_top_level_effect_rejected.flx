@@ -1,0 +1,3 @@
+// A4 matrix: effectful top-level expression is rejected.
+
+print("top-level effect")

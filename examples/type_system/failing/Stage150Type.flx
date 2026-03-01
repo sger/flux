@@ -1,0 +1,8 @@
+// Helper module for stage-aware fixture 150/153.
+// Intentionally has a type diagnostic.
+
+module Stage150Type {
+    fn bad() -> Unit {
+        let x: Bool = 42
+    }
+}

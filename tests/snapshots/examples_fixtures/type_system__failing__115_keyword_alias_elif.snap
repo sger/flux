@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/115_keyword_alias_elif.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
+
+  --> examples/type_system/failing/115_keyword_alias_elif.flx:1:15
+  |
+1 | if true { 1 } elif false { 2 } else { 3 }
+  |               ^^^^
+
+Hint:
+  Did you mean `else if`?
+  Replace `elif`/`elsif` with `else if`.
+== stdout ==
+<not executed>

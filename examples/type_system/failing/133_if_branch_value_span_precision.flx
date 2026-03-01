@@ -1,0 +1,3 @@
+fn main() -> Unit {
+    let _x = if true { 42 } else { "nope" }
+}

@@ -1,0 +1,20 @@
+fn id(x) {
+    x
+}
+
+fn compose(f, g, x) {
+    f(g(x))
+}
+
+fn add1(n) {
+    n + 1
+}
+
+fn twice(n) {
+    n * 2
+}
+
+fn main() {
+    let n = compose(add1, twice, id(20))
+    print(to_string(n))
+}

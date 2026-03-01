@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `sink` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx:8:5
+  |
+8 |     sink("hello")
+  |     ^^^^
+  |     ---- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

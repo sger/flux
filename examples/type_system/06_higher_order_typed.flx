@@ -1,0 +1,19 @@
+fn main() with IO, Time {
+    fn apply_twice(f: (Int) -> Int, x: Int) -> Int {
+        f(f(x))
+    }
+
+    fn transform_and_sum(xs: List<Int>, f: (Int) -> Int) -> Int {
+        match xs {
+            [h | t] -> f(h) + transform_and_sum(t, f),
+            [] -> 0,
+            _ -> 0
+        }
+    }
+
+    let nums: List<Int> = list(1, 2, 3, 4)
+    let doubled_sum: Int = transform_and_sum(nums, \(x: Int) -> x * 2)
+
+    print("doubled_sum=#{doubled_sum}")
+    print(apply_twice(\(x: Int) -> x + 3, 10))
+}

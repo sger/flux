@@ -1,0 +1,66 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/07_typed_let_float_into_int.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `answer` does not match its type annotation.
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:1:19
+  |
+1 | let answer: Int = 42.5
+  |                   ^^^^
+  |                   ---- this is `Float`
+  |             --- but `answer` was annotated as `Int`
+
+Help:
+  Change `answer` to a `Int` value or update the annotation to `Float`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:15:1
+   |
+15 | print(distance_tag(point))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+Found 4 errors.
+== stdout ==
+<not executed>

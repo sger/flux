@@ -153,12 +153,11 @@ match x { 1 -> 10 };
         parser_errors
     );
 
-    let compile_diags = compile_result.expect_err("expected E015 from pattern validation");
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
     let diag = find_diag_by_code(&compile_diags, "E015");
     assert_eq!(diag.title(), "NON-EXHAUSTIVE MATCH");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("must end with a `_` or identifier arm")),
+        diag.message().is_some_and(|m| m.contains("non-exhaustive")),
         "unexpected E015 message: {:?}",
         diag.message()
     );
@@ -181,7 +180,7 @@ match x { _ if true -> 1 };
         parser_errors
     );
 
-    let compile_diags = compile_result.expect_err("expected E015 from pattern validation");
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
     let codes = diag_codes(&compile_diags);
     assert!(
         codes.iter().any(|c| c == "E015"),
@@ -192,6 +191,33 @@ match x { _ if true -> 1 };
         !codes.iter().any(|c| c == "E016"),
         "guarded catch-all should not be treated as catch-all-not-last, got {:?}",
         codes
+    );
+}
+
+#[test]
+fn guarded_catchall_reports_targeted_non_exhaustive_message() {
+    let src = r#"
+let x = 2;
+match x { _ if x > 0 -> 1 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for pattern validation test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from compile-time exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("guarded wildcard")),
+        "expected targeted guarded wildcard message, got: {:?}",
+        diag.message()
     );
 }
 
@@ -215,6 +241,88 @@ match x { _ if true -> 1, _ -> 2 };
         compile_result.is_ok(),
         "expected guarded catch-all plus fallback to validate, got compile diagnostics: {:?}",
         compile_result.err()
+    );
+}
+
+#[test]
+fn bool_match_missing_true_reports_e015_with_bool_message() {
+    let src = r#"
+let b = false;
+match b { false -> 0 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for bool exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from bool exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("missing Bool case(s): true")),
+        "expected bool missing-true message, got: {:?}",
+        diag.message()
+    );
+}
+
+#[test]
+fn tuple_match_without_catchall_reports_conservative_e015_message() {
+    let src = r#"
+let t = (1, true);
+match t { (1, true) -> 1, (2, false) -> 2 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for tuple exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags = compile_result.expect_err("expected E015 from tuple exhaustiveness");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+        "expected tuple-conservative E015 message, got: {:?}",
+        diag.message()
+    );
+}
+
+#[test]
+fn tuple_match_guarded_only_still_non_exhaustive() {
+    let src = r#"
+let t = (1, true);
+match t { (a, b) if a > 0 && b -> 1 };
+"#;
+
+    let result = parse_and_validate_no_panic(src);
+    assert!(result.is_ok(), "unexpected panic: {:?}", result.err());
+
+    let (_program, parser_errors, compile_result) = result.expect("already checked panic");
+    assert!(
+        parser_errors.is_empty(),
+        "expected parser-clean input for guarded tuple exhaustiveness test, got: {:?}",
+        parser_errors
+    );
+
+    let compile_diags =
+        compile_result.expect_err("expected E015 from guarded tuple non-exhaustive");
+    let diag = find_diag_by_code(&compile_diags, "E015");
+    assert!(
+        diag.message()
+            .is_some_and(|m| m.contains("tuple domains is conservatively non-exhaustive")),
+        "expected guarded tuple conservative E015 message, got: {:?}",
+        diag.message()
     );
 }
 
@@ -326,8 +434,8 @@ match x { 1 -> 10 };
         codes
     );
     assert!(
-        codes.iter().any(|c| c == "E015"),
-        "expected E015 (non-exhaustive), got: {:?}",
+        !codes.iter().any(|c| c == "E015"),
+        "pattern-only validation should not emit E015 directly, got: {:?}",
         codes
     );
 }

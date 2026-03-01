@@ -1,0 +1,15 @@
+fn expect_int(x: Int) -> Int {
+    x
+}
+
+fn choose(flag: Bool) -> Int {
+    match flag {
+        true -> 7,
+        false -> 9,
+        _ -> 0,
+    }
+}
+
+fn main() -> Unit with IO {
+    print(to_string(expect_int(choose(true))))
+}

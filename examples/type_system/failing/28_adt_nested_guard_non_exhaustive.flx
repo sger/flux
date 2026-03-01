@@ -1,0 +1,22 @@
+// E083: nested constructor arm with guard does not guarantee coverage.
+
+data OptionInt {
+    SomeI(Int),
+    NoneI,
+}
+
+data Wrap {
+    Boxed(OptionInt),
+    Empty,
+}
+
+fn score(w: Wrap) -> Int {
+    match w {
+        Boxed(SomeI(v)) if v > 0 -> v,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    score(Empty)
+}

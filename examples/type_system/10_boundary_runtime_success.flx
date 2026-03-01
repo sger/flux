@@ -1,0 +1,12 @@
+fn main() with IO, Time {
+    fn old(v) {
+        v
+    }
+
+    fn typed_add(a: Int, b: Int) -> Int {
+        a + b
+    }
+
+    let dynamic = old(41)
+    print(typed_add(dynamic, 1))
+}

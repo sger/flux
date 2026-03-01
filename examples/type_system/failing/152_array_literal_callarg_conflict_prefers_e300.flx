@@ -1,0 +1,5 @@
+fn takes_ints(xs: Array<Int>) -> Int { 0 }
+
+fn main() -> Unit {
+    let _x = takes_ints([|1, "two"|])
+}

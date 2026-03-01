@@ -3,8 +3,22 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day1_haskell_style.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `parse_rotations`.
+
+  --> examples/io/aoc_day1_haskell_style.flx:43:9
+   |
+43 |         parse_rotations(rest, acc)
+   |         ^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let parse_rotations = ...;
+
+
+Help:
+  Did you mean `parse_rotation`?
 == stdout ==
 <not executed>

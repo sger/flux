@@ -1,0 +1,37 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/type_system/failing/184_type_expr_missing_close_paren.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `)` to close tuple type.
+
+  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:31
+  |
+1 | fn bad(x: (Int, String -> Int { x }
+  |                               ^
+
+Hint:
+  Tuple types use `(A, B, ...)`.
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin function body, found `}`.
+
+  --> examples/type_system/failing/184_type_expr_missing_close_paren.flx:1:35
+  |
+1 | fn bad(x: (Int, String -> Int { x }
+  |                                   ^
+  | - function `bad` defined here
+
+Help:
+  Add `{` after the function signature: `fn bad(...) {`
+
+Found 2 errors.
+== stdout ==
+<not executed>

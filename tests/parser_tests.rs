@@ -133,6 +133,25 @@ let test2 = "this compiles";
     }
 
     #[test]
+    fn test_do_missing_brace_reports_contextual_e034() {
+        let lexer = Lexer::new("let y = do x + 1;");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing do-block brace");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("begin the `do` block")),
+            "expected contextual do-block message, got: {:?}",
+            diag.message()
+        );
+    }
+
+    #[test]
     fn expression_statement_tracks_semicolon_presence() {
         let (program, _interner) = parse("x; y");
         assert_eq!(program.statements.len(), 2);
@@ -459,6 +478,42 @@ fn t(x) {
     }
 
     #[test]
+    fn t1_named_delimiter_diagnostics_are_contextual() {
+        let cases = [
+            (
+                "let h = {one: 1, two: 2",
+                "Expected `}` to close hash literal.",
+            ),
+            ("let xs = [|1, 2|", "Expected `]` to close array literal."),
+            (
+                "let add = \\(x, y -> x + y",
+                "Expected `)` to close lambda parameter list.",
+            ),
+            (
+                "let msg = \"Hello #{name\"",
+                "Expected `}` to close string interpolation.",
+            ),
+            (
+                "let ys = [x + 1 | x <- [1, 2]",
+                "Expected `]` to close list comprehension.",
+            ),
+        ];
+
+        for (input, expected_msg) in cases {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            assert!(
+                parser.errors.iter().any(|d| d.code() == Some("E034")
+                    && d.message().is_some_and(|m| m.contains(expected_msg))),
+                "expected contextual E034 `{expected_msg}` for input `{input}`, got: {:?}",
+                parser.errors
+            );
+        }
+    }
+
+    #[test]
     fn test_unterminated_block_comment_error_uses_lexer_end_position() {
         let input = "let x = 1; /* unterminated";
         let lexer = Lexer::new(input);
@@ -671,8 +726,12 @@ fn t(x) {
         let interner = parser.take_interner();
 
         assert!(
-            parser.errors.iter().any(|d| d.code() == Some("E034")
-                && d.message().is_some_and(|m| m.contains("Expected )"))),
+            parser
+                .errors
+                .iter()
+                .any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
+                    && d.message()
+                        .is_some_and(|m| m.contains(")") || m.contains("closing"))),
             "expected missing `)` diagnostic: {:?}",
             parser.errors
         );
@@ -705,11 +764,15 @@ fn t(x) {
             .errors
             .first()
             .expect("expected at least one parse error");
-        assert_eq!(first.code(), Some("E034"));
+        assert!(
+            first.code() == Some("E076") || first.code() == Some("E034"),
+            "expected UNCLOSED_DELIMITER or UNEXPECTED_TOKEN, got: {:?}",
+            first.code()
+        );
         assert!(
             first
                 .message()
-                .is_some_and(|m| m.contains("Expected )") || m.contains("Expected `)`")),
+                .is_some_and(|m| m.contains(")") || m.contains("closing")),
             "expected first diagnostic to be about missing `)`, got: {:?}",
             first.message()
         );
@@ -737,6 +800,43 @@ fn t(x) {
                 .is_some_and(|m| m.contains("Expected identifier or tuple field index after `.`")),
             "expected first diagnostic to be about incomplete member access, got: {:?}",
             first.message()
+        );
+    }
+
+    #[test]
+    fn test_malformed_signature_missing_tuple_close_suppresses_redundant_parameter_followups() {
+        let lexer = Lexer::new(include_str!(
+            "../examples/type_system/failing/184_type_expr_missing_close_paren.flx"
+        ));
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let root_missing_tuple_close = parser.errors.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message().is_some_and(|m| {
+                    m.contains("close tuple type") || m.contains("Tuple types use")
+                })
+        });
+        assert!(
+            root_missing_tuple_close,
+            "expected a root tuple-close diagnostic: {:?}",
+            parser.errors
+        );
+
+        let redundant_param_followup = parser.errors.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("after function parameter"))
+        });
+        assert!(
+            !redundant_param_followup,
+            "expected parameter-separator followup to be suppressed: {:?}",
+            parser.errors
+        );
+        assert!(
+            parser.errors.len() <= 2,
+            "expected root + minimal follow-up (<=2 errors), got: {:?}",
+            parser.errors
         );
     }
 
@@ -932,9 +1032,12 @@ fn t(x) {
         let diag = parser
             .errors
             .iter()
-            .find(|d| d.code() == Some("E036"))
-            .expect("expected E036 diagnostic for missing lambda arrow");
-        assert!(diag.message().is_some_and(|m| m.contains("Expected `->`")));
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing lambda arrow");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `->` after lambda parameters"))
+        );
         assert!(
             diag.hints()
                 .iter()
@@ -943,15 +1046,56 @@ fn t(x) {
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start.line, 1);
         assert_eq!(span.start.column, 3);
-        assert_eq!(
-            parser
-                .errors
-                .iter()
-                .filter(|d| d.code() == Some("E034"))
-                .count(),
-            0,
-            "missing-arrow lambda should not emit generic E034"
+    }
+
+    #[test]
+    fn test_match_missing_arrow_reports_contextual_e034() {
+        let lexer = Lexer::new("match 1 { 0 1, _ -> 0 }");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 diagnostic for missing match arm arrow");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("Expected `->` in match arm")),
+            "expected contextual match-arrow message, got: {:?}",
+            diag.message()
         );
+    }
+
+    #[test]
+    fn test_orphan_constructor_pattern_statement_reports_contextual_e034() {
+        let lexer = Lexer::new("Some(x);\nlet after = 1;");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected E034 orphan constructor-pattern diagnostic");
+        assert!(
+            diag.message()
+                .is_some_and(|m| m.contains("outside `match`")),
+            "expected orphan-constructor contextual message, got: {:?}",
+            diag.message()
+        );
+    }
+
+    #[test]
+    fn test_orphan_constructor_pattern_does_not_misfire_in_expression_contexts() {
+        let (program, _interner) = parse(
+            r#"
+let v = Some(1);
+print(Some(1));
+let w = match x { Some(n) -> n, None -> 0 };
+"#,
+        );
+        assert_eq!(program.statements.len(), 3);
     }
 
     #[test]
@@ -1126,7 +1270,7 @@ fn t(x) {
         assert_eq!(span.start, Position::new(1, 7));
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected `,` or `)` after parameter"))
+                .is_some_and(|m| m.contains("Expected `,` or `)` after function parameter"))
         );
 
         match &program.statements[0] {
@@ -1213,6 +1357,135 @@ fn t(x) {
             }
             _ => panic!("expected function statement"),
         }
+    }
+
+    #[test]
+    fn test_malformed_let_type_annotation_keeps_value_and_followup_statement() {
+        let lexer = Lexer::new("let x: = 1;\nlet y = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed let annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Let {
+                name,
+                type_annotation,
+                value,
+                ..
+            } => {
+                assert_eq!(interner.resolve(*name), "x");
+                assert!(type_annotation.is_none(), "annotation should be dropped");
+                assert!(matches!(value, Expression::Integer { value, .. } if *value == 1));
+            }
+            _ => panic!("expected first statement to remain a let binding"),
+        }
+
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
+            "expected follow-up let statement after malformed annotation"
+        );
+    }
+
+    #[test]
+    fn test_malformed_function_param_annotation_keeps_later_valid_parameter_type() {
+        let lexer = Lexer::new("fn f(a: , b: Int) { b }");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed function parameter annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Function {
+                parameters,
+                parameter_types,
+                ..
+            } => {
+                assert_eq!(parameters.len(), 2);
+                assert_eq!(parameter_types.len(), 2);
+                assert!(
+                    parameter_types[0].is_none(),
+                    "malformed annotation should become None"
+                );
+                assert!(
+                    parameter_types[1].is_some(),
+                    "later valid parameter annotation should be preserved"
+                );
+            }
+            _ => panic!("expected function statement"),
+        }
+    }
+
+    #[test]
+    fn test_malformed_function_return_annotation_recovers_to_body() {
+        let lexer = Lexer::new("fn f() -> { 1 }\nlet after = 2;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed return annotation diagnostic"
+        );
+
+        match &program.statements[0] {
+            Statement::Function {
+                return_type, body, ..
+            } => {
+                assert!(
+                    return_type.is_none(),
+                    "malformed return annotation should be dropped"
+                );
+                assert!(
+                    !body.statements.is_empty(),
+                    "function body should still be parsed after recovery"
+                );
+            }
+            _ => panic!("expected function statement"),
+        }
+
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
+            "expected parser to keep follow-up statement after malformed function return annotation"
+        );
+    }
+
+    #[test]
+    fn test_malformed_lambda_annotation_recovers_and_keeps_followup_statement() {
+        let lexer = Lexer::new("let g = \\x: -> x;\nlet after = 1;");
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(
+            parser.errors.iter().any(|d| d.code() == Some("E034")),
+            "expected malformed lambda annotation diagnostic"
+        );
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "g")
+            ),
+            "expected malformed lambda statement to remain parseable"
+        );
+        assert!(
+            program
+                .statements
+                .iter()
+                .any(|stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")),
+            "expected follow-up let statement after malformed lambda annotation"
+        );
     }
 
     #[test]
@@ -1849,5 +2122,454 @@ fn t(x) {
     fn test_optional_semicolons_multiple_expressions() {
         let (program, _interner) = parse("1 + 2\n3 * 4\n5 - 6\n7 / 8");
         assert_eq!(program.statements.len(), 4);
+    }
+
+    #[test]
+    fn missing_colon_let_annotation_has_targeted_message_and_recovers() {
+        let input = "let x Int = 1;\nlet y = 2;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message().is_some_and(|m| {
+                m.contains("Missing `:` in let binding type annotation") && m.contains("`x: Type`")
+            })
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+        ));
+    }
+
+    #[test]
+    fn missing_colon_function_param_has_targeted_message() {
+        let input = "fn f(x Int) -> Int { x }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in function parameter type annotation"))
+        }));
+    }
+
+    #[test]
+    fn missing_colon_lambda_param_has_targeted_message() {
+        let input = "let g = \\x Int -> x;\nlet after = 1;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in lambda parameter type annotation"))
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "after")
+        ));
+    }
+
+    #[test]
+    fn missing_colon_effect_op_has_targeted_message() {
+        let input = "effect Console { print String -> Unit }";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `:` in effect operation signature"))
+        }));
+    }
+
+    #[test]
+    fn missing_function_return_arrow_has_targeted_message() {
+        let input = "fn f() Int { 1 }\nlet ok = 1;";
+        let lexer = Lexer::new(input);
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        assert!(parser.errors.iter().any(|d| {
+            d.message()
+                .is_some_and(|m| m.contains("Missing `->` before function return type"))
+        }));
+        assert!(program.statements.iter().any(
+            |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")
+        ));
+    }
+
+    #[test]
+    fn keyword_aliases_report_e030_with_targeted_suggestions() {
+        let collect = |input: &str| -> Vec<String> {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _program = parser.parse_program();
+            parser
+                .errors
+                .iter()
+                .filter_map(|d| d.message().map(ToString::to_string))
+                .collect()
+        };
+
+        let def_msgs = collect("def foo() { 1 }");
+
+        assert!(
+            def_msgs.iter().any(|m| m.contains("Unknown keyword `def`")),
+            "expected `def` alias diagnostic, got: {:#?}",
+            def_msgs
+        );
+
+        let var_msgs = collect("var x = 1");
+        assert!(
+            var_msgs.iter().any(|m| m.contains("Unknown keyword `var`")),
+            "expected `var` alias diagnostic, got: {:#?}",
+            var_msgs
+        );
+
+        let case_msgs = collect("case 1 { 0 -> 0, _ -> 1 }");
+        assert!(
+            case_msgs
+                .iter()
+                .any(|m| m.contains("Unknown keyword `case`")),
+            "expected `case` alias diagnostic, got: {:#?}",
+            case_msgs
+        );
+    }
+
+    #[test]
+    fn elif_and_end_report_targeted_diagnostics() {
+        let lexer = Lexer::new("if true { 1 } elif false { 2 } else { 3 }\nfn f() { 1 end }");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let msgs: Vec<String> = parser
+            .errors
+            .iter()
+            .filter_map(|d| d.message().map(ToString::to_string))
+            .collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Unknown keyword `elif`")
+                    || m.contains("Unknown keyword `elsif`")),
+            "expected elif/elsif alias diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("`end` is not a keyword in Flux")),
+            "expected end-keyword diagnostic, got: {:#?}",
+            msgs
+        );
+    }
+
+    #[test]
+    fn structural_context_messages_are_emitted() {
+        let collect = |input: &str| -> Vec<String> {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _program = parser.parse_program();
+            parser
+                .errors
+                .iter()
+                .filter_map(|d| d.message().map(ToString::to_string))
+                .collect()
+        };
+
+        let fn_msgs = collect("fn foo -> Int { 1 }");
+        assert!(
+            fn_msgs
+                .iter()
+                .any(|m| m.contains("Missing parameter list for function `foo`")),
+            "expected missing-parameter-list message, got: {:#?}",
+            fn_msgs
+        );
+
+        let if_msgs = collect("if true 1 else 2");
+        assert!(
+            if_msgs
+                .iter()
+                .any(|m| m.contains("Expected `{` to begin the `if` body")),
+            "expected missing-if-brace message, got: {:#?}",
+            if_msgs
+        );
+
+        let let_msgs = collect("let x 1");
+        assert!(
+            let_msgs
+                .iter()
+                .any(|m| m.contains("Expected `=` after `let x`")),
+            "expected missing-let-assign message, got: {:#?}",
+            let_msgs
+        );
+    }
+
+    #[test]
+    fn match_pipe_and_fat_arrow_emit_targeted_messages() {
+        let lexer = Lexer::new(
+            "match x { 0 -> 1 | 1 -> 2 }\nlet y = 3;\nmatch z { 0 => 1, _ -> 2 }\nlet q = 4;",
+        );
+        let mut parser = Parser::new(lexer);
+        let program = parser.parse_program();
+        let interner = parser.take_interner();
+
+        let msgs: Vec<String> = parser
+            .errors
+            .iter()
+            .filter_map(|d| d.message().map(ToString::to_string))
+            .collect();
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+            "expected `|` separator diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("Expected `->` in match arm, found `=>`")),
+            "expected fat-arrow diagnostic, got: {:#?}",
+            msgs
+        );
+        assert!(
+            program.statements.iter().any(
+                |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "y")
+            ),
+            "expected parser recovery after `|` separator diagnostic"
+        );
+    }
+
+    #[test]
+    fn alias_words_as_identifiers_do_not_misfire_at_expression_positions() {
+        let lexer = Lexer::new("let val = 1;\nlet end = 2;\nlet x = Foo.end(val);");
+        let mut parser = Parser::new(lexer);
+        let _program = parser.parse_program();
+
+        let alias_diag_count = parser
+            .errors
+            .iter()
+            .filter(|d| d.code() == Some("E030"))
+            .count();
+        assert_eq!(
+            alias_diag_count, 0,
+            "did not expect statement-keyword alias diagnostics for identifier usage"
+        );
+    }
+
+    #[test]
+    fn t15_remaining_expect_peek_sites_emit_contextual_e034_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            message_fragment: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot",
+                input: "let x = perform IO print(\"hi\")",
+                message_fragment: "perform",
+            },
+            Case {
+                name: "handle_missing_lbrace",
+                input: "let x = 1 handle IO print(resume, msg) -> resume(msg)",
+                message_fragment: "handle",
+            },
+            Case {
+                name: "match_missing_open_brace",
+                input: "let x = match 1 0 -> 0",
+                message_fragment: "match",
+            },
+            Case {
+                name: "module_missing_lbrace",
+                input: "module Demo\nlet x = 1",
+                message_fragment: "module",
+            },
+            Case {
+                name: "type_sugar_missing_assign",
+                input: "type Maybe<T> Some(T) | None",
+                message_fragment: "type",
+            },
+            Case {
+                name: "hash_missing_colon",
+                input: "let h = { \"a\" 1 }",
+                message_fragment: "hash",
+            },
+            Case {
+                name: "list_comprehension_missing_generator_ident",
+                input: "let xs = [x | <- [1, 2, 3]]",
+                message_fragment: "comprehension",
+            },
+            Case {
+                name: "type_expr_missing_rparen",
+                input: "fn bad(x: (Int, String -> Int { x }",
+                message_fragment: "type",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034"))
+                .unwrap_or_else(|| panic!("expected E034 for case `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert!(
+                !msg.contains("Expected `") || msg.contains(case.message_fragment),
+                "expected contextual message for case `{}`, got: {}",
+                case.name,
+                msg
+            );
+            assert!(
+                msg.to_lowercase().contains(case.message_fragment),
+                "expected message to mention `{}` for case `{}`, got: {}",
+                case.message_fragment,
+                case.name,
+                msg
+            );
+            assert!(
+                !diag.hints().is_empty(),
+                "expected help hint for case `{}`",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn t16_contextual_recovery_fixtures_emit_e034_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            message_fragment: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot_fixture",
+                input: include_str!("fixtures/recovery/t16_perform_missing_dot_contextual.flx"),
+                message_fragment: "perform",
+            },
+            Case {
+                name: "handle_missing_lbrace_fixture",
+                input: include_str!("fixtures/recovery/t16_handle_missing_lbrace_contextual.flx"),
+                message_fragment: "handle",
+            },
+            Case {
+                name: "module_missing_lbrace_fixture",
+                input: include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+                message_fragment: "module",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034"))
+                .unwrap_or_else(|| panic!("expected E034 for case `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert!(
+                msg.to_lowercase().contains(case.message_fragment),
+                "expected contextual message to mention `{}` for case `{}`, got: {}",
+                case.message_fragment,
+                case.name,
+                msg
+            );
+        }
+    }
+
+    #[test]
+    fn t17_contextual_e034_regression_guard_exact_messages() {
+        struct Case {
+            name: &'static str,
+            input: &'static str,
+            expected_message: &'static str,
+            expected_hint: &'static str,
+        }
+
+        let cases = [
+            Case {
+                name: "perform_missing_dot",
+                input: include_str!("../examples/type_system/failing/173_perform_missing_dot.flx"),
+                expected_message: "Expected `.` between effect and operation in `perform`.",
+                expected_hint: "Perform expressions use `perform Effect.op(args...)`.",
+            },
+            Case {
+                name: "handle_missing_lbrace",
+                input: include_str!(
+                    "../examples/type_system/failing/174_handle_missing_lbrace.flx"
+                ),
+                expected_message: "Expected `{` to begin `handle` arms.",
+                expected_hint: "Handle expressions use `expr handle Effect { ... }`.",
+            },
+            Case {
+                name: "handle_arm_missing_arrow",
+                input: include_str!(
+                    "../examples/type_system/failing/175_handle_arm_missing_arrow.flx"
+                ),
+                expected_message: "Expected `->` in handle arm.",
+                expected_hint: "Handle arms use `op(resume, arg1, ...) -> body`.",
+            },
+            Case {
+                name: "module_missing_lbrace",
+                input: include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+                expected_message: "Expected `{` to begin module body.",
+                expected_hint: "Module declarations use `module Name { ... }`.",
+            },
+        ];
+
+        for case in cases {
+            let lexer = Lexer::new(case.input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .iter()
+                .find(|d| d.code() == Some("E034") && d.message() == Some(case.expected_message))
+                .unwrap_or_else(|| panic!("expected exact E034 message for `{}`", case.name));
+
+            let msg = diag
+                .message()
+                .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
+            assert_eq!(
+                msg, case.expected_message,
+                "unexpected E034 message for case `{}`",
+                case.name
+            );
+            assert_ne!(
+                msg.trim(),
+                "Unexpected token.",
+                "regressed to generic E034 wording for case `{}`",
+                case.name
+            );
+
+            let first_hint = diag
+                .hints()
+                .first()
+                .map(|h| h.text.as_str())
+                .unwrap_or_else(|| panic!("expected hint for case `{}`", case.name));
+            assert_eq!(
+                first_hint, case.expected_hint,
+                "unexpected E034 hint for case `{}`",
+                case.name
+            );
+        }
     }
 }

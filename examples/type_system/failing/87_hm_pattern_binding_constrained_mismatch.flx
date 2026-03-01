@@ -1,0 +1,7 @@
+fn main() -> Unit {
+    let x: String = match Some(1) {
+        Some(v) -> v,
+        None -> 0,
+    }
+    x
+}

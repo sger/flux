@@ -1,0 +1,13 @@
+// E1004: runtime boundary should reject non-Either value.
+import TypeSystem.BoundaryUnknown
+
+fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+    match input {
+        Left(_msg) -> 0,
+        Right(value) -> value,
+        _ -> 0
+    }
+}
+
+let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+unwrap_or_zero(dynamic)

@@ -1,0 +1,7 @@
+import TypeSystem.RealProgramPublicApi as Api
+
+fn main() -> Unit with IO {
+    let v: Int = Api.transform(3)
+    let s: String = Api.render(v)
+    print(s)
+}

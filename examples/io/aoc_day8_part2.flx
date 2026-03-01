@@ -3,44 +3,45 @@
 // Return X[a] * X[b] for the last successful union edge.
 // Input: examples/io/aoc_day8.txt
 
-fn int_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> 0
+fn main() with IO, Time {
+    fn int_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0
+        }
     }
-}
 
-fn arr_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> [||]
+    fn arr_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [||]
+        }
     }
-}
 
-fn set_at(arr, idx, value) {
-    let left = slice(arr, 0, idx)
-    let right = slice(arr, idx + 1, len(arr))
-    concat(concat(left, [|value|]), right)
-}
+    fn set_at(arr, idx, value) {
+        let left = slice(arr, 0, idx)
+        let right = slice(arr, idx + 1, len(arr))
+        concat(concat(left, [|value|]), right)
+    }
 
-fn dist_sq(points, i, j) {
-    ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
+    fn dist_sq(points, i, j) {
+        ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
         * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
         + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
-            * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
+        * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
         + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
-            * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
-}
+        * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
+    }
 
-fn pair_code(i, j) {
-    (i * 1000) + j
-}
+    fn pair_code(i, j) {
+        (i * 1000) + j
+    }
 
-fn maybe_push_edge(points, i, j, limit, acc) {
-    let d = dist_sq(points, i, j)
-    if d < limit {
-        push(acc, (d * 1000000) + pair_code(i, j))
-    } else {
+    fn maybe_push_edge(points, i, j, limit, acc) {
+        let d = dist_sq(points, i, j)
+        if d < limit {
+            push(acc, (d * 1000000) + pair_code(i, j))
+        } else {
         acc
     }
 }
@@ -106,28 +107,28 @@ fn union_key(state, key) {
     if ri == rj {
         state
     } else {
-        let si = int_at(sizes, ri)
-        let sj = int_at(sizes, rj)
-        if si >= sj {
-            let p_left = set_at(parents, rj, ri)
-            let s_left = set_at(sizes, ri, si + sj)
-            dsu_state(p_left, s_left, comps - 1, i, j)
-        } else {
-            let p_right = set_at(parents, ri, rj)
-            let s_right = set_at(sizes, rj, si + sj)
-            dsu_state(p_right, s_right, comps - 1, i, j)
-        }
-    }
+    let si = int_at(sizes, ri)
+    let sj = int_at(sizes, rj)
+    if si >= sj {
+        let p_left = set_at(parents, rj, ri)
+        let s_left = set_at(sizes, ri, si + sj)
+        dsu_state(p_left, s_left, comps - 1, i, j)
+    } else {
+    let p_right = set_at(parents, ri, rj)
+    let s_right = set_at(sizes, rj, si + sj)
+    dsu_state(p_right, s_right, comps - 1, i, j)
+}
+}
 }
 
 fn run_limit(points, limit) {
     let n = len(points)
     let idxs = range(0, n)
     let keys =
-        fold(idxs, [||], \(acc, i) -> {
-            let js = range(i + 1, n)
-            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
-        })
+    fold(idxs, [||], \(acc, i) -> {
+        let js = range(i + 1, n)
+        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
+    })
 
     let sorted_keys = sort(keys)
     let parents0 = range(0, n)
@@ -143,14 +144,15 @@ fn solve_limit(points, limit, max_limit) {
         let b = dsu_last_b(st)
         int_at(arr_at(points, a), 0) * int_at(arr_at(points, b), 0)
     } else {
-        if limit >= max_limit {
-            0
-        } else {
-            solve_limit(points, limit * 2, max_limit)
-        }
-    }
+    if limit >= max_limit {
+        0
+    } else {
+    solve_limit(points, limit * 2, max_limit)
+}
+}
 }
 
 let lines = read_lines("examples/io/aoc_day8.txt")
 let points = [split_ints(trim(line), ",") | line <- lines, trim(line) != ""]
 print(solve_limit(points, 188000000, 40000000000))
+}

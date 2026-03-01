@@ -1,0 +1,17 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx
+exit_code: 1
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin module body.
+
+  --> tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx:2:1
+  |
+2 | let after = 1
+  | ^^^
+
+Hint:
+  Module declarations use `module Name { ... }`.

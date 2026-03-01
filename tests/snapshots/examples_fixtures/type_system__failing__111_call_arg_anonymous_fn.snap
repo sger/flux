@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/111_call_arg_anonymous_fn.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to this function has the wrong type.
+
+  --> examples/type_system/failing/111_call_arg_anonymous_fn.flx:6:49
+  |
+6 |     let _x = (if true { greet } else { greet })(42)
+  |                                                 ^^
+  |                                                 -- this argument is `Int`
+
+Help:
+  Expected `String` as the 1st argument.
+== stdout ==
+<not executed>

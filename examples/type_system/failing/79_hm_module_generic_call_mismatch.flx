@@ -1,0 +1,6 @@
+import TypeSystem.HmGenericModule as M
+
+fn main() -> Unit {
+    let x: Int = M.id("oops")
+    None
+}

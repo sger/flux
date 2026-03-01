@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/172_self_recursive_unresolved_guard_no_false_positive.flx:3:9
+  |
+3 |         mystery_value
+  |         ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+== stdout ==
+<not executed>

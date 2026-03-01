@@ -1,0 +1,45 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/059_parser_error_recovery.flx
+exit_code: 1
+
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `def`. Flux uses `fn` for function declarations.
+
+  --> tests/fixtures/recovery/059_parser_error_recovery.flx:1:1
+  |
+1 | def foo() { 1 }
+  | ^^^
+
+Hint:
+  Did you mean `fn`?
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Match arms are separated by `,` in Flux, not `|`.
+
+  --> tests/fixtures/recovery/059_parser_error_recovery.flx:2:18
+  |
+2 | match x { 0 -> 1 | 1 -> 2 }
+  |                  ^
+
+Hint:
+  Replace `|` with `,`.
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `->` in match arm, found `=>`. Flux uses `->` not `=>`.
+
+  --> tests/fixtures/recovery/059_parser_error_recovery.flx:3:13
+  |
+3 | match y { 0 => 0, _ -> 1 }
+  |             ^
+
+Hint:
+  Replace `=>` with `->`: `match x { pattern -> body, ... }`
+
+Found 3 errors.

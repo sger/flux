@@ -3,53 +3,54 @@
 // from existing Flux Day 8 examples for performance.
 // Uses input file: examples/io/aoc_day8.txt
 
-fn line_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> ""
+fn main() with IO, Time {
+    fn line_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> ""
+        }
     }
-}
 
-fn int_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> 0
+    fn int_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> 0
+        }
     }
-}
 
-fn arr_at(arr, idx) {
-    match arr[idx] {
-        Some(v) -> v,
-        _ -> [||]
+    fn arr_at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [||]
+        }
     }
-}
 
-fn set_at(arr, idx, value) {
-    let left = slice(arr, 0, idx)
-    let right = slice(arr, idx + 1, len(arr))
-    concat(concat(left, [|value|]), right)
-}
+    fn set_at(arr, idx, value) {
+        let left = slice(arr, 0, idx)
+        let right = slice(arr, idx + 1, len(arr))
+        concat(concat(left, [|value|]), right)
+    }
 
-fn parse_points(lines, idx, acc) {
-    if idx >= len(lines) {
-        acc
-    } else {
+    fn parse_points(lines, idx, acc) {
+        if idx >= len(lines) {
+            acc
+        } else {
         let s = trim(line_at(lines, idx))
         if s == "" {
             parse_points(lines, idx + 1, acc)
         } else {
-            parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
-        }
+        parse_points(lines, idx + 1, push(acc, split_ints(s, ",")))
     }
+}
 }
 
 fn dist_sq(points, i, j) {
     ((int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0))
-        * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
-        + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
-            * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
-        + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
-            * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
+    * (int_at(arr_at(points, i), 0) - int_at(arr_at(points, j), 0)))
+    + ((int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1))
+    * (int_at(arr_at(points, i), 1) - int_at(arr_at(points, j), 1)))
+    + ((int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2))
+    * (int_at(arr_at(points, i), 2) - int_at(arr_at(points, j), 2)))
 }
 
 fn pair_code(i, j) {
@@ -65,8 +66,8 @@ fn maybe_push_edge(points, i, j, max_dist, acc) {
     if d < max_dist {
         push(acc, edge_key(points, i, j))
     } else {
-        acc
-    }
+    acc
+}
 }
 
 fn root(parents, x) {
@@ -130,40 +131,40 @@ fn union_key(state, key) {
     if ri == rj {
         state
     } else {
-        let si = int_at(sizes, ri)
-        let sj = int_at(sizes, rj)
-        if si >= sj {
-            let p_left = set_at(parents, rj, ri)
-            let s_left = set_at(sizes, ri, si + sj)
-            dsu_state(p_left, s_left, comps - 1, i, j)
-        } else {
-            let p_right = set_at(parents, ri, rj)
-            let s_right = set_at(sizes, rj, si + sj)
-            dsu_state(p_right, s_right, comps - 1, i, j)
-        }
-    }
+    let si = int_at(sizes, ri)
+    let sj = int_at(sizes, rj)
+    if si >= sj {
+        let p_left = set_at(parents, rj, ri)
+        let s_left = set_at(sizes, ri, si + sj)
+        dsu_state(p_left, s_left, comps - 1, i, j)
+    } else {
+    let p_right = set_at(parents, ri, rj)
+    let s_right = set_at(sizes, rj, si + sj)
+    dsu_state(p_right, s_right, comps - 1, i, j)
+}
+}
 }
 
 fn root_sizes(parents, sizes, i, acc) {
     if i >= len(parents) {
         acc
     } else {
-        if int_at(parents, i) == i {
-            root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
-        } else {
-            root_sizes(parents, sizes, i + 1, acc)
-        }
-    }
+    if int_at(parents, i) == i {
+        root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
+    } else {
+    root_sizes(parents, sizes, i + 1, acc)
+}
+}
 }
 
 fn run_limit(points, limit) {
     let n = len(points)
     let idxs = range(0, n)
     let keys =
-        fold(idxs, [||], \(acc, i) -> {
-            let js = range(i + 1, n)
-            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
-        })
+    fold(idxs, [||], \(acc, i) -> {
+        let js = range(i + 1, n)
+        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
+    })
 
     let sorted_keys = sort(keys)
     let parents0 = range(0, n)
@@ -179,10 +180,10 @@ fn run_day08a(points, max_dist) {
     let n = len(points)
     let idxs = range(0, n)
     let keys =
-        fold(idxs, [||], \(acc, i) -> {
-            let js = range(i + 1, n)
-            fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
-        })
+    fold(idxs, [||], \(acc, i) -> {
+        let js = range(i + 1, n)
+        fold(js, acc, \(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
+    })
 
     let sorted_keys = sort(keys)
     let top_keys = slice(sorted_keys, 0, 1000)
@@ -212,12 +213,12 @@ fn solve_day08b(points, limit, max_limit) {
         let b = dsu_last_b(st)
         int_at(arr_at(points, a), 0) * int_at(arr_at(points, b), 0)
     } else {
-        if limit >= max_limit {
-            0
-        } else {
-            solve_day08b(points, limit * 2, max_limit)
-        }
-    }
+    if limit >= max_limit {
+        0
+    } else {
+    solve_day08b(points, limit * 2, max_limit)
+}
+}
 }
 
 fn day08a(points) {
@@ -233,3 +234,4 @@ let points = parse_points(lines, 0, [||])
 
 print(day08a(points))
 print(day08b(points))
+}

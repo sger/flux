@@ -1,0 +1,21 @@
+// Valid custom effect handling at root.
+
+effect Console {
+    print: String -> ()
+}
+
+fn log(msg: String) -> Unit with Console {
+    perform Console.print(msg)
+}
+
+fn run() -> Int with Console {
+    log("ok")
+    1
+}
+
+fn main() -> Unit with IO {
+    let result = run() handle Console {
+        print(resume, _msg) -> resume(())
+    };
+    print(to_string(result))
+}

@@ -3,8 +3,37 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day1_profile.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `parse_rotations`.
+
+  --> examples/io/aoc_day1_profile.flx:27:9
+   |
+27 |         parse_rotations(rest, acc)
+   |         ^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let parse_rotations = ...;
+
+
+Help:
+  Did you mean `parse_rotation`?
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `solve_steps`.
+
+  --> examples/io/aoc_day1_profile.flx:43:9
+   |
+43 |         solve_steps(rest, next_pos, hits + 1)
+   |         ^^^^^^^^^^^
+
+Hint:
+  Define it first: let solve_steps = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,43 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/108_fun_return_string_vs_int.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `bad` does not match its declared return type.
+
+  --> examples/type_system/failing/108_fun_return_string_vs_int.flx:2:5
+  |
+1 | fn bad() -> Int {
+
+  |             --- `bad` was declared to return `Int`
+2 |     "oops"
+  |     ^^^^^^
+  |     ------ this expression has type `String`
+
+Help:
+  Return a `Int` value from `bad` or change the declared return type.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `main` does not match its declared return type.
+
+  --> examples/type_system/failing/108_fun_return_string_vs_int.flx:6:5
+  |
+5 | fn main() -> Unit {
+
+  |              ---- `main` was declared to return `Unit`
+6 |     bad()
+  |     ^^^^^
+  |     ----- this expression has type `Int`
+
+Help:
+  Return a `Unit` value from `main` or change the declared return type.
+
+Found 2 errors.
+== stdout ==
+<not executed>

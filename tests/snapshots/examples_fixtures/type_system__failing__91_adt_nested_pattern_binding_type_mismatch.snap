@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and String.
+
+  --> examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx:7:25
+  |
+7 |         Boxed(Ok(v)) -> v + "x",
+  |                         ^^^^^^^
+  |                         ------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and String
+  |                         ------- operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+== stdout ==
+<not executed>

@@ -1,6 +1,7 @@
 use crate::{
     bytecode::compiler::Compiler,
     bytecode::symbol_scope::SymbolScope,
+    diagnostics::render_diagnostics,
     runtime::base::BaseModule,
     runtime::value::Value,
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
@@ -151,4 +152,194 @@ fn base_indices_are_deterministic_across_interner_state() {
             name
         );
     }
+}
+
+#[test]
+fn typed_let_mismatch_is_checked_for_identifier_expression() {
+    let (program, interner) = parse_program(
+        r#"
+let y = 42.5
+let x: Int = y
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile-time type mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_mismatch_is_checked_for_typed_call_return() {
+    let (program, interner) = parse_program(
+        r#"
+fn make() -> Float { 1.5 }
+let x: Int = make()
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected compile-time type mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_module_member_call_uses_hm_strict_path() {
+    let (program, interner) = parse_program(
+        r#"
+module Local {
+    public fn make_float() -> Float { 1.5 }
+}
+fn main() -> Unit {
+    let x: Int = Local.make_float()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected HM strict-path mismatch for module member call");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("Float"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_private_module_member_call_is_rejected_before_hm_boundary_type_check() {
+    let (program, interner) = parse_program(
+        r#"
+module Local {
+    fn make_float() -> Float { 1.5 }
+}
+
+fn main() -> Unit {
+    let x: Float = Local.make_float()
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected private member access failure");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E011]"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_inference_path_does_not_use_runtime_compat_fallback_helpers() {
+    let source = include_str!("statement.rs");
+    assert!(
+        !source.contains("self.hm_expr_type_compat(value)"),
+        "typed let inference must not use hm_expr_type_compat fallback"
+    );
+    assert!(
+        !source.contains("self.runtime_boundary_expr_type(value)"),
+        "typed let inference must not use runtime_boundary_expr_type fallback"
+    );
+}
+
+#[test]
+fn typed_let_tuple_field_projection_uses_precise_hm_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let x: Int = (1, "s").1
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected tuple-field typed mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]")
+            && rendered.contains("does not match its type annotation")
+            && rendered.contains("Int")
+            && rendered.contains("String"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "tuple-field projection should be typed, not unresolved:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn typed_let_index_projection_uses_precise_hm_type() {
+    let (program, interner) = parse_program(
+        r#"
+fn main() -> Unit {
+    let xs = [1, 2]
+    let x: Int = xs[0]
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.strict_mode = true;
+    let err = compiler
+        .compile(&program)
+        .expect_err("expected index projection typed mismatch");
+    let rendered = render_diagnostics(&err, None, None);
+    assert!(
+        rendered.contains("error[E300]") && rendered.contains("Option<Int>"),
+        "unexpected diagnostics:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("error[E425]"),
+        "index projection should be typed, not unresolved:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn function_compile_error_does_not_leak_scope() {
+    let (program, interner) = parse_program(
+        r#"
+fn bad() -> Int {
+    "oops"
+}
+"#,
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    let _ = compiler
+        .compile(&program)
+        .expect_err("expected compile error");
+    assert_eq!(
+        compiler.scope_index, 0,
+        "function compile error should not leak symbol table scope"
+    );
 }

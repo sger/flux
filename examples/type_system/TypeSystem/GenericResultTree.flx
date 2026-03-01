@@ -1,0 +1,23 @@
+module TypeSystem.GenericResultTree {
+    data Result<T, E> {
+        Ok(T),
+        Err(E),
+    }
+
+    data Tree<T> {
+        Leaf(T),
+        Node(Tree<T>, Tree<T>),
+    }
+
+    public fn leftmost_ok(tree: Tree<Result<Int, String>>) -> Int {
+        match tree {
+            Leaf(Ok(v)) -> v,
+            Leaf(Err(_)) -> 0,
+            Node(l, _r) -> leftmost_ok(l),
+        }
+    }
+
+    public fn demo_tree() -> Tree<Result<Int, String>> {
+        Node(Leaf(Ok(7)), Leaf(Err("nope")))
+    }
+}

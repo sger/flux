@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/40_effect_alias_print_in_time_function.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `p` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/40_effect_alias_print_in_time_function.flx:5:5
+  |
+5 |     p("tick")
+  |     ^
+  |     - effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

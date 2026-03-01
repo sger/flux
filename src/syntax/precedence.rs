@@ -168,6 +168,13 @@ pub const OPERATOR_TABLE: &[OpInfo] = &[
         associativity: Assoc::Left,
         fixity: Fixity::Postfix,
     },
+    // handle - infix postfix form lowest precedence same as pipe operator
+    OpInfo {
+        token: TokenType::Handle,
+        precedence: Precedence::Pipe,
+        associativity: Assoc::Left,
+        fixity: Fixity::Infix,
+    },
     // Prefix operators
     OpInfo {
         token: TokenType::Bang,
@@ -242,6 +249,23 @@ pub static PREFIX_TABLE: LazyLock<[Option<PrefixInfo>; TokenType::COUNT]> = Lazy
     table
 });
 
+pub static PARSE_LOOP_PRECEDENCE_TABLE: LazyLock<[Option<Precedence>; TokenType::COUNT]> =
+    LazyLock::new(|| {
+        let mut table = [None; TokenType::COUNT];
+        for info in OPERATOR_TABLE {
+            if matches!(info.fixity, Fixity::Infix | Fixity::Postfix) {
+                let index = info.token.as_usize();
+                debug_assert!(
+                    table[index].is_none(),
+                    "duplicate parse-loop precedence entry for token {:?}",
+                    info.token
+                );
+                table[index] = Some(info.precedence);
+            }
+        }
+        table
+    });
+
 pub fn infix_op(token_type: &TokenType) -> Option<InfixInfo> {
     INFIX_TABLE[token_type.as_usize()]
 }
@@ -255,10 +279,13 @@ pub fn prefix_op(token_type: &TokenType) -> Option<PrefixInfo> {
     PREFIX_TABLE[token_type.as_usize()]
 }
 
+/// Single-table precedence lookup used by the Pratt parse loop.
+pub fn parse_loop_precedence(token_type: &TokenType) -> Option<Precedence> {
+    PARSE_LOOP_PRECEDENCE_TABLE[token_type.as_usize()]
+}
+
 pub fn precedence_of(token_type: &TokenType) -> Option<Precedence> {
-    infix_op(token_type)
-        .map(|op| op.precedence)
-        .or_else(|| postfix_op(token_type).map(|op| op.precedence))
+    parse_loop_precedence(token_type)
 }
 
 pub fn associativity_of(token_type: &TokenType) -> Option<Assoc> {

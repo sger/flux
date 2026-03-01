@@ -1,0 +1,7 @@
+// Parser cascade fixture: one root parse error followed by nearby generic parse noise.
+
+fn main() -> Unit {
+    let msg = "hello
+    }
+    }
+}

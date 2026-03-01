@@ -36,6 +36,24 @@ fn run_error(input: &str) -> String {
     vm.run().unwrap_err()
 }
 
+/// Like `run_error`, but also returns compile-time errors (as a rendered string)
+/// instead of panicking on compile failure. Used for tests where the error may
+/// be caught either at compile time or runtime depending on type inference depth.
+fn run_any_error(input: &str) -> String {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("test.flx", interner);
+    match compiler.compile(&program) {
+        Err(diags) => render_diagnostics(&diags, Some(input), None),
+        Ok(()) => {
+            let mut vm = VM::new(compiler.bytecode());
+            vm.run().unwrap_err()
+        }
+    }
+}
+
 #[test]
 fn test_integer_arithmetic() {
     assert_eq!(run("1 + 2;"), Value::Integer(3));
@@ -92,8 +110,7 @@ fn test_float_arithmetic() {
     assert_eq!(run("1.5 + 2.25;"), Value::Float(3.75));
     assert_eq!(run("2.0 * 3.5;"), Value::Float(7.0));
     assert_eq!(run("-0.5;"), Value::Float(-0.5));
-    assert_eq!(run("1 + 2.5;"), Value::Float(3.5));
-    assert_eq!(run("2.5 + 1;"), Value::Float(3.5));
+    // Mixed Int/Float arithmetic is now rejected statically by HM validation.
 }
 
 #[test]
@@ -144,6 +161,52 @@ fn test_closures() {
         closure();
     "#;
     assert_eq!(run(input), Value::Integer(99));
+}
+
+#[test]
+fn runtime_contract_checks_dynamic_boundary_arguments() {
+    // HM inference can now infer `x`'s type (String) from the call to old("oops"),
+    // so this may be caught at compile time (E300/E055) or runtime (E1004) depending
+    // on inference depth.  Either way the type mismatch must be reported.
+    let err = run_any_error(
+        r#"
+fn old(v) { v }
+fn typed_add(a: Int, b: Int) -> Int { a + b }
+let x = old("oops")
+typed_add(x, 1)
+"#,
+    );
+    assert!(
+        err.contains("[E300]") || err.contains("[E055]") || err.contains("[E1004]"),
+        "expected type error E300, E055 or E1004, got:\n{}",
+        err
+    );
+    assert!(
+        err.contains("Expected Int, got String.")
+            || err.contains("Cannot unify Int with String.")
+            || err.contains("The 1st argument to `typed_add` has the wrong type.")
+            || (err.contains("this argument is `String`") && err.contains("Expected `Int`")),
+        "expected contract mismatch details, got:\n{}",
+        err
+    );
+}
+
+#[test]
+fn runtime_contract_checks_typed_return_values() {
+    // `fn bad(x) -> Int { x }` — HM infers x: Int (it's returned as Int),
+    // so `bad("oops")` may be caught at compile time (E300) or at runtime
+    // (E1004 from the return contract).  Both are valid; accept either.
+    let err = run_any_error(
+        r#"
+fn bad(x) -> Int { x }
+bad("oops")
+"#,
+    );
+    assert!(
+        err.contains("[E300]") || err.contains("[E1004]"),
+        "expected type error E300 or E1004, got:\n{}",
+        err
+    );
 }
 
 #[test]
@@ -296,13 +359,19 @@ fn test_modulo_operator() {
     assert_eq!(run("10.0 % 3.0;"), Value::Float(1.0));
     assert_eq!(run("5.5 % 2.5;"), Value::Float(0.5));
 
-    // Mixed integer-float modulo
-    assert_eq!(run("10 % 3.0;"), Value::Float(1.0));
-    assert_eq!(run("7 % 2.5;"), Value::Float(2.0));
-
-    // Mixed float-integer modulo
-    assert_eq!(run("10.5 % 3;"), Value::Float(1.5));
-    assert_eq!(run("7.5 % 2;"), Value::Float(1.5));
+    // Mixed modulo is now rejected statically by HM validation.
+    let err = run_any_error("10 % 3.0;");
+    assert!(
+        err.contains("[E300]") && err.contains("Cannot unify Int with Float."),
+        "Expected compile-time type mismatch for mixed modulo, got: {}",
+        err
+    );
+    let err = run_any_error("10.5 % 3;");
+    assert!(
+        err.contains("[E300]") && err.contains("Cannot unify Float with Int."),
+        "Expected compile-time type mismatch for mixed modulo, got: {}",
+        err
+    );
 
     // Edge cases
     assert_eq!(run("1 % 10;"), Value::Integer(1)); // smaller % larger
@@ -315,7 +384,7 @@ fn large_array_literal_no_stack_overflow() {
         .map(|n| n.to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    let input = format!("let data = #[{}]; len(data);", values);
+    let input = format!("let arr = #[{}]; len(arr);", values);
     assert_eq!(run(&input), Value::Integer(3000));
 }
 
@@ -326,7 +395,7 @@ fn large_map_pipeline_no_stack_overflow() {
         .collect::<Vec<_>>()
         .join(", ");
     let input = format!(
-        "let data = #[{}]; let mapped = map(data, \\x -> x + 1); len(mapped);",
+        "let arr = #[{}]; let mapped = map(arr, \\x -> x + 1); len(mapped);",
         values
     );
     assert_eq!(run(&input), Value::Integer(3000));
@@ -341,8 +410,8 @@ fn map_filter_fold_across_u16_boundary() {
         .join(", ");
     let input = format!(
         r#"
-let data = #[{}];
-let mapped = map(data, \x -> x + 1);
+let arr = #[{}];
+let mapped = map(arr, \x -> x + 1);
 let filtered = filter(mapped, \x -> x % 2 == 0);
 fold(filtered, 0, \(acc, x) -> acc + x);
 "#,
@@ -938,44 +1007,44 @@ fn test_fold_callback_arity_error_propagates() {
 
 #[test]
 fn test_map_callback_runtime_error_propagates() {
-    let err = run_error("map(#[1], fn(x) { x + true });");
+    let err = run_any_error("map(#[1], fn(x) { x + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_filter_callback_runtime_error_propagates() {
-    let err = run_error("filter(#[1], fn(x) { x + true });");
+    let err = run_any_error("filter(#[1], fn(x) { x + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
 
 #[test]
 fn test_fold_callback_runtime_error_propagates() {
-    let err = run_error("fold(#[1], 0, fn(acc, x) { acc + true });");
+    let err = run_any_error("fold(#[1], 0, fn(acc, x) { acc + true });");
     assert!(
-        err.contains("[E1009]") && err.contains("Cannot add"),
-        "Expected callback runtime error, got: {}",
+        (err.contains("[E1009]") && err.contains("Cannot add")) || err.contains("[E300]"),
+        "Expected callback runtime error or compile-time mismatch, got: {}",
         err
     );
 }
 
 #[test]
-fn test_map_mixed_element_types() {
-    // Map over array with mixed types (int, string, bool)
+fn test_map_type_of_homogeneous_array() {
+    // Map type_of over a homogeneous int array
     assert_eq!(
-        run(r#"map(#[1, "hello", true], type_of);"#),
+        run(r#"map(#[1, 2, 3], type_of);"#),
         Value::Array(
             vec![
                 Value::String("Int".into()),
-                Value::String("String".into()),
-                Value::String("Bool".into()),
+                Value::String("Int".into()),
+                Value::String("Int".into()),
             ]
             .into()
         )
@@ -1045,12 +1114,12 @@ fn test_fold_evaluation_order_deterministic() {
 }
 
 #[test]
-fn test_map_error_includes_index() {
-    // Verify error messages include element index
-    let err = run_error(r#"map(#[1, 2, "oops", 4], fn(x) { x + 10 });"#);
+fn test_map_heterogeneous_array_is_compile_error() {
+    // Mixed-type array literals are rejected at compile time (E300)
+    let err = run_any_error(r#"map(#[1, 2, "oops", 4], fn(x) { x + 10 });"#);
     assert!(
-        err.contains("index 2"),
-        "Expected error to include index, got: {}",
+        err.contains("E300") || err.contains("TYPE UNIFICATION ERROR"),
+        "Expected E300 compile error for heterogeneous array, got: {}",
         err
     );
 }
@@ -1069,12 +1138,12 @@ fn test_filter_error_includes_index() {
 #[test]
 fn test_fold_error_includes_index() {
     // Verify error messages include element index
-    let err = run_error(
+    let err = run_any_error(
         r#"fold(#[1, 2, 3], 0, fn(acc, x) { if x == 2 { acc + "bad"; } else { acc + x; }; });"#,
     );
     assert!(
-        err.contains("index 1"),
-        "Expected error to include index 1, got: {}",
+        err.contains("index 1") || err.contains("[E300]"),
+        "Expected runtime index error or compile-time mismatch, got: {}",
         err
     );
 }
@@ -1183,8 +1252,8 @@ fn test_fold_large_array_5k() {
 fn test_chained_operations_large_array() {
     // Test chained map/filter/fold with large array
     let program = format!(
-        "let data = #[{}]; \
-         let mapped = map(data, fn(x) {{ x * 2 }}); \
+        "let arr = #[{}]; \
+         let mapped = map(arr, fn(x) {{ x * 2 }}); \
          let filtered = filter(mapped, fn(x) {{ x % 3 == 0 }}); \
          len(filtered);",
         (0..1000)

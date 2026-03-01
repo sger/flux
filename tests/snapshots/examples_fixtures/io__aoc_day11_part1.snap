@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day11_part1.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `dfs_count`.
+
+  --> examples/io/aoc_day11_part1.flx:79:13
+   |
+79 |     let r = dfs_count(nxt, graph, memo)
+   |             ^^^^^^^^^
+
+Hint:
+  Define it first: let dfs_count = ...;
 == stdout ==
 <not executed>

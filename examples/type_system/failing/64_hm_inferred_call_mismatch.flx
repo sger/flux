@@ -1,0 +1,10 @@
+fn id(x) {
+    x
+}
+
+fn main() {
+    let f = id
+    let a: Int = f(1)
+    let b: Int = f("x")
+    print(to_string(a + b))
+}

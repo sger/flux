@@ -1,7 +1,30 @@
-use crate::runtime::{RuntimeContext, gc::GcHeap, value::Value};
+use crate::runtime::{
+    RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
+};
+use crate::{
+    diagnostics::position::{Position, Span},
+    diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorType, RUNTIME_TYPE_ERROR},
+};
 use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
+
+/// A single arm of a JIT handler: maps an effect operation symbol ID to its arm closure.
+#[derive(Clone)]
+pub struct JitHandlerArm {
+    /// Symbol ID of the operation name (e.g. `Console.print` → symbol of `print`).
+    pub op: u32,
+    /// Pre-compiled arm closure value (`Value::JitClosure`).
+    pub closure: Value,
+}
+
+/// An active handler pushed onto `JitContext::handler_stack` by `rt_push_handler`.
+#[derive(Clone)]
+pub struct JitHandlerFrame {
+    /// Symbol ID of the effect name (e.g. symbol of `Console`).
+    pub effect: u32,
+    pub arms: Vec<JitHandlerArm>,
+}
 
 /// Execution context for JIT-compiled code.
 ///
@@ -15,18 +38,138 @@ pub struct JitContext {
     pub gc_heap: GcHeap,
     pub jit_functions: Vec<JitFunctionEntry>,
     pub named_functions: HashMap<String, usize>,
+    pub source_file: Option<String>,
+    pub source_text: Option<String>,
     /// When a runtime helper encounters an error, it stores the message here
     /// and returns NULL to the JIT code.
     pub error: Option<String>,
+    /// Active effect handlers pushed by `rt_push_handler` / popped by `rt_pop_handler`.
+    pub handler_stack: Vec<JitHandlerFrame>,
+    /// Function index of the JIT-compiled identity closure used as the `resume`
+    /// value passed to handler arms (shallow handlers: resume returns its argument).
+    pub identity_fn_index: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct JitFunctionEntry {
     pub ptr: *const u8,
     pub num_params: usize,
+    pub contract: Option<FunctionContract>,
 }
 
 impl JitContext {
+    pub(crate) fn render_runtime_type_error(
+        &self,
+        expected: &str,
+        actual: &str,
+        span: Option<Span>,
+    ) -> String {
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        let span = span.unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
+        let diag =
+            Diagnostic::make_error(&RUNTIME_TYPE_ERROR, &[expected, actual], file.clone(), span);
+        let mut agg =
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
+        if let Some(src) = &self.source_text {
+            agg = agg.with_source(file, src.clone());
+        }
+        agg.report().rendered
+    }
+
+    pub(crate) fn render_runtime_type_error_at(
+        &self,
+        expected: &str,
+        actual: &str,
+        line: usize,
+        column_1_based: usize,
+    ) -> String {
+        let col0 = column_1_based.saturating_sub(1);
+        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        self.render_runtime_type_error(expected, actual, Some(span))
+    }
+
+    /// Render a generic runtime error through the diagnostics system.
+    /// `line` is 1-based; `column` is 1-based.
+    /// Produces the same formatted output (colour, source snippet) as VM runtime errors.
+    pub(crate) fn render_runtime_error(
+        &self,
+        code: &str,
+        title: &str,
+        message: &str,
+        line: usize,
+        column: usize,
+    ) -> String {
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        let col0 = column.saturating_sub(1);
+        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        let diag = Diagnostic::make_error_dynamic(
+            code,
+            title,
+            ErrorType::Runtime,
+            message,
+            None,
+            file.clone(),
+            span,
+        );
+        let mut agg =
+            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
+        if let Some(src) = &self.source_text {
+            agg = agg.with_source(file, src.clone());
+        }
+        agg.report().rendered
+    }
+
+    pub(crate) fn check_contract_arg(
+        &self,
+        function_index: usize,
+        arg_index: usize,
+        value: &Value,
+    ) -> Result<(), (String, String)> {
+        let Some(entry) = self.jit_functions.get(function_index) else {
+            return Ok(());
+        };
+        let Some(contract) = entry.contract.as_ref() else {
+            return Ok(());
+        };
+        let Some(expected) = contract.params.get(arg_index).and_then(|t| t.as_ref()) else {
+            return Ok(());
+        };
+        if expected.matches_value(value, self) {
+            Ok(())
+        } else {
+            let expected_name = expected.type_name();
+            Err((expected_name, value.type_name().to_string()))
+        }
+    }
+
+    pub(crate) fn check_contract_return(
+        &self,
+        function_index: usize,
+        value: &Value,
+    ) -> Result<(), (String, String)> {
+        let Some(entry) = self.jit_functions.get(function_index) else {
+            return Ok(());
+        };
+        let Some(contract) = entry.contract.as_ref() else {
+            return Ok(());
+        };
+        let Some(expected) = contract.ret.as_ref() else {
+            return Ok(());
+        };
+        if expected.matches_value(value, self) {
+            Ok(())
+        } else {
+            let expected_name = expected.type_name();
+            Err((expected_name, value.type_name().to_string()))
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             arena: ValueArena::new(),
@@ -35,7 +178,11 @@ impl JitContext {
             gc_heap: GcHeap::new(),
             jit_functions: Vec::new(),
             named_functions: HashMap::new(),
+            source_file: None,
+            source_text: None,
             error: None,
+            handler_stack: Vec::new(),
+            identity_fn_index: usize::MAX,
         }
     }
 
@@ -55,6 +202,11 @@ impl JitContext {
 
     pub fn set_named_functions(&mut self, functions: HashMap<String, usize>) {
         self.named_functions = functions;
+    }
+
+    pub fn set_source_context(&mut self, file: Option<String>, source: Option<String>) {
+        self.source_file = file;
+        self.source_text = source;
     }
 }
 
@@ -88,6 +240,13 @@ impl RuntimeContext for JitContext {
                         entry.num_params,
                         args.len()
                     ));
+                }
+                for (index, arg) in args.iter().enumerate() {
+                    if let Err((expected, actual)) =
+                        self.check_contract_arg(closure.function_index, index, arg)
+                    {
+                        return Err(self.render_runtime_type_error(&expected, &actual, None));
+                    }
                 }
 
                 let mut arg_ptrs: Vec<*mut Value> = Vec::with_capacity(args.len());
@@ -123,7 +282,13 @@ impl RuntimeContext for JitContext {
                 if let Some(err) = self.take_error() {
                     return Err(err);
                 }
-                Ok(unsafe { (*result_ptr).clone() })
+                let result = unsafe { (*result_ptr).clone() };
+                if let Err((expected, actual)) =
+                    self.check_contract_return(closure.function_index, &result)
+                {
+                    return Err(self.render_runtime_type_error(&expected, &actual, None));
+                }
+                Ok(result)
             }
             _ => Err(format!("JIT invoke_value: cannot call {}", callee)),
         }

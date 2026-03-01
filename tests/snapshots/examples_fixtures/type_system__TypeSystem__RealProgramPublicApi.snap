@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/TypeSystem/RealProgramPublicApi.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `TypeSystem.RealProgramPublicApi` doesn't match file path `examples/type_system/TypeSystem/RealProgramPublicApi.flx`.
+
+  --> examples/type_system/TypeSystem/RealProgramPublicApi.flx:1:1
+  |
+1 | module TypeSystem.RealProgramPublicApi {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

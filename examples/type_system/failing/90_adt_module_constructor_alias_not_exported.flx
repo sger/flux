@@ -1,0 +1,6 @@
+// E084: module ADT constructors are internal API even via alias import.
+import TypeSystem.GenericResultTree as G
+
+fn main() {
+    let _x = G.Node(G.demo_tree(), G.demo_tree())
+}

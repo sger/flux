@@ -1,0 +1,5 @@
+module TypeSystem.HmGenericModule {
+    public fn id<T>(x: T) -> T {
+        x
+    }
+}

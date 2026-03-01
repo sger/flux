@@ -1,0 +1,9 @@
+// E1004: Runtime return type mismatch
+// `greet` declares -> String but returns an Int
+
+fn greet(name: String) -> None {
+    //42
+    print("hello")
+}
+
+greet("world")

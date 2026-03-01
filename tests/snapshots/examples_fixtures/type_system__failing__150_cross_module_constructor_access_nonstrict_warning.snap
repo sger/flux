@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E018]: IMPORT NOT FOUND
+
+Cannot find module `TypeSystem.BoundaryCtor` to import.
+
+  --> examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx:3:1
+  |
+3 | import TypeSystem.BoundaryCtor
+  | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryCtor.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `TypeSystem.BoundaryCtor` under roots: examples/type_system/failing, src (imported from examples/type_system/failing/150_cross_module_constructor_access_nonstrict_warning.flx).
+== stdout ==
+<not executed>

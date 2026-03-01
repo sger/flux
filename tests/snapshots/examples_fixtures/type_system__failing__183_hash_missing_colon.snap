@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/183_hash_missing_colon.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `:` between hash key and value.
+
+  --> examples/type_system/failing/183_hash_missing_colon.flx:1:15
+  |
+1 | let h = { "a" 1 }
+  |               ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+== stdout ==
+<not executed>

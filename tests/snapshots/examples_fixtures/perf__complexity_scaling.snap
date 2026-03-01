@@ -3,8 +3,133 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/perf/complexity_scaling.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:56:14
+   |
+56 |     let t0 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:58:14
+   |
+58 |     let t1 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:60:14
+   |
+60 |     let t2 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:62:14
+   |
+62 |     let t3 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:64:14
+   |
+64 |     let t4 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:66:14
+   |
+66 |     let t5 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:68:14
+   |
+68 |     let t6 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:70:14
+   |
+70 |     let t7 = now_ms()
+   |              ^^^^^^
+   |              ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `print` requires effect `IO` in this function signature.
+
+  --> examples/perf/complexity_scaling.flx:72:5
+   |
+72 |     print(
+   |     ^^^^^
+   |     ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+Found 9 errors.
 == stdout ==
 <not executed>

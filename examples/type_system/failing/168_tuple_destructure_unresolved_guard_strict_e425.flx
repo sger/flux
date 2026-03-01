@@ -1,0 +1,4 @@
+fn main() -> Unit {
+    let (a, b) = mystery_value
+    let _after = 1
+}

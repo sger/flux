@@ -130,3 +130,27 @@ fn snapshot_import_statement() {
     let output = parse_to_string(input);
     assert_snapshot!(output);
 }
+
+#[test]
+fn snapshot_0059_perform_missing_dot_contextual() {
+    let input =
+        include_str!("../../../tests/fixtures/recovery/t16_perform_missing_dot_contextual.flx");
+    let output = parse_to_string(input);
+    assert_snapshot!(output);
+}
+
+#[test]
+fn snapshot_0059_handle_missing_lbrace_contextual() {
+    let input =
+        include_str!("../../../tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx");
+    let output = parse_to_string(input);
+    assert_snapshot!(output);
+}
+
+#[test]
+fn snapshot_0059_module_missing_lbrace_contextual() {
+    let input =
+        include_str!("../../../tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx");
+    let output = parse_to_string(input);
+    assert_snapshot!(output);
+}

@@ -1,0 +1,10 @@
+// `Unit` return: effectful function with no meaningful result.
+
+fn log_twice(msg: String) -> Unit with IO {
+    print(msg)
+    print(msg)
+}
+
+fn main() -> Unit with IO {
+    log_twice("unit example")
+}

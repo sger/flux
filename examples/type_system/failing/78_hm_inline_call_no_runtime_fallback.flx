@@ -1,0 +1,5 @@
+fn main() -> Unit {
+    // HM can infer this inline lambda call as Int.
+    // Runtime-boundary compatibility typing cannot infer call returns for inline function expressions.
+    let _x: String = (\(n: Int) -> n)(1)
+}

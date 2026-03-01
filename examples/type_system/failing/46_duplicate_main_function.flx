@@ -1,0 +1,9 @@
+// E410: only one top-level main function is allowed.
+
+fn main() {
+    1
+}
+
+fn main() {
+    2
+}

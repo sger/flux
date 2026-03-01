@@ -1,0 +1,17 @@
+// Effect operation signature enforcement (passing case).
+// `Console.read` declares `String -> Int`; perform + handle respect that.
+
+effect Console {
+    read: String -> Int
+}
+
+fn ask_len(prompt: String) -> Int with Console {
+    perform Console.read(prompt)
+}
+
+fn main() -> Unit with IO {
+    let value: Int = ask_len("name") handle Console {
+        read(resume, msg) -> resume(len(msg))
+    }
+    print(to_string(value))
+}

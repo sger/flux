@@ -1,7 +1,8 @@
 mod diagnostics_env;
 
 use flux::diagnostics::{
-    Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, RelatedDiagnostic,
+    Diagnostic, DiagnosticBuilder, DiagnosticPhase, DiagnosticsAggregator, ErrorType,
+    RelatedDiagnostic,
     position::{Position, Span},
     render_diagnostics_multi,
 };
@@ -286,4 +287,399 @@ fn aggregator_related_without_source_renders_no_snippet() {
 
     assert!(output.contains("  --> missing_related.flx:1:1"));
     assert!(!output.contains(related_source));
+}
+
+#[test]
+fn aggregator_suppresses_nearby_duplicate_e300_same_message() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let mk = |line: usize, start_col: usize, end_col: usize| {
+        let s = Span::new(Position::new(line, start_col), Position::new(line, end_col));
+        Diagnostic::make_error_dynamic(
+            "E300",
+            "TYPE UNIFICATION ERROR",
+            ErrorType::Compiler,
+            "The branches of this `if` expression produce different types.",
+            None,
+            "a.flx",
+            s,
+        )
+        .with_primary_label(s, "primary")
+    };
+
+    let d1 = mk(10, 5, 12);
+    let d2 = mk(10, 8, 16); // overlaps line 10
+    let d3 = mk(11, 2, 6); // adjacent line to retained span
+
+    let output = render_diagnostics_multi(&[d1, d2, d3], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 1);
+    assert!(output.contains("Suppressed 2 nearby duplicate E300 diagnostic(s)."));
+}
+
+#[test]
+fn aggregator_does_not_suppress_e300_with_different_messages() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s1 = Span::new(Position::new(5, 1), Position::new(5, 6));
+    let s2 = Span::new(Position::new(6, 1), Position::new(6, 6)); // adjacent line
+    let d1 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "a.flx",
+        s1,
+    )
+    .with_primary_label(s1, "if");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The 1st argument to `f` has the wrong type.",
+        None,
+        "a.flx",
+        s2,
+    )
+    .with_primary_label(s2, "arg");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert!(!output.contains("Suppressed "));
+}
+
+#[test]
+fn aggregator_does_not_suppress_e300_across_files() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s = Span::new(Position::new(3, 2), Position::new(3, 8));
+    let d1 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "a.flx",
+        s,
+    )
+    .with_primary_label(s, "a");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "The branches of this `if` expression produce different types.",
+        None,
+        "b.flx",
+        s,
+    )
+    .with_primary_label(s, "b");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert!(!output.contains("Suppressed "));
+}
+
+#[test]
+fn aggregator_does_not_suppress_non_e300() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let s1 = Span::new(Position::new(7, 1), Position::new(7, 3));
+    let s2 = Span::new(Position::new(8, 1), Position::new(8, 3));
+    let d1 = Diagnostic::make_error_dynamic(
+        "E031",
+        "EXPECTED EXPRESSION",
+        ErrorType::Compiler,
+        "Expected expression, found `}`.",
+        None,
+        "a.flx",
+        s1,
+    )
+    .with_primary_label(s1, "e1");
+    let d2 = Diagnostic::make_error_dynamic(
+        "E031",
+        "EXPECTED EXPRESSION",
+        ErrorType::Compiler,
+        "Expected expression, found `}`.",
+        None,
+        "a.flx",
+        s2,
+    )
+    .with_primary_label(s2, "e2");
+
+    let output = render_diagnostics_multi(&[d1, d2], Some(50));
+    assert_eq!(output.matches("error[E031]").count(), 2);
+    assert!(!output.contains("Suppressed "));
+}
+
+#[test]
+fn aggregator_stage_filtering_parse_suppresses_type_and_effect() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let parse = Diagnostic::make_error_dynamic(
+        "E071",
+        "UNTERMINATED STRING",
+        ErrorType::Compiler,
+        "missing quote",
+        None,
+        "a.flx",
+        span(1, 0),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let ty = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "cannot unify",
+        None,
+        "a.flx",
+        span(2, 0),
+    )
+    .with_phase(DiagnosticPhase::TypeInference);
+    let eff = Diagnostic::make_error_dynamic(
+        "E407",
+        "UNKNOWN FUNCTION EFFECT",
+        ErrorType::Compiler,
+        "unknown effect",
+        None,
+        "a.flx",
+        span(3, 0),
+    )
+    .with_phase(DiagnosticPhase::Effect);
+
+    let output = DiagnosticsAggregator::new(&[parse, ty, eff]).render();
+    assert!(output.contains("error[E071]"));
+    assert!(!output.contains("error[E300]"));
+    assert!(!output.contains("error[E407]"));
+    assert!(output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+    assert!(!output.contains(":0:1"));
+}
+
+#[test]
+fn aggregator_stage_filtering_type_suppresses_effect() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let ty = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "cannot unify",
+        None,
+        "a.flx",
+        span(2, 0),
+    )
+    .with_phase(DiagnosticPhase::TypeCheck);
+    let eff = Diagnostic::make_error_dynamic(
+        "E407",
+        "UNKNOWN FUNCTION EFFECT",
+        ErrorType::Compiler,
+        "unknown effect",
+        None,
+        "a.flx",
+        span(3, 0),
+    )
+    .with_phase(DiagnosticPhase::Effect);
+
+    let output = DiagnosticsAggregator::new(&[ty, eff]).render();
+    assert!(output.contains("error[E300]"));
+    assert!(!output.contains("error[E407]"));
+    assert!(output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+    assert!(!output.contains(":0:1"));
+}
+
+#[test]
+fn aggregator_stage_filtering_can_be_disabled() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let parse = Diagnostic::make_error_dynamic(
+        "E071",
+        "UNTERMINATED STRING",
+        ErrorType::Compiler,
+        "missing quote",
+        None,
+        "a.flx",
+        span(1, 0),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let ty = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "cannot unify",
+        None,
+        "a.flx",
+        span(2, 0),
+    )
+    .with_phase(DiagnosticPhase::TypeInference);
+
+    let output = DiagnosticsAggregator::new(&[parse, ty])
+        .with_stage_filtering(false)
+        .render();
+    assert!(output.contains("error[E071]"));
+    assert!(output.contains("error[E300]"));
+    assert!(!output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+}
+
+#[test]
+fn aggregator_collapses_parser_cascades() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let root = Diagnostic::make_error_dynamic(
+        "E076",
+        "UNCLOSED DELIMITER",
+        ErrorType::Compiler,
+        "missing `}`",
+        None,
+        "a.flx",
+        span(10, 1),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let cascade_1 = Diagnostic::make_error_dynamic(
+        "E034",
+        "UNEXPECTED TOKEN",
+        ErrorType::Compiler,
+        "unexpected token",
+        None,
+        "a.flx",
+        span(11, 1),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let cascade_2 = Diagnostic::make_error_dynamic(
+        "E034",
+        "UNEXPECTED TOKEN",
+        ErrorType::Compiler,
+        "unexpected token",
+        None,
+        "a.flx",
+        span(12, 1),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+
+    let output = DiagnosticsAggregator::new(&[root, cascade_1, cascade_2]).render();
+    assert_eq!(output.matches("error[E034]").count(), 0);
+    assert_eq!(output.matches("error[E076]").count(), 1);
+    assert!(output.contains("cascading parser diagnostic"));
+}
+
+/// T1 acceptance: every diagnostic emitted from a real multi-error compilation
+/// must carry a non-None phase tag so that stage filtering can classify it.
+#[test]
+fn all_compiler_diagnostics_have_phase_tags() {
+    use flux::bytecode::compiler::Compiler;
+    use flux::syntax::{lexer::Lexer, parser::Parser};
+
+    // A source with both parse and type errors.
+    let source = r#"
+fn greet(name: String) -> String {
+    "Hello, #{name}!"
+}
+
+fn main() with IO {
+    print(greet(42))
+}
+"#;
+
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+
+    let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
+
+    // Tag parse warnings/errors (mirrors main.rs pipeline).
+    let mut parse_warnings = parser.take_warnings();
+    for d in &mut parse_warnings {
+        if d.phase().is_none() {
+            *d = d.clone().with_phase(DiagnosticPhase::Parse);
+        }
+    }
+    all_diagnostics.append(&mut parse_warnings);
+
+    if !parser.errors.is_empty() {
+        for d in &mut parser.errors {
+            if d.phase().is_none() {
+                *d = d.clone().with_phase(DiagnosticPhase::Parse);
+            }
+        }
+        all_diagnostics.append(&mut parser.errors);
+    }
+
+    // Compile (produces internally-tagged diagnostics).
+    if all_diagnostics.is_empty() {
+        let interner = parser.take_interner();
+        let mut compiler = Compiler::new_with_interner("test.flx", interner);
+        if let Err(mut diags) = compiler.compile(&program) {
+            // Safety-net tag: mirrors main.rs bulk-tag for compile errors.
+            for d in &mut diags {
+                if d.phase().is_none() {
+                    *d = d.clone().with_phase(DiagnosticPhase::TypeCheck);
+                }
+            }
+            all_diagnostics.append(&mut diags);
+        }
+        let mut warnings = compiler.take_warnings();
+        for d in &mut warnings {
+            if d.phase().is_none() {
+                *d = d.clone().with_phase(DiagnosticPhase::Validation);
+            }
+        }
+        all_diagnostics.append(&mut warnings);
+    }
+
+    // Must have produced diagnostics (this source has a type error).
+    assert!(
+        !all_diagnostics.is_empty(),
+        "expected diagnostics from multi-error source"
+    );
+
+    // Every diagnostic must have a phase tag.
+    for (i, diag) in all_diagnostics.iter().enumerate() {
+        assert!(
+            diag.phase().is_some(),
+            "diagnostic #{} has no phase tag: code={:?} title={:?} message={:?}",
+            i,
+            diag.code(),
+            diag.title(),
+            diag.message(),
+        );
+    }
+}
+
+/// Parse errors also get phase tags when tagged through the main.rs pipeline.
+#[test]
+fn parse_error_diagnostics_have_phase_tags() {
+    use flux::syntax::{lexer::Lexer, parser::Parser};
+
+    let source = r#"
+fn main() -> Unit {
+    let broken = "unterminated
+}
+"#;
+
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let _program = parser.parse_program();
+
+    assert!(!parser.errors.is_empty(), "expected parse errors");
+
+    // Tag parse errors (mirrors main.rs).
+    for d in &mut parser.errors {
+        if d.phase().is_none() {
+            *d = d.clone().with_phase(DiagnosticPhase::Parse);
+        }
+    }
+
+    for (i, diag) in parser.errors.iter().enumerate() {
+        assert!(
+            diag.phase().is_some(),
+            "parse diagnostic #{} has no phase tag: code={:?}",
+            i,
+            diag.code(),
+        );
+        assert_eq!(
+            diag.phase(),
+            Some(DiagnosticPhase::Parse),
+            "parse diagnostic #{} should be tagged Parse, got {:?}",
+            i,
+            diag.phase(),
+        );
+    }
 }

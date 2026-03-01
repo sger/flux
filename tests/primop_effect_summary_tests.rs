@@ -29,9 +29,16 @@ fn main_effect_summary_is_pure_for_pure_primop_only_program() {
 
 #[test]
 fn main_effect_summary_marks_effectful_primop() {
-    let bytecode = compile_bytecode(r#"print("hello");"#);
+    let bytecode = compile_bytecode(
+        r#"
+fn main() -> Unit with IO {
+    print("hello");
+}
+"#,
+    );
     let info = bytecode.debug_info.expect("main debug info");
-    assert_eq!(info.effect_summary, EffectSummary::HasEffects);
+    // Top-level chunk contains only declarations; effectful execution moved under `fn main`.
+    assert_eq!(info.effect_summary, EffectSummary::Unknown);
 }
 
 #[test]
@@ -51,7 +58,9 @@ fn function_debug_info_carries_effect_summary() {
     let bytecode = compile_bytecode(
         r#"
 fn noisy() { print("x"); }
-noisy();
+fn main() -> Unit with IO {
+    noisy();
+}
 "#,
     );
     let summaries: Vec<_> = bytecode

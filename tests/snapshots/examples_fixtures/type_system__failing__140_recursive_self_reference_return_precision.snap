@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/140_recursive_self_reference_return_precision.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `value` does not match its type annotation.
+
+  --> examples/type_system/failing/140_recursive_self_reference_return_precision.flx:10:25
+   |
+10 |     let value: String = countdown(2)
+   |                         ^^^^^^^^^^^^
+   |                         ------------ this is `Int`
+   |                ------ but `value` was annotated as `String`
+
+Help:
+  Change `value` to a `String` value or update the annotation to `Int`.
+== stdout ==
+<not executed>

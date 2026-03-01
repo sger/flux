@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/112_keyword_alias_def.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E030]: UNKNOWN KEYWORD
+
+Unknown keyword `def`. Flux uses `fn` for function declarations.
+
+  --> examples/type_system/failing/112_keyword_alias_def.flx:1:1
+  |
+1 | def add(a: Int, b: Int) -> Int {
+  | ^^^
+
+Hint:
+  Did you mean `fn`?
+== stdout ==
+<not executed>

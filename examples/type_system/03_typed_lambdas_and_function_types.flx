@@ -1,0 +1,15 @@
+fn main() with IO, Time {
+    let inc: (Int) -> Int = \(x: Int) -> x + 1
+    let fmt: (Int) -> String = \(x: Int) -> "n=#{x}"
+
+    fn apply_twice(f: (Int) -> Int, x: Int) -> Int {
+        f(f(x))
+    }
+
+    fn map_int_to_string(x: Int, f: (Int) -> String) -> String {
+        f(x)
+    }
+
+    let n: Int = apply_twice(inc, 10)
+    print(map_int_to_string(n, fmt))
+}

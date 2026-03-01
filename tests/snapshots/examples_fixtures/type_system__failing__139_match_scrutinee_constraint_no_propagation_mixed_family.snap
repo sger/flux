@@ -1,0 +1,55 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `mystery_value`.
+
+  --> examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:4:13
+  |
+4 |     let x = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+
+
+--> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+
+The `add` function takes 2 arguments, but 1 were provided.
+
+  --> examples/type_system/failing/139_match_scrutinee_constraint_no_propagation_mixed_family.flx:10:14
+   |
+ 1 | fn add(a: Int, b: Int) -> Int { a + b }
+
+   | --------------------------------------- `add` is defined with 2 parameters
+ 2 | 
+
+ 3 | fn main() -> Unit {
+
+ 4 |     let x = mystery_value
+
+ 5 |     let _y = match x {
+
+ 6 |         Some(n) -> n,
+
+ 7 |         Left(l) -> l,
+
+ 8 |         _ -> 0,
+
+ 9 |     }
+
+10 |     let _z = add(1)
+   |              ^^^^^^
+   |              ------ 1 arguments provided here, expected 2
+
+Help:
+  Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+
+Found 2 errors.
+== stdout ==
+<not executed>

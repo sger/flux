@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/21_perform_unknown_operation.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E404]: UNKNOWN EFFECT OPERATION
+
+Effect `Console` has no declared operation `read`.
+
+  --> examples/type_system/failing/21_perform_unknown_operation.flx:8:5
+  |
+8 |     perform Console.read("x")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ------------------------- unknown operation in perform
+
+Hint:
+  Add the operation to the effect declaration or rename it.
+== stdout ==
+<not executed>

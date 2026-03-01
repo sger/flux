@@ -22,6 +22,7 @@ pub struct Diagnostic {
     pub(crate) suggestions: Vec<InlineSuggestion>,
     pub(crate) hint_chains: Vec<HintChain>,
     pub(crate) related: Vec<RelatedDiagnostic>,
+    pub(crate) phase: Option<DiagnosticPhase>,
 }
 
 // ICE = Internal Compiler Error (a compiler bug, not user code).
@@ -46,6 +47,7 @@ macro_rules! ice {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }};
 }
@@ -66,6 +68,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }
 
@@ -121,6 +124,15 @@ impl Diagnostic {
 
     pub fn related(&self) -> &[RelatedDiagnostic] {
         &self.related
+    }
+
+    pub fn phase(&self) -> Option<DiagnosticPhase> {
+        self.phase
+    }
+
+    pub fn with_phase(mut self, phase: DiagnosticPhase) -> Self {
+        self.phase = Some(phase);
+        self
     }
 
     // Setter for file (needed by module_graph)
@@ -325,6 +337,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }
 
@@ -383,6 +396,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }
 
@@ -421,6 +435,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }
 
@@ -444,6 +459,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            phase: None,
         }
     }
 

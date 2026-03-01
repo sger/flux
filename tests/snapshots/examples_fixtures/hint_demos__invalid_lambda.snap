@@ -1,13 +1,14 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
 ---
 Fixture: examples/hint_demos/invalid_lambda.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E036]: LAMBDA SYNTAX ERROR
+--> compiler error[E034]: UNEXPECTED TOKEN
 
-Expected `->` after lambda parameters, got `*`.
+Expected `->` after lambda parameters, found `*`.
 
   --> examples/hint_demos/invalid_lambda.flx:5:17
   |
@@ -16,9 +17,5 @@ Expected `->` after lambda parameters, got `*`.
 
 Hint:
   Use `/x -> expr` or `/(x, y) -> expr`.
-
-
-Example:
-  let add = /(a, b) -> a + b;
 == stdout ==
 <not executed>

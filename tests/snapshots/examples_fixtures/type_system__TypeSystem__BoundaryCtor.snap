@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/TypeSystem/BoundaryCtor.flx
+== compile ==
+failed (module)
+== diagnostics ==
+--> compiler error[E024]: MODULE PATH MISMATCH
+
+Module name `TypeSystem.BoundaryCtor` doesn't match file path `examples/type_system/TypeSystem/BoundaryCtor.flx`.
+
+  --> examples/type_system/TypeSystem/BoundaryCtor.flx:1:1
+  |
+1 | module TypeSystem.BoundaryCtor {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+== stdout ==
+<not executed>

@@ -1,0 +1,102 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/11_adt_basic.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/11_adt_basic.flx:9:9
+   |
+ 9 |         match s {
+   |         ^^^^^^^^^
+10 |             Circle(r) -> 3.14159 * r * r,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |             Rectangle(w, h) -> w * h,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |             Point -> 0.0,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |         }
+   | ^^^^^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/11_adt_basic.flx:17:9
+   |
+17 |         match s {
+   |         ^^^^^^^^^
+18 |             Circle(r) -> "Circle with radius #{r}",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |             Rectangle(w, h) -> "Rectangle #{w}x#{h}",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+20 |             Point -> "Point",
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 |         }
+   | ^^^^^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Circle`.
+
+  --> examples/type_system/11_adt_basic.flx:24:13
+   |
+24 |     let c = Circle(5.0)
+   |             ^^^^^^
+
+Hint:
+  Define it first: let Circle = ...;
+
+
+Help:
+  Did you mean `c`?
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Rectangle`.
+
+  --> examples/type_system/11_adt_basic.flx:25:13
+   |
+25 |     let r = Rectangle(3.0, 4.0)
+   |             ^^^^^^^^^
+
+Hint:
+  Define it first: let Rectangle = ...;
+
+
+Help:
+  Did you mean `r`?
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Point`.
+
+  --> examples/type_system/11_adt_basic.flx:26:13
+   |
+26 |     let p = Point
+   |             ^^^^^
+
+Hint:
+  Define it first: let Point = ...;
+
+
+Help:
+  Did you mean one of: `p`, `print`, `count`?
+
+Found 5 errors.
+== stdout ==
+<not executed>

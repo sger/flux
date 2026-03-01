@@ -1,0 +1,28 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+assertion_line: 53
+---
+Fixture: examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
+Category: H
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E300 | TYPE UNIFICATION ERROR | this argument is `String`
+
+== jit tuples ==
+- E300 | TYPE UNIFICATION ERROR | this argument is `String`
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

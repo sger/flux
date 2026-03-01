@@ -10,6 +10,7 @@ use crate::{
             GcHandle, GcHeap, HeapObject,
             hamt::{hamt_empty, hamt_insert},
         },
+        handler_frame::HandlerFrame,
         leak_detector,
         value::Value,
     },
@@ -41,6 +42,8 @@ pub struct VM {
     trace: bool,
     pub gc_heap: GcHeap,
     tail_arg_scratch: Vec<Value>,
+    /// Active effect handlers pushed by OpHandle / popped by OpEndHandle.
+    pub(crate) handler_stack: Vec<HandlerFrame>,
 }
 
 impl VM {
@@ -60,6 +63,7 @@ impl VM {
             trace: false,
             gc_heap: GcHeap::new(),
             tail_arg_scratch: Vec::new(),
+            handler_stack: Vec::new(),
         }
     }
 
@@ -139,10 +143,19 @@ impl VM {
             }
 
             let frame_before = self.frame_index;
+            // Track closure identity so continuation resume which leaves
+            // frame_index unchanged numerically but swaps in a different frame
+            // triggers an instruction-pointer refresh.
+            let closure_ptr_before = Rc::as_ptr(&closure);
             let ip_delta = self.dispatch_instruction(instructions, ip, op)?;
             self.apply_ip_delta(frame_before, ip_delta, None);
 
-            if self.frame_index != frame_before || matches!(op, OpCode::OpTailCall) {
+            let closure_changed =
+                Rc::as_ptr(&self.frames[self.frame_index].closure) != closure_ptr_before;
+            if self.frame_index != frame_before
+                || matches!(op, OpCode::OpTailCall)
+                || closure_changed
+            {
                 closure = self.frames[self.frame_index].closure.clone();
                 instructions = &closure.function.instructions;
             }

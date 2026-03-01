@@ -1,43 +1,44 @@
-// Either Pattern Matching Examples
-// Demonstrates various ways to match on Left and Right values
+fn main() with IO {
+    // Either Pattern Matching Examples
+    // Demonstrates various ways to match on Left and Right values
 
-// Basic Left/Right matching
-fn handleResult(result) {
-    match result {
-        Left(err) -> "Error: " + err,
-        Right(val) -> "Value: " + to_string(val),
-        _ -> "Unknown",
+    // Basic Left/Right matching
+    fn handleResult(result) {
+        match result {
+            Left(err) -> "Error: " + err,
+            Right(val) -> "Value: " + to_string(val),
+            _ -> "Unknown",
+        }
     }
-}
 
-print(handleResult(Left("not found")));
-print(handleResult(Right(42)));
+    print(handleResult(Left("not found")));
+    print(handleResult(Right(42)));
 
-// Matching with simple actions
-fn isSuccess(result) {
-    match result {
-        Right(_) -> true,
-        _ -> false,
+    // Matching with simple actions
+    fn isSuccess(result) {
+        match result {
+            Right(_) -> true,
+            _ -> false,
+        }
     }
-}
 
-fn isFailure(result) {
-    match result {
-        Left(_) -> true,
-        _ -> false,
+    fn isFailure(result) {
+        match result {
+            Left(_) -> true,
+            _ -> false,
+        }
     }
-}
 
-print(isSuccess(Right(1)));
-print(isSuccess(Left("err")));
-print(isFailure(Left("err")));
-print(isFailure(Right(1)));
+    print(isSuccess(Right(1)));
+    print(isSuccess(Left("err")));
+    print(isFailure(Left("err")));
+    print(isFailure(Right(1)));
 
-// Chain of operations with Either
-fn divide(a, b) {
-    if b == 0 {
-        Left("division by zero")
-    } else {
+    // Chain of operations with Either
+    fn divide(a, b) {
+        if b == 0 {
+            Left("division by zero")
+        } else {
         Right(a / b)
     }
 }
@@ -116,3 +117,4 @@ fn withTrailingParams(a, b,) {
 let trailing = withTrailingParams("left value", 99,);
 print(trailing);
 print(handleResult(Right(123),));
+}

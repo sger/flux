@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::{bytecode::op_code::Instructions, runtime::closure::Closure};
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
     pub closure: Rc<Closure>,
     pub ip: usize,

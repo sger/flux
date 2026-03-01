@@ -1,0 +1,6 @@
+public fn add(x, y) -> Int {
+    x + y
+}
+
+fn main() -> Unit {
+}

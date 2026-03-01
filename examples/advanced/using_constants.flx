@@ -1,30 +1,32 @@
-// Using Module Constants
-// Demonstrates how to use compile-time constants from modules
-// Run with: cargo run -- examples/advanced/using_constants.flx
-//
-// Expected output:
-// === Mathematical Constants ===
-// PI: 3.14159
-// E: 2.71828
-// TAU (2*PI): 6.28318
-// === Calculations ===
-// Circle area (r=1): 3.14159
-// Circle area (r=5): 78.53975
-// Circumference (r=5): 31.4159
-// === Using Private Constants (internal) ===
-// 90 degrees in radians: 1.5707...
+// Using Constants and Constant-driven helpers
 
-import Modules.MathConstants as Math
+let PI = 3.14159
+let E = 2.71828
+let TAU = PI * 2.0
 
-print("=== Mathematical Constants ===");
-print("PI: " + to_string(Math.PI));
-print("E: " + to_string(Math.E));
-print("TAU (2*PI): " + to_string(Math.TAU));
+fn circle_area(radius) {
+    PI * radius * radius
+}
 
-print("=== Calculations ===");
-print("Circle area (r=1): " + to_string(Math.circle_area(1)));
-print("Circle area (r=5): " + to_string(Math.circle_area(5)));
-print("Circumference (r=5): " + to_string(Math.circumference(5)));
+fn circumference(radius) {
+    TAU * radius
+}
 
-print("=== Using Private Constants (internal) ===");
-print("90 degrees in radians: " + to_string(Math.degrees_to_radians(90)));
+fn degrees_to_radians(degrees) {
+    degrees * (PI / 180.0)
+}
+
+fn main() with IO {
+    print("=== Mathematical Constants ===")
+    print("PI: " + to_string(PI))
+    print("E: " + to_string(E))
+    print("TAU (2*PI): " + to_string(TAU))
+
+    print("=== Calculations ===")
+    print("Circle area (r=1): " + to_string(circle_area(1.0)))
+    print("Circle area (r=5): " + to_string(circle_area(5.0)))
+    print("Circumference (r=5): " + to_string(circumference(5.0)))
+
+    print("=== Angle Conversion ===")
+    print("90 degrees in radians: " + to_string(degrees_to_radians(90.0)))
+}
