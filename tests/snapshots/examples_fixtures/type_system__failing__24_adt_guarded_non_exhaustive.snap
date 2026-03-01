@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/24_adt_guarded_non_exhaustive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+
+Match on `MaybeInt` is non-exhaustive because all constructor arms are guarded.
+
+  --> examples/type_system/failing/24_adt_guarded_non_exhaustive.flx:9:5
+   |
+ 9 |     match x {
+   |     ^^^^^^^^^
+10 |         SomeI(v) if v > 0 -> v,
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |     }
+   | ^^^^^
+
+Hint:
+  Add unguarded arms for SomeI, NoneI or add a `_ -> ...` catch-all.
+== stdout ==
+<not executed>

@@ -1,0 +1,10 @@
+// E1004: runtime boundary mismatch from module-qualified dynamic source into typed argument.
+
+import TypeSystem.BoundaryUnknown
+
+fn typed_add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+typed_add(dynamic, 1)

@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `wrap_apply` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/22_effect_polymorphism_chain_missing_effect.flx:17:5
+   |
+17 |     wrap_apply(io_inc, 41)
+   |     ^^^^^^^^^^
+   |     ---------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

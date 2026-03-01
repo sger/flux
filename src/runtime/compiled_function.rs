@@ -1,4 +1,5 @@
 use crate::bytecode::{debug_info::FunctionDebugInfo, op_code::Instructions};
+use crate::runtime::function_contract::FunctionContract;
 use crate::runtime::leak_detector;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,6 +9,7 @@ pub struct CompiledFunction {
     pub num_parameters: usize,
     pub max_stack: usize,
     pub debug_info: Option<FunctionDebugInfo>,
+    pub contract: Option<FunctionContract>,
 }
 
 impl CompiledFunction {
@@ -25,6 +27,12 @@ impl CompiledFunction {
             // Default stack frame requirement: locals. Compiler can raise this later.
             max_stack: num_locals,
             debug_info,
+            contract: None,
         }
+    }
+
+    pub fn with_contract(mut self, contract: Option<FunctionContract>) -> Self {
+        self.contract = contract;
+        self
     }
 }

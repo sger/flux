@@ -1,0 +1,12 @@
+// E400: module-qualified call requires IO, but caller is declared with Time only.
+
+import TypeSystem.EffectsChain
+
+fn run_step(x: Int) -> Int with Time {
+    TypeSystem.EffectsChain.call_io_step(x)
+}
+
+fn main() with Time {
+    run_step(1)
+    None
+}

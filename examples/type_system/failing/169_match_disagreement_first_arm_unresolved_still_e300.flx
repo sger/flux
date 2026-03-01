@@ -1,0 +1,8 @@
+fn main() -> Unit {
+    let x = mystery_value
+    let y: Int = match 1 {
+        0 -> x,
+        1 -> 10,
+        _ -> "oops",
+    }
+}

@@ -1,0 +1,79 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/151_stage_type_suppresses_effect.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E406]: UNHANDLED ROOT EFFECT
+
+`fn main` has undischarged effects: Mystery.
+
+  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:13:19
+   |
+13 | fn main() with IO {
+   |                   ^
+14 |     print(greet(42))
+   | ^^^^^^^^^^^^^^^^^^^^
+15 |     bad()
+   | ^^^^^^^^^
+16 | }
+   | ^
+
+Hint:
+  Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `greet` has the wrong type.
+
+  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:14:17
+   |
+ 5 | fn greet(name: String) -> String {
+
+ 6 |     "Hello, #{name}!"
+
+ 7 | }
+
+ 8 | 
+
+ 9 | fn bad() with Mystery {
+
+10 |     1
+
+11 | }
+
+12 | 
+
+13 | fn main() with IO {
+
+14 |     print(greet(42))
+   |                 ^^
+   |                 -- this argument is `Int`
+
+Help:
+  Expected `String` as the 1st argument.
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `bad` requires effect `Mystery` in this function signature.
+
+  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:15:5
+   |
+15 |     bad()
+   |     ^^^
+   |     --- effectful call occurs here
+
+Hint:
+  Add `with Mystery` to the enclosing function.
+
+
+--> note[E000]: DOWNSTREAM ERRORS SUPPRESSED
+
+1 downstream diagnostic (1 effect) was suppressed by stage filtering. Fix earlier-stage errors first.
+
+Found 3 errors.
+== stdout ==
+<not executed>

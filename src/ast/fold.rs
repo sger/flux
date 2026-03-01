@@ -1,7 +1,7 @@
 use crate::syntax::{
     Identifier,
     block::Block,
-    expression::{Expression, MatchArm, Pattern, StringPart},
+    expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
     program::Program,
     statement::Statement,
 };
@@ -74,8 +74,14 @@ pub fn fold_block<F: Folder + ?Sized>(folder: &mut F, block: Block) -> Block {
 
 pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Statement {
     match stmt {
-        Statement::Let { name, value, span } => Statement::Let {
+        Statement::Let {
+            name,
+            type_annotation,
+            value,
+            span,
+        } => Statement::Let {
             name: folder.fold_identifier(name),
+            type_annotation,
             value: folder.fold_expr(value),
             span,
         },
@@ -102,16 +108,26 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
             span,
         },
         Statement::Function {
+            is_public,
             name,
+            type_params,
             parameters,
+            parameter_types,
+            return_type,
+            effects,
             body,
             span,
         } => Statement::Function {
+            is_public,
             name: folder.fold_identifier(name),
+            type_params,
             parameters: parameters
                 .into_iter()
                 .map(|p| folder.fold_identifier(p))
                 .collect(),
+            parameter_types,
+            return_type,
+            effects,
             body: folder.fold_block(body),
             span,
         },
@@ -139,6 +155,18 @@ pub fn fold_stmt<F: Folder + ?Sized>(folder: &mut F, stmt: Statement) -> Stateme
                 .collect(),
             span,
         },
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            span,
+        } => Statement::Data {
+            name,
+            type_params,
+            variants,
+            span,
+        },
+        Statement::EffectDecl { name, ops, span } => Statement::EffectDecl { name, ops, span },
     }
 }
 
@@ -196,6 +224,9 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
         },
         Expression::Function {
             parameters,
+            parameter_types,
+            return_type,
+            effects,
             body,
             span,
         } => Expression::Function {
@@ -203,6 +234,9 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
                 .into_iter()
                 .map(|p| folder.fold_identifier(p))
                 .collect(),
+            parameter_types,
+            return_type,
+            effects,
             body: folder.fold_block(body),
             span,
         },
@@ -285,6 +319,41 @@ pub fn fold_expr<F: Folder + ?Sized>(folder: &mut F, expr: Expression) -> Expres
             tail: Box::new(folder.fold_expr(*tail)),
             span,
         },
+        Expression::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => Expression::Perform {
+            effect: folder.fold_identifier(effect),
+            operation: folder.fold_identifier(operation),
+            args: args.into_iter().map(|a| folder.fold_expr(a)).collect(),
+            span,
+        },
+        Expression::Handle {
+            expr,
+            effect,
+            arms,
+            span,
+        } => Expression::Handle {
+            expr: Box::new(folder.fold_expr(*expr)),
+            effect: folder.fold_identifier(effect),
+            arms: arms
+                .into_iter()
+                .map(|a| HandleArm {
+                    operation_name: folder.fold_identifier(a.operation_name),
+                    resume_param: folder.fold_identifier(a.resume_param),
+                    params: a
+                        .params
+                        .into_iter()
+                        .map(|p| folder.fold_identifier(p))
+                        .collect(),
+                    body: folder.fold_expr(a.body),
+                    span: a.span,
+                })
+                .collect(),
+            span,
+        },
     }
 }
 
@@ -320,6 +389,11 @@ pub fn fold_pat<F: Folder + ?Sized>(folder: &mut F, pat: Pattern) -> Pattern {
         Pattern::EmptyList { span } => Pattern::EmptyList { span },
         Pattern::Tuple { elements, span } => Pattern::Tuple {
             elements: elements.into_iter().map(|p| folder.fold_pat(p)).collect(),
+            span,
+        },
+        Pattern::Constructor { name, fields, span } => Pattern::Constructor {
+            name,
+            fields: fields.into_iter().map(|p| folder.fold_pat(p)).collect(),
             span,
         },
     }

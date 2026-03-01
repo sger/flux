@@ -1,0 +1,11 @@
+// Policy fixture (0.0.4): module ADT constructors are internal API.
+// External usage should go through module `public fn` factories/accessors.
+
+import TypeSystem.GenericResultTree
+
+fn main() {
+    let _t = TypeSystem.GenericResultTree.Node(
+        TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Ok(1)),
+        TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Err("x")),
+    )
+}

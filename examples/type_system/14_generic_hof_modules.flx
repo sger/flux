@@ -1,0 +1,48 @@
+// Generic higher-order functions via typed modules.
+//
+// Shows:
+//  - Importing a typed module and calling generic functions
+//  - Typed HOF callbacks: (Int) -> Int, (Int) -> Bool
+//  - Generics flowing across module boundaries: List<T> in, List<U> out
+//  - Typed let bindings using inferred and annotated types
+
+import TypeSystem.Collections as C
+
+// Double every integer in a list.
+let scores: List<Int> = list(70, 85, 42, 91, 60)
+
+let doubled: List<Int> = C.map_list(scores, \(x: Int) -> x * 2)
+print("doubled:")
+print(doubled)
+
+// Keep only passing scores (>= 60).
+let passing: List<Int> = C.filter_list(scores, \(x: Int) -> x >= 60)
+print("passing:")
+print(passing)
+
+// Sum passing scores.
+let total: Int = C.sum_ints(passing)
+print("total passing score=#{total}")
+
+// Zip names and scores into (String, Int) pairs.
+let names: List<String> = list("Alice", "Bob", "Charlie", "Dana", "Eve")
+let named: List<(String, Int)> = C.zip_lists(names, scores)
+print("named scores:")
+print(named)
+
+// Grade each score using a generic map.
+fn letter_grade(score: Int) -> String {
+    if score >= 90 { "A" }
+    else if score >= 80 { "B" }
+    else if score >= 70 { "C" }
+    else if score >= 60 { "D" }
+    else { "F" }
+}
+
+let grades: List<String> = C.map_list(scores, letter_grade)
+print("grades:")
+print(grades)
+
+// Top 3.
+let top3: List<Int> = C.take(scores, 3)
+print("top3=#{C.join_strings(C.map_list(top3, \(x: Int) -> to_string(x)), ", ")}")

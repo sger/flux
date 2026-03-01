@@ -1,18 +1,19 @@
-// Either and Option Together
-// Option: presence/absence of a value
-// Either: success/failure with error information
+fn main() with IO {
+    // Either and Option Together
+    // Option: presence/absence of a value
+    // Either: success/failure with error information
 
-// Lookup in array - returns Option (using recursion)
-fn findHelper(arr, target, idx) {
-    if len(arr) == 0 {
-        None
-    } else {
+    // Lookup in array - returns Option (using recursion)
+    fn findHelper(arr, target, idx) {
+        if len(arr) == 0 {
+            None
+        } else {
         if first(arr) == target {
             Some(idx)
         } else {
-            findHelper(rest(arr), target, idx + 1)
-        }
+        findHelper(rest(arr), target, idx + 1)
     }
+}
 }
 
 fn findInArray(arr, target) {
@@ -28,12 +29,12 @@ fn validateAge(input) {
     if input < 0 {
         Left("age cannot be negative")
     } else {
-        if input > 150 {
-            Left("age seems unrealistic")
-        } else {
-            Right(input)
-        }
-    }
+    if input > 150 {
+        Left("age seems unrealistic")
+    } else {
+    Right(input)
+}
+}
 }
 
 print(validateAge(25));
@@ -92,3 +93,4 @@ print(doubled);
 
 let failed = mapEither(Left("error"), fn(x) { x * 2 });
 print(failed);
+}

@@ -1,0 +1,29 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/38_top_level_effect_rejected.flx
+Category: D
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E413 | TOP-LEVEL EFFECT | top-level effectful expression
+- E414 | MISSING MAIN FUNCTION | effectful top-level execution
+
+== jit tuples ==
+- E413 | TOP-LEVEL EFFECT | top-level effectful expression
+- E414 | MISSING MAIN FUNCTION | effectful top-level execution
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

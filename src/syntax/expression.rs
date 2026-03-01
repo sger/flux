@@ -2,7 +2,9 @@ use std::fmt;
 
 use crate::{
     diagnostics::position::Span,
-    syntax::{Identifier, block::Block, interner::Interner},
+    syntax::{
+        Identifier, block::Block, effect_expr::EffectExpr, interner::Interner, type_expr::TypeExpr,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -12,6 +14,7 @@ pub enum StringPart {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Pattern {
     Wildcard {
         span: Span,
@@ -51,12 +54,43 @@ pub enum Pattern {
         elements: Vec<Pattern>,
         span: Span,
     },
+    /// User-defined ADT constructor pattern: `Circle(r)`, `Red`, `Node(l, v, r)`
+    Constructor {
+        /// Constructor symbol (for example `Circle`, `Red`, `Node`).
+        name: Identifier,
+        /// Nested subpatterns for constructor fields.
+        fields: Vec<Pattern>,
+        /// Source span covering the full constructor pattern.
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct MatchArm {
     pub pattern: Pattern,
     pub guard: Option<Expression>,
+    pub body: Expression,
+    pub span: Span,
+}
+
+/// One arm inside a `handle` block.
+///
+/// ```flux
+/// handle Console {
+///     print(resume, msg) -> body
+/// //         ^^^^^^  ^^^
+/// //   resume_param  params[0]
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct HandleArm {
+    /// The effect operation name
+    pub operation_name: Identifier,
+    /// First parameter receives the captured continuation.
+    /// Typically named 'resume' by convetion but can be any identifier.
+    pub resume_param: Identifier,
+    /// Remaining operation argument names.
+    pub params: Vec<Identifier>,
     pub body: Expression,
     pub span: Span,
 }
@@ -110,6 +144,9 @@ pub enum Expression {
     },
     Function {
         parameters: Vec<Identifier>,
+        parameter_types: Vec<Option<TypeExpr>>,
+        return_type: Option<TypeExpr>,
+        effects: Vec<EffectExpr>,
         body: Block,
         span: Span,
     },
@@ -178,6 +215,20 @@ pub enum Expression {
         tail: Box<Expression>,
         span: Span,
     },
+    /// `perform Effect.operation(args)` — performs a user-declared effect operation.
+    Perform {
+        effect: Identifier,
+        operation: Identifier,
+        args: Vec<Expression>,
+        span: Span,
+    },
+    /// `expr handle Effect { op(resume, args) -> body, ... }` — handles an effect.
+    Handle {
+        expr: Box<Expression>,
+        effect: Identifier,
+        arms: Vec<HandleArm>,
+        span: Span,
+    },
 }
 
 impl fmt::Display for Expression {
@@ -225,10 +276,51 @@ impl fmt::Display for Expression {
             }
             Expression::DoBlock { block, .. } => write!(f, "do {}", block),
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
             } => {
-                let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fn({}) {}", params.join(", "), body)
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(
+                        |(idx, param)| match parameter_types.get(idx).and_then(|ta| ta.as_ref()) {
+                            Some(ta) => format!("{param}: {ta}"),
+                            None => param.to_string(),
+                        },
+                    )
+                    .collect();
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        write!(f, "fn({}) -> {} {}", params.join(", "), return_type, body)
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(ToString::to_string).collect();
+                        write!(
+                            f,
+                            "fn({}) -> {} with {} {}",
+                            params.join(", "),
+                            return_type,
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    write!(f, "fn({}) {}", params.join(", "), body)
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(ToString::to_string).collect();
+                    write!(
+                        f,
+                        "fn({}) with {} {}",
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Expression::Call {
                 function,
@@ -287,6 +379,40 @@ impl fmt::Display for Expression {
             Expression::Left { value, .. } => write!(f, "Left({})", value),
             Expression::Right { value, .. } => write!(f, "Right({})", value),
             Expression::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args_str: Vec<String> = args.iter().map(|a| format!("{a}")).collect();
+                write!(
+                    f,
+                    "perform {}.{}({})",
+                    effect,
+                    operation,
+                    args_str.join(", ")
+                )
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                write!(f, "{} handle {} {{", expr, effect)?;
+                for arm in arms {
+                    let param: Vec<String> = std::iter::once(arm.resume_param)
+                        .chain(arm.params.iter().copied())
+                        .map(|p| format!("{p}"))
+                        .collect();
+                    write!(
+                        f,
+                        " {}({}) -> {},",
+                        arm.operation_name,
+                        param.join(", "),
+                        arm.body
+                    )?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -320,6 +446,8 @@ impl Expression {
             // Either type expressions
             Expression::Left { span, .. } | Expression::Right { span, .. } => *span,
             Expression::Cons { span, .. } => *span,
+            Expression::Perform { span, .. } => *span,
+            Expression::Handle { span, .. } => *span,
         }
     }
 }
@@ -376,10 +504,55 @@ impl Expression {
                 format!("do {}", block)
             }
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
             } => {
-                let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
-                format!("fn({}) {}", params.join(", "), body)
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, param)| {
+                        let param_name = interner.resolve(*param);
+                        match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
+                            Some(ty) => format!("{param_name}: {}", ty.display_with(interner)),
+                            None => param_name.to_string(),
+                        }
+                    })
+                    .collect();
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        format!(
+                            "fn({}) -> {} {}",
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            body
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(|e| e.display_with(interner)).collect();
+                        format!(
+                            "fn({}) -> {} with {} {}",
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    format!("fn({}) {}", params.join(", "), body)
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(|e| e.display_with(interner)).collect();
+                    format!(
+                        "fn({}) with {} {}",
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Expression::Call {
                 function,
@@ -476,6 +649,43 @@ impl Expression {
                     tail.display_with(interner)
                 )
             }
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args_str: Vec<String> = args.iter().map(|a| a.display_with(interner)).collect();
+                format!(
+                    "perform {}.{}({})",
+                    interner.resolve(*effect),
+                    interner.resolve(*operation),
+                    args_str.join(", ")
+                )
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                let mut out = format!(
+                    "{} handle {} {{",
+                    expr.display_with(interner),
+                    interner.resolve(*effect)
+                );
+                for arm in arms {
+                    let mut param_names: Vec<&str> = vec![interner.resolve(arm.resume_param)];
+                    for p in &arm.params {
+                        param_names.push(interner.resolve(*p));
+                    }
+                    out.push_str(&format!(
+                        " {}({}) -> {},",
+                        interner.resolve(arm.operation_name),
+                        param_names.join(", "),
+                        arm.body.display_with(interner)
+                    ));
+                }
+                out.push_str(" }");
+                out
+            }
         }
     }
 }
@@ -514,6 +724,14 @@ impl Pattern {
                     _ => format!("({})", elems.join(", ")),
                 }
             }
+            Pattern::Constructor { name, fields, .. } => {
+                if fields.is_empty() {
+                    interner.resolve(*name).to_string()
+                } else {
+                    let fs: Vec<String> = fields.iter().map(|p| p.display_with(interner)).collect();
+                    format!("{}({})", interner.resolve(*name), fs.join(", "))
+                }
+            }
         }
     }
 }
@@ -538,6 +756,14 @@ impl fmt::Display for Pattern {
                     _ => write!(f, "({})", elems.join(", ")),
                 }
             }
+            Pattern::Constructor { name, fields, .. } => {
+                if fields.is_empty() {
+                    write!(f, "{}", name)
+                } else {
+                    let fs: Vec<String> = fields.iter().map(|p| p.to_string()).collect();
+                    write!(f, "{}({})", name, fs.join(", "))
+                }
+            }
         }
     }
 }
@@ -552,7 +778,8 @@ impl Pattern {
             | Pattern::Some { span, .. }
             | Pattern::Left { span, .. }
             | Pattern::Right { span, .. }
-            | Pattern::Tuple { span, .. } => *span,
+            | Pattern::Tuple { span, .. }
+            | Pattern::Constructor { span, .. } => *span,
             Pattern::Cons { span, .. } | Pattern::EmptyList { span, .. } => *span,
         }
     }

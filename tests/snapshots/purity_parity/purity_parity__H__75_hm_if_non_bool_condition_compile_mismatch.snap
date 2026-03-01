@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx
+Category: H
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Bool, found Int
+
+== jit tuples ==
+- E300 | TYPE UNIFICATION ERROR | expected Bool, found Int
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

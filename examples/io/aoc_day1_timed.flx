@@ -1,11 +1,12 @@
 // Advent of Code - Day 1 (timed)
 // Uses input file: examples/io/aoc_day1.txt
 
-fn wrap_100(value) {
-    let reduced = value % 100
-    if reduced < 0 {
-        reduced + 100
-    } else {
+fn main() with IO, Time {
+    fn wrap_100(value) {
+        let reduced = value % 100
+        if reduced < 0 {
+            reduced + 100
+        } else {
         reduced
     }
 }
@@ -16,8 +17,8 @@ fn parse_rotation(line) {
     if dir == "L" {
         0 - distance
     } else {
-        distance
-    }
+    distance
+}
 }
 
 fn parse_line(line, rest, acc) {
@@ -25,8 +26,8 @@ fn parse_line(line, rest, acc) {
     if cleaned == "" {
         parse_rotations(rest, acc)
     } else {
-        parse_rotations(rest, [parse_rotation(cleaned) | acc])
-    }
+    parse_rotations(rest, [parse_rotation(cleaned) | acc])
+}
 }
 
 fn parse_rotations(lines, acc) {
@@ -41,8 +42,8 @@ fn process_step(step, rest, pos, hits) {
     if next_pos == 0 {
         solve_steps(rest, next_pos, hits + 1)
     } else {
-        solve_steps(rest, next_pos, hits)
-    }
+    solve_steps(rest, next_pos, hits)
+}
 }
 
 fn solve_steps(steps, pos, hits) {
@@ -69,3 +70,4 @@ print("elapsed (time base, ms):")
 print(elapsed_via_time)
 print("elapsed (now_ms delta, ms):")
 print(t1 - t0)
+}

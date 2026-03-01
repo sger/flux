@@ -1,0 +1,7 @@
+fn sum_list(xs: List<Int>) -> Int {
+    fold(xs, 0, \(acc: Int, x: Int) -> acc + x)
+}
+
+fn main() with IO {
+    print(to_string(sum_list([1, 2, 3])))
+}

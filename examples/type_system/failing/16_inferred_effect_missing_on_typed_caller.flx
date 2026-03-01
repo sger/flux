@@ -1,0 +1,12 @@
+// E400: caller declares `with Time` but invokes an IO function.
+
+fn sink(msg: String) -> Unit with IO {
+    print(msg)
+}
+
+fn typed_time_only() -> Int with Time {
+    sink("hello")
+    1
+}
+
+typed_time_only()

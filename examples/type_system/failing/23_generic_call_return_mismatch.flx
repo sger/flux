@@ -1,0 +1,5 @@
+// E055: static typed let mismatch through generic return instantiation.
+
+fn identity<T>(x: T) -> T { x }
+
+let x: Int = identity("hello")

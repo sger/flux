@@ -1,0 +1,6 @@
+fn compute_rate() -> Float {
+    "slow"
+}
+
+// Runtime contract violation on typed Float return boundary.
+compute_rate()

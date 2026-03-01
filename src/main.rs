@@ -16,7 +16,10 @@ use flux::{
         compiler::Compiler,
         op_code::disassemble,
     },
-    diagnostics::{DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, position::Span},
+    diagnostics::{
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator, position::Span,
+        render_diagnostics_json,
+    },
     runtime::{
         gc::GcHeap,
         value::Value,
@@ -37,6 +40,13 @@ use flux::{
     runtime::vm::test_runner::run_test_fns,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticOutputFormat {
+    Text,
+    Json,
+    JsonCompact,
+}
+
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     let verbose = args.iter().any(|arg| arg == "--verbose");
@@ -50,6 +60,8 @@ fn main() {
     let gc_telemetry = args.iter().any(|arg| arg == "--gc-telemetry");
     let show_stats = args.iter().any(|arg| arg == "--stats");
     let test_mode = args.iter().any(|arg| arg == "--test");
+    let strict_mode = args.iter().any(|arg| arg == "--strict");
+    let all_errors = args.iter().any(|arg| arg == "--all-errors");
     #[cfg(feature = "jit")]
     let use_jit = args.iter().any(|arg| arg == "--jit");
     #[cfg(not(feature = "jit"))]
@@ -91,7 +103,17 @@ fn main() {
     if test_mode {
         args.retain(|arg| arg != "--test");
     }
+    if strict_mode {
+        args.retain(|arg| arg != "--strict");
+    }
+    if all_errors {
+        args.retain(|arg| arg != "--all-errors");
+    }
     let gc_threshold = match extract_gc_threshold(&mut args) {
+        Some(value) => value,
+        None => return,
+    };
+    let diagnostics_format = match extract_diagnostic_format(&mut args) {
         Some(value) => value,
         None => return,
     };
@@ -125,6 +147,9 @@ fn main() {
                 gc_threshold,
                 use_jit,
                 test_filter.as_deref(),
+                strict_mode,
+                diagnostics_format,
+                all_errors,
             );
         } else {
             run_file(
@@ -143,6 +168,9 @@ fn main() {
                 gc_telemetry,
                 use_jit,
                 show_stats,
+                strict_mode,
+                diagnostics_format,
+                all_errors,
             );
         }
         return;
@@ -174,6 +202,9 @@ fn main() {
                     gc_threshold,
                     use_jit,
                     test_filter.as_deref(),
+                    strict_mode,
+                    diagnostics_format,
+                    all_errors,
                 );
             } else {
                 run_file(
@@ -192,6 +223,9 @@ fn main() {
                     gc_telemetry,
                     use_jit,
                     show_stats,
+                    strict_mode,
+                    diagnostics_format,
+                    all_errors,
                 );
             }
         }
@@ -211,14 +245,21 @@ fn main() {
                 eprintln!("Usage: flux bytecode <file.flx>");
                 return;
             }
-            show_bytecode(&args[2], enable_optimize, enable_analyze, max_errors);
+            show_bytecode(
+                &args[2],
+                enable_optimize,
+                enable_analyze,
+                max_errors,
+                strict_mode,
+                diagnostics_format,
+            );
         }
         "lint" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux lint <file.flx>");
                 return;
             }
-            lint_file(&args[2], max_errors);
+            lint_file(&args[2], max_errors, diagnostics_format);
         }
         "fmt" => {
             if args.len() < 3 {
@@ -252,14 +293,14 @@ fn main() {
                 eprintln!("Usage: flux analyze-free-vars <file.flx>");
                 return;
             }
-            analyze_free_vars(&args[2], max_errors);
+            analyze_free_vars(&args[2], max_errors, diagnostics_format);
         }
         "analyze-tail-calls" | "analyze-tails-calls" | "tail-calls" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux analyze-tail-calls <file.flx>");
                 return;
             }
-            analyze_tail_calls(&args[2], max_errors);
+            analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
         "repl" => {
             repl(trace);
@@ -297,11 +338,14 @@ Flags:
   --no-cache         Disable bytecode cache for this run
   --optimize, -O     Enable AST optimizations (desugar + constant fold)
   --analyze, -A      Enable analysis passes (free vars + tail calls)
+  --format <f>       Diagnostics format: text|json|json-compact (default: text)
   --max-errors <n>   Limit displayed errors (default: 50)
   --root <path>      Add a module root (can be repeated)
   --roots-only       Use only explicitly provided --root values
   --gc-telemetry     Print GC telemetry report after execution (requires --features gc-telemetry)
   --stats            Print execution analytics (parse/compile/execute times, module info)
+  --strict           Enable strict type/effect boundary checks
+  --all-errors       Show diagnostics from all phases (disable stage-aware filtering)
   -h, --help         Show this help message
 
 Optimization & Analysis:
@@ -329,6 +373,9 @@ fn run_file(
     gc_telemetry: bool,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     show_stats: bool,
+    strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
+    all_errors: bool,
 ) {
     match fs::read_to_string(path) {
         Ok(source) => {
@@ -336,7 +383,13 @@ fn run_file(
             let entry_path = Path::new(path);
             let roots = collect_roots(entry_path, extra_roots, roots_only);
             let roots_hash = roots_cache_hash(&roots);
-            let cache_key = hash_cache_key(&source_hash, &roots_hash);
+            let base_cache_key = hash_cache_key(&source_hash, &roots_hash);
+            let strict_hash = hash_bytes(if strict_mode {
+                b"strict=1"
+            } else {
+                b"strict=0"
+            });
+            let cache_key = hash_cache_key(&base_cache_key, &strict_hash);
             let cache = BytecodeCache::new(Path::new("target").join("flux"));
             if !no_cache && !use_jit {
                 if let Some(bytecode) =
@@ -403,6 +456,7 @@ fn run_file(
             // --- Collect all diagnostics into a single pool ---
             let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
             let mut parse_warnings = parser.take_warnings();
+            tag_diagnostics(&mut parse_warnings, DiagnosticPhase::Parse);
             for diag in &mut parse_warnings {
                 if diag.file().is_none() {
                     diag.set_file(path.to_string());
@@ -413,6 +467,7 @@ fn run_file(
             // Entry file parse errors: collect but do NOT exit early.
             let entry_has_errors = !parser.errors.is_empty();
             if entry_has_errors {
+                tag_diagnostics(&mut parser.errors, DiagnosticPhase::Parse);
                 for diag in &mut parser.errors {
                     if diag.file().is_none() {
                         diag.set_file(path.to_string());
@@ -429,7 +484,9 @@ fn run_file(
             let graph_result =
                 ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
             let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
-            all_diagnostics.extend(graph_result.diagnostics);
+            let mut graph_diags = graph_result.diagnostics;
+            tag_diagnostics(&mut graph_diags, DiagnosticPhase::ModuleGraph);
+            all_diagnostics.extend(graph_diags);
 
             // Track all failed modules (parse + validation failures from graph).
             let mut failed: HashSet<PathBuf> = graph_result.failed_modules;
@@ -444,6 +501,7 @@ fn run_file(
             // --- Compile valid modules, suppress cascade ---
             let compile_start = Instant::now();
             let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+            compiler.set_strict_mode(strict_mode);
             let entry_canonical = std::fs::canonicalize(entry_path).ok();
             for node in graph.topo_order() {
                 // Skip entry if it had parse errors (it is in topo_order but
@@ -477,9 +535,21 @@ fn run_file(
                 }
 
                 compiler.set_file_path(node.path.to_string_lossy().to_string());
-                if let Err(mut diags) =
-                    compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
-                {
+                let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+                compiler.set_strict_require_main(is_entry_module);
+                let compile_result =
+                    compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+                let mut compiler_warnings = compiler.take_warnings();
+                tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
+                for diag in &mut compiler_warnings {
+                    if diag.file().is_none() {
+                        diag.set_file(node.path.to_string_lossy().to_string());
+                    }
+                }
+                all_diagnostics.append(&mut compiler_warnings);
+
+                if let Err(mut diags) = compile_result {
+                    tag_diagnostics(&mut diags, DiagnosticPhase::TypeCheck);
                     for diag in &mut diags {
                         if diag.file().is_none() {
                             diag.set_file(node.path.to_string_lossy().to_string());
@@ -496,12 +566,31 @@ fn run_file(
                     .with_default_source(path, source.as_str())
                     .with_file_headers(is_multimodule)
                     .with_max_errors(Some(max_errors))
+                    .with_stage_filtering(!all_errors)
                     .report();
                 if report.counts.errors > 0 {
-                    eprintln!("{}", report.rendered);
+                    emit_diagnostics(
+                        &all_diagnostics,
+                        Some(path),
+                        Some(source.as_str()),
+                        is_multimodule,
+                        max_errors,
+                        diagnostics_format,
+                        all_errors,
+                        true,
+                    );
                     std::process::exit(1);
                 }
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &all_diagnostics,
+                    Some(path),
+                    Some(source.as_str()),
+                    is_multimodule,
+                    max_errors,
+                    diagnostics_format,
+                    all_errors,
+                    true,
+                );
             }
 
             // --- JIT execution path ---
@@ -527,6 +616,8 @@ fn run_file(
                 let jit_options = flux::jit::JitOptions {
                     no_gc,
                     gc_threshold,
+                    source_file: Some(path.to_string()),
+                    source_text: Some(source.clone()),
                 };
 
                 let jit_compile_start = Instant::now();
@@ -668,6 +759,9 @@ fn run_test_file(
     gc_threshold: Option<usize>,
     #[cfg_attr(not(feature = "jit"), allow(unused))] use_jit: bool,
     test_filter: Option<&str>,
+    strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
+    all_errors: bool,
 ) {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -687,6 +781,7 @@ fn run_test_file(
 
     let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
     let mut parse_warnings = parser.take_warnings();
+    tag_diagnostics(&mut parse_warnings, DiagnosticPhase::Parse);
     for diag in &mut parse_warnings {
         if diag.file().is_none() {
             diag.set_file(path.to_string());
@@ -695,17 +790,22 @@ fn run_test_file(
     all_diagnostics.append(&mut parse_warnings);
 
     if !parser.errors.is_empty() {
+        tag_diagnostics(&mut parser.errors, DiagnosticPhase::Parse);
         for diag in &mut parser.errors {
             if diag.file().is_none() {
                 diag.set_file(path.to_string());
             }
         }
-        let report = DiagnosticsAggregator::new(&parser.errors)
-            .with_default_source(path, source.as_str())
-            .with_file_headers(false)
-            .with_max_errors(Some(max_errors))
-            .report();
-        eprintln!("{}", report.rendered);
+        emit_diagnostics(
+            &parser.errors,
+            Some(path),
+            Some(source.as_str()),
+            false,
+            max_errors,
+            diagnostics_format,
+            all_errors,
+            true,
+        );
         std::process::exit(1);
     }
 
@@ -714,7 +814,9 @@ fn run_test_file(
     // --- Build module graph ---
     let graph_result =
         ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
-    all_diagnostics.extend(graph_result.diagnostics);
+    let mut graph_diags = graph_result.diagnostics;
+    tag_diagnostics(&mut graph_diags, DiagnosticPhase::ModuleGraph);
+    all_diagnostics.extend(graph_diags);
 
     let failed = graph_result.failed_modules;
     let module_count = graph_result.graph.module_count();
@@ -723,14 +825,28 @@ fn run_test_file(
 
     // --- Compile ---
     let mut compiler = Compiler::new_with_interner(path, graph_result.interner);
+    compiler.set_strict_mode(strict_mode);
+    let entry_canonical = std::fs::canonicalize(entry_path).ok();
     for node in graph.topo_order() {
         if node.imports.iter().any(|e| failed.contains(&e.target_path)) {
             continue;
         }
         compiler.set_file_path(node.path.to_string_lossy().to_string());
-        if let Err(mut diags) =
-            compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze)
-        {
+        let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
+        compiler.set_strict_require_main(is_entry_module);
+        let compile_result =
+            compiler.compile_with_opts(&node.program, enable_optimize, enable_analyze);
+        let mut compiler_warnings = compiler.take_warnings();
+        tag_diagnostics(&mut compiler_warnings, DiagnosticPhase::Validation);
+        for diag in &mut compiler_warnings {
+            if diag.file().is_none() {
+                diag.set_file(node.path.to_string_lossy().to_string());
+            }
+        }
+        all_diagnostics.append(&mut compiler_warnings);
+
+        if let Err(mut diags) = compile_result {
+            tag_diagnostics(&mut diags, DiagnosticPhase::TypeCheck);
             for diag in &mut diags {
                 if diag.file().is_none() {
                     diag.set_file(node.path.to_string_lossy().to_string());
@@ -745,12 +861,31 @@ fn run_test_file(
             .with_default_source(path, source.as_str())
             .with_file_headers(is_multimodule)
             .with_max_errors(Some(max_errors))
+            .with_stage_filtering(!all_errors)
             .report();
         if report.counts.errors > 0 {
-            eprintln!("{}", report.rendered);
+            emit_diagnostics(
+                &all_diagnostics,
+                Some(path),
+                Some(source.as_str()),
+                is_multimodule,
+                max_errors,
+                diagnostics_format,
+                all_errors,
+                true,
+            );
             std::process::exit(1);
         }
-        eprintln!("{}", report.rendered);
+        emit_diagnostics(
+            &all_diagnostics,
+            Some(path),
+            Some(source.as_str()),
+            is_multimodule,
+            max_errors,
+            diagnostics_format,
+            all_errors,
+            true,
+        );
     }
 
     // --- Collect test functions ---
@@ -797,6 +932,8 @@ fn run_test_file(
         let jit_options = flux::jit::JitOptions {
             no_gc,
             gc_threshold,
+            source_file: Some(path.to_string()),
+            source_text: Some(source.clone()),
         };
 
         let compiled = match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
@@ -985,6 +1122,40 @@ fn extract_gc_threshold(args: &mut Vec<String>) -> Option<Option<usize>> {
     Some(threshold)
 }
 
+fn extract_diagnostic_format(args: &mut Vec<String>) -> Option<DiagnosticOutputFormat> {
+    let mut format = DiagnosticOutputFormat::Text;
+    let mut i = 0;
+    while i < args.len() {
+        let value = if args[i] == "--format" {
+            if i + 1 >= args.len() {
+                eprintln!("Usage: flux <file.flx> --format <text|json|json-compact>");
+                return None;
+            }
+            let v = args.remove(i + 1);
+            args.remove(i);
+            v
+        } else if let Some(v) = args[i].strip_prefix("--format=") {
+            let v = v.to_string();
+            args.remove(i);
+            v
+        } else {
+            i += 1;
+            continue;
+        };
+
+        format = match value.as_str() {
+            "text" => DiagnosticOutputFormat::Text,
+            "json" => DiagnosticOutputFormat::Json,
+            "json-compact" => DiagnosticOutputFormat::JsonCompact,
+            _ => {
+                eprintln!("Error: --format expects one of: text, json, json-compact.");
+                return None;
+            }
+        };
+    }
+    Some(format)
+}
+
 fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
     let mut max_errors = DEFAULT_MAX_ERRORS;
     let mut i = 0;
@@ -1014,6 +1185,69 @@ fn extract_max_errors(args: &mut Vec<String>) -> Option<usize> {
         }
     }
     Some(max_errors)
+}
+
+fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
+    for diag in diags {
+        if diag.phase().is_none() {
+            *diag = diag.clone().with_phase(phase);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_diagnostics(
+    diagnostics: &[Diagnostic],
+    default_file: Option<&str>,
+    default_source: Option<&str>,
+    show_file_headers: bool,
+    max_errors: usize,
+    format: DiagnosticOutputFormat,
+    all_errors: bool,
+    text_to_stderr: bool,
+) {
+    let mut agg = DiagnosticsAggregator::new(diagnostics)
+        .with_file_headers(show_file_headers)
+        .with_max_errors(Some(max_errors))
+        .with_stage_filtering(!all_errors);
+    if let Some(file) = default_file {
+        if let Some(source) = default_source {
+            agg = agg.with_default_source(file.to_string(), source.to_string());
+        } else {
+            agg = agg.with_default_file(file.to_string());
+        }
+    }
+
+    match format {
+        DiagnosticOutputFormat::Text => {
+            let rendered = agg.report().rendered;
+            if text_to_stderr {
+                eprintln!("{}", rendered);
+            } else {
+                println!("{}", rendered);
+            }
+        }
+        DiagnosticOutputFormat::Json => {
+            let rendered = render_diagnostics_json(
+                diagnostics,
+                default_file,
+                Some(max_errors),
+                !all_errors,
+                true,
+            );
+            eprintln!("{}", rendered);
+        }
+        DiagnosticOutputFormat::JsonCompact => {
+            let rendered = render_diagnostics_json(
+                diagnostics,
+                default_file,
+                Some(max_errors),
+                !all_errors,
+                false,
+            );
+            eprintln!("{}", rendered);
+        }
+    }
 }
 
 fn extract_test_filter(args: &mut Vec<String>) -> Option<Option<String>> {
@@ -1120,7 +1354,14 @@ fn show_tokens(path: &str) {
     }
 }
 
-fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_errors: usize) {
+fn show_bytecode(
+    path: &str,
+    enable_optimize: bool,
+    enable_analyze: bool,
+    max_errors: usize,
+    strict_mode: bool,
+    diagnostics_format: DiagnosticOutputFormat,
+) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1134,35 +1375,66 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
             let mut compiler = Compiler::new_with_interner(path, interner);
-            if let Err(diags) =
-                compiler.compile_with_opts(&program, enable_optimize, enable_analyze)
-            {
-                let report = DiagnosticsAggregator::new(&diags)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+            compiler.set_strict_mode(strict_mode);
+            let compile_result =
+                compiler.compile_with_opts(&program, enable_optimize, enable_analyze);
+            let mut compiler_warnings = compiler.take_warnings();
+            for diag in &mut compiler_warnings {
+                if diag.file().is_none() {
+                    diag.set_file(path.to_string());
+                }
+            }
+            if !compiler_warnings.is_empty() {
+                emit_diagnostics(
+                    &compiler_warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+            }
+            if let Err(diags) = compile_result {
+                emit_diagnostics(
+                    &diags,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
                 std::process::exit(1);
             }
 
@@ -1193,7 +1465,7 @@ fn show_bytecode(path: &str, enable_optimize: bool, enable_analyze: bool, max_er
     }
 }
 
-fn lint_file(path: &str, max_errors: usize) {
+fn lint_file(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1207,33 +1479,45 @@ fn lint_file(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
             let lints = Linter::new(Some(path.to_string()), &interner).lint(&program);
             if !lints.is_empty() {
-                let report = DiagnosticsAggregator::new(&lints)
-                    .with_default_source(path, source.as_str())
-                    .with_file_headers(false)
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                println!("{}", report.rendered);
+                emit_diagnostics(
+                    &lints,
+                    Some(path),
+                    Some(source.as_str()),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    false,
+                );
             }
         }
         Err(e) => eprintln!("Error reading {}: {}", path, e),
@@ -1260,7 +1544,7 @@ fn fmt_file(path: &str, check: bool) {
     }
 }
 
-fn analyze_free_vars(path: &str, max_errors: usize) {
+fn analyze_free_vars(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1274,20 +1558,30 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
             }
 
             let interner = parser.take_interner();
@@ -1314,7 +1608,7 @@ fn analyze_free_vars(path: &str, max_errors: usize) {
     }
 }
 
-fn analyze_tail_calls(path: &str, max_errors: usize) {
+fn analyze_tail_calls(path: &str, max_errors: usize, diagnostics_format: DiagnosticOutputFormat) {
     match fs::read_to_string(path) {
         Ok(source) => {
             let lexer = Lexer::new(&source);
@@ -1328,20 +1622,30 @@ fn analyze_tail_calls(path: &str, max_errors: usize) {
             }
 
             if !parser.errors.is_empty() {
-                let report = DiagnosticsAggregator::new(&parser.errors)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &parser.errors,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
                 std::process::exit(1);
             }
 
             if !warnings.is_empty() {
-                let report = DiagnosticsAggregator::new(&warnings)
-                    .with_default_source(path, source.as_str())
-                    .with_max_errors(Some(max_errors))
-                    .report();
-                eprintln!("{}", report.rendered);
+                emit_diagnostics(
+                    &warnings,
+                    Some(path),
+                    Some(source.as_str()),
+                    true,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
             }
 
             let tail_calls = find_tail_calls(&program);
@@ -1545,7 +1849,17 @@ fn repl(trace: bool) {
         let mut compiler = Compiler::new_with_state(symbol_table, constants, interner);
         compiler.set_file_path("<repl>");
 
-        if let Err(errs) = compiler.compile(&program) {
+        let compile_result = compiler.compile(&program);
+        let warnings = compiler.take_warnings();
+        if !warnings.is_empty() {
+            let report = DiagnosticsAggregator::new(&warnings)
+                .with_default_source("<repl>", &input)
+                .with_file_headers(false)
+                .report();
+            eprintln!("{}", report.rendered);
+        }
+
+        if let Err(errs) = compile_result {
             let report = DiagnosticsAggregator::new(&errs)
                 .with_default_source("<repl>", &input)
                 .with_file_headers(false)

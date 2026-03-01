@@ -1,0 +1,6 @@
+public fn id(x: Any) -> Int {
+    1
+}
+
+fn main() -> Unit {
+}

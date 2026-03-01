@@ -1,8 +1,11 @@
 // Test Case 5: Suggestions with global variables
 
-let totalCount = 100;
-let totalValue = 200;
-let totalAmount = 300;
+let totalCount = 100
+let totalValue = 200
+let totalAmount = 300
 
-// Typo: "totalCoun"
-print(totalCoun);
+fn main() with IO {
+    print(totalCount)
+    print(totalValue)
+    print(totalAmount)
+}

@@ -3,8 +3,7 @@ use std::collections::HashSet;
 use crate::{
     ast::{Visitor, visit},
     diagnostics::{
-        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH,
-        NON_EXHAUSTIVE_MATCH, position::Span,
+        CATCHALL_NOT_LAST, DUPLICATE_PATTERN_BINDING, Diagnostic, EMPTY_MATCH, position::Span,
     },
     syntax::{
         expression::{Expression, MatchArm, Pattern},
@@ -48,6 +47,7 @@ impl<'ast> Visitor<'ast> for PatternValidator<'_> {
     }
 }
 
+/// Validates all `match` patterns in a parsed program and returns diagnostics.
 pub fn validate_program_patterns(
     program: &Program,
     file_path: &str,
@@ -62,6 +62,7 @@ pub fn validate_program_patterns(
     validator.diagnostics
 }
 
+/// Validates a single pattern and emits diagnostics for duplicate bindings.
 pub fn validate_pattern(
     pattern: &Pattern,
     ctx: &PatternValidationContext<'_>,
@@ -100,16 +101,8 @@ fn validate_match_arms(
         }
     }
 
-    if let Some(last) = arms.last()
-        && !is_unconditional_catchall_arm(last)
-    {
-        diagnostics.push(Diagnostic::make_error(
-            &NON_EXHAUSTIVE_MATCH,
-            &[],
-            ctx.file_path.to_string(),
-            match_span,
-        ));
-    }
+    // General and ADT exhaustiveness are validated in compiler pass 2 where HM
+    // expression types and ADT registry data are available.
 }
 
 fn validate_pattern_bindings(
@@ -147,6 +140,11 @@ fn validate_pattern_bindings(
         | Pattern::Literal { .. }
         | Pattern::None { .. }
         | Pattern::EmptyList { .. } => {}
+        Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                validate_pattern_bindings(field, ctx, diagnostics, bindings);
+            }
+        }
     }
 }
 

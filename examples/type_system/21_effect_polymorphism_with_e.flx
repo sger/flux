@@ -1,0 +1,23 @@
+// Effect polymorphism (`with e`) for higher-order functions.
+
+fn apply_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(f(x))
+}
+
+fn inc(x: Int) -> Int {
+    x + 1
+}
+
+fn log_inc(x: Int) -> Int with IO {
+    print("x=#{to_string(x)}")
+    x + 1
+}
+
+fn run() with IO {
+    print(to_string(apply_twice(inc, 3)))
+    print(to_string(apply_twice(log_inc, 3)))
+}
+
+fn main() with IO {
+    run()
+}

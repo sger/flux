@@ -1,28 +1,30 @@
-// Test: String operations
-// Expected output:
-// hello world
-// flux is awesome
-// abc
+fn main() with IO {
+    // Test: String operations
+    // Expected output:
+    // hello world
+    // flux is awesome
+    // abc
 
-// Note: Semicolons are optional for top-level statements on separate lines
-// See examples/basics/semicolons.flx for complete semicolon rules
+    // Note: Semicolons are optional for top-level statements on separate lines
+    // See examples/basics/semicolons.flx for complete semicolon rules
 
-let greeting = "hello  // No semicolon needed
-let target = " world"   // No semicolon needed
-print(greeting + target)  // No semicolon needed
+    let greeting = "hello"
+    let target = " world"   // No semicolon needed
+    print(greeting + target)  // No semicolon needed
 
-let lang = "flux"
-let desc = " is awesome";
-print(lang + desc);
+    let lang = "flux"
+    let desc = " is awesome";
+    print(lang + desc);
 
-print("a" + "b" + "c");
+    print("a" + "b" + "c");
 
-print(split("hello world", " "));
-print(split("hello%world", "%"));
-print(split("hello", "!"));
+    print(split("hello world", " "));
+    print(split("hello%world", "%"));
+    print(split("hello", "!"));
 
-print(upper("hello world"));
-print(lower("HELLO world"));
+    print(upper("hello world"));
+    print(lower("HELLO world"));
 
-print(chars("HELLO world"));
-print(substring("HELLO world", 0));
+    print(chars("HELLO world"));
+    print(substring("HELLO world", 0));
+}

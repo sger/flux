@@ -1,0 +1,11 @@
+// E400: aliasing `print` must not bypass IO effect checks in `with Time` functions.
+
+fn g() -> Int with Time {
+    let p = print
+    p("tick")
+    1
+}
+
+fn main() -> Unit with IO, Time {
+    g();
+}

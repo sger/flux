@@ -1,0 +1,6 @@
+---
+source: tests/snapshots/parser/mod.rs
+expression: output
+---
+Parse Errors:
+  - Diagnostic { severity: Error, title: "UNEXPECTED TOKEN", code: Some("E034"), error_type: Some(Compiler), message: Some("Expected `{` to begin module body."), file: None, span: Some(Span { start: Position { line: 2, column: 0 }, end: Position { line: 2, column: 3 } }), labels: [], hints: [Hint { kind: Hint, text: "Module declarations use `module Name { ... }`.", span: None, label: None, file: None }], suggestions: [], hint_chains: [], related: [], phase: None }

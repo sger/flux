@@ -1,0 +1,13 @@
+// Nested generic constructor patterns should keep concrete field typing.
+type Result<T, E> = Ok(T) | Err(E)
+type Wrap = Boxed(Result<Int, String>) | Empty
+
+fn score(w: Wrap) -> Int {
+    match w {
+        Boxed(Ok(v)) -> v + 1,
+        Boxed(Err(_)) -> 0,
+        Empty -> 0,
+    }
+}
+
+let out: Int = score(Boxed(Ok(2)))

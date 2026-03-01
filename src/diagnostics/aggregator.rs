@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
-    RelatedKind, Severity, render_display_path,
+    RelatedKind, Severity, render_display_path, types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
 
@@ -182,6 +182,13 @@ pub struct DiagnosticsAggregator<'a> {
     default_file: Option<String>,
     sources: HashMap<String, String>,
     show_file_headers: Option<bool>,
+    disable_stage_filtering: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StageFilterStats {
+    suppressed_type_count: usize,
+    suppressed_effect_count: usize,
 }
 
 impl<'a> DiagnosticsAggregator<'a> {
@@ -192,6 +199,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             default_file: None,
             sources: HashMap::new(),
             show_file_headers: None,
+            disable_stage_filtering: false,
         }
     }
 
@@ -212,6 +220,11 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
+    pub fn with_stage_filtering(mut self, enabled: bool) -> Self {
+        self.disable_stage_filtering = !enabled;
+        self
+    }
+
     pub fn with_source(mut self, file: impl Into<String>, source: impl Into<String>) -> Self {
         self.sources.insert(file.into(), source.into());
         self
@@ -228,14 +241,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
-    pub fn report(&self) -> DiagnosticsReport {
-        if self.diagnostics.is_empty() {
-            return DiagnosticsReport {
-                counts: DiagnosticCounts::default(),
-                rendered: String::new(),
-            };
-        }
-
+    fn unique_sorted_suppressed(&self) -> Vec<Diagnostic> {
         let default_file = self.default_file.as_deref();
         let mut seen: HashSet<DiagnosticKey> = HashSet::new();
         let mut unique: Vec<IndexedDiagnostic<'_>> = Vec::new();
@@ -245,8 +251,6 @@ impl<'a> DiagnosticsAggregator<'a> {
                 unique.push(IndexedDiagnostic { index, diag });
             }
         }
-
-        let counts = count_severity(&unique);
 
         unique.sort_by(|a, b| {
             let a_file = effective_file(a.diag, default_file).unwrap_or("");
@@ -263,17 +267,234 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .then_with(|| a.index.cmp(&b.index))
         });
 
-        let mut file_cache: HashMap<String, String> = self.sources.clone();
-        let mut errors_shown = 0usize;
+        suppress_nearby_duplicate_e300(unique, default_file)
+    }
+
+    fn apply_stage_filtering(
+        &self,
+        diagnostics: Vec<Diagnostic>,
+    ) -> (Vec<Diagnostic>, StageFilterStats) {
+        if self.disable_stage_filtering {
+            return (diagnostics, StageFilterStats::default());
+        }
+
+        let has_parse_errors = diagnostics.iter().any(|d| {
+            d.severity() == Severity::Error && matches!(d.phase(), Some(DiagnosticPhase::Parse))
+        });
+        let has_type_errors = diagnostics.iter().any(|d| {
+            d.severity() == Severity::Error
+                && matches!(
+                    d.phase(),
+                    Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck)
+                )
+        });
+
+        let mut filtered = Vec::with_capacity(diagnostics.len());
+        let mut stats = StageFilterStats::default();
+
+        for diag in diagnostics {
+            let suppress = match diag.phase() {
+                None => false,
+                Some(DiagnosticPhase::Runtime) => false,
+                Some(DiagnosticPhase::Parse) => false,
+                Some(DiagnosticPhase::ModuleGraph) => false,
+                Some(DiagnosticPhase::Validation) => false,
+                Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
+                    has_parse_errors
+                }
+                Some(DiagnosticPhase::Effect) => has_parse_errors || has_type_errors,
+            };
+
+            if suppress {
+                if diag.severity() == Severity::Error {
+                    match diag.phase() {
+                        Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
+                            stats.suppressed_type_count += 1;
+                        }
+                        Some(DiagnosticPhase::Effect) => {
+                            stats.suppressed_effect_count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+
+            filtered.push(diag);
+        }
+
+        (filtered, stats)
+    }
+
+    fn collapse_parser_cascades(&self, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+        if self.disable_stage_filtering || diagnostics.len() <= 1 {
+            return diagnostics;
+        }
+
+        let mut first_parse_idx = None;
+        for (idx, diag) in diagnostics.iter().enumerate() {
+            if matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+                && diag.severity() == Severity::Error
+            {
+                first_parse_idx = Some(idx);
+                break;
+            }
+        }
+        let Some(first_idx) = first_parse_idx else {
+            return diagnostics;
+        };
+
+        let mut out = Vec::with_capacity(diagnostics.len());
+        let mut root_file = effective_file(&diagnostics[first_idx], self.default_file.as_deref())
+            .map(ToString::to_string);
+        let mut root_line = diagnostics[first_idx]
+            .span()
+            .map(|s| s.start.line)
+            .unwrap_or(0);
+        let mut root_code = diagnostics[first_idx].code().map(ToString::to_string);
+        let mut seen_parse_error = false;
+        let mut suppressed_cascades = 0usize;
+
+        for diag in diagnostics {
+            let is_parse_error = matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+                && diag.severity() == Severity::Error;
+            if !is_parse_error {
+                out.push(diag);
+                continue;
+            }
+
+            let file = effective_file(&diag, self.default_file.as_deref()).map(ToString::to_string);
+            let line = diag.span().map(|s| s.start.line).unwrap_or(0);
+            let is_generic = diag.code() == Some("E034");
+            // Only collapse generic E034 errors that follow a *structural* root
+            // error which corrupts the token stream (unterminated string, unclosed
+            // delimiter).  Other root errors (e.g. E030 unknown keyword) recover
+            // cleanly, so nearby E034s are likely independent issues.
+            let root_is_structural = matches!(root_code.as_deref(), Some("E071" | "E076"));
+            if seen_parse_error
+                && is_generic
+                && root_is_structural
+                && file == root_file
+                && line <= root_line.saturating_add(3)
+            {
+                suppressed_cascades += 1;
+                continue;
+            }
+
+            root_file = file;
+            root_line = line;
+            root_code = diag.code().map(ToString::to_string);
+            seen_parse_error = true;
+            out.push(diag);
+        }
+
+        if suppressed_cascades > 0
+            && let Some(last_parse) = out.iter_mut().rfind(|d| {
+                matches!(d.phase(), Some(DiagnosticPhase::Parse)) && d.severity() == Severity::Error
+            })
+        {
+            last_parse.hints.push(Hint::note(format!(
+                "Suppressed {} cascading parser diagnostic(s) likely caused by an earlier syntax error.",
+                suppressed_cascades
+            )));
+        }
+
+        out
+    }
+
+    fn process_with_metadata(&self) -> (Vec<Diagnostic>, StageFilterStats) {
+        let deduped = self.unique_sorted_suppressed();
+        let (filtered, stats) = self.apply_stage_filtering(deduped);
+        let collapsed = self.collapse_parser_cascades(filtered);
+        (collapsed, stats)
+    }
+
+    fn apply_error_limit(&self, diagnostics: Vec<Diagnostic>) -> (Vec<Diagnostic>, usize) {
         let max_errors = self.max_errors.unwrap_or(usize::MAX);
+        let mut errors_shown = 0usize;
+        let mut shown = Vec::new();
+        for diag in diagnostics {
+            if diag.severity() == Severity::Error {
+                if errors_shown >= max_errors {
+                    continue;
+                }
+                errors_shown += 1;
+            }
+            shown.push(diag);
+        }
+        (shown, errors_shown)
+    }
+
+    /// Returns diagnostics after exact dedup + E300 neighborhood suppression
+    /// + max-errors filtering, in deterministic render order.
+    pub fn processed_diagnostics(&self) -> Vec<Diagnostic> {
+        let (processed, _) = self.process_with_metadata();
+        let (shown, _) = self.apply_error_limit(processed);
+        shown
+    }
+
+    pub fn report(&self) -> DiagnosticsReport {
+        if self.diagnostics.is_empty() {
+            return DiagnosticsReport {
+                counts: DiagnosticCounts::default(),
+                rendered: String::new(),
+            };
+        }
+
+        let default_file = self.default_file.as_deref();
+        let (processed, stage_stats) = self.process_with_metadata();
+        let counts = {
+            let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = processed
+                .iter()
+                .enumerate()
+                .map(|(index, diag)| IndexedDiagnostic { index, diag })
+                .collect();
+            count_severity(&indexed_suppressed)
+        };
+        let file_count = processed
+            .iter()
+            .filter_map(|d| effective_file(d, default_file))
+            .collect::<HashSet<_>>()
+            .len();
+        let (mut shown, errors_shown) = self.apply_error_limit(processed);
+
+        let suppressed_type_count = stage_stats.suppressed_type_count;
+        let suppressed_effect_count = stage_stats.suppressed_effect_count;
+        let suppressed_total = suppressed_type_count + suppressed_effect_count;
+        if suppressed_total > 0 {
+            let mut details = Vec::new();
+            if suppressed_type_count > 0 {
+                details.push(format!("{} type", suppressed_type_count));
+            }
+            if suppressed_effect_count > 0 {
+                details.push(format!("{} effect", suppressed_effect_count));
+            }
+            let breakdown = if details.is_empty() {
+                "downstream".to_string()
+            } else {
+                details.join(", ")
+            };
+            let mut suppression_note = Diagnostic::make_note(
+                "DOWNSTREAM ERRORS SUPPRESSED",
+                format!(
+                    "{} downstream diagnostic{} ({}) {} suppressed by stage filtering. Fix earlier-stage errors first.",
+                    suppressed_total,
+                    if suppressed_total == 1 { "" } else { "s" },
+                    breakdown,
+                    if suppressed_total == 1 { "was" } else { "were" }
+                ),
+                default_file.unwrap_or("<unknown>"),
+                Span::default(),
+            )
+            .with_phase(DiagnosticPhase::Validation);
+            suppression_note.span = None;
+            shown.push(suppression_note);
+        }
+
+        let mut file_cache: HashMap<String, String> = self.sources.clone();
         // Default to always showing file headers for consistent output.
         let show_file_headers = self.show_file_headers.unwrap_or(true);
 
-        let file_count = unique
-            .iter()
-            .filter_map(|d| effective_file(d.diag, default_file))
-            .collect::<HashSet<_>>()
-            .len();
         let summary = format_summary(&counts, file_count);
         let mut rendered = String::new();
 
@@ -283,15 +504,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         let mut first_in_group = true;
         let mut rendered_items: Vec<String> = Vec::new();
 
-        for indexed in &unique {
-            let diag = indexed.diag;
-            if diag.severity() == Severity::Error {
-                if errors_shown >= max_errors {
-                    continue;
-                }
-                errors_shown += 1;
-            }
-
+        for diag in &shown {
             let file_key = effective_file(diag, default_file);
             ensure_source(file_key, &mut file_cache);
             for hint in diag.hints() {
@@ -481,6 +694,100 @@ fn column_key(diag: &Diagnostic) -> usize {
 
 fn message_key(diag: &Diagnostic) -> &str {
     diag.message().unwrap_or("")
+}
+
+fn suppress_nearby_duplicate_e300(
+    sorted: Vec<IndexedDiagnostic<'_>>,
+    default_file: Option<&str>,
+) -> Vec<Diagnostic> {
+    let mut retained = Vec::new();
+    let mut consumed = vec![false; sorted.len()];
+
+    for (i, indexed) in sorted.iter().enumerate() {
+        if consumed[i] {
+            continue;
+        }
+        consumed[i] = true;
+
+        let Some((base_file, base_message, base_span)) =
+            e300_group_signature(indexed.diag, default_file)
+        else {
+            retained.push(indexed.diag.clone());
+            continue;
+        };
+
+        let mut suppressed_count = 0usize;
+        for (j, other) in sorted.iter().enumerate().skip(i + 1) {
+            if consumed[j] {
+                continue;
+            }
+            let Some((other_file, other_message, other_span)) =
+                e300_group_signature(other.diag, default_file)
+            else {
+                continue;
+            };
+            if base_file == other_file
+                && base_message == other_message
+                && spans_overlap_or_adjacent(base_span, other_span)
+            {
+                consumed[j] = true;
+                suppressed_count += 1;
+            }
+        }
+
+        let mut diag = indexed.diag.clone();
+        if suppressed_count > 0 {
+            diag.hints.push(Hint::help(format!(
+                "Suppressed {} nearby duplicate E300 diagnostic(s).",
+                suppressed_count
+            )));
+        }
+        retained.push(diag);
+    }
+
+    retained
+}
+
+fn e300_group_signature<'a>(
+    diag: &'a Diagnostic,
+    default_file: Option<&'a str>,
+) -> Option<(Option<&'a str>, &'a str, Span)> {
+    if diag.code() != Some("E300") || diag.severity() != Severity::Error {
+        return None;
+    }
+    let message = diag.message()?;
+    let span = primary_or_diag_span(diag)?;
+    Some((effective_file(diag, default_file), message, span))
+}
+
+fn primary_or_diag_span(diag: &Diagnostic) -> Option<Span> {
+    diag.labels()
+        .iter()
+        .find(|l| l.style == LabelStyle::Primary)
+        .map(|l| l.span)
+        .or_else(|| diag.span())
+}
+
+fn spans_overlap_or_adjacent(a: Span, b: Span) -> bool {
+    spans_overlap(a, b) || line_gap(a, b) <= 1
+}
+
+fn spans_overlap(a: Span, b: Span) -> bool {
+    let a_start = (a.start.line, a.start.column);
+    let a_end = (a.end.line, a.end.column);
+    let b_start = (b.start.line, b.start.column);
+    let b_end = (b.end.line, b.end.column);
+    a_start <= b_end && b_start <= a_end
+}
+
+fn line_gap(a: Span, b: Span) -> usize {
+    if a.end.line < b.start.line {
+        b.start.line.saturating_sub(a.end.line)
+    } else if b.end.line < a.start.line {
+        a.start.line.saturating_sub(b.end.line)
+    } else {
+        0
+    }
 }
 
 impl LabelKey {

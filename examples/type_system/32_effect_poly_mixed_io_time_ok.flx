@@ -1,0 +1,15 @@
+// Mixed concrete effects with polymorphic callback propagation.
+
+fn run_with_context(f: (() -> Int with e)) -> Int with IO, Time, e {
+    print("context")
+    now_ms()
+    f()
+}
+
+fn pure_task() -> Int {
+    5
+}
+
+fn main() with IO, Time {
+    print(to_string(run_with_context(pure_task)))
+}

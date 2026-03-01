@@ -1,18 +1,19 @@
 // Advent of Code - Day 3 Part 1 (Lobby)
 // Input: examples/io/aoc_day3.txt
 
-fn max2(a, b) {
-    if a > b { a } else { b }
-}
+fn main() with IO, Time {
+    fn max2(a, b) {
+        if a > b { a } else { b }
+    }
 
-fn digit_at(line, idx) {
-    parse_int(substring(line, idx, idx + 1))
-}
+    fn digit_at(line, idx) {
+        parse_int(substring(line, idx, idx + 1))
+    }
 
-fn max_bank_scan(line, idx, best_right, best_pair) {
-    if idx < 0 {
-        best_pair
-    } else {
+    fn max_bank_scan(line, idx, best_right, best_pair) {
+        if idx < 0 {
+            best_pair
+        } else {
         let d = digit_at(line, idx)
         let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
         let next_right = max2(best_right, d)
@@ -29,3 +30,4 @@ let lines = read_lines("examples/io/aoc_day3.txt")
 let non_empty = [trim(line) | line <- lines, trim(line) != ""]
 let bests = [max_bank_value(line) | line <- non_empty]
 print(sum(bests))
+}

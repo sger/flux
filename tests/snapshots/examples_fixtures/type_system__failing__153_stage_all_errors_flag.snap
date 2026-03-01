@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/153_stage_all_errors_flag.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E076]: UNCLOSED DELIMITER
+
+Expected a closing `}` to match this opening `{` in function `main`.
+
+  --> examples/type_system/failing/153_stage_all_errors_flag.flx:6:19
+  |
+6 | fn main() -> Unit {
+  |                   ^
+
+Help:
+  Add `}` to close the body of function `main`.
+
+
+--> compiler error[E071]: UNTERMINATED STRING
+
+String literal is missing closing quote.
+
+  --> examples/type_system/failing/153_stage_all_errors_flag.flx:7:18
+  |
+7 |     let broken = "unterminated
+  |                  ^^^^^^^^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+Found 2 errors.
+== stdout ==
+<not executed>

@@ -16,16 +16,14 @@ fn run_vm(input: &str) -> Result<Value, String> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "{}",
-        render_diagnostics(&parser.errors, Some(input), None)
-    );
+    if !parser.errors.is_empty() {
+        return Err(render_diagnostics(&parser.errors, Some(input), None));
+    }
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
+    if let Err(diags) = compiler.compile(&program) {
+        return Err(render_diagnostics(&diags, Some(input), None));
+    }
     let mut vm = VM::new(compiler.bytecode());
     match vm.run() {
         Ok(()) => Ok(vm.last_popped_stack_elem().clone()),
@@ -37,12 +35,14 @@ fn run_jit(input: &str) -> Result<Value, String> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "{}",
-        render_diagnostics(&parser.errors, Some(input), None)
-    );
+    if !parser.errors.is_empty() {
+        return Err(render_diagnostics(&parser.errors, Some(input), None));
+    }
     let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
+    if let Err(diags) = compiler.compile(&program) {
+        return Err(render_diagnostics(&diags, Some(input), None));
+    }
     jit_compile_and_run(&program, &interner, &JitOptions::default()).map(|(value, _)| value)
 }
 
@@ -171,7 +171,7 @@ fn vm_and_jit_match_effectful_read_file_primop_value() {
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
     let program = format!(r#"read_file("{}")"#, escaped);
-    assert_vm_jit_value(&program);
+    assert_vm_jit_error_contains(&program, "TOP-LEVEL EFFECT");
 
     let _ = fs::remove_file(path);
 }

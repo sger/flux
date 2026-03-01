@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/Stage150Type.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `x` does not match its type annotation.
+
+  --> examples/type_system/failing/Stage150Type.flx:6:23
+  |
+6 |         let x: Bool = 42
+  |                       ^^
+  |                       -- this is `Int`
+  |                ---- but `x` was annotated as `Bool`
+
+Help:
+  Change `x` to a `Bool` value or update the annotation to `Int`.
+== stdout ==
+<not executed>

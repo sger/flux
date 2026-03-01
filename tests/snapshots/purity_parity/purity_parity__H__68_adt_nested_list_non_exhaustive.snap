@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
+Category: H
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E083 | NON-EXHAUSTIVE ADT MATCH | 
+
+== jit tuples ==
+- E083 | NON-EXHAUSTIVE ADT MATCH | 
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

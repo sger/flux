@@ -1,0 +1,7 @@
+fn bad_bool() -> Bool {
+    0
+}
+
+fn main() -> Unit {
+    bad_bool()
+}

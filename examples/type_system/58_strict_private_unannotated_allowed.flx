@@ -1,0 +1,10 @@
+fn helper(x) {
+    x + 1
+}
+
+public fn run(x: Int) -> Int {
+    helper(x)
+}
+
+fn main() -> Unit {
+}

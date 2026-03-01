@@ -12,6 +12,7 @@ mod tests {
         let program = Program {
             statements: vec![Statement::Let {
                 name: x,
+                type_annotation: None,
                 value: Expression::Integer {
                     value: 5,
                     span: Span::default(),

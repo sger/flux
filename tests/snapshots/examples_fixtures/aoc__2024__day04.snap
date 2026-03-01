@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/aoc/2024/day04.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day04a_from_lines`.
+
+  --> examples/aoc/2024/day04.flx:8:11
+  |
+8 |     print(Day04.day04a_from_lines(grid))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day04b_from_lines`.
+
+  --> examples/aoc/2024/day04.flx:9:11
+  |
+9 |     print(Day04.day04b_from_lines(grid))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 2 errors.
+== stdout ==
+<not executed>

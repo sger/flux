@@ -1,0 +1,22 @@
+// E083: nested constructor coverage must hold per constructor field (multi-arity constructor).
+
+data ResultI {
+    OkI(Int),
+    ErrI(Int),
+}
+
+data Wrap2 {
+    Pair(ResultI, ResultI),
+    Empty,
+}
+
+fn score(w: Wrap2) -> Int {
+    match w {
+        Pair(OkI(v), _) -> v,
+        Empty -> 0,
+    }
+}
+
+fn main() {
+    score(Empty)
+}

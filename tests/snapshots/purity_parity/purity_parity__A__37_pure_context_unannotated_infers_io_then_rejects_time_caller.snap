@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx
+Category: A
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== jit tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

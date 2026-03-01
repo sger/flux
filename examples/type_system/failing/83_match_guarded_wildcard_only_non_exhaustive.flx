@@ -1,0 +1,6 @@
+// E015: Guarded wildcard is not an unconditional catch-all.
+let n = 2;
+
+match n {
+    _ if n > 0 -> 1
+};

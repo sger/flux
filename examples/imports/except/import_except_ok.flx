@@ -3,4 +3,6 @@
 
 import Lib except [drop]
 
-print(Lib.keep());
+fn main() with IO, Time {
+    print(Lib.keep());
+}

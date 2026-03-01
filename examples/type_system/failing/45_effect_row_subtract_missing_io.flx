@@ -1,0 +1,22 @@
+// E400: subtraction syntax still requires remaining row effects (IO).
+
+effect Console {
+    print: String -> ()
+}
+
+fn run_with_row(f: (() -> Int with IO + Console - Console)) -> Int with IO + Console - Console {
+    f()
+}
+
+fn io_only() -> Int with IO {
+    print("io")
+    1
+}
+
+fn caller() -> Int with Time {
+    run_with_row(io_only)
+}
+
+fn main() with IO, Time {
+    print(to_string(caller()))
+}

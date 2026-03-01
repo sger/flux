@@ -1,0 +1,6 @@
+// E015: Bool match missing false branch.
+let b = true;
+
+match b {
+    true -> 1
+};

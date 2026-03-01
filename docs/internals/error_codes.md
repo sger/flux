@@ -42,7 +42,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 | `E008` | `INVALID_MODULE_NAME` | Module name does not match file path or naming rules |
 | `E009` | `MODULE_NAME_CLASH` | Two modules share the same name |
 | `E010` | `INVALID_MODULE_CONTENT` | Illegal declaration inside a module body |
-| `E011` | `PRIVATE_MEMBER` | Accessing an `_underscore` member from outside the module |
+| `E011` | `PRIVATE_MEMBER` | Accessing a non-public module member from outside the module |
 | `E012` | `UNKNOWN_MODULE_MEMBER` | Member does not exist on the module |
 | `E013` | `MODULE_NOT_IMPORTED` | Qualified access to a module that was not imported |
 | `E017` | `IMPORT_SCOPE` | `import` used inside a function or block (top-level only) |

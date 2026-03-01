@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/59_strict_module_public_effect_missing_with.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `print` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/59_strict_module_public_effect_missing_with.flx:2:5
+  |
+2 |     print(msg)
+  |     ^^^^^
+  |     ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

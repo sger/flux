@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/45_effect_row_subtract_missing_io.flx
+Category: C
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== jit tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/type_system/failing/124_lambda_missing_close_paren.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `)` to close lambda parameter list.
+
+  --> examples/type_system/failing/124_lambda_missing_close_paren.flx:1:18
+  |
+1 | let add = /(x, y -> x + y
+  |                  ^^
+
+Hint:
+  Use `/(x, y) -> expr` for parenthesized lambda parameters.
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `->` after lambda parameters, found `EOF`.
+
+  --> examples/type_system/failing/124_lambda_missing_close_paren.flx:3:1
+  |
+
+
+Hint:
+  Use `/x -> expr` or `/(x, y) -> expr`.
+
+Found 2 errors.
+== stdout ==
+<not executed>

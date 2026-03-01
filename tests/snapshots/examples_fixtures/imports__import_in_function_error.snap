@@ -16,5 +16,20 @@ Import statements must be at the top of the file.
 
 Hint:
   Move all import statements before any other declarations.
+
+
+--> compiler error[E013]: MODULE NOT IMPORTED
+
+Module `Math` is not imported.
+
+  --> examples/imports/import_in_function_error.flx:3:11
+  |
+3 |     print(Math.square(5));
+  |           ^^^^^^^^^^^
+
+Hint:
+  Add an import statement at the top of your file: `import Math`. You can also use an alias: `import {} as ShorterName`. Remember: imports must be at the top, before any other code.
+
+Found 2 errors.
 == stdout ==
 <not executed>

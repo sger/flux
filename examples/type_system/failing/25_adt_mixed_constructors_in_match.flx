@@ -1,0 +1,22 @@
+// E083: match arms mix constructors from different ADTs.
+
+data A {
+    A1,
+    A2,
+}
+
+data B {
+    B1,
+    B2,
+}
+
+fn classify(x) -> Int {
+    match x {
+        A1 -> 1,
+        B1 -> 2,
+    }
+}
+
+fn main() {
+    classify(A1)
+}

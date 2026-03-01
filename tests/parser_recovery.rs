@@ -52,6 +52,12 @@ fn has_print_call_with_int_arg(program: &Program, interner: &Interner, expected:
     })
 }
 
+fn has_function(program: &Program, interner: &Interner, name: &str) -> bool {
+    program.statements.iter().any(
+        |stmt| matches!(stmt, Statement::Function { name: n, .. } if interner.resolve(*n) == name),
+    )
+}
+
 #[test]
 fn malformed_expression_corpus_recovers_without_panicking() {
     let cases = [
@@ -220,5 +226,328 @@ fn malformed_statements_recover_and_keep_followup_statements() {
                 name
             );
         }
+    }
+}
+
+#[test]
+fn type_annotation_recovery_fixture_keeps_followup_statements() {
+    let input = include_str!("fixtures/recovery/type_annotation_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("annotation recovery fixture should not panic");
+
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E034")),
+        "expected parser diagnostics for malformed annotations"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "ok1")
+            && has_let_binding(&program, &interner, "ok2")
+            && has_let_binding(&program, &interner, "ok3")
+            && has_let_binding(&program, &interner, "ok4"),
+        "expected follow-up let bindings to survive malformed annotation recovery"
+    );
+    assert!(
+        has_function(&program, &interner, "f") && has_function(&program, &interner, "g"),
+        "expected malformed annotation functions to remain in parsed output"
+    );
+}
+
+#[test]
+fn unterminated_string_recovery_fixture_keeps_followup_statement() {
+    let input = include_str!("../examples/type_system/failing/100_unclosed_string_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("unterminated-string recovery fixture should not panic");
+
+    assert!(
+        diagnostics.iter().any(|d| d.code() == Some("E071")),
+        "expected unterminated string diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected parser recovery to keep follow-up let binding after unterminated string"
+    );
+}
+
+#[test]
+fn parser_error_experience_recovery_fixture_keeps_followup_statement() {
+    let input = include_str!("fixtures/recovery/059_parser_error_recovery.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("059 parser-error recovery fixture should not panic");
+
+    let messages: Vec<String> = diagnostics
+        .iter()
+        .filter_map(|d| d.message().map(ToString::to_string))
+        .collect();
+    assert!(
+        messages.iter().any(|m| m.contains("Unknown keyword `def`")),
+        "expected keyword-alias diagnostic"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Expected `->` in match arm, found `=>`")),
+        "expected contextual fat-arrow diagnostic"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+        "expected match `|` separator diagnostic"
+    );
+
+    assert!(
+        has_let_binding(&program, &interner, "ok_after"),
+        "expected parser recovery to keep follow-up let binding after 059-style errors"
+    );
+}
+
+#[test]
+fn t1_named_delimiter_fixtures_keep_followup_statement_when_recoverable() {
+    let cases = [
+        (
+            "hash_close",
+            include_str!("../examples/type_system/failing/122_hash_missing_close_brace.flx"),
+            true,
+        ),
+        (
+            "array_close",
+            include_str!("../examples/type_system/failing/123_array_missing_close_bracket.flx"),
+            true,
+        ),
+        (
+            "lambda_close_paren",
+            include_str!("../examples/type_system/failing/124_lambda_missing_close_paren.flx"),
+            false,
+        ),
+        (
+            "interpolation_close",
+            include_str!(
+                "../examples/type_system/failing/125_string_interpolation_missing_close_brace.flx"
+            ),
+            true,
+        ),
+        (
+            "comprehension_close",
+            include_str!(
+                "../examples/type_system/failing/126_list_comprehension_missing_close_bracket.flx"
+            ),
+            true,
+        ),
+    ];
+
+    for (name, input, expect_followup) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T1 fixture parse should not panic");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.code() == Some("E034") && d.message().is_some()),
+            "expected E034 parser diagnostic for case `{name}`"
+        );
+        if expect_followup {
+            assert!(
+                has_let_binding(&program, &interner, "after"),
+                "expected trailing `let after` to remain after recovery for case `{name}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn t2_arrow_fixtures_emit_contextual_e034_and_recover() {
+    let cases = [
+        (
+            "match_missing_arrow",
+            include_str!("../examples/type_system/failing/127_match_missing_arrow.flx"),
+        ),
+        (
+            "lambda_missing_arrow",
+            include_str!("../examples/type_system/failing/128_lambda_missing_arrow.flx"),
+        ),
+    ];
+
+    for (name, input) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T2 fixture parse should not panic");
+        assert!(
+            diagnostics.iter().any(|d| {
+                d.code() == Some("E034")
+                    && d.message().is_some_and(|m| {
+                        m.contains("Expected `->` in match arm")
+                            || m.contains("Expected `->` after lambda parameters")
+                    })
+            }),
+            "expected contextual E034 arrow diagnostic for case `{name}`"
+        );
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
+    }
+}
+
+#[test]
+fn t3_orphan_constructor_fixture_emits_contextual_e034_and_recovers() {
+    let input = include_str!(
+        "../examples/type_system/failing/129_orphan_constructor_pattern_statement.flx"
+    );
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("T3 fixture parse should not panic");
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("outside `match`") && m.contains("Some(...)"))
+        }),
+        "expected contextual orphan-constructor-pattern E034 diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected trailing `let after` to remain after recovery"
+    );
+}
+
+#[test]
+fn t4_do_missing_brace_fixture_emits_contextual_e034_and_recovers() {
+    let input = include_str!("../examples/type_system/failing/130_do_missing_brace.flx");
+    let (program, diagnostics, interner) =
+        parse_no_panic(input).expect("T4 fixture parse should not panic");
+    assert!(
+        diagnostics.iter().any(|d| {
+            d.code() == Some("E034")
+                && d.message()
+                    .is_some_and(|m| m.contains("begin the `do` block"))
+        }),
+        "expected contextual do-block E034 diagnostic"
+    );
+    assert!(
+        has_let_binding(&program, &interner, "after"),
+        "expected trailing `let after` to remain after recovery"
+    );
+}
+
+#[test]
+fn t15_broad_contextual_expect_peek_fixtures_emit_e034_and_recover() {
+    let cases = [
+        (
+            "perform_missing_dot",
+            include_str!("../examples/type_system/failing/173_perform_missing_dot.flx"),
+        ),
+        (
+            "handle_missing_lbrace",
+            include_str!("../examples/type_system/failing/174_handle_missing_lbrace.flx"),
+        ),
+        (
+            "handle_arm_missing_arrow",
+            include_str!("../examples/type_system/failing/175_handle_arm_missing_arrow.flx"),
+        ),
+        (
+            "match_missing_open_brace",
+            include_str!("../examples/type_system/failing/176_match_missing_open_brace.flx"),
+        ),
+        (
+            "import_except_missing_open_bracket",
+            include_str!(
+                "../examples/type_system/failing/178_import_except_missing_open_bracket.flx"
+            ),
+        ),
+        (
+            "hash_missing_colon",
+            include_str!("../examples/type_system/failing/183_hash_missing_colon.flx"),
+        ),
+        (
+            "type_expr_missing_close_paren",
+            include_str!("../examples/type_system/failing/184_type_expr_missing_close_paren.flx"),
+        ),
+    ];
+
+    for (name, input) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T15 fixture parse should not panic");
+        assert!(
+            diagnostics.iter().any(|d| {
+                d.code() == Some("E034") && d.message().is_some() && !d.hints().is_empty()
+            }),
+            "expected contextual E034 with hint for case `{name}`"
+        );
+        if name == "handle_arm_missing_arrow" {
+            let diag = diagnostics
+                .iter()
+                .find(|d| {
+                    d.code() == Some("E034") && d.message() == Some("Expected `->` in handle arm.")
+                })
+                .expect("expected exact handle-arm E034 diagnostic");
+            let first_hint = diag
+                .hints()
+                .first()
+                .map(|h| h.text.as_str())
+                .expect("expected handle-arm hint");
+            assert_eq!(
+                first_hint, "Handle arms use `op(resume, arg1, ...) -> body`.",
+                "handle-arm hint text regressed"
+            );
+        }
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
+    }
+}
+
+#[test]
+fn t16_contextual_recovery_fixtures_emit_e034_and_recover() {
+    let cases = [
+        (
+            "perform_missing_dot_fixture",
+            include_str!("fixtures/recovery/t16_perform_missing_dot_contextual.flx"),
+            "Expected `.` between effect and operation in `perform`.",
+            "Perform expressions use `perform Effect.op(args...)`.",
+        ),
+        (
+            "handle_missing_lbrace_fixture",
+            include_str!("fixtures/recovery/t16_handle_missing_lbrace_contextual.flx"),
+            "Expected `{` to begin `handle` arms.",
+            "Handle expressions use `expr handle Effect { ... }`.",
+        ),
+        (
+            "module_missing_lbrace_fixture",
+            include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
+            "Expected `{` to begin module body.",
+            "Module declarations use `module Name { ... }`.",
+        ),
+    ];
+
+    for (name, input, expected_message, expected_hint) in cases {
+        let (program, diagnostics, interner) =
+            parse_no_panic(input).expect("T16 fixture parse should not panic");
+        let diag = diagnostics
+            .iter()
+            .find(|d| d.code() == Some("E034") && d.message() == Some(expected_message))
+            .unwrap_or_else(|| panic!("expected exact E034 message for case `{name}`"));
+        let msg = diag
+            .message()
+            .unwrap_or_else(|| panic!("expected message for case `{name}`"));
+        assert_eq!(
+            msg, expected_message,
+            "unexpected E034 message for case `{name}`"
+        );
+        assert_ne!(
+            msg.trim(),
+            "Unexpected token.",
+            "regressed to generic E034 wording for case `{name}`"
+        );
+        let first_hint = diag
+            .hints()
+            .first()
+            .map(|h| h.text.as_str())
+            .unwrap_or_else(|| panic!("expected hint for case `{name}`"));
+        assert_eq!(
+            first_hint, expected_hint,
+            "unexpected E034 hint for case `{name}`"
+        );
+        assert!(
+            has_let_binding(&program, &interner, "after"),
+            "expected trailing `let after` to remain after recovery for case `{name}`"
+        );
     }
 }

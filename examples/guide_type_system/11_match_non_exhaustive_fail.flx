@@ -1,0 +1,5 @@
+let b = true
+
+match b {
+    true -> 1
+};

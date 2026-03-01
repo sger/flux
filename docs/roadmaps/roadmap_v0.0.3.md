@@ -46,7 +46,7 @@ Create a comprehensive plan for Flux v0.0.3 focusing on the most important langu
 
 **Timeline:** 11 weeks (updated from 8 weeks)
 - Weeks 1-2: Foundation (M1, M2)
-- Weeks 3-5: Module Split (Proposal 006) 🆕
+- Weeks 3-5: Module Split (Proposal 0006) 🆕
 - Weeks 6-11: Language Features (M3-M7)
 
 ---
@@ -61,7 +61,7 @@ Create a comprehensive plan for Flux v0.0.3 focusing on the most important langu
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Week 3-5: Module Split (Proposal 006) 🆕                        │
+│ Week 3-5: Module Split (Proposal 0006) 🆕                        │
 │   ✓ Compiler (4 modules) ✓ Parser (3 modules) ✓ VM (6 modules) │
 │   → Clean architecture, easy maintenance                         │
 └─────────────────────────────────────────────────────────────────┘
@@ -88,7 +88,7 @@ Total: 11 weeks (2.75 months)
 ```
 
 **Future (Post v0.0.3):**
-- Macro System (Proposal 009) - 12 weeks
+- Macro System (Proposal 0009) - 12 weeks
 - Reduces base functions from 35 to ~10
 - Enables user-defined language features
 
@@ -98,7 +98,7 @@ Total: 11 weeks (2.75 months)
 
 ### M1: Complete Error Code Registry
 **Priority:** CRITICAL | **Effort:** Small (2-3 days) | **Risk:** Low
-**Proposal:** [002_error_code_registry.md](../proposals/002_error_code_registry.md) (Enum-Based approach)
+**Proposal:** [0002_error_code_registry.md](../proposals/0002_error_code_registry.md) (Enum-Based approach)
 
 **Goal:** Complete the centralized error code registry to prevent duplicates and improve maintainability.
 
@@ -546,7 +546,7 @@ match tuple {
 
 ### Phase 1.5: Code Organization (Weeks 3-5) 🆕
 **Focus:** Module split for maintainability
-**Proposal:** [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md)
+**Proposal:** [0006_phase1_module_split_plan.md](../proposals/0006_phase1_module_split_plan.md)
 
 **Goal:** Split large files into focused modules before adding complexity.
 
@@ -569,13 +569,13 @@ match tuple {
 - Easier to navigate and modify code
 - Reduces merge conflicts
 - Sets pattern for future development
-- Foundation for visitor pattern (Proposal 007)
+- Foundation for visitor pattern (Proposal 0007)
 
 **Deliverable:** Clean, modular codebase ready for rapid feature development
 
 **Related Proposals:**
-- [Proposal 007: Visitor Pattern](../proposals/007_visitor_pattern.md) - Future multi-pass compilation
-- [Proposal 008: Base Functions Module Architecture](../proposals/008_builtins_module_architecture.md) - Future base organization
+- [Proposal 0007: Visitor Pattern](../proposals/0007_visitor_pattern.md) - Future multi-pass compilation
+- [Proposal 0008: Base Functions Module Architecture](../proposals/0008_builtins_module_architecture.md) - Future base organization
 
 ---
 
@@ -645,7 +645,7 @@ For-Loop Syntax (M6)     [Independent]
 
 **Parallel Track:** M5, M6 can be developed alongside Phase 2-4
 
-**Note:** AST Spans (M2) is a prerequisite for future Macro System (see Proposal 009)
+**Note:** AST Spans (M2) is a prerequisite for future Macro System (see Proposal 0009)
 
 ---
 
@@ -753,7 +753,7 @@ For-Loop Syntax (M6)     [Independent]
 - Flow.Func module (composition, etc.)
 
 ### Major Architectural Enhancement (Future)
-**Macro System** - [Proposal 009](../proposals/009_macro_system.md)
+**Macro System** - [Proposal 0040](../proposals/0040_macro_system.md) (supersedes Proposal 0009)
 **Timeline:** 12 weeks after v0.0.3 completion
 **Prerequisites:** ✅ AST Spans (M2), ✅ Module Split (Phase 1.5)
 
@@ -831,9 +831,9 @@ This updated plan for v0.0.3 balances:
 - **Advanced capabilities:** Array/tuple patterns (weeks 10-11)
 
 **Key Changes from Original Plan:**
-- ✅ Added Phase 1.5: Module Split (Proposal 006) - 3 weeks
+- ✅ Added Phase 1.5: Module Split (Proposal 0006) - 3 weeks
 - ✅ Extended timeline: 8 weeks → 11 weeks
-- ✅ Sets foundation for future Macro System (Proposal 009)
+- ✅ Sets foundation for future Macro System (Proposal 0040, supersedes 009)
 - ✅ Improves codebase maintainability before adding complexity
 
 **The 11-week timeline** is realistic with clear milestones, dependencies, and risk mitigation strategies. Each phase delivers independently testable value.
@@ -843,7 +843,7 @@ This updated plan for v0.0.3 balances:
 2. Implement Macro System to transform Flux architecture
 
 **Related Proposals:**
-- [006_phase1_module_split_plan.md](../proposals/006_phase1_module_split_plan.md) - Module organization
-- [007_visitor_pattern.md](../proposals/007_visitor_pattern.md) - Multi-pass compilation (future)
-- [008_builtins_module_architecture.md](../proposals/008_builtins_module_architecture.md) - Base organization (future)
-- [009_macro_system.md](../proposals/009_macro_system.md) - Metaprogramming foundation (future)
+- [0006_phase1_module_split_plan.md](../proposals/0006_phase1_module_split_plan.md) - Module organization
+- [0007_visitor_pattern.md](../proposals/0007_visitor_pattern.md) - Multi-pass compilation (future)
+- [0008_builtins_module_architecture.md](../proposals/0008_builtins_module_architecture.md) - Base organization (future)
+- [0040_macro_system.md](../proposals/0040_macro_system.md) - Metaprogramming foundation (future)

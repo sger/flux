@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/120_match_pipe_separator.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Match arms are separated by `,` in Flux, not `|`.
+
+  --> examples/type_system/failing/120_match_pipe_separator.flx:2:30
+  |
+2 |     let x = match 1 { 0 -> 0 | _ -> 1 }
+  |                              ^
+
+Hint:
+  Replace `|` with `,`.
+== stdout ==
+<not executed>

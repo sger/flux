@@ -1,0 +1,7 @@
+// E400: module-qualified call chain should propagate IO requirement.
+
+import TypeSystem.EffectsChain
+
+fn run() -> Int with Time {
+    TypeSystem.EffectsChain.call_io_step(1)
+}

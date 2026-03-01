@@ -5,9 +5,11 @@ expression: output
 Program {
     statements: [
         Function {
+            is_public: false,
             name: Symbol(
                 0,
             ),
+            type_params: [],
             parameters: [
                 Symbol(
                     1,
@@ -16,6 +18,12 @@ Program {
                     2,
                 ),
             ],
+            parameter_types: [
+                None,
+                None,
+            ],
+            return_type: None,
+            effects: [],
             body: Block {
                 statements: [
                     Return {

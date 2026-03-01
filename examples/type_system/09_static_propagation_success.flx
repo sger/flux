@@ -1,0 +1,15 @@
+fn main() with IO, Time {
+    fn make_rate() -> Float {
+        1.5
+    }
+
+    let base = make_rate()
+    let copy: Float = base
+    let confirmed: Float = make_rate()
+
+    fn double(x: Float) -> Float {
+        x * 2.0
+    }
+
+    print("#{double(copy)} / #{double(confirmed)}")
+}

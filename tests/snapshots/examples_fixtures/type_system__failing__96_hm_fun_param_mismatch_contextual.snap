@@ -1,0 +1,25 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Function parameter 1 type does not match: expected `Int`, found `String`.
+
+  --> examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:11:14
+   |
+11 |     let _f = if true {
+   |              ^^^^^^^^^
+12 |         takes_int
+   | ^^^^^^^^^^^^^^^^^
+13 |     } else {
+   | ^^^^^^^^^^^^
+14 |         takes_string
+   | ^^^^^^^^^^^^^^^^^^^^
+15 |     }
+   | ^^^^^
+== stdout ==
+<not executed>

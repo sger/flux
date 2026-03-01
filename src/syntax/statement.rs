@@ -5,8 +5,12 @@ use crate::{
     syntax::{
         Identifier,
         block::Block,
+        data_variant::DataVariant,
+        effect_expr::EffectExpr,
+        effect_ops::EffectOp,
         expression::{Expression, Pattern},
         interner::Interner,
+        type_expr::TypeExpr,
     },
 };
 
@@ -14,6 +18,7 @@ use crate::{
 pub enum Statement {
     Let {
         name: Identifier,
+        type_annotation: Option<TypeExpr>,
         value: Expression,
         span: Span,
     },
@@ -32,8 +37,15 @@ pub enum Statement {
         span: Span,
     },
     Function {
+        is_public: bool,
         name: Identifier,
+        /// Explicit generic type parameters, e.g. `[T, U]` for `fn f<T, U>(...)`.
+        /// Empty for non-generic functions.
+        type_params: Vec<Identifier>,
         parameters: Vec<Identifier>,
+        parameter_types: Vec<Option<TypeExpr>>,
+        return_type: Option<TypeExpr>,
+        effects: Vec<EffectExpr>,
         body: Block,
         span: Span,
     },
@@ -53,6 +65,19 @@ pub enum Statement {
         except: Vec<Identifier>,
         span: Span,
     },
+    Data {
+        name: Identifier,
+        type_params: Vec<Identifier>,
+        variants: Vec<DataVariant>,
+        span: Span,
+    },
+    /// effect Name { op: Params -> Ret, ... } - declares a user defined effect.
+    /// Operation signatures are enforced by compiler static checks.
+    EffectDecl {
+        name: Identifier,
+        ops: Vec<EffectOp>,
+        span: Span,
+    },
 }
 
 impl Statement {
@@ -66,6 +91,8 @@ impl Statement {
             Statement::Assign { span, .. } => span.start,
             Statement::Module { span, .. } => span.start,
             Statement::Import { span, .. } => span.start,
+            Statement::Data { span, .. } => span.start,
+            Statement::EffectDecl { span, .. } => span.start,
         }
     }
 
@@ -79,6 +106,8 @@ impl Statement {
             Statement::Assign { span, .. } => *span,
             Statement::Module { span, .. } => *span,
             Statement::Import { span, .. } => *span,
+            Statement::Data { span, .. } => *span,
+            Statement::EffectDecl { span, .. } => *span,
         }
     }
 }
@@ -86,8 +115,17 @@ impl Statement {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Statement::Let { name, value, .. } => {
-                write!(f, "let {} = {};", name, value)
+            Statement::Let {
+                name,
+                type_annotation,
+                value,
+                ..
+            } => {
+                if let Some(ta) = type_annotation {
+                    write!(f, "let {}: {} = {};", name, ta, value)
+                } else {
+                    write!(f, "let {} = {};", name, value)
+                }
             }
             Statement::LetDestructure { pattern, value, .. } => {
                 write!(f, "let {} = {};", pattern, value)
@@ -110,13 +148,66 @@ impl fmt::Display for Statement {
                 }
             }
             Statement::Function {
+                is_public,
                 name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 ..
             } => {
-                let params: Vec<String> = parameters.iter().map(|p| p.to_string()).collect();
-                write!(f, "fn {}({}) {}", name, params.join(", "), body)
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(
+                        |(idx, param)| match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
+                            Some(ty) => format!("{param}: {ty}"),
+                            None => param.to_string(),
+                        },
+                    )
+                    .collect();
+                let fn_kw = if *is_public { "public fn" } else { "fn" };
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        write!(
+                            f,
+                            "{} {}({}) -> {} {}",
+                            fn_kw,
+                            name,
+                            params.join(", "),
+                            return_type,
+                            body
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(ToString::to_string).collect();
+                        write!(
+                            f,
+                            "{} {}({}) -> {} with {} {}",
+                            fn_kw,
+                            name,
+                            params.join(", "),
+                            return_type,
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    write!(f, "{} {}({}) {}", fn_kw, name, params.join(", "), body)
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(ToString::to_string).collect();
+                    write!(
+                        f,
+                        "{} {}({}) with {} {}",
+                        fn_kw,
+                        name,
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Statement::Assign { name, value, .. } => {
                 write!(f, "{} = {};", name, value)
@@ -145,6 +236,28 @@ impl fmt::Display for Statement {
                     write!(f, "import {} except [{}]", name, names.join(", "))
                 }
             }
+            Statement::Data { name, variants, .. } => {
+                write!(f, "data {} {{", name)?;
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, " {}", v.name)?;
+                    if !v.fields.is_empty() {
+                        let fields: Vec<String> =
+                            v.fields.iter().map(|t| format!("{}", t)).collect();
+                        write!(f, "({})", fields.join(", "))?;
+                    }
+                }
+                write!(f, " }}")
+            }
+            Statement::EffectDecl { name, ops, .. } => {
+                write!(f, "effect {} {{", name)?;
+                for op in ops {
+                    write!(f, " {}: {},", op.name, op.type_expr)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -160,12 +273,26 @@ impl Statement {
     /// Formats this statement using the interner to resolve identifier names.
     pub fn display_with(&self, interner: &Interner) -> String {
         match self {
-            Statement::Let { name, value, .. } => {
-                format!(
-                    "let {} = {};",
-                    interner.resolve(*name),
-                    value.display_with(interner)
-                )
+            Statement::Let {
+                name,
+                type_annotation,
+                value,
+                ..
+            } => {
+                if let Some(ta) = type_annotation {
+                    format!(
+                        "let {}: {} = {};",
+                        interner.resolve(*name),
+                        ta.display_with(interner),
+                        value.display_with(interner)
+                    )
+                } else {
+                    format!(
+                        "let {} = {};",
+                        interner.resolve(*name),
+                        value.display_with(interner)
+                    )
+                }
             }
             Statement::LetDestructure { pattern, value, .. } => {
                 format!(
@@ -190,18 +317,70 @@ impl Statement {
                 }
             }
             Statement::Function {
+                is_public,
                 name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 ..
             } => {
-                let params: Vec<&str> = parameters.iter().map(|p| interner.resolve(*p)).collect();
-                format!(
-                    "fn {}({}) {}",
-                    interner.resolve(*name),
-                    params.join(", "),
-                    body
-                )
+                let params: Vec<String> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, param)| {
+                        let param_name = interner.resolve(*param);
+                        match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
+                            Some(ty) => format!("{param_name}: {}", ty.display_with(interner)),
+                            None => param_name.to_string(),
+                        }
+                    })
+                    .collect();
+                let fn_kw = if *is_public { "public fn" } else { "fn" };
+                if let Some(return_type) = return_type {
+                    if effects.is_empty() {
+                        format!(
+                            "{} {}({}) -> {} {}",
+                            fn_kw,
+                            interner.resolve(*name),
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            body
+                        )
+                    } else {
+                        let effects_text: Vec<String> =
+                            effects.iter().map(|e| e.display_with(interner)).collect();
+                        format!(
+                            "{} {}({}) -> {} with {} {}",
+                            fn_kw,
+                            interner.resolve(*name),
+                            params.join(", "),
+                            return_type.display_with(interner),
+                            effects_text.join(", "),
+                            body
+                        )
+                    }
+                } else if effects.is_empty() {
+                    format!(
+                        "{} {}({}) {}",
+                        fn_kw,
+                        interner.resolve(*name),
+                        params.join(", "),
+                        body
+                    )
+                } else {
+                    let effects_text: Vec<String> =
+                        effects.iter().map(|e| e.display_with(interner)).collect();
+                    format!(
+                        "{} {}({}) with {} {}",
+                        fn_kw,
+                        interner.resolve(*name),
+                        params.join(", "),
+                        effects_text.join(", "),
+                        body
+                    )
+                }
             }
             Statement::Assign { name, value, .. } => {
                 format!(
@@ -240,6 +419,34 @@ impl Statement {
                     }
                     text
                 }
+            }
+            Statement::Data { name, variants, .. } => {
+                let mut text = format!("data {} {{", interner.resolve(*name));
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 {
+                        text.push_str(", ");
+                    }
+                    text.push_str(&format!(" {}", interner.resolve(v.name)));
+                    if !v.fields.is_empty() {
+                        let fields: Vec<String> =
+                            v.fields.iter().map(|t| t.display_with(interner)).collect();
+                        text.push_str(&format!("({})", fields.join(", ")));
+                    }
+                }
+                text.push_str(" }");
+                text
+            }
+            Statement::EffectDecl { name, ops, .. } => {
+                let mut text = format!("effect {} {{", interner.resolve(*name));
+                for op in ops {
+                    text.push_str(&format!(
+                        " {}: {},",
+                        interner.resolve(op.name),
+                        op.type_expr.display_with(interner)
+                    ));
+                }
+                text.push_str(" }");
+                text
             }
         }
     }

@@ -1,0 +1,105 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/12_adt_nested.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/12_adt_nested.flx:8:9
+   |
+ 8 |         match t {
+   |         ^^^^^^^^^
+ 9 |             Leaf -> Node(Leaf, v, Leaf),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+10 |             Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+11 |             if v < x {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+12 |                 Node(insert(left, v), x, right)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |             } else if v > x {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |             Node(left, x, insert(right, v))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 |         } else {
+   | ^^^^^^^^^^^^^^^^
+16 |         t
+   | ^^^^^^^^^
+17 |     },
+   | ^^^^^^
+18 | }
+   | ^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/12_adt_nested.flx:22:5
+   |
+22 |     match t {
+   |     ^^^^^^^^^
+23 |         Leaf -> false,
+   | ^^^^^^^^^^^^^^^^^^^^^^
+24 |         Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |         if v == x { true }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |         else if v < x { contains(left, v) }
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+27 |         else { contains(right, v) },
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+28 |     }
+   | ^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/12_adt_nested.flx:32:5
+   |
+32 |     match t {
+   |     ^^^^^^^^^
+33 |         Leaf -> [||],
+   | ^^^^^^^^^^^^^^^^^^^^^
+34 |         Node(left, x, right) ->
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+35 |         concat(inorder(left), concat([|x|], inorder(right))),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+36 |     }
+   | ^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `Leaf`.
+
+  --> examples/type_system/12_adt_nested.flx:39:37
+   |
+39 | let t = insert(insert(insert(insert(Leaf, 5), 3), 7), 1)
+   |                                     ^^^^
+
+Hint:
+  Define it first: let Leaf = ...;
+
+
+Help:
+  Did you mean `len`?
+
+Found 4 errors.
+== stdout ==
+<not executed>

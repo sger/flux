@@ -1,0 +1,16 @@
+effect Console {
+    print: String -> ()
+}
+
+fn emit(msg: String) -> Int with Console {
+    perform Console.print(msg)
+    1
+}
+
+fn run() -> Int {
+    emit("hello") handle Console {
+        print(resume, _msg) -> resume(())
+    }
+}
+
+let value: Int = run()

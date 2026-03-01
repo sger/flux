@@ -19,6 +19,8 @@ use context::JitContext;
 pub struct JitOptions {
     pub no_gc: bool,
     pub gc_threshold: Option<usize>,
+    pub source_file: Option<String>,
+    pub source_text: Option<String>,
 }
 
 /// Compiled JIT program ready to execute.
@@ -49,6 +51,8 @@ pub fn jit_compile(
     let mut ctx = JitContext::new();
     ctx.set_jit_functions(compiler.jit_function_entries());
     ctx.set_named_functions(compiler.named_functions());
+    ctx.set_source_context(options.source_file.clone(), options.source_text.clone());
+    ctx.identity_fn_index = compiler.identity_fn_index;
 
     if options.no_gc {
         ctx.gc_heap.set_enabled(false);

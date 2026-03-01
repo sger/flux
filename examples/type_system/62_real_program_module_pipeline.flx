@@ -1,0 +1,21 @@
+import TypeSystem.RealProgramDomain as D
+import TypeSystem.Collections as C
+
+let rows: List<(String, Int)> = list(
+    ("alice", 95),
+    ("bob", 48),
+    ("carol", 72)
+)
+
+fn format_row(p: (String, Int)) -> String {
+    let n = D.normalize(p)
+    let b = D.score_band(n.1)
+    n.0 + ":" + D.band_label(b)
+}
+
+fn main() with IO {
+    let labels: List<String> = C.map_list(rows, \p -> format_row(p))
+    let total: Int = D.total_scores(rows)
+    print(C.join_strings(labels, ", "))
+    print("total=" + to_string(total))
+}

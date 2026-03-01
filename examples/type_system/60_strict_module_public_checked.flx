@@ -1,0 +1,7 @@
+// Module-scoped public APIs are part of strict API checks.
+
+import TypeSystem.StrictPublicChecked as C
+
+fn main() -> Unit {
+    let value: Int = C.inc(1)
+}

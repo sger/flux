@@ -1,0 +1,33 @@
+fn main() with IO, Time {
+    data Shape {
+        Circle(Float),
+        Rectangle(Float, Float),
+        Point,
+    }
+
+    fn area(s: Shape) -> Float {
+        match s {
+            Circle(r) -> 3.14159 * r * r,
+            Rectangle(w, h) -> w * h,
+            Point -> 0.0,
+        }
+    }
+
+    fn describe(s: Shape) -> String {
+        match s {
+            Circle(r) -> "Circle with radius #{r}",
+            Rectangle(w, h) -> "Rectangle #{w}x#{h}",
+            Point -> "Point",
+        }
+    }
+
+    let c = Circle(5.0)
+    let r = Rectangle(3.0, 4.0)
+    let p = Point
+
+    print(describe(c))
+    print(describe(r))
+    print(describe(p))
+    print("Area of circle: #{area(c)}")
+    print("Area of rectangle: #{area(r)}")
+}

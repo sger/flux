@@ -1,0 +1,7 @@
+fn id(x) { x }
+fn add(a: Int, b: Int) -> Int { a + b }
+
+fn main() -> Unit {
+    let _v = id(1)
+    let _z = add(1)
+}

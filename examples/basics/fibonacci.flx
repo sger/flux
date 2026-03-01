@@ -1,27 +1,29 @@
-// Test: Recursion - Fibonacci
-// Expected output:
-// 0
-// 1
-// 1
-// 2
-// 3
-// 5
-// 8
-// 55
+fn main() with IO {
+    // Test: Recursion - Fibonacci
+    // Expected output:
+    // 0
+    // 1
+    // 1
+    // 2
+    // 3
+    // 5
+    // 8
+    // 55
+
+    print(fib(0))
+    print(fib(1))
+    print(fib(2))
+    print(fib(3))
+    print(fib(4))
+    print(fib(5))
+    print(fib(6))
+    print(fib(10))
+}
 
 fn fib(n) {
     if n < 2 {
-        n;
+        n
     } else {
-        fib(n - 1) + fib(n - 2);
-    };
+    fib(n - 1) + fib(n - 2)
 }
-
-print(fib(0));
-print(fib(1));
-print(fib(2));
-print(fib(3));
-print(fib(4));
-print(fib(5));
-print(fib(6));
-print(fib(10));
+}

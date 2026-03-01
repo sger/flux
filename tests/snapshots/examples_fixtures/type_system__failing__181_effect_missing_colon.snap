@@ -1,0 +1,17 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/181_effect_missing_colon.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+
+  --> examples/type_system/failing/181_effect_missing_colon.flx:1:24
+  |
+1 | effect Console { print String -> None }
+  |                        ^^^^^^
+== stdout ==
+<not executed>

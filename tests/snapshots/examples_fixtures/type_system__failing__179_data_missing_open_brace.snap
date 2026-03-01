@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/179_data_missing_open_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin data constructors.
+
+  --> examples/type_system/failing/179_data_missing_open_brace.flx:1:15
+  |
+1 | data Maybe<T> Some(T), None }
+  |               ^^^^
+
+Hint:
+  Data declarations use `data TypeName { Ctor, ... }`.
+== stdout ==
+<not executed>

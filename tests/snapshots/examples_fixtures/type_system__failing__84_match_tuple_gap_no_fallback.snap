@@ -1,0 +1,26 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/84_match_tuple_gap_no_fallback.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
+
+  --> examples/type_system/failing/84_match_tuple_gap_no_fallback.flx:4:1
+  |
+4 | match t {
+  | ^^^^^^^^^
+5 |     (1, true) -> 1,
+  | ^^^^^^^^^^^^^^^^^^^
+6 |     (2, false) -> 2
+  | ^^^^^^^^^^^^^^^^^^^
+7 | };
+  | ^
+
+Hint:
+  Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.
+== stdout ==
+<not executed>

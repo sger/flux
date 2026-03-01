@@ -1,0 +1,6 @@
+// E015: List match missing empty branch.
+let xs = [1, 2];
+
+match xs {
+    [h | t] -> h
+};

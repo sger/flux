@@ -292,7 +292,50 @@ fn diagnostic_cap_enforcement() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 6: Stable ordering -- same input twice -> identical output
+// Test 6: PASS 2 multi-error continuation keeps independent compiler errors
+// in deterministic source order within one module file.
+// ---------------------------------------------------------------------------
+#[test]
+fn pass2_multi_error_continuation_ordering() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("pass2_multi_error_continuation");
+    let entry = root.join("Main.flx");
+    let source = include_str!("../examples/type_system/failing/99_multi_error_continuation.flx");
+    write_file(&entry, source);
+
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+
+    let error_codes: Vec<_> = diags
+        .iter()
+        .filter(|d| d.severity() == Severity::Error)
+        .filter_map(|d| d.code())
+        .collect();
+    assert!(
+        error_codes.contains(&"E002"),
+        "expected E002 in unified diagnostics, got {:?}",
+        error_codes
+    );
+    assert!(
+        error_codes.contains(&"E300"),
+        "expected E300 in unified diagnostics, got {:?}",
+        error_codes
+    );
+
+    let e002_idx = rendered
+        .find("error[E002]")
+        .expect("expected rendered E002 in unified output");
+    let e300_idx = rendered
+        .find("error[E300]")
+        .expect("expected rendered E300 in unified output");
+    assert!(
+        e002_idx < e300_idx,
+        "expected deterministic source-order diagnostics (E002 before E300), got:\n{}",
+        rendered
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Stable ordering -- same input twice -> identical output
 // ---------------------------------------------------------------------------
 #[test]
 fn stable_ordering() {

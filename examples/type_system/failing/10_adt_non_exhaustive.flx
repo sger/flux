@@ -1,0 +1,30 @@
+data Color {
+    Red,
+    Green,
+    Blue,
+}
+
+data Test {
+    One,
+    Two,
+}
+
+fn name(c: Color) -> String {
+    match c {
+        Red -> "red",
+        Green -> "green",
+        // Missing: Blue
+    }
+}
+
+fn pass(t: Test) -> String {
+    "Rectangle #{t}"
+}
+
+name(Red)
+
+let t = One
+
+print(pass(t))
+
+

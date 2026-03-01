@@ -1,0 +1,12 @@
+fn old(v) {
+    v
+}
+
+fn typed_add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+let dynamic = old("oops")
+
+// Runtime contract violation at boundary (dynamic -> typed arg).
+typed_add(dynamic, 1)

@@ -1,0 +1,12 @@
+fn expect_int(x: Int) -> Int {
+    x
+}
+
+fn main() -> Unit with IO {
+    let picked = if true {
+        21
+    } else {
+        42
+    }
+    print(to_string(expect_int(picked)))
+}

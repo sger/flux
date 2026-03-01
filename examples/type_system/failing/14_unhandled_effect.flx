@@ -1,0 +1,2 @@
+// Runtime error: no handler for Console
+perform Console.print("hello")

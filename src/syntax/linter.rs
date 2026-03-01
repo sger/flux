@@ -177,6 +177,7 @@ impl<'a> Linter<'a> {
         }
     }
 
+    /// Recursively collects bindings introduced by a pattern into the current scope.
     fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Identifier { name, .. } => {
@@ -200,6 +201,11 @@ impl<'a> Linter<'a> {
             | Pattern::Literal { .. }
             | Pattern::None { .. }
             | Pattern::EmptyList { .. } => {}
+            Pattern::Constructor { fields, .. } => {
+                for field in fields {
+                    self.extract_pattern_bindings(field);
+                }
+            }
         }
     }
 
@@ -297,7 +303,9 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
 
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
-            Statement::Let { name, value, span } => {
+            Statement::Let {
+                name, value, span, ..
+            } => {
                 self.visit_expr(value);
                 self.define_binding(*name, span.start, BindingKind::Let);
             }
@@ -322,6 +330,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 parameters,
                 body,
                 span,
+                ..
             } => {
                 self.check_function_complexity(Some(*name), parameters, body, span.start);
                 let name_str = self.sym(*name);
@@ -372,6 +381,8 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
             Statement::Return { .. } | Statement::Expression { .. } => {
                 visit::walk_stmt(self, stmt);
             }
+            Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
@@ -384,6 +395,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 parameters,
                 body,
                 span,
+                ..
             } => {
                 self.check_function_complexity(None, parameters, body, span.start);
                 self.enter_scope();

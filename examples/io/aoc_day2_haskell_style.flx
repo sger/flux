@@ -2,10 +2,11 @@
 // Inspired by AOC2025.Day02 day02a/day02b structure.
 // Uses input file: examples/io/aoc_day2.txt
 
-fn digits_count(n) {
-    if n < 10 {
-        1
-    } else {
+fn main() with IO, Time {
+    fn digits_count(n) {
+        if n < 10 {
+            1
+        } else {
         1 + digits_count(n / 10)
     }
 }
@@ -14,16 +15,16 @@ fn pow10(exp) {
     if exp <= 0 {
         1
     } else {
-        10 * pow10(exp - 1)
-    }
+    10 * pow10(exp - 1)
+}
 }
 
 fn repeat_value(seed, base, times_left, acc) {
     if times_left <= 0 {
         acc
     } else {
-        repeat_value(seed, base, times_left - 1, acc * base + seed)
-    }
+    repeat_value(seed, base, times_left - 1, acc * base + seed)
+}
 }
 
 // repDigits n x
@@ -40,10 +41,10 @@ fn parse_range_token(token) {
 
 fn parse_ranges(path) {
     read_file(path)
-        |> trim
-        |> split(",")
-        |> filter(\t -> trim(t) != "")
-        |> map(\t -> parse_range_token(t))
+    |> trim
+    |> split(",")
+    |> filter(\t -> trim(t) != "")
+    |> map(\t -> parse_range_token(t))
 }
 
 fn id_in_range(id, range_pair) {
@@ -63,11 +64,11 @@ fn maybe_add_candidate(candidate, ranges, state) {
         if has_key(seen, candidate) {
             state
         } else {
-            (total + candidate, put(seen, candidate, true))
-        }
-    } else {
-        state
+        (total + candidate, put(seen, candidate, true))
     }
+} else {
+state
+}
 }
 
 fn max_seed_for_repeat_count(repeat_count) {
@@ -78,8 +79,8 @@ fn max_seed_for_repeat_count(repeat_count) {
     if max_digits <= 0 {
         0
     } else {
-        pow10(max_digits) - 1
-    }
+    pow10(max_digits) - 1
+}
 }
 
 fn generate_for_repeat_count(repeat_count, ranges, state) {
@@ -87,18 +88,18 @@ fn generate_for_repeat_count(repeat_count, ranges, state) {
     if max_seed <= 0 {
         state
     } else {
-        range(1, max_seed + 1)
-            |> fold(state, \(acc, s) ->
-                do {
-                    let candidate = rep_digits(repeat_count, s)
-                    if candidate >= 100000000000 {
-                        acc
-                    } else {
-                        maybe_add_candidate(candidate, ranges, acc)
-                    }
-                }
-            )
+    range(1, max_seed + 1)
+    |> fold(state, \(acc, s) ->
+    do {
+        let candidate = rep_digits(repeat_count, s)
+        if candidate >= 100000000000 {
+            acc
+        } else {
+        maybe_add_candidate(candidate, ranges, acc)
     }
+}
+)
+}
 }
 
 fn solve_for_repeat_counts(repeat_counts, ranges, state) {
@@ -126,3 +127,4 @@ let day02b = day02(to_list(range(2, 12)), ranges)
 
 print(day02a)
 print(day02b)
+}

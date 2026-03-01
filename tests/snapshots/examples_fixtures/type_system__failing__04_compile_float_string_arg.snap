@@ -1,0 +1,31 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/04_compile_float_string_arg.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `scale` has the wrong type.
+
+  --> examples/type_system/failing/04_compile_float_string_arg.flx:6:7
+  |
+1 | fn scale(x: Float, factor: Float) -> Float {
+
+2 |     x * factor
+
+3 | }
+
+4 | 
+
+5 | 
+
+6 | scale("3.14", 2.0)
+  |       ^^^^^^
+  |       ------ this argument is `String`
+
+Help:
+  Expected `Float` as the 1st argument.
+== stdout ==
+<not executed>

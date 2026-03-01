@@ -1,0 +1,44 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify A with B.
+
+  --> examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+   |
+14 |     match x {
+   |     ^^^^^^^^^
+15 |         A1 -> 1,
+   | ^^^^^^^^^^^^^^^^
+16 |         B1 -> 2,
+   | ^^^^^^^^^^^^^^^^
+17 |     }
+   | ^^^^^
+
+
+--> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+
+Match arms mix constructors from different ADTs: `A` and `B`.
+
+  --> examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+   |
+14 |     match x {
+   |     ^^^^^^^^^
+15 |         A1 -> 1,
+   | ^^^^^^^^^^^^^^^^
+16 |         B1 -> 2,
+   | ^^^^^^^^^^^^^^^^
+17 |     }
+   | ^^^^^
+
+Hint:
+  Use constructors from a single ADT in a given match expression.
+
+Found 2 errors.
+== stdout ==
+<not executed>

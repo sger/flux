@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E085]: CONSTRUCTOR PATTERN ARITY MISMATCH
+
+Constructor pattern `NoneI` expects 0 argument(s) but got 1.
+
+  --> examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx:8:9
+  |
+8 |         NoneI(v) -> v,
+  |         ^^^^^^^^
+
+Hint:
+  Check the constructor's declared pattern field count.
+== stdout ==
+<not executed>

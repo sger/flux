@@ -1,0 +1,22 @@
+// E400: nested polymorphic wrappers resolve `e` to IO from callback, caller only declares Time.
+
+fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(x)
+}
+
+fn wrap_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    apply_once(f, x)
+}
+
+fn io_step(x: Int) -> Int with IO {
+    print(to_string(x))
+    x + 1
+}
+
+fn caller(x: Int) -> Int with Time {
+    wrap_twice(io_step, x)
+}
+
+fn main() with IO, Time {
+    print(to_string(caller(1)))
+}

@@ -61,14 +61,32 @@ fn assert_contains_get_base(input: &str) {
 fn compiler_emits_op_primop_for_existing_phase1_mappings() {
     assert_contains_primop("iadd(1, 2)");
     assert_contains_primop(r#"panic("boom")"#);
-    assert_contains_primop(r#"print("ok")"#);
+    assert_contains_primop(
+        r#"
+fn main() -> Unit with IO {
+    print("ok")
+}
+"#,
+    );
 }
 
 #[test]
 fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_generic_base_call() {
-    assert_contains_primop(r#"print("ok")"#);
+    assert_contains_primop(
+        r#"
+fn main() -> Unit with IO {
+    print("ok")
+}
+"#,
+    );
 
-    let asm = compile_disassembly(r#"print("a", "b", "c")"#);
+    let asm = compile_disassembly(
+        r#"
+fn main() -> Unit with IO {
+    print("a", "b", "c")
+}
+"#,
+    );
     assert!(
         !asm.contains("OpPrimOp"),
         "did not expect OpPrimOp for multi-arg print:\n{}",
@@ -79,7 +97,13 @@ fn print_arity_split_routes_one_arg_to_primop_and_multi_arg_to_generic_base_call
         "did not expect OpCallBase for multi-arg print:\n{}",
         asm
     );
-    assert_contains_get_base(r#"print("a", "b", "c")"#);
+    assert_contains_get_base(
+        r#"
+fn main() -> Unit with IO {
+    print("a", "b", "c")
+}
+"#,
+    );
 }
 
 #[test]

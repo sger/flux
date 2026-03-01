@@ -1,0 +1,9 @@
+fn io_add_one(x: Int) -> Int with IO { x + 1 }
+
+fn apply_with_time(f: (Int) -> Int with Time, x: Int) -> Int {
+    f(x)
+}
+
+fn main() -> Unit {
+    apply_with_time(io_add_one, 1)
+}

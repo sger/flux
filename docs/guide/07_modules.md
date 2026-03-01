@@ -9,10 +9,10 @@ A module groups related functions under a qualified namespace. Module names must
 ```flux
 // File: examples/Modules/Math.flx
 module Modules.Math {
-    fn square(x) { x * x }
-    fn cube(x)   { x * square(x) }
+    public fn square(x) { x * x }
+    public fn cube(x)   { x * square(x) }
 
-    // Private: underscore prefix — not accessible outside the module
+    // Private helper
     fn _helper(x) { x * 2 }
 
     // Can call _helper from inside the module
@@ -24,7 +24,7 @@ Forward references are allowed — functions may call each other regardless of d
 
 ```flux
 module Modules.Math {
-    fn quadruple(x) { double(double(x)) }  // double defined below — OK
+    public fn quadruple(x) { double(double(x)) }  // double defined below — OK
     fn double(x)    { x * 2 }
 }
 ```
@@ -70,11 +70,11 @@ A module can span multiple files or group utilities logically:
 ```flux
 // examples/Modules/StringUtils.flx
 module Modules.StringUtils {
-    fn capitalize(s) {
+    public fn capitalize(s) {
         upper(substring(s, 0, 1)) + substring(s, 1, len(s))
     }
 
-    fn words(s) { split(s, " ") }
+    public fn words(s) { split(s, " ") }
 }
 ```
 
@@ -114,7 +114,8 @@ Circular imports are detected at compile time and reported as error `E035`. The 
 | Rule | Detail |
 |------|--------|
 | Module names | PascalCase, must match file path |
-| Private members | Prefix with `_` |
+| Exported members | Use `public fn` |
+| Private members | Plain `fn` is module-private (`_name` remains private by convention) |
 | Forward references | Allowed within a module |
 | Import cycles | Compile-time error `E035` |
 | `import` position | Top-level only (not inside functions) |

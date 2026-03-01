@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/11_return_type_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `print` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/11_return_type_mismatch.flx:6:5
+  |
+6 |     print("hello")
+  |     ^^^^^
+  |     ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

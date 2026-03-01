@@ -1,0 +1,11 @@
+// E085: constructor-pattern arity mismatch (expects 0 fields, pattern provides 1).
+
+type MaybeI = SomeI(Int) | NoneI
+
+fn main() {
+    let x = NoneI
+    let _y = match x {
+        NoneI(v) -> v,
+        SomeI(n) -> n,
+    }
+}

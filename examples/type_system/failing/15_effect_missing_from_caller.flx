@@ -1,0 +1,12 @@
+// E400: caller function is typed-pure but calls an IO function.
+
+fn log_line(msg: String) -> Unit with IO {
+    print(msg)
+}
+
+fn compute(x: Int) -> Int {
+    log_line("value=#{to_string(x)}")
+    x + 1
+}
+
+compute(41)

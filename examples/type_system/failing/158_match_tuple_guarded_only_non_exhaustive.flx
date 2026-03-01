@@ -1,0 +1,6 @@
+fn main() -> Unit {
+    let t = (1, true)
+    let _x = match t {
+        (a, b) if a > 0 && b -> 1,
+    }
+}

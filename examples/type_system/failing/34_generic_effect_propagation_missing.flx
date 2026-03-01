@@ -1,0 +1,14 @@
+// E400: generic higher-order wrapper should propagate callback IO effect.
+
+fn apply<T>(f: ((T) -> T with e), x: T) -> T with e {
+    f(x)
+}
+
+fn io_inc(x: Int) -> Int with IO {
+    print("io_inc=#{to_string(x)}")
+    x + 1
+}
+
+fn run() -> Int with Time {
+    apply(io_inc, 1)
+}

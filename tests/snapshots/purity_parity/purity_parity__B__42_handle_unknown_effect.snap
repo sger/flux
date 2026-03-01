@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/42_handle_unknown_effect.flx
+Category: B
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/42_handle_unknown_effect.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/42_handle_unknown_effect.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E405 | UNKNOWN HANDLER EFFECT | unknown effect in handle
+
+== jit tuples ==
+- E405 | UNKNOWN HANDLER EFFECT | unknown effect in handle
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

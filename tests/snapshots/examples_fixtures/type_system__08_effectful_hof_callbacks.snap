@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/08_effectful_hof_callbacks.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `print` requires effect `IO` in this function signature.
+
+  --> examples/type_system/08_effectful_hof_callbacks.flx:13:45
+   |
+13 |     each_log(list(10, 20, 30), /(x: Int) -> print("callback=#{x}"))
+   |                                             ^^^^^
+   |                                             ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

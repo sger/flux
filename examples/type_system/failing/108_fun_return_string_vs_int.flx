@@ -1,0 +1,7 @@
+fn bad() -> Int {
+    "oops"
+}
+
+fn main() -> Unit {
+    bad()
+}

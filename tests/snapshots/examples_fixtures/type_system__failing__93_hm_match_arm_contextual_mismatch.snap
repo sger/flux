@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The arms of this `match` expression produce different types.
+
+  --> examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx:5:18
+  |
+4 |         true -> 1,
+
+  |                 - first arm returns `Int`
+5 |         false -> "no",
+  |                  ^^^^
+  |                  ---- arm 2 returns `String`
+
+Help:
+  All match arms must return the same type. Change arm 2 to return `Int`.
+== stdout ==
+<not executed>

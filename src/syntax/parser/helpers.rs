@@ -1,13 +1,13 @@
 use crate::{
     diagnostics::{
         Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
-        UNTERMINATED_STRING, missing_comma,
+        UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
         position::{Position, Span},
         unclosed_delimiter, unexpected_token,
     },
     syntax::{
-        Identifier, block::Block, expression::Expression, precedence::Precedence,
-        statement::Statement, token_type::TokenType,
+        Identifier, block::Block, effect_expr::EffectExpr, expression::Expression,
+        precedence::Precedence, statement::Statement, token_type::TokenType, type_expr::TypeExpr,
     },
 };
 
@@ -16,15 +16,25 @@ use super::Parser;
 const LIST_ERROR_LIMIT: usize = 50;
 const DELIMITER_RECOVERY_BUDGET: usize = 256;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ParameterListContext {
+    Function,
+    Lambda,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum SyncMode {
+    /// Synchronize at expression boundaries (commas, closers, EOF).
     Expr,
+    /// Synchronize at statement boundaries (`;`, `}`, EOF).
     Stmt,
+    /// Synchronize until the end of the current block (`}` or EOF).
     Block,
 }
 
 impl Parser {
     // Token navigation
+    /// Advances the 3-token parser window, skipping over doc comment tokens.
     pub(super) fn next_token(&mut self) {
         let mut next = self.lexer.next_token();
         // Skip doc comments - they're lexed but not parsed
@@ -37,14 +47,17 @@ impl Parser {
         );
     }
 
+    /// Returns `true` when `current_token` matches `token_type`.
     pub(super) fn is_current_token(&self, token_type: TokenType) -> bool {
         self.current_token.token_type == token_type
     }
 
+    /// Returns `true` when `peek_token` matches `token_type`.
     pub(super) fn is_peek_token(&self, token_type: TokenType) -> bool {
         self.peek_token.token_type == token_type
     }
 
+    /// Consumes `peek_token` when it matches `token_type`, otherwise emits a peek error.
     pub(super) fn expect_peek(&mut self, token_type: TokenType) -> bool {
         if self.is_peek_token(token_type) {
             self.next_token();
@@ -55,6 +68,51 @@ impl Parser {
         }
     }
 
+    /// Consumes `peek_token` when it matches `token_type`, otherwise emits a
+    /// contextual unexpected-token diagnostic with a stable help hint.
+    pub(super) fn expect_peek_context(
+        &mut self,
+        token_type: TokenType,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) -> bool {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            self.errors.push(
+                unexpected_token(self.peek_token.span(), message.into())
+                    .with_hint_text(hint.into()),
+            );
+            false
+        }
+    }
+
+    /// Contextual `expect_peek` variant that can derive message and hint from
+    /// parser state at the failure site.
+    pub(super) fn expect_peek_contextf<M, H>(
+        &mut self,
+        token_type: TokenType,
+        message_fn: M,
+        hint_fn: H,
+    ) -> bool
+    where
+        M: FnOnce(&Self) -> String,
+        H: FnOnce(&Self) -> String,
+    {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            self.errors.push(
+                unexpected_token(self.peek_token.span(), message_fn(self))
+                    .with_hint_text(hint_fn(self)),
+            );
+            false
+        }
+    }
+
+    /// Consumes `peek_token` only if it matches `token_type`.
     pub(super) fn consume_if_peek(&mut self, token_type: TokenType) -> bool {
         if self.is_peek_token(token_type) {
             self.next_token();
@@ -64,14 +122,33 @@ impl Parser {
         }
     }
 
+    /// Runs a required parser step and synchronizes on failure.
+    pub(super) fn parse_required<T, F>(&mut self, parse: F, sync_mode: SyncMode) -> Option<T>
+    where
+        F: FnOnce(&mut Parser) -> Option<T>,
+    {
+        match parse(self) {
+            Some(value) => Some(value),
+            None => {
+                self.synchronize(sync_mode);
+                None
+            }
+        }
+    }
+
+    /// Returns the maximum number of list-related diagnostics emitted before bailing out.
     pub(super) fn list_error_limit(&self) -> usize {
         LIST_ERROR_LIMIT
     }
 
+    /// Returns how many diagnostics were emitted since `diag_start`.
     pub(super) fn list_diag_count_since(&self, diag_start: usize) -> usize {
         self.errors.len().saturating_sub(diag_start)
     }
 
+    /// Enforces the per-list diagnostic budget and synchronizes to `end` when exceeded.
+    ///
+    /// Returns `true` when parsing should stop for the current list.
     pub(super) fn check_list_error_limit(
         &mut self,
         diag_start: usize,
@@ -100,10 +177,12 @@ impl Parser {
     }
 
     // Span/position utilities
+    /// Builds a span from `start` to the end position of `current_token`.
     pub(super) fn span_from(&self, start: Position) -> Span {
         Span::new(start, self.current_token.end_position)
     }
 
+    /// Returns whether `token_type` ends an expression in the current grammar.
     pub(super) fn is_expression_terminator(&self, token_type: TokenType) -> bool {
         matches!(
             token_type,
@@ -118,6 +197,7 @@ impl Parser {
         )
     }
 
+    /// Returns whether `token_type` can begin an expression.
     pub(super) fn token_starts_expression(&self, token_type: TokenType) -> bool {
         matches!(
             token_type,
@@ -147,6 +227,7 @@ impl Parser {
         )
     }
 
+    /// Returns whether `token_type` can begin a statement.
     pub(super) fn token_starts_statement(&self, token_type: TokenType) -> bool {
         matches!(
             token_type,
@@ -158,6 +239,31 @@ impl Parser {
         )
     }
 
+    /// Returns whether `token_type` can begin a type expression.
+    pub(super) fn token_starts_type(&self, token_type: TokenType) -> bool {
+        matches!(
+            token_type,
+            TokenType::Ident | TokenType::LParen | TokenType::None
+        )
+    }
+
+    fn looks_like_type_annotation_start(&self) -> bool {
+        match self.peek_token.token_type {
+            TokenType::Ident => self
+                .peek_token
+                .literal
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_uppercase()),
+            TokenType::LParen | TokenType::None => true,
+            _ => false,
+        }
+    }
+
+    /// Attempts delimiter-aware recovery until `expected` is found at top level.
+    ///
+    /// Returns `true` if `expected` was consumed, or `false` if recovery stopped
+    /// at a boundary token from `stop_on` (or another hard boundary).
     pub(super) fn recover_to_matching_delimiter(
         &mut self,
         expected: TokenType,
@@ -204,6 +310,7 @@ impl Parser {
         false
     }
 
+    /// Advances tokens until the parser reaches a boundary appropriate for `mode`.
     pub(super) fn synchronize(&mut self, mode: SyncMode) {
         while !self.is_current_token(TokenType::Eof) {
             let token_type = self.current_token.token_type;
@@ -222,7 +329,7 @@ impl Parser {
                     matches!(
                         token_type,
                         TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
-                    )
+                    ) || self.token_starts_statement(self.peek_token.token_type)
                 }
                 SyncMode::Block => matches!(token_type, TokenType::RBrace | TokenType::Eof),
             };
@@ -236,6 +343,7 @@ impl Parser {
     }
 
     // Complex parsing helpers
+    /// Parses either a simple identifier or a dotted qualified identifier.
     pub(super) fn parse_qualified_name(&mut self) -> Option<Identifier> {
         let first_sym = self
             .current_token
@@ -249,7 +357,11 @@ impl Parser {
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) {
             self.next_token(); // consume '.'
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected identifier after `.` in qualified name.".to_string(),
+                "Qualified names use `Module.Name`.".to_string(),
+            ) {
                 return None;
             }
             name.push('.');
@@ -258,10 +370,14 @@ impl Parser {
         Some(self.lexer.interner_mut().intern(&name))
     }
 
+    /// Parses an untyped function parameter list inside `(` ... `)`.
+    ///
+    /// Supports trailing commas and delimiter-aware recovery.
     pub(super) fn parse_function_parameters(&mut self) -> Option<Vec<Identifier>> {
         debug_assert!(self.is_current_token(TokenType::LParen));
         let mut identifiers = Vec::new();
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         // Empty list: ()
         if self.consume_if_peek(TokenType::RParen) {
@@ -301,13 +417,16 @@ impl Parser {
                 TokenType::RParen | TokenType::Eof => return Some(identifiers),
 
                 _ => {
-                    self.errors.push(unexpected_token(
+                    let followup = unexpected_token(
                         self.current_token.span(),
-                        format!(
-                            "Expected `,` or `)` after parameter, got {}.",
-                            self.current_token.token_type
-                        ),
-                    ));
+                        "Expected `,` or `)` after function parameter.",
+                    )
+                    .with_hint_text(
+                        "Separate parameters with `,` and close the parameter list with `)`.",
+                    );
+                    if !self.push_followup_unless_structural_root(construct_checkpoint, followup) {
+                        return Some(identifiers);
+                    }
                     if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
                     {
                         return Some(identifiers);
@@ -332,7 +451,495 @@ impl Parser {
         }
     }
 
+    /// Parses a function parameter list where each parameter may include
+    /// an optional type annotation (`name: Type`).
+    ///
+    /// Returns a tuple of `(parameter_names, parameter_types)` where
+    /// `parameter_types[i]` corresponds to `parameter_names[i]`.
+    pub(super) fn parse_typed_function_parameters(
+        &mut self,
+        context: ParameterListContext,
+    ) -> Option<(Vec<Identifier>, Vec<Option<TypeExpr>>)> {
+        debug_assert!(self.is_current_token(TokenType::LParen));
+
+        let mut identifiers = Vec::new();
+        let mut types = Vec::new();
+        let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
+
+        if self.consume_if_peek(TokenType::RParen) {
+            return Some((identifiers, types));
+        }
+
+        loop {
+            self.next_token();
+
+            if self.is_current_token(TokenType::RParen) {
+                return Some((identifiers, types));
+            }
+
+            if let Some(param) = self.parse_parameter_identifier_or_recover() {
+                let param_name = self.lexer.interner().resolve(param).to_string();
+                let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
+                    &[
+                        TokenType::Comma,
+                        TokenType::RParen,
+                        TokenType::Arrow,
+                        TokenType::With,
+                        TokenType::LBrace,
+                        TokenType::Eof,
+                    ],
+                    "function parameter",
+                    Some(param_name.as_str()),
+                );
+
+                identifiers.push(param);
+                types.push(type_annotation);
+                // Move from the parameter/type tail token to the parameter-list delimiter.
+                // Keep recovery anchors (e.g. `,` from malformed `a: , b`) in place.
+                let current_is_delimiter = matches!(
+                    self.current_token.token_type,
+                    TokenType::Comma | TokenType::RParen | TokenType::Eof
+                );
+                if current_is_delimiter {
+                    let peek_is_delimiter = matches!(
+                        self.peek_token.token_type,
+                        TokenType::Comma | TokenType::RParen | TokenType::Eof
+                    );
+                    if peek_is_delimiter {
+                        self.next_token();
+                    }
+                } else {
+                    self.next_token();
+                }
+            }
+
+            if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list") {
+                return Some((identifiers, types));
+            }
+
+            match self.current_token.token_type {
+                TokenType::Comma => {
+                    if self.consume_if_peek(TokenType::RParen) {
+                        return Some((identifiers, types));
+                    }
+                    continue;
+                }
+                TokenType::RParen | TokenType::Eof => return Some((identifiers, types)),
+                _ => {
+                    if context == ParameterListContext::Lambda
+                        && self.current_token.token_type == TokenType::Arrow
+                    {
+                        self.errors
+                            .push(missing_lambda_close_paren(self.current_token.span()));
+                    } else {
+                        let followup = unexpected_token(
+                            self.current_token.span(),
+                            "Expected `,` or `)` after function parameter.",
+                        )
+                        .with_hint_text(
+                            "Separate parameters with `,` and close the parameter list with `)`.",
+                        );
+                        if !self
+                            .push_followup_unless_structural_root(construct_checkpoint, followup)
+                        {
+                            return Some((identifiers, types));
+                        }
+                    }
+                    if self.check_list_error_limit(diag_start, TokenType::RParen, "parameter list")
+                    {
+                        return Some((identifiers, types));
+                    }
+                    while !matches!(
+                        self.current_token.token_type,
+                        TokenType::Comma | TokenType::RParen | TokenType::Eof
+                    ) {
+                        self.next_token();
+                    }
+                    if self.current_token.token_type == TokenType::Comma {
+                        continue;
+                    }
+                    return Some((identifiers, types));
+                }
+            }
+        }
+    }
+
+    /// Parses an optional effect list in the form `with EffectA, EffectB`.
+    ///
+    /// If no `with` keyword is present, returns an empty effect list.
+    pub(super) fn parse_effect_list(&mut self) -> Option<Vec<EffectExpr>> {
+        if self.is_current_token(TokenType::With) {
+            // already positioned at `with` (possible recovery path)
+        } else if self.is_peek_token(TokenType::With) {
+            self.next_token(); // with
+        } else {
+            return Some(Vec::new());
+        }
+
+        let mut effects = Vec::new();
+
+        loop {
+            let effect = self.parse_effect_expr()?;
+            effects.push(effect);
+
+            if self.is_peek_token(TokenType::Comma) {
+                self.next_token();
+                continue;
+            }
+            break;
+        }
+
+        Some(effects)
+    }
+
+    /// Parses an optional `: Type` annotation and recovers to top-level anchors
+    /// on malformed type expressions.
+    pub(super) fn parse_type_annotation_opt(&mut self, anchors: &[TokenType]) -> Option<TypeExpr> {
+        if !self.is_peek_token(TokenType::Colon) {
+            return None;
+        }
+
+        self.next_token(); // :
+        self.next_token(); // start of type
+
+        match self.parse_type_expr() {
+            Some(ty) => Some(ty),
+            None => {
+                self.recover_to_type_anchor(anchors);
+                None
+            }
+        }
+    }
+
+    /// Parses an optional type annotation and emits a targeted diagnostic when
+    /// a likely `:` separator is missing (e.g. `let x Int = 1`).
+    pub(super) fn parse_type_annotation_opt_with_missing_colon(
+        &mut self,
+        anchors: &[TokenType],
+        context: &str,
+        binding_name: Option<&str>,
+    ) -> Option<TypeExpr> {
+        if self.is_peek_token(TokenType::Colon) {
+            return self.parse_type_annotation_opt(anchors);
+        }
+
+        if !self.looks_like_type_annotation_start() {
+            return None;
+        }
+
+        let message = if let Some(name) = binding_name {
+            format!(
+                "Missing `:` in {} type annotation. Write it as `{name}: Type`.",
+                context
+            )
+        } else {
+            format!(
+                "Missing `:` in {} type annotation. Write it as `name: Type`.",
+                context
+            )
+        };
+        self.errors
+            .push(unexpected_token(self.peek_token.span(), message));
+
+        self.next_token(); // move to start of type expression
+        match self.parse_type_expr() {
+            Some(ty) => Some(ty),
+            None => {
+                self.recover_to_type_anchor(anchors);
+                None
+            }
+        }
+    }
+
+    /// Recovers malformed type parsing until `current_token` is a top-level anchor.
+    /// The anchor token is not consumed.
+    pub(super) fn recover_to_type_anchor(&mut self, anchors: &[TokenType]) {
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        let mut scanned = 0usize;
+
+        while self.current_token.token_type != TokenType::Eof && scanned < DELIMITER_RECOVERY_BUDGET
+        {
+            let token_type = self.current_token.token_type;
+            let at_top_level = paren_depth == 0 && bracket_depth == 0 && brace_depth == 0;
+
+            if at_top_level
+                && (anchors.contains(&token_type)
+                    || token_type == TokenType::Semicolon
+                    || token_type == TokenType::RBrace
+                    || token_type == TokenType::Eof
+                    || self.token_starts_statement(token_type))
+            {
+                return;
+            }
+
+            match token_type {
+                TokenType::LParen => paren_depth += 1,
+                TokenType::LBracket => bracket_depth += 1,
+                TokenType::LBrace => brace_depth += 1,
+                TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            self.next_token();
+            scanned += 1;
+        }
+    }
+
+    fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
+        if !self.expect_peek_context(
+            TokenType::Ident,
+            "Expected effect name in effect expression.".to_string(),
+            "Effect expressions use names like `IO` or `IO + Net`.".to_string(),
+        ) {
+            return None;
+        }
+
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+        let mut expr = EffectExpr::Named {
+            name,
+            span: self.current_token.span(),
+        };
+
+        loop {
+            let token = if self.is_peek_token(TokenType::Plus) {
+                Some(TokenType::Plus)
+            } else if self.is_peek_token(TokenType::Minus) {
+                Some(TokenType::Minus)
+            } else {
+                None
+            };
+
+            let Some(operator) = token else {
+                break;
+            };
+
+            self.next_token(); // operator
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected effect name after effect operator.".to_string(),
+                "Effect expressions use `Left + Right` or `Left - Right`.".to_string(),
+            ) {
+                return None;
+            }
+
+            let rhs_name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+            let rhs = EffectExpr::Named {
+                name: rhs_name,
+                span: self.current_token.span(),
+            };
+            let span = Span::new(expr.span().start, rhs.span().end);
+            expr = match operator {
+                TokenType::Plus => EffectExpr::Add {
+                    left: Box::new(expr),
+                    right: Box::new(rhs),
+                    span,
+                },
+                TokenType::Minus => EffectExpr::Subtract {
+                    left: Box::new(expr),
+                    right: Box::new(rhs),
+                    span,
+                },
+                _ => unreachable!("only + or - are parsed here"),
+            };
+        }
+
+        Some(expr)
+    }
+
+    /// Parses a type expression, including function types with optional effects.
+    ///
+    /// Function type arrows are right-associative, so `A -> B -> C` parses as
+    /// `A -> (B -> C)`.
+    pub(super) fn parse_type_expr(&mut self) -> Option<TypeExpr> {
+        let start = self.current_token.position;
+        let left = self.parse_non_function_type()?;
+
+        if !self.is_peek_token(TokenType::Arrow) {
+            return Some(left);
+        }
+
+        let params = match left {
+            TypeExpr::Tuple { elements, .. } => elements,
+            other => vec![other],
+        };
+
+        self.next_token(); // ->
+        self.next_token(); // return type start
+        let ret = self.parse_type_expr()?;
+        let effects = self.parse_effect_list()?;
+
+        Some(TypeExpr::Function {
+            params,
+            ret: Box::new(ret),
+            effects,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    /// Parses a non-function type atom (`Ident` or parenthesized type/tuple type).
+    fn parse_non_function_type(&mut self) -> Option<TypeExpr> {
+        match self.current_token.token_type {
+            TokenType::Ident => self.parse_named_type_expr(),
+            TokenType::LParen => self.parse_paren_type_expr(),
+            TokenType::None => {
+                // Allow `None` as a type annotation (void return type)
+                let start = self.current_token.position;
+                let name = self.lexer.interner_mut().intern("None");
+                let end = self.current_token.end_position;
+                Some(TypeExpr::Named {
+                    name,
+                    args: vec![],
+                    span: Span::new(start, end),
+                })
+            }
+            _ => {
+                self.errors.push(unexpected_token(
+                    self.current_token.span(),
+                    format!(
+                        "Expected a type expression, got {}.",
+                        self.current_token.token_type
+                    ),
+                ));
+                // For annotation contexts, callers may already anchor recovery on
+                // tokens like `=`/`with`/`{`; avoid consuming those anchors here.
+                let at_safe_anchor = matches!(
+                    self.current_token.token_type,
+                    TokenType::Assign
+                        | TokenType::Semicolon
+                        | TokenType::Comma
+                        | TokenType::RParen
+                        | TokenType::RBracket
+                        | TokenType::RBrace
+                        | TokenType::Arrow
+                        | TokenType::With
+                        | TokenType::LBrace
+                        | TokenType::Eof
+                );
+                if !at_safe_anchor {
+                    self.synchronize(SyncMode::Expr);
+                }
+                None
+            }
+        }
+    }
+
+    /// Parses a named type, including optional generic arguments (`Name<T, U>`).
+    fn parse_named_type_expr(&mut self) -> Option<TypeExpr> {
+        let start = self.current_token.position;
+        let name = self
+            .current_token
+            .symbol
+            .expect("ident token should have symbol");
+
+        let mut args = Vec::new();
+
+        if self.is_peek_token(TokenType::Lt) {
+            self.next_token(); // <
+            if self.consume_if_peek(TokenType::Gt) {
+                return Some(TypeExpr::Named {
+                    name,
+                    args,
+                    span: Span::new(start, self.current_token.end_position),
+                });
+            }
+
+            loop {
+                self.next_token();
+                args.push(self.parse_type_expr()?);
+
+                if self.is_peek_token(TokenType::Comma) {
+                    self.next_token();
+                    continue;
+                }
+                break;
+            }
+
+            if !self.expect_peek_context(
+                TokenType::Gt,
+                "Expected `>` to close generic type arguments.".to_string(),
+                "Generic types use `Name<T, U>`.".to_string(),
+            ) {
+                return None;
+            }
+        }
+
+        Some(TypeExpr::Named {
+            name,
+            args,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    /// Parses either:
+    /// - a grouped type `(T)`, or
+    /// - a tuple type `(T, U, ...)`.
+    fn parse_paren_type_expr(&mut self) -> Option<TypeExpr> {
+        let start = self.current_token.position;
+        if self.consume_if_peek(TokenType::RParen) {
+            return Some(TypeExpr::Tuple {
+                elements: vec![],
+                span: Span::new(start, self.current_token.end_position),
+            });
+        }
+
+        self.next_token();
+        let first = self.parse_type_expr()?;
+        if !self.is_peek_token(TokenType::Comma) {
+            if !self.expect_peek_context(
+                TokenType::RParen,
+                "Expected `)` to close parenthesized type.".to_string(),
+                "Grouped types use `(Type)`.".to_string(),
+            ) {
+                return None;
+            }
+            return Some(first);
+        }
+
+        let mut elements = vec![first];
+
+        while self.is_peek_token(TokenType::Comma) {
+            self.next_token(); // comma
+            if self.is_peek_token(TokenType::RParen) {
+                break;
+            }
+
+            self.next_token();
+            elements.push(self.parse_type_expr()?);
+        }
+
+        if !self.expect_peek_context(
+            TokenType::RParen,
+            "Expected `)` to close tuple type.".to_string(),
+            "Tuple types use `(A, B, ...)`.".to_string(),
+        ) {
+            return None;
+        }
+
+        Some(TypeExpr::Tuple {
+            elements,
+            span: Span::new(start, self.current_token.end_position),
+        })
+    }
+
+    /// Parses a block body until `}`/`EOF`, including post-expression `where` clauses.
     pub(super) fn parse_block(&mut self) -> Block {
+        self.parse_block_with_context(None)
+    }
+
+    /// Like `parse_block`, but accepts an optional context label (e.g. a function
+    /// name) to produce richer "unclosed delimiter" diagnostics.
+    pub(super) fn parse_block_with_context(&mut self, context: Option<&str>) -> Block {
         let start = self.current_token.position;
         let mut statements = Vec::new();
         self.next_token();
@@ -367,8 +974,25 @@ impl Parser {
         // Detect unclosed block: reached EOF without finding closing `}`
         if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
             self.reported_unclosed_brace = true;
-            self.errors
-                .push(unclosed_delimiter(Span::new(start, start), "{", "}", None));
+            let open_span = Span::new(start, start);
+            let msg = if let Some(name) = context {
+                format!(
+                    "Expected a closing `}}` to match this opening `{{` in function `{}`.",
+                    name
+                )
+            } else {
+                "Expected a closing `}` to match this opening `{`.".to_string()
+            };
+            let mut diag = unclosed_delimiter(open_span, "{", "}", None);
+            diag.message = Some(msg);
+            if let Some(name) = context {
+                diag.hints
+                    .push(crate::diagnostics::types::Hint::help(format!(
+                        "Add `}}` to close the body of function `{}`.",
+                        name
+                    )));
+            }
+            self.errors.push(diag);
         }
 
         Block {
@@ -417,6 +1041,7 @@ impl Parser {
             let clause_end = self.current_token.end_position;
             bindings.push(Statement::Let {
                 name,
+                type_annotation: None,
                 value,
                 span: Span::new(clause_start, clause_end),
             });
@@ -427,6 +1052,9 @@ impl Parser {
         bindings
     }
 
+    /// Parses a comma-separated expression list terminated by `end`.
+    ///
+    /// `open_pos` is used for diagnostics when the closing delimiter is missing.
     pub(super) fn parse_expression_list(
         &mut self,
         end: TokenType,
@@ -464,6 +1092,7 @@ impl Parser {
     ) -> Option<Vec<Expression>> {
         let mut last_missing_comma_at = None;
         let diag_start = self.errors.len();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
         let mut need_advance = advance_first;
 
         loop {
@@ -570,13 +1199,16 @@ impl Parser {
                 TokenType::RBracket => "array element",
                 _ => "item",
             };
-            self.errors.push(unexpected_token(
+            let followup = unexpected_token(
                 self.peek_token.span(),
                 format!(
                     "Expected `,` or `{}` after {}, got {}.",
                     end, context, self.peek_token.token_type
                 ),
-            ));
+            );
+            if !self.push_followup_unless_structural_root(construct_checkpoint, followup) {
+                return Some(list);
+            }
             if self.check_list_error_limit(diag_start, end, "list") {
                 return Some(list);
             }
@@ -632,8 +1264,12 @@ impl Parser {
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
             };
-            self.errors
-                .push(unexpected_token(self.peek_token.span(), message));
+            if !self.push_followup_unless_structural_root(
+                construct_checkpoint,
+                unexpected_token(self.peek_token.span(), message),
+            ) {
+                return Some(list);
+            }
             if self.check_list_error_limit(diag_start, end, "list") {
                 return Some(list);
             }
@@ -641,6 +1277,7 @@ impl Parser {
         }
     }
 
+    /// Returns whether `token_type` can legally continue an already-started expression.
     fn token_can_continue_expression(&self, token_type: TokenType) -> bool {
         matches!(
             token_type,
@@ -664,6 +1301,7 @@ impl Parser {
         )
     }
 
+    /// Returns the opening and closing delimiter strings associated with `end`.
     fn delimiter_chars(end: TokenType) -> (&'static str, &'static str) {
         match end {
             TokenType::RParen => ("(", ")"),
@@ -672,6 +1310,7 @@ impl Parser {
         }
     }
 
+    /// Heuristic for deciding whether a closing delimiter was likely omitted.
     fn likely_missing_closing_delimiter(&self, end: TokenType) -> bool {
         // In call argument lists, a newline before the next expression-starter
         // is more likely to be a forgotten closing ')' than a missing comma.
@@ -693,6 +1332,8 @@ impl Parser {
         )
     }
 
+    /// Fast-forwards to the matching list terminator `end` while tracking
+    /// nested delimiters.
     pub(super) fn sync_to_list_end(&mut self, end: TokenType) {
         let mut paren_depth = 0usize;
         let mut bracket_depth = 0usize;
@@ -722,6 +1363,7 @@ impl Parser {
     }
 
     // Error handling
+    /// Emits an "expected expression" diagnostic for the current token.
     pub(super) fn no_prefix_parse_error(&mut self) {
         if self.current_token.token_type == TokenType::Let {
             let diag = Diagnostic::make_error(
@@ -750,6 +1392,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         self.errors.push(diag);
     }
 
+    /// Emits the lexer-driven unterminated-string diagnostic and synchronizes.
     pub(super) fn unterminated_string_error(&mut self) {
         // Unterminated strings are a lexical error; use the lexer-provided end position
         // where the closing quote should have appeared.
@@ -766,6 +1409,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         self.synchronize_after_error();
     }
 
+    /// Emits the lexer-driven unterminated-block-comment diagnostic and synchronizes.
     pub(super) fn unterminated_block_comment_error(&mut self) {
         let token_span = self.current_token.span();
         let error_spec = &UNTERMINATED_BLOCK_COMMENT;
@@ -779,17 +1423,25 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         self.synchronize_after_error();
     }
 
+    /// Statement-level synchronization entry point used after parse errors.
     pub(super) fn synchronize_after_error(&mut self) {
         self.synchronize(SyncMode::Stmt);
     }
 
+    /// Emits a diagnostic for an unexpected `peek_token`.
     pub(super) fn peek_error(&mut self, expected: TokenType) {
+        let found = match self.peek_token.token_type {
+            TokenType::Ident => format!("`{}`", self.peek_token.literal),
+            TokenType::Eof => "end of file".to_string(),
+            tt => format!("`{}`", tt),
+        };
         self.errors.push(unexpected_token(
             self.peek_token.span(),
-            format!("Expected {}, got {}.", expected, self.peek_token.token_type),
+            format!("Expected `{}`, got {}.", expected, found),
         ));
     }
 
+    /// Validates that `current_token` is an identifier parameter and returns its symbol.
     pub(super) fn validate_parameter_identifier(&mut self) -> Option<Identifier> {
         if self.current_token.token_type == TokenType::Ident {
             Some(
@@ -809,6 +1461,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         }
     }
 
+    /// Parses a parameter identifier or recovers to the next parameter delimiter.
     fn parse_parameter_identifier_or_recover(&mut self) -> Option<Identifier> {
         if let Some(identifier) = self.validate_parameter_identifier() {
             return Some(identifier);

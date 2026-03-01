@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day12_haskell_style.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `str_at`.
+
+  --> examples/io/aoc_day12_haskell_style.flx:60:13
+   |
+60 |     let t = str_at(tokens, idx)
+   |             ^^^^^^
+
+Hint:
+  Define it first: let str_at = ...;
 == stdout ==
 <not executed>

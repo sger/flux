@@ -1,0 +1,7 @@
+// E300: concrete match arms now report contextual mismatch diagnostics with dual labels.
+fn main() -> Unit {
+    let _x = match true {
+        true -> 1,
+        false -> "no",
+    }
+}

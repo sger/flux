@@ -1,0 +1,24 @@
+// Effect-polymorphic wrapper + local handle discharge.
+
+effect Console {
+    print: String -> ()
+}
+
+fn run_task(f: (() -> Int with e)) -> Int with e {
+    f()
+}
+
+fn task() -> Int with Console {
+    perform Console.print("ok")
+    7
+}
+
+fn run() -> Int {
+    run_task(task) handle Console {
+        print(resume, _msg) -> resume(())
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}

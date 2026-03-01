@@ -1,27 +1,171 @@
 use std::rc::Rc;
 
 use crate::{
+    ast::type_infer::display_infer_type,
     bytecode::{
-        compiler::Compiler, debug_info::FunctionDebugInfo,
-        module_constants::compile_module_constants, op_code::OpCode, symbol_scope::SymbolScope,
+        compiler::{Compiler, contracts::convert_type_expr, suggestions::suggest_effect_name},
+        debug_info::FunctionDebugInfo,
+        module_constants::compile_module_constants,
+        op_code::OpCode,
+        symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, ICE_SYMBOL_SCOPE_LET, IMPORT_SCOPE,
-        INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ICE_SYMBOL_SCOPE_LET,
+        IMPORT_SCOPE, INVALID_MODULE_CONTENT, INVALID_MODULE_NAME, MODULE_NAME_CLASH, MODULE_SCOPE,
+        compiler_errors::{fun_return_annotation_mismatch, let_annotation_type_mismatch},
         position::{Position, Span},
+        types::ErrorType,
     },
     runtime::{compiled_function::CompiledFunction, value::Value},
     syntax::{
         block::Block,
+        data_variant::DataVariant,
+        effect_expr::EffectExpr,
+        expression::Pattern,
         module_graph::{import_binding_name, is_valid_module_name, module_binding_name},
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
+    types::{infer_type::InferType, type_env::TypeEnv, unify_error::unify},
 };
+
+use super::hm_expr_typer::HmExprTypeResult;
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
 impl Compiler {
+    fn destructure_pattern_expected_type(&mut self, pattern: &Pattern) -> Option<InferType> {
+        match pattern {
+            Pattern::Tuple { elements, .. } => Some(InferType::Tuple(
+                elements
+                    .iter()
+                    .map(|elem| {
+                        self.destructure_pattern_expected_type(elem)
+                            .unwrap_or_else(|| self.type_env.fresh_infer_type())
+                    })
+                    .collect(),
+            )),
+            Pattern::Some { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Option,
+                vec![
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                ],
+            )),
+            Pattern::None { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Option,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Left { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Either,
+                vec![
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                    self.type_env.fresh_infer_type(),
+                ],
+            )),
+            Pattern::Right { pattern, .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::Either,
+                vec![
+                    self.type_env.fresh_infer_type(),
+                    self.destructure_pattern_expected_type(pattern)
+                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                ],
+            )),
+            Pattern::EmptyList { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::List,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Cons { .. } => Some(InferType::App(
+                crate::types::type_constructor::TypeConstructor::List,
+                vec![self.type_env.fresh_infer_type()],
+            )),
+            Pattern::Identifier { .. } | Pattern::Wildcard { .. } => {
+                Some(self.type_env.fresh_infer_type())
+            }
+            Pattern::Literal { .. } | Pattern::Constructor { .. } => None,
+        }
+    }
+
+    fn known_concrete_expr_type_mismatch(
+        &self,
+        expected: &InferType,
+        expression: &crate::syntax::expression::Expression,
+    ) -> Option<(String, String)> {
+        let HmExprTypeResult::Known(actual) = self.hm_expr_type_strict_path(expression) else {
+            return None;
+        };
+        if !expected.is_concrete()
+            || !actual.is_concrete()
+            || expected.contains_any()
+            || actual.contains_any()
+        {
+            return None;
+        }
+
+        let compatible = if let Ok(subst) = unify(expected, &actual) {
+            let resolved_expected = expected.apply_type_subst(&subst);
+            let resolved_actual = actual.apply_type_subst(&subst);
+            resolved_expected == resolved_actual
+        } else {
+            false
+        };
+        if compatible {
+            return None;
+        }
+
+        Some((
+            display_infer_type(expected, &self.interner),
+            display_infer_type(&actual, &self.interner),
+        ))
+    }
+
+    fn is_known_function_effect_annotation(&self, effect: Symbol) -> bool {
+        if self.effect_declared_ops(effect).is_some() || self.is_effect_variable(effect) {
+            return true;
+        }
+        matches!(self.sym(effect), "IO" | "Time" | "State")
+    }
+
+    fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {
+        match effect {
+            EffectExpr::Named { name, span } => (*name == target).then_some(*span),
+            EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
+                Self::effect_named_span(left, target)
+                    .or_else(|| Self::effect_named_span(right, target))
+            }
+        }
+    }
+
+    fn unknown_function_effect_diagnostic(&self, effect: Symbol, span: Span) -> Diagnostic {
+        let effect_name = self.sym(effect).to_string();
+        let hint = suggest_effect_name(&effect_name).unwrap_or_else(|| {
+            "Use a declared effect name in `with ...` or declare the effect first.".to_string()
+        });
+        Diagnostic::make_error_dynamic(
+            "E407",
+            "UNKNOWN FUNCTION EFFECT",
+            ErrorType::Compiler,
+            format!(
+                "Function effect annotation references unknown effect `{}`.",
+                effect_name
+            ),
+            Some(hint),
+            self.file_path.clone(),
+            span,
+        )
+        .with_primary_label(span, "unknown effect in function annotation")
+        .with_phase(DiagnosticPhase::Effect)
+    }
+
+    fn compile_statement_collect_error(
+        &mut self,
+        statement: &Statement,
+    ) -> Option<Box<Diagnostic>> {
+        self.compile_statement(statement).err()
+    }
+
     pub(super) fn compile_statement(&mut self, statement: &Statement) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(statement.span());
@@ -37,7 +181,13 @@ impl Compiler {
                         self.emit(OpCode::OpPop, &[]);
                     }
                 }
-                Statement::Let { name, value, span } => {
+                Statement::Let {
+                    name,
+                    type_annotation,
+                    value,
+                    span,
+                    ..
+                } => {
                     let name = *name;
                     // Check for duplicate in current scope FIRST (takes precedence)
                     if let Some(existing) = self.symbol_table.resolve(name)
@@ -61,7 +211,56 @@ impl Compiler {
                     }
 
                     let symbol = self.symbol_table.define(name, *span);
+                    if let Some(annotation) = type_annotation {
+                        if let Some(expected_infer) = TypeEnv::infer_type_from_type_expr(
+                            annotation,
+                            &Default::default(),
+                            &self.interner,
+                        ) {
+                            if let Some((expected_str, actual_str)) =
+                                self.known_concrete_expr_type_mismatch(&expected_infer, value)
+                            {
+                                let name_str = self.sym(name).to_string();
+                                return Err(Self::boxed(let_annotation_type_mismatch(
+                                    self.file_path.clone(),
+                                    annotation.span(),
+                                    value.span(),
+                                    &name_str,
+                                    &expected_str,
+                                    &actual_str,
+                                )));
+                            }
+                            self.validate_expr_expected_type_with_policy(
+                                &expected_infer,
+                                value,
+                                "initializer type is known at compile time",
+                                "binding initializer does not match type annotation".to_string(),
+                                "typed let initializer",
+                                true,
+                            )?;
+                        } else if self.strict_mode {
+                            return Err(Self::boxed(
+                                self.unresolved_boundary_error(value, "typed let initializer"),
+                            ));
+                        }
+                    }
                     self.compile_expression(value)?;
+                    if let Some(annotation) = type_annotation
+                        && let Some(ty) = convert_type_expr(annotation, &self.interner)
+                    {
+                        self.bind_static_type(name, ty);
+                    } else if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(inferred) =
+                        self.hm_expr_type_strict_path(value)
+                    {
+                        let runtime = TypeEnv::to_runtime(&inferred, &Default::default());
+                        if runtime != crate::runtime::runtime_type::RuntimeType::Any {
+                            self.bind_static_type(name, runtime);
+                        }
+                    }
+
+                    // Track aliases of effectful base functions so indirect calls
+                    // like `let p = print; p(...)` keep static effect checking.
+                    self.track_effect_alias_for_binding(name, value);
 
                     match symbol.symbol_scope {
                         SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
@@ -82,6 +281,16 @@ impl Compiler {
                     }
                 }
                 Statement::LetDestructure { pattern, value, .. } => {
+                    if let Some(expected_infer) = self.destructure_pattern_expected_type(pattern) {
+                        self.validate_expr_expected_type_with_policy(
+                            &expected_infer,
+                            value,
+                            "destructure source type is known at compile time",
+                            "destructure source does not match pattern shape".to_string(),
+                            "tuple destructure source",
+                            true,
+                        )?;
+                    }
                     self.compile_expression(value)?;
                     let temp_symbol = self.symbol_table.define_temp();
                     match temp_symbol.symbol_scope {
@@ -138,6 +347,9 @@ impl Compiler {
                 Statement::Function {
                     name,
                     parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
                     body,
                     span,
                     ..
@@ -158,7 +370,23 @@ impl Compiler {
                             Some("Use a different name or remove the previous definition"),
                         )));
                     }
-                    self.compile_function_statement(name, parameters, body, span.start)?;
+                    let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
+                        if effects.is_empty() {
+                            self.lookup_unqualified_contract(name, parameters.len())
+                                .map(|contract| contract.effects.clone())
+                                .unwrap_or_default()
+                        } else {
+                            effects.clone()
+                        };
+                    self.compile_function_statement(
+                        name,
+                        parameters,
+                        parameter_types,
+                        return_type,
+                        &effective_effects,
+                        body,
+                        span.start,
+                    )?;
                     // For nested functions, add to file_scope_symbols
                     if self.scope_index == 0 {
                         // Already added in pass 1 for top-level functions
@@ -238,6 +466,11 @@ impl Compiler {
                     self.file_scope_symbols.insert(binding_name);
                     self.compile_import_statement(name, *alias, except)?;
                 }
+                Statement::Data { name, variants, .. } => {
+                    self.compile_data_statement(*name, variants)?;
+                }
+                // Effect declarations are syntax only for now no bytecode emitted.
+                Statement::EffectDecl { .. } => {}
             }
             Ok(())
         })();
@@ -245,25 +478,42 @@ impl Compiler {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn compile_function_statement(
         &mut self,
         name: Symbol,
         parameters: &[Symbol],
+        parameter_types: &[Option<TypeExpr>],
+        return_type: &Option<TypeExpr>,
+        effects: &[EffectExpr],
         body: &Block,
         position: Position,
     ) -> CompileResult<()> {
+        let function_span = Span::new(position, position);
+
         if let Some(param) = Self::find_duplicate_name(parameters) {
             let param_str = self.sym(param);
             return Err(Self::boxed(Diagnostic::make_error(
                 &DUPLICATE_PARAMETER,
                 &[param_str],
                 self.file_path.clone(),
-                Span::new(position, position),
+                function_span,
             )));
         }
 
+        for effect_expr in effects {
+            for effect_name in effect_expr.normalized_names() {
+                if !self.is_known_function_effect_annotation(effect_name) {
+                    let span =
+                        Self::effect_named_span(effect_expr, effect_name).unwrap_or(function_span);
+                    return Err(Self::boxed(
+                        self.unknown_function_effect_diagnostic(effect_name, span),
+                    ));
+                }
+            }
+        }
+
         // Resolve the symbol - it may have been predeclared in pass 1
-        let function_span = Span::new(position, position);
         let symbol = if let Some(existing) = self.symbol_table.resolve(name) {
             // Use the existing symbol from pass 1
             existing
@@ -275,27 +525,82 @@ impl Compiler {
         self.enter_scope();
         self.symbol_table.define_function_name(name, function_span);
 
-        for param in parameters {
+        for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
-        }
-
-        self.with_function_context(parameters.len(), |compiler| {
-            compiler.compile_block_with_tail(body)
-        })?;
-
-        if self.block_has_value_tail(body) {
-            if self.is_last_instruction(OpCode::OpPop) {
-                self.replace_last_pop_with_return();
-            } else if !self.is_last_instruction(OpCode::OpReturnValue)
-                && !self.is_last_instruction(OpCode::OpReturnLocal)
+            if let Some(Some(param_ty)) = parameter_types.get(index)
+                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
             {
-                self.emit(OpCode::OpReturnValue, &[]);
+                self.bind_static_type(*param, runtime_ty);
             }
-        } else if !self.is_last_instruction(OpCode::OpReturnValue)
-            && !self.is_last_instruction(OpCode::OpReturnLocal)
-        {
-            self.emit(OpCode::OpReturn, &[]);
         }
+
+        let compile_result: CompileResult<()> = (|| {
+            // Compile-time return type check: if the declared return type and
+            // the static type of the tail expression are both known, verify
+            // they're compatible.
+            if let Some(ret_annotation) = return_type
+                && let Some(expected_ret) = TypeEnv::infer_type_from_type_expr(
+                    ret_annotation,
+                    &Default::default(),
+                    &self.interner,
+                )
+                && self.block_has_value_tail(body)
+                && let Some(Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    ..
+                }) = body.statements.last()
+            {
+                if let Some((expected_str, actual_str)) =
+                    self.known_concrete_expr_type_mismatch(&expected_ret, expression)
+                {
+                    let fn_name = self.sym(name).to_string();
+                    return Err(Self::boxed(fun_return_annotation_mismatch(
+                        self.file_path.clone(),
+                        ret_annotation.span(),
+                        expression.span(),
+                        &fn_name,
+                        &expected_str,
+                        &actual_str,
+                    )));
+                }
+                self.validate_expr_expected_type_with_policy(
+                    &expected_ret,
+                    expression,
+                    "return expression type is known at compile time",
+                    "return expression type does not match the declared return type".to_string(),
+                    "function return expression",
+                    true,
+                )?;
+            }
+
+            let body_errors = self.with_function_context(parameters.len(), effects, |compiler| {
+                compiler.compile_block_with_tail_collect_errors(body)
+            });
+            if body_errors.is_empty() {
+                if self.block_has_value_tail(body) {
+                    if self.is_last_instruction(OpCode::OpPop) {
+                        self.replace_last_pop_with_return();
+                    } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                        && !self.is_last_instruction(OpCode::OpReturnLocal)
+                    {
+                        self.emit(OpCode::OpReturnValue, &[]);
+                    }
+                } else if !self.is_last_instruction(OpCode::OpReturnValue)
+                    && !self.is_last_instruction(OpCode::OpReturnLocal)
+                {
+                    self.emit(OpCode::OpReturn, &[]);
+                }
+            }
+            for err in body_errors {
+                let mut diag = *err;
+                if diag.phase().is_none() {
+                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                }
+                self.errors.push(diag);
+            }
+            Ok(())
+        })();
 
         let free_symbols = self.symbol_table.free_symbols.clone();
         for free in &free_symbols {
@@ -308,19 +613,34 @@ impl Compiler {
 
         let (instructions, locations, files, effect_summary) = self.leave_scope();
 
+        compile_result?;
+
         for free in &free_symbols {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
-            instructions,
-            num_locals,
-            parameters.len(),
-            Some(
-                FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
-                    .with_effect_summary(effect_summary),
-            ),
-        ))));
+        let runtime_contract = {
+            let contract = crate::bytecode::compiler::contracts::FnContract {
+                type_params: vec![],
+                params: parameter_types.to_vec(),
+                ret: return_type.clone(),
+                effects: effects.to_vec(),
+            };
+            self.to_runtime_contract(&contract)
+        };
+
+        let fn_idx = self.add_constant(Value::Function(Rc::new(
+            CompiledFunction::new(
+                instructions,
+                num_locals,
+                parameters.len(),
+                Some(
+                    FunctionDebugInfo::new(Some(self.sym(name).to_string()), files, locations)
+                        .with_effect_summary(effect_summary),
+                ),
+            )
+            .with_contract(runtime_contract),
+        )));
         self.emit_closure_index(fn_idx, free_symbols.len());
 
         match symbol.symbol_scope {
@@ -370,6 +690,8 @@ impl Compiler {
                 Statement::Let { .. } => {
                     // Let statements are allowed for module constants
                 }
+                // ADT type declarations are allowed inside modules
+                Statement::Data { .. } => {}
                 _ => {
                     let pos = statement.position();
                     return Err(Self::boxed(Diagnostic::make_error(
@@ -446,6 +768,9 @@ impl Compiler {
             if let Statement::Function {
                 name: fn_name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body: fn_body,
                 span,
                 ..
@@ -453,17 +778,45 @@ impl Compiler {
             {
                 let position = span.start;
                 let qualified_name = self.interner.intern_join(binding_name, *fn_name);
-                if let Err(err) =
-                    self.compile_function_statement(qualified_name, parameters, fn_body, position)
-                {
-                    self.current_module_prefix = previous_module;
-                    return Err(err);
+                let effective_effects: Vec<crate::syntax::effect_expr::EffectExpr> =
+                    if effects.is_empty() {
+                        self.lookup_contract(Some(binding_name), *fn_name, parameters.len())
+                            .map(|contract| contract.effects.clone())
+                            .unwrap_or_default()
+                    } else {
+                        effects.clone()
+                    };
+                if let Err(err) = self.compile_function_statement(
+                    qualified_name,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    &effective_effects,
+                    fn_body,
+                    position,
+                ) {
+                    let mut diag = *err;
+                    if diag.phase().is_none() {
+                        diag.phase = Some(DiagnosticPhase::TypeCheck);
+                    }
+                    self.errors.push(diag);
                 }
             }
         }
 
         self.current_module_prefix = previous_module;
 
+        Ok(())
+    }
+
+    pub(super) fn compile_data_statement(
+        &mut self,
+        name: Symbol,
+        variants: &[DataVariant],
+    ) -> CompileResult<()> {
+        // Data declarations are handled at the registry level (collect_adt_definitions).
+        // No bytecode is emitted here — constructors are compiled on-demand when called.
+        let _ = (name, variants);
         Ok(())
     }
 
@@ -494,15 +847,18 @@ impl Compiler {
 
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
         for statement in &block.statements {
-            self.compile_statement(statement)?;
+            if let Some(err) = self.compile_statement_collect_error(statement) {
+                return Err(err);
+            }
         }
 
         Ok(())
     }
 
-    /// Compile a block with tail position awareness for the last statement
-    pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+    #[allow(clippy::vec_box)]
+    fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
         let len = block.statements.len();
+        let mut errors = Vec::new();
 
         for (i, statement) in block.statements.iter().enumerate() {
             let is_last = i == len - 1;
@@ -514,12 +870,35 @@ impl Compiler {
                 } | Statement::Return { .. }
             );
 
-            if is_last && tail_eligible {
+            let result = if is_last && tail_eligible {
                 // Only value producing terminal statements are in tail position.
-                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))?;
+                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))
             } else {
-                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))?;
+                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))
+            };
+
+            if let Err(err) = result {
+                errors.push(err);
             }
+        }
+
+        errors
+    }
+
+    /// Compile a block with tail position awareness for the last statement
+    pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
+        let mut errors = self
+            .compile_block_with_tail_collect_errors(block)
+            .into_iter();
+        if let Some(first) = errors.next() {
+            for err in errors {
+                let mut diag = *err;
+                if diag.phase().is_none() {
+                    diag.phase = Some(DiagnosticPhase::TypeCheck);
+                }
+                self.errors.push(diag);
+            }
+            return Err(first);
         }
 
         Ok(())

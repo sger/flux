@@ -11,8 +11,12 @@
 
 use std::ptr;
 use std::rc::Rc;
+use std::slice::from_raw_parts;
+use std::str::from_utf8_unchecked;
 
+use crate::jit::context::{JitHandlerArm, JitHandlerFrame};
 use crate::primop::{PrimOp, execute_primop};
+use crate::runtime::RuntimeContext;
 use crate::runtime::{
     base::get_base_function_by_index,
     gc::{
@@ -20,7 +24,7 @@ use crate::runtime::{
         heap_object::HeapObject,
     },
     jit_closure::JitClosure,
-    value::Value,
+    value::{AdtValue, Value},
 };
 
 use super::context::JitContext;
@@ -564,6 +568,61 @@ pub extern "C" fn rt_set_arity_error(ctx: *mut JitContext, got: i64, want: i64) 
     ));
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call(
+    ctx: *mut JitContext,
+    function_index: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+    line: i64,
+    column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    for i in 0..nargs as usize {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            return 0;
+        }
+        let arg = unsafe { &*arg_ptr };
+        if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
+            ctx.error = Some(ctx.render_runtime_type_error_at(
+                &expected,
+                &actual,
+                line as usize,
+                column as usize,
+            ));
+            return 0;
+        }
+    }
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_return(
+    ctx: *mut JitContext,
+    function_index: i64,
+    value: *mut Value,
+    line: i64,
+    column: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    if value.is_null() {
+        return ptr::null_mut();
+    }
+    let value_ref = unsafe { &*value };
+    if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref) {
+        ctx.error = Some(ctx.render_runtime_type_error_at(
+            &expected,
+            &actual,
+            line as usize,
+            column as usize,
+        ));
+        return ptr::null_mut();
+    }
+    value
+}
+
 // ---------------------------------------------------------------------------
 // Value wrappers: Some / Left / Right
 // ---------------------------------------------------------------------------
@@ -892,6 +951,265 @@ pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut 
 }
 
 // ---------------------------------------------------------------------------
+// ADT helpers
+// ---------------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    fields_ptr: *const *mut Value,
+    arity: i64,
+) -> *mut Value {
+    // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+
+    // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
+    // The helper assumes each pointer is non-null and points to a live Value.
+    let fields: Vec<Value> = (0..arity as usize)
+        .map(|i| unsafe { (*fields_ptr.add(i)).as_ref().unwrap().clone() })
+        .collect();
+
+    // Allocate ADT object in the JIT context arena and return the boxed runtime pointer.
+    unsafe { ctx_ref(ctx) }.alloc(Value::Adt(Rc::new(AdtValue {
+        constructor,
+        fields,
+    })))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_is_adt_constructor(
+    ctx: *mut JitContext,
+    value: *mut Value,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+) -> i64 {
+    let _ = ctx;
+    // Null values never match any constructor tag.
+    if value.is_null() {
+        return 0;
+    }
+
+    // ABI contract: constructor bytes are compiler/JIT-emitted and valid UTF-8.
+    let expected =
+        unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
+
+    match unsafe { &*value } {
+        Value::Adt(adt) => {
+            // Constructor comparison is a tag-name equality check.
+            if adt.constructor.as_ref() == expected {
+                1
+            } else {
+                0
+            }
+        }
+        // Non-ADT values cannot satisfy constructor patterns.
+        _ => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_adt_field(
+    ctx: *mut JitContext,
+    value: *mut Value,
+    field_idx: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+
+    // Null pointer is a runtime error; return null and set context error.
+    if value.is_null() {
+        ctx.error = Some("adt field access on null".to_string());
+        return ptr::null_mut();
+    }
+
+    match unsafe { &*value } {
+        Value::Adt(adt) => {
+            // Field index comes from JIT as i64 and is interpreted as usize.
+            let idx = field_idx as usize;
+
+            if idx < adt.fields.len() {
+                // Return a freshly allocated clone for uniform pointer ownership semantics.
+                ctx.alloc(adt.fields[idx].clone())
+            } else {
+                // Out-of-bounds ADT field access is reported through JitContext error state.
+                ctx.error = Some(format!(
+                    "adt field index {} out of bounds (len={})",
+                    idx,
+                    adt.fields.len()
+                ));
+                ptr::null_mut()
+            }
+        }
+        _ => {
+            // Accessing fields on non-ADT values is a type error.
+            ctx.error = Some(format!(
+                "expected Adt, got {}",
+                unsafe { &*value }.type_name()
+            ));
+            ptr::null_mut()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Algebraic effects: handler push / pop / perform
+// ---------------------------------------------------------------------------
+
+/// Push an effect handler frame onto the JIT context's handler stack.
+///
+/// `ops_ptr` points to `narms` i64 values (symbol IDs for each op name).
+/// `closures_ptr` points to `narms` `*mut Value` pointers (arm closure Values).
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_push_handler(
+    ctx: *mut JitContext,
+    effect_id: i64,
+    ops_ptr: *const i64,
+    closures_ptr: *const *mut Value,
+    narms: i64,
+) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let narms = narms as usize;
+    let mut arms = Vec::with_capacity(narms);
+    for i in 0..narms {
+        let op = unsafe { *ops_ptr.add(i) } as u32;
+        let closure_val = unsafe { (*closures_ptr.add(i)).as_ref().unwrap().clone() };
+        arms.push(JitHandlerArm {
+            op,
+            closure: closure_val,
+        });
+    }
+    ctx.handler_stack.push(JitHandlerFrame {
+        effect: effect_id as u32,
+        arms,
+    });
+}
+
+/// Pop the top handler frame from the JIT context's handler stack.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_pop_handler(ctx: *mut JitContext) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    ctx.handler_stack.pop();
+}
+
+/// Perform an effect operation.
+///
+/// Searches the handler stack (from top) for a frame matching `effect_id`,
+/// then finds the arm matching `op_id`. Calls the arm synchronously, passing
+/// a shallow `resume` closure (identity: returns its argument) as the first
+/// argument followed by the operation arguments.
+///
+/// Returns null (and sets `ctx.error`) if no matching handler is found.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_perform(
+    ctx: *mut JitContext,
+    effect_id: i64,
+    op_id: i64,
+    args_ptr: *const *mut Value,
+    nargs: i64,
+    effect_name_ptr: *const u8,
+    effect_name_len: i64,
+    op_name_ptr: *const u8,
+    op_name_len: i64,
+    line: i64,
+    column: i64,
+) -> *mut Value {
+    let effect_u32 = effect_id as u32;
+    let op_u32 = op_id as u32;
+    let nargs = nargs as usize;
+    let effect_name = unsafe {
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            effect_name_ptr,
+            effect_name_len as usize,
+        ))
+    };
+    let op_name = unsafe {
+        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+            op_name_ptr,
+            op_name_len as usize,
+        ))
+    };
+    let line = line as usize;
+    let column = column as usize;
+
+    // Find matching handler (search from top of stack)
+    let arm_closure = {
+        let ctx_mut = unsafe { ctx_ref(ctx) };
+        let mut found: Option<Value> = None;
+        for frame in ctx_mut.handler_stack.iter().rev() {
+            if frame.effect == effect_u32 {
+                for arm in &frame.arms {
+                    if arm.op == op_u32 {
+                        found = Some(arm.closure.clone());
+                        break;
+                    }
+                }
+                if found.is_some() {
+                    break;
+                }
+                // Found effect but no matching op — error
+                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                    "E1009",
+                    "UNHANDLED OPERATION",
+                    &format!("unhandled operation: {}.{}", effect_name, op_name),
+                    line,
+                    column,
+                ));
+                return ptr::null_mut();
+            }
+        }
+        match found {
+            Some(c) => c,
+            None => {
+                ctx_mut.error = Some(ctx_mut.render_runtime_error(
+                    "E1009",
+                    "UNHANDLED EFFECT",
+                    &format!(
+                        "unhandled effect: {} (no matching handle block)",
+                        effect_name
+                    ),
+                    line,
+                    column,
+                ));
+                return ptr::null_mut();
+            }
+        }
+    };
+
+    // Collect operation arguments
+    let mut call_args: Vec<Value> = Vec::with_capacity(1 + nargs);
+
+    // Build the resume value: a JitClosure wrapping the identity function.
+    // `identity_fn_index == usize::MAX` means not yet compiled (shouldn't happen).
+    let identity_idx = unsafe { (*ctx).identity_fn_index };
+    let resume_val = Value::JitClosure(Rc::new(JitClosure::new(identity_idx, vec![])));
+    call_args.push(resume_val);
+
+    for i in 0..nargs {
+        let arg_ptr = unsafe { *args_ptr.add(i) };
+        if arg_ptr.is_null() {
+            unsafe { ctx_ref(ctx) }.error = Some(format!("perform arg {} is null", i));
+            return ptr::null_mut();
+        }
+        call_args.push(unsafe { (*arg_ptr).clone() });
+    }
+
+    let ctx_mut = unsafe { ctx_ref(ctx) };
+    match ctx_mut.invoke_value(arm_closure, call_args) {
+        Ok(result) => ctx_mut.alloc(result),
+        Err(msg) => {
+            ctx_mut.error = Some(msg);
+            ptr::null_mut()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Lookup table for registering helpers with Cranelift JITModule
 // ---------------------------------------------------------------------------
 
@@ -933,6 +1251,14 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_get_global", rt_get_global as *const u8),
         ("rt_set_global", rt_set_global as *const u8),
         ("rt_set_arity_error", rt_set_arity_error as *const u8),
+        (
+            "rt_check_jit_contract_call",
+            rt_check_jit_contract_call as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_return",
+            rt_check_jit_contract_return as *const u8,
+        ),
         // Phase 4: wrappers
         ("rt_make_some", rt_make_some as *const u8),
         ("rt_make_left", rt_make_left as *const u8),
@@ -957,5 +1283,13 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_tuple_get", rt_tuple_get as *const u8),
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
+        // Phase 5: ADT helpers
+        ("rt_make_adt", rt_make_adt as *const u8),
+        ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
+        ("rt_adt_field", rt_adt_field as *const u8),
+        // Algebraic effects
+        ("rt_push_handler", rt_push_handler as *const u8),
+        ("rt_pop_handler", rt_pop_handler as *const u8),
+        ("rt_perform", rt_perform as *const u8),
     ]
 }

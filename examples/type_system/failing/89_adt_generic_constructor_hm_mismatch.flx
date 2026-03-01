@@ -1,0 +1,4 @@
+// E300: generic ADT constructor field type mismatch under instantiated annotation.
+type Result<T, E> = Ok(T) | Err(E)
+
+let bad: Result<Int, String> = Ok("oops")

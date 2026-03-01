@@ -1,0 +1,7 @@
+// HM hardening: unary '-' with known non-numeric operand fails at compile time.
+
+fn main() {
+    let x = "x"
+    let y = -x
+    y
+}

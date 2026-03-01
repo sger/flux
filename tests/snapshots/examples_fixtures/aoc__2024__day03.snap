@@ -3,8 +3,33 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/day03.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day03a_from_memory`.
+
+  --> examples/aoc/2024/day03.flx:8:11
+  |
+8 |     print(Day03.day03a_from_memory(memory))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `day03b_from_memory`.
+
+  --> examples/aoc/2024/day03.flx:9:11
+  |
+9 |     print(Day03.day03b_from_memory(memory))
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 2 errors.
 == stdout ==
 <not executed>
