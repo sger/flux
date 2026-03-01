@@ -1,0 +1,19 @@
+fn apply_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(f(x))
+}
+
+fn plus_one(x: Int) -> Int {
+    x + 1
+}
+
+fn log_inc(x: Int) -> Int with IO {
+    print(to_string(x))
+    x + 1
+}
+
+let pure_value: Int = apply_twice(plus_one, 2)
+
+fn main() with IO {
+    let io_value: Int = apply_twice(log_inc, pure_value)
+    print(to_string(io_value))
+}

@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/15_effect_missing_from_caller.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `log_line` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/15_effect_missing_from_caller.flx:8:5
+  |
+8 |     log_line("value=#{to_string(x)}")
+  |     ^^^^^^^^
+  |     -------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

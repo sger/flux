@@ -1,22 +1,24 @@
-print("== Effect boundary demo ==");
+fn main() with IO, Time {
+    print("== Effect boundary demo ==");
 
-// Pure primop path
-let base = len("flux");
-print(base);
+    // Pure primop path
+    let base = len("flux");
+    print(base);
 
-// Unknown effect summary boundary: generic call (non-primop direct call)
-fn apply_twice(f, x) { f(f(x)) }
-let plus1 = fn(x) { x + 1 };
-print(apply_twice(plus1, 40));
+    // Unknown effect summary boundary: generic call (non-primop direct call)
+    fn apply_twice(f, x) { f(f(x)) }
+    let plus1 = fn(x) { x + 1 };
+    print(apply_twice(plus1, 40));
 
-// Explicit effectful primops
-println("about to read file");
-let content = read_file("examples/io/input.txt");
-print(string_len(content) > 0);
+    // Explicit effectful primops
+    println("about to read file");
+    let content = read_file("examples/io/input.txt");
+    print(string_len(content) > 0);
 
-let t0 = clock_now();
-let t1 = clock_now();
-print(t1 >= t0);
+    let t0 = clock_now();
+    let t1 = clock_now();
+    print(t1 >= t0);
 
-// Uncomment for control-effect boundary:
-// panic("effect boundary panic");
+    // Uncomment for control-effect boundary:
+    // panic("effect boundary panic");
+}

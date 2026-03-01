@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        invalid_float, invalid_integer,
+        invalid_float, invalid_integer, missing_string_interpolation_close,
         position::{Position, Span},
         unterminated_interpolation,
     },
@@ -52,7 +52,8 @@ impl Parser {
 
         // Only collect dotted segments for module paths (PascalCase names)
         // Don't collect ALL_CAPS constants like PI, TAU, MAX
-        // TODO: Remove pascal case keep only first letter uppercase
+        // Deferred identifier policy cleanup: keep PascalCase module-path heuristic for v0.0.4.
+        // Follow-up track: docs/proposals/0055_lexer_performance_and_architecture.md.
         if !self.is_peek_token(TokenType::Dot) || !super::is_pascal_case_ident(&self.peek2_token) {
             return Some(Expression::Identifier {
                 name: self
@@ -66,7 +67,11 @@ impl Parser {
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
-            if !self.expect_peek(TokenType::Ident) {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected identifier after `.` in qualified path.".to_string(),
+                "Qualified paths use `Module.Name`.".to_string(),
+            ) {
                 return None;
             }
             name.push('.');
@@ -175,11 +180,46 @@ impl Parser {
         loop {
             // Parse the interpolation expression
             self.next_token();
+
+            // Detect empty interpolation `#{}`
+            if self.current_token.token_type == TokenType::RBrace {
+                self.errors.push(crate::diagnostics::unexpected_token(
+                    self.current_token.span(),
+                    "Empty interpolation `#{}` — provide an expression between the braces.",
+                ));
+                // Continue parsing the rest of the string to avoid cascade
+                // The RBrace has been consumed as current_token, so check what follows
+                if self.is_peek_token(TokenType::InterpolationStart) {
+                    self.next_token();
+                    let literal = Self::decode_string_escapes(&self.current_token.literal);
+                    if !literal.is_empty() {
+                        parts.push(StringPart::Literal(literal));
+                    }
+                    continue;
+                } else if self.is_peek_token(TokenType::StringEnd) {
+                    self.next_token();
+                    let final_literal = Self::decode_string_escapes(&self.current_token.literal);
+                    if !final_literal.is_empty() {
+                        parts.push(StringPart::Literal(final_literal));
+                    }
+                    break;
+                } else {
+                    self.errors
+                        .push(unterminated_interpolation(self.peek_token.span()));
+                    self.synchronize_after_error();
+                    return None;
+                }
+            }
+
             let expr = self.parse_expression(Precedence::Lowest)?;
             parts.push(StringPart::Interpolation(Box::new(expr)));
 
             // Expect closing brace of interpolation
-            if !self.expect_peek(TokenType::RBrace) {
+            if self.is_peek_token(TokenType::RBrace) {
+                self.next_token();
+            } else {
+                self.errors
+                    .push(missing_string_interpolation_close(self.peek_token.span()));
                 return None;
             }
 

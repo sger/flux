@@ -1,0 +1,14 @@
+// A3 matrix: unannotated function infers IO; restricted typed caller is rejected.
+
+fn sink(msg) {
+    print(msg)
+}
+
+fn only_time() -> Int with Time {
+    sink("hello")
+    1
+}
+
+fn main() -> Unit with IO, Time {
+    only_time();
+}

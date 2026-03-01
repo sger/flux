@@ -1,34 +1,130 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
+use super::suggestions::suggest_effect_name;
 use crate::{
+    ast::type_infer::display_infer_type,
     bytecode::{
-        binding::Binding, compiler::Compiler, debug_info::FunctionDebugInfo, op_code::OpCode,
+        binding::Binding,
+        compiler::{
+            Compiler,
+            contracts::{FnContract, convert_type_expr},
+            effect_rows::{
+                EffectRow, RowConstraint, RowConstraintViolation, solve_row_constraints,
+            },
+        },
+        debug_info::FunctionDebugInfo,
+        op_code::OpCode,
         symbol_scope::SymbolScope,
     },
     diagnostics::{
-        DUPLICATE_PARAMETER, Diagnostic, DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN,
-        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
-        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
-        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
-        UNKNOWN_BASE_MEMBER, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
+        ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
+        DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
+        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
+        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
+        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
+        UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR,
+        compiler_errors::{
+            call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+            cross_module_constructor_access_error, cross_module_constructor_access_warning,
+            guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
+        },
+        diag_enhanced,
         position::{Position, Span},
+        types::ErrorType,
     },
-    primop::resolve_primop_call,
-    runtime::base::is_base_fastcall_allowlisted,
-    runtime::{base::BaseModule, compiled_function::CompiledFunction, value::Value},
+    primop::{PrimEffect, resolve_primop_call},
+    runtime::{
+        base::{BaseModule, is_base_fastcall_allowlisted},
+        compiled_function::CompiledFunction,
+        handler_descriptor::HandlerDescriptor,
+        perform_descriptor::PerformDescriptor,
+        runtime_type::RuntimeType,
+        value::Value,
+    },
     syntax::{
         block::Block,
-        expression::{Expression, MatchArm, Pattern, StringPart},
+        expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
         symbol::Symbol,
+        type_expr::TypeExpr,
     },
+    types::{infer_type::InferType, type_env::TypeEnv, type_subst::TypeSubst, unify_error::unify},
 };
 
 type CompileResult<T> = Result<T, Box<Diagnostic>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeneralCoverageDomain {
+    Bool,
+    Option,
+    Either,
+    ListLike,
+    Tuple(usize),
+    Unknown,
+}
+
 impl Compiler {
+    fn effect_operation_function_parts<'a>(
+        &'a self,
+        effect: Symbol,
+        op: Symbol,
+        span: Span,
+        context: &str,
+    ) -> CompileResult<(&'a [TypeExpr], &'a TypeExpr)> {
+        let Some(signature) = self.effect_op_signature(effect, op) else {
+            let effect_name = self.sym(effect).to_string();
+            let op_name = self.sym(op).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E404",
+                    "UNKNOWN EFFECT OPERATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` has no declared operation `{}`.",
+                        effect_name, op_name
+                    ),
+                    Some("Add the operation to the effect declaration or rename it.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown operation in effect declaration lookup"),
+            ));
+        };
+
+        let TypeExpr::Function {
+            params,
+            ret,
+            effects: _,
+            span: _,
+        } = signature
+        else {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E300",
+                    "TYPE UNIFICATION ERROR",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect operation `{}` in `{}` must use a function type declaration for {}.",
+                        self.sym(op),
+                        self.sym(effect),
+                        context
+                    ),
+                    Some("Declare operations as function types (for example `op: A -> B`).".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "invalid effect operation signature"),
+            ));
+        };
+
+        Ok((params, ret))
+    }
+
     pub(super) fn compile_expression(&mut self, expression: &Expression) -> CompileResult<()> {
         let previous_span = self.current_span;
         self.current_span = Some(expression.span());
@@ -66,13 +162,92 @@ impl Compiler {
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
+                    } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                        // Zero-arg ADT constructor used inside a module (e.g. `Dot`, `Leaf`)
+                        if info.arity != 0 {
+                            let name_str = self.interner.resolve(name).to_string();
+                            return Err(Self::boxed(
+                                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                    .with_span(*span)
+                                    .with_message(format!(
+                                        "Constructor `{}` expects {} argument(s) but got 0.",
+                                        name_str, info.arity
+                                    )),
+                            ));
+                        }
+
+                        let constructor_name = self.interner.resolve(name).to_string();
+                        let const_idx =
+                            self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                        self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                     } else {
+                        if let Some((member_name, qualifier)) =
+                            self.module_constructor_boundary_from_qualified_identifier(name)
+                        {
+                            if self.strict_mode {
+                                return Err(Self::boxed(
+                                    cross_module_constructor_access_error(
+                                        *span,
+                                        member_name.as_str(),
+                                        qualifier.as_str(),
+                                    )
+                                    .with_file(self.file_path.clone()),
+                                ));
+                            }
+                            self.warnings.push(
+                                cross_module_constructor_access_warning(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            );
+                        }
                         let name_str = self.sym(name);
                         return Err(Self::boxed(
                             self.make_undefined_variable_error(name_str, *span),
                         ));
                     }
+                } else if let Some(info) = self.adt_registry.lookup_constructor(name) {
+                    // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
+                    if info.arity != 0 {
+                        let name_str = self.interner.resolve(name).to_string();
+                        return Err(Self::boxed(
+                            diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                .with_span(*span)
+                                .with_message(format!(
+                                    "Constructor `{}` expects {} argument(s) but got 0.",
+                                    name_str, info.arity
+                                )),
+                        ));
+                    }
+                    let constructor_name = self.interner.resolve(name).to_string();
+                    let const_idx =
+                        self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                    self.emit(OpCode::OpMakeAdt, &[const_idx, 0]);
                 } else {
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(name)
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
                     let name_str = self.sym(name);
                     return Err(Self::boxed(
                         self.make_undefined_variable_error(name_str, *span),
@@ -82,6 +257,7 @@ impl Compiler {
             Expression::Prefix {
                 operator, right, ..
             } => {
+                self.validate_prefix_operator_types(operator, right)?;
                 self.compile_non_tail_expression(right)?;
                 match operator.as_str() {
                     "!" => self.emit(OpCode::OpBang, &[]),
@@ -102,6 +278,8 @@ impl Compiler {
                 right,
                 ..
             } => {
+                self.validate_infix_operator_types(left, operator, right)?;
+
                 if operator == "<" {
                     self.compile_non_tail_expression(right)?;
                     self.compile_non_tail_expression(left)?;
@@ -176,9 +354,20 @@ impl Compiler {
                 }
             }
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
             } => {
-                self.compile_function_literal(parameters, body)?;
+                self.compile_function_literal(
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    body,
+                )?;
             }
             Expression::ListLiteral { elements, .. } => {
                 // Lower list literals through base `list(...)` to avoid deep
@@ -226,6 +415,7 @@ impl Compiler {
                 self.emit_hash_count(pairs.len() * 2);
             }
             Expression::Index { left, index, .. } => {
+                self.validate_index_expression_types(left, index)?;
                 self.compile_non_tail_expression(left)?;
                 self.compile_non_tail_expression(index)?;
                 self.emit(OpCode::OpIndex, &[]);
@@ -238,6 +428,14 @@ impl Compiler {
                 arguments,
                 ..
             } => {
+                self.check_known_call_arity(expression.span(), function, arguments)?;
+                self.check_static_contract_call(function, arguments)?;
+
+                if self.try_emit_adt_constructor_call(function, arguments, expression.span())? {
+                    self.current_span = previous_span;
+                    return Ok(());
+                }
+
                 if self.try_emit_primop_call(function, arguments)? {
                     self.current_span = previous_span;
                     return Ok(());
@@ -295,21 +493,11 @@ impl Compiler {
                     )));
                 }
 
-                let (module_binding_name, module_name) = match object.as_ref() {
-                    Expression::Identifier { name, .. } => {
-                        let name = *name;
-                        if let Some(target) = self.import_aliases.get(&name) {
-                            (Some(name), Some(*target))
-                        } else if self.imported_modules.contains(&name)
-                            || self.current_module_prefix == Some(name)
-                        {
-                            (Some(name), Some(name))
-                        } else {
-                            (Some(name), None)
-                        }
-                    }
-                    _ => (None, None),
+                let module_binding_name = match object.as_ref() {
+                    Expression::Identifier { name, .. } => Some(*name),
+                    _ => None,
                 };
+                let module_name = self.resolve_module_name_from_expr(object);
 
                 if let Some(module_name) = module_name {
                     if let Some(binding_name) = module_binding_name
@@ -330,6 +518,16 @@ impl Compiler {
 
                     let member_str = self.sym(member);
                     self.check_private_member(member_str, expr_span, Some(self.sym(module_name)))?;
+                    if self.current_module_prefix != Some(module_name)
+                        && self.module_member_function_is_public(module_name, member) == Some(false)
+                    {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &PRIVATE_MEMBER,
+                            &[member_str],
+                            self.file_path.clone(),
+                            expr_span,
+                        )));
+                    }
 
                     let qualified = self.interner.intern_join(module_name, member);
                     // Module Constants check if this is a compile-time constant
@@ -344,12 +542,36 @@ impl Compiler {
                         return Ok(());
                     }
 
-                    let module_name_str = self.sym(module_name);
-                    let member_str = self.sym(member);
+                    let module_name_str = self.sym(module_name).to_string();
+                    let member_str = self.sym(member).to_string();
+                    if self.current_module_prefix != Some(module_name)
+                        && self
+                            .module_member_adt_constructor_owner(module_name, member)
+                            .is_some()
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    expr_span,
+                                    member_str.as_str(),
+                                    module_name_str.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                expr_span,
+                                member_str.as_str(),
+                                module_name_str.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
 
                     return Err(Self::boxed(Diagnostic::make_error(
                         &UNKNOWN_MODULE_MEMBER,
-                        &[module_name_str, member_str],
+                        &[module_name_str.as_str(), member_str.as_str()],
                         self.file_path.clone(),
                         expr_span,
                     )));
@@ -427,14 +649,682 @@ impl Compiler {
                 self.compile_non_tail_expression(tail)?;
                 self.emit(OpCode::OpCons, &[]);
             }
+            Expression::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                self.compile_perform(*effect, *operation, args)?;
+            }
+            Expression::Handle {
+                expr, effect, arms, ..
+            } => {
+                self.compile_handle(expr, *effect, arms)?;
+            }
         }
         self.current_span = previous_span;
         Ok(())
     }
 
+    fn check_static_contract_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<()> {
+        self.check_direct_builtin_effect_call(function)?;
+
+        let Some(contract) = self
+            .resolve_call_contract(function, arguments.len())
+            .cloned()
+        else {
+            return Ok(());
+        };
+
+        if !contract.effects.is_empty() {
+            let required_row = EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                self.is_effect_variable(effect)
+            });
+            let constraints = self.collect_effect_row_constraints(&contract, arguments);
+            let solution = solve_row_constraints(&constraints);
+
+            if let Some(first_violation) = solution.violations.first() {
+                return Err(Self::boxed(
+                    self.diagnostic_for_row_violation(function, first_violation),
+                ));
+            }
+
+            if !constraints.is_empty() {
+                let unresolved: Vec<Symbol> = required_row
+                    .unresolved_vars(&solution)
+                    .into_iter()
+                    .filter(|effect_var| !self.is_effect_available(*effect_var))
+                    .collect();
+
+                if unresolved.len() == 1 {
+                    let effect_name = self.sym(unresolved[0]).to_string();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E419",
+                            "UNRESOLVED EFFECT VARIABLE",
+                            ErrorType::Compiler,
+                            format!(
+                                "Cannot resolve effect variable `{}` for this call.",
+                                effect_name
+                            ),
+                            Some(format!(
+                                "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
+                                effect_name
+                            )),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effect variable is unconstrained"),
+                    ));
+                } else if unresolved.len() > 1 {
+                    let mut names: Vec<String> = unresolved
+                        .iter()
+                        .map(|symbol| self.sym(*symbol).to_string())
+                        .collect();
+                    names.sort();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E420",
+                            "AMBIGUOUS EFFECT VARIABLES",
+                            ErrorType::Compiler,
+                            format!(
+                                "Call leaves multiple effect variables unresolved: {}.",
+                                names.join(", ")
+                            ),
+                            Some(
+                                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effect variables are ambiguous"),
+                    ));
+                }
+            }
+
+            for required_name in required_row.concrete_effects(&solution) {
+                if !self.is_effect_available(required_name) {
+                    let function_name = match function {
+                        Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+                        Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
+                        _ => "<call>".to_string(),
+                    };
+                    let missing = self.sym(required_name).to_string();
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E400",
+                            "MISSING EFFECT",
+                            ErrorType::Compiler,
+                            format!(
+                                "Call to `{}` requires effect `{}` in this function signature.",
+                                function_name, missing
+                            ),
+                            Some(format!("Add `with {}` to the enclosing function.", missing)),
+                            self.file_path.clone(),
+                            function.span(),
+                        )
+                        .with_primary_label(function.span(), "effectful call occurs here"),
+                    ));
+                }
+            }
+        }
+
+        let function_name = self.call_function_name(function);
+        let def_span = self.call_definition_span(function);
+
+        for (index, argument) in arguments.iter().enumerate() {
+            let Some(expected_ty) = contract.params.get(index).and_then(|p| p.as_ref()) else {
+                continue;
+            };
+            let Some(expected_runtime) = convert_type_expr(expected_ty, &self.interner) else {
+                if self.strict_mode && !matches!(expected_ty, TypeExpr::Function { .. }) {
+                    return Err(Self::boxed(
+                        Diagnostic::make_error_dynamic(
+                            "E425",
+                            "STRICT UNRESOLVED BOUNDARY TYPE",
+                            ErrorType::Compiler,
+                            format!(
+                                "Strict mode cannot enforce runtime boundary check for unresolved parameter type `{}`.",
+                                expected_ty
+                            ),
+                            Some(
+                                "Use a concrete parameter type (avoid unresolved generic-only boundary types) or make this API internal."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            argument.span(),
+                        )
+                        .with_primary_label(
+                            argument.span(),
+                            "runtime boundary check is unresolved in strict mode",
+                        ),
+                    ));
+                }
+                continue;
+            };
+            let expected_infer = TypeEnv::infer_type_from_runtime(&expected_runtime);
+            let maybe_contextual = match self.hm_expr_type_strict_path(argument) {
+                super::hm_expr_typer::HmExprTypeResult::Known(actual) => {
+                    if expected_infer.is_concrete()
+                        && actual.is_concrete()
+                        && !expected_infer.contains_any()
+                        && !actual.contains_any()
+                    {
+                        let compatible = if let Ok(subst) = unify(&expected_infer, &actual) {
+                            expected_infer.apply_type_subst(&subst)
+                                == actual.apply_type_subst(&subst)
+                        } else {
+                            false
+                        };
+                        if compatible {
+                            None
+                        } else {
+                            let expected_str = display_infer_type(&expected_infer, &self.interner);
+                            let actual_str = display_infer_type(&actual, &self.interner);
+                            Some(call_arg_type_mismatch(
+                                self.file_path.clone(),
+                                argument.span(),
+                                Some(&function_name),
+                                index + 1,
+                                def_span,
+                                &expected_str,
+                                &actual_str,
+                            ))
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(diag) = maybe_contextual {
+                return Err(Self::boxed(diag));
+            }
+            self.validate_expr_expected_type_with_policy(
+                &expected_infer,
+                argument,
+                "argument type is known at compile time",
+                format!("argument #{} does not match function contract", index + 1),
+                "function contract argument",
+                true,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn call_function_name(&self, function: &Expression) -> String {
+        match function {
+            Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+            Expression::MemberAccess { member, .. } => self.sym(*member).to_string(),
+            _ => "<call>".to_string(),
+        }
+    }
+
+    fn call_definition_span(&mut self, function: &Expression) -> Option<Span> {
+        match function {
+            Expression::Identifier { name, .. } => {
+                self.resolve_visible_symbol(*name).map(|b| b.span)
+            }
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object)?;
+                let qualified = self.interner.intern_join(module_name, *member);
+                self.resolve_visible_symbol(qualified).map(|b| b.span)
+            }
+            _ => None,
+        }
+    }
+
+    fn check_known_call_arity(
+        &mut self,
+        call_span: Span,
+        function: &Expression,
+        arguments: &[Expression],
+    ) -> CompileResult<()> {
+        use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+
+        let HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
+            self.hm_expr_type_strict_path(function)
+        else {
+            return Ok(());
+        };
+
+        let expected = params.len();
+        let actual = arguments.len();
+        if expected == actual {
+            return Ok(());
+        }
+
+        let function_name = self.call_function_name(function);
+        let def_span = self.call_definition_span(function);
+        Err(Self::boxed(wrong_argument_count(
+            self.file_path.clone(),
+            call_span,
+            &function_name,
+            expected,
+            actual,
+            def_span,
+        )))
+    }
+
+    fn module_constructor_boundary_from_qualified_identifier(
+        &self,
+        name: Symbol,
+    ) -> Option<(String, String)> {
+        let full_name = self.sym(name);
+        let (qualifier, member) = full_name.rsplit_once('.')?;
+        let module_name = self
+            .imported_modules
+            .iter()
+            .copied()
+            .find(|module| self.sym(*module) == qualifier)
+            .or_else(|| {
+                self.import_aliases
+                    .iter()
+                    .find(|(alias, _)| self.sym(**alias) == qualifier)
+                    .map(|(_, target)| *target)
+            })?;
+        let is_adt_constructor = self
+            .module_adt_constructors
+            .keys()
+            .any(|(owner, ctor)| *owner == module_name && self.sym(*ctor) == member);
+        if !is_adt_constructor {
+            return None;
+        }
+
+        Some((member.to_string(), qualifier.to_string()))
+    }
+
+    fn diagnostic_for_row_violation(
+        &self,
+        function: &Expression,
+        violation: &RowConstraintViolation,
+    ) -> Diagnostic {
+        match violation {
+            RowConstraintViolation::InvalidSubtract { atom } => {
+                let effect_name = self.sym(*atom).to_string();
+                Diagnostic::make_error_dynamic(
+                    "E421",
+                    "INVALID EFFECT SUBTRACTION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Cannot subtract effect `{}` from a row that does not contain it.",
+                        effect_name
+                    ),
+                    Some(
+                        "Handle or include this effect before subtracting it from an effect row."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effect row constraint failed")
+            }
+            RowConstraintViolation::UnsatisfiedSubset { missing } => {
+                let mut names: Vec<String> = missing
+                    .iter()
+                    .map(|effect| self.sym(*effect).to_string())
+                    .collect();
+                names.sort();
+                Diagnostic::make_error_dynamic(
+                    "E422",
+                    "UNSATISFIED EFFECT SUBSET",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect row is missing required effects: {}.",
+                        names.join(", ")
+                    ),
+                    Some(
+                        "Add missing effects to the enclosing function or handle them before this call."
+                            .to_string(),
+                    ),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effect row constraint failed")
+            }
+        }
+    }
+
+    fn check_direct_builtin_effect_call(&mut self, function: &Expression) -> CompileResult<()> {
+        let required_name = match function {
+            Expression::Identifier { name, .. } => {
+                if let Some(effect) = self.lookup_effect_alias(*name) {
+                    Some(self.sym(effect).to_string())
+                } else {
+                    let Some(binding) = self.resolve_visible_symbol(*name) else {
+                        return Ok(());
+                    };
+                    if binding.symbol_scope != SymbolScope::Base {
+                        return Ok(());
+                    }
+                    self.required_effect_for_base_name(self.sym(*name))
+                        .map(str::to_string)
+                }
+            }
+            _ => None,
+        };
+
+        let Some(required_name) = required_name else {
+            return Ok(());
+        };
+
+        if self.is_effect_available_name(required_name.as_str()) {
+            return Ok(());
+        }
+
+        let function_name = match function {
+            Expression::Identifier { name, .. } => self.sym(*name).to_string(),
+            _ => "<call>".to_string(),
+        };
+        Err(Self::boxed(
+            Diagnostic::make_error_dynamic(
+                "E400",
+                "MISSING EFFECT",
+                ErrorType::Compiler,
+                format!(
+                    "Call to `{}` requires effect `{}` in this function signature.",
+                    function_name, required_name
+                ),
+                Some(format!(
+                    "Add `with {}` to the enclosing function.",
+                    required_name
+                )),
+                self.file_path.clone(),
+                function.span(),
+            )
+            .with_primary_label(function.span(), "effectful call occurs here"),
+        ))
+    }
+
+    fn required_effect_for_base_name(&self, base_name: &str) -> Option<&'static str> {
+        match base_name {
+            "print" | "read_file" | "read_lines" | "read_stdin" => Some("IO"),
+            "now" | "clock_now" | "now_ms" | "time" => Some("Time"),
+            _ => None,
+        }
+    }
+
+    fn collect_effect_row_constraints(
+        &self,
+        contract: &FnContract,
+        arguments: &[Expression],
+    ) -> Vec<RowConstraint> {
+        let mut constraints = Vec::new();
+
+        for (idx, argument) in arguments.iter().enumerate() {
+            let Some(Some(TypeExpr::Function {
+                params,
+                effects: param_effects,
+                ..
+            })) = contract.params.get(idx)
+            else {
+                continue;
+            };
+
+            let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
+                self.is_effect_variable(effect)
+            });
+            let actual = self.infer_argument_function_effect_row(argument, params.len());
+
+            // Keep current permissive behavior when argument effect info is unavailable.
+            if actual.atoms.is_empty() && actual.vars.is_empty() {
+                continue;
+            }
+
+            constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
+            for required_atom in expected.atoms {
+                constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+            }
+        }
+
+        constraints
+    }
+
+    fn infer_argument_function_effect_row(
+        &self,
+        argument: &Expression,
+        expected_arity: usize,
+    ) -> EffectRow {
+        match argument {
+            Expression::Function { effects, .. } => {
+                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
+            }
+            Expression::Identifier { name, .. } => self
+                .lookup_unqualified_contract(*name, expected_arity)
+                .map(|contract| {
+                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                        self.is_effect_variable(effect)
+                    })
+                })
+                .unwrap_or_default(),
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object);
+                module_name
+                    .and_then(|module_name| {
+                        self.lookup_contract(Some(module_name), *member, expected_arity)
+                    })
+                    .map(|contract| {
+                        EffectRow::from_effect_exprs(&contract.effects, |effect| {
+                            self.is_effect_variable(effect)
+                        })
+                    })
+                    .unwrap_or_default()
+            }
+            _ => EffectRow::default(),
+        }
+    }
+
+    pub(super) fn resolve_call_contract<'a>(
+        &'a self,
+        function: &Expression,
+        arity: usize,
+    ) -> Option<&'a FnContract> {
+        match function {
+            Expression::Identifier { name, .. } => self.lookup_unqualified_contract(*name, arity),
+            Expression::MemberAccess { object, member, .. } => {
+                let module_name = self.resolve_module_name_from_expr(object)?;
+                self.lookup_contract(Some(module_name), *member, arity)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn validate_runtime_expected_type(
+        &self,
+        expected: &RuntimeType,
+        expression: &Expression,
+        primary_label: &str,
+        help: String,
+    ) -> CompileResult<()> {
+        let expected_infer = TypeEnv::infer_type_from_runtime(expected);
+        self.validate_expr_expected_type(
+            &expected_infer,
+            expression,
+            primary_label,
+            help,
+            "runtime-typed expectation",
+        )
+    }
+
+    fn validate_infix_operator_types(
+        &self,
+        left: &Expression,
+        operator: &str,
+        right: &Expression,
+    ) -> CompileResult<()> {
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+            self.hm_expr_type_strict_path(left)
+        else {
+            return Ok(());
+        };
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(right_ty) =
+            self.hm_expr_type_strict_path(right)
+        else {
+            return Ok(());
+        };
+        let is_num = |ty: &InferType| {
+            matches!(
+                ty,
+                InferType::Con(
+                    crate::types::type_constructor::TypeConstructor::Int
+                        | crate::types::type_constructor::TypeConstructor::Float
+                )
+            )
+        };
+        let is_bool = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Bool)
+        };
+        let is_int = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Int)
+        };
+        let is_float = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::Float)
+        };
+        let is_string = |ty: &InferType| {
+            *ty == InferType::Con(crate::types::type_constructor::TypeConstructor::String)
+        };
+        let op_compatible = match operator {
+            "+" => {
+                (is_int(&left_ty) && is_int(&right_ty))
+                    || (is_float(&left_ty) && is_float(&right_ty))
+                    || (is_string(&left_ty) && is_string(&right_ty))
+            }
+            "-" | "*" | "/" | "%" => is_num(&left_ty) && is_num(&right_ty),
+            "&&" | "||" => is_bool(&left_ty) && is_bool(&right_ty),
+            _ => true,
+        };
+        if op_compatible {
+            return Ok(());
+        }
+
+        let expected = match operator {
+            "+" => "matching '+' operands (Int+Int, Float+Float, or String+String)".to_string(),
+            "-" | "*" | "/" | "%" => "numeric operands (Int or Float)".to_string(),
+            "&&" | "||" => "Bool operands".to_string(),
+            _ => return Ok(()),
+        };
+        let actual = format!(
+            "{} and {}",
+            TypeEnv::to_runtime(&left_ty, &TypeSubst::empty()).type_name(),
+            TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name()
+        );
+        let op_span = Span::new(left.span().start, right.span().end);
+
+        Err(Self::boxed(
+            type_unification_error(self.file_path.clone(), op_span, &expected, &actual)
+                .with_secondary_label(op_span, "operator operands are known at compile time")
+                .with_help("adjust operand types or add explicit conversion"),
+        ))
+    }
+
+    fn validate_prefix_operator_types(
+        &self,
+        operator: &str,
+        right: &Expression,
+    ) -> CompileResult<()> {
+        if operator != "-" {
+            return Ok(());
+        }
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(right_ty) =
+            self.hm_expr_type_strict_path(right)
+        else {
+            return Ok(());
+        };
+        if matches!(
+            right_ty,
+            InferType::Con(
+                crate::types::type_constructor::TypeConstructor::Int
+                    | crate::types::type_constructor::TypeConstructor::Float
+            )
+        ) {
+            return Ok(());
+        }
+
+        let actual = TypeEnv::to_runtime(&right_ty, &TypeSubst::empty()).type_name();
+        Err(Self::boxed(
+            type_unification_error(
+                self.file_path.clone(),
+                right.span(),
+                "numeric operand (Int or Float)",
+                &actual,
+            )
+            .with_secondary_label(right.span(), "unary '-' operand is known at compile time")
+            .with_help("use a numeric operand or convert the value before applying unary '-'"),
+        ))
+    }
+
+    fn validate_index_expression_types(
+        &self,
+        left: &Expression,
+        index: &Expression,
+    ) -> CompileResult<()> {
+        let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(left_ty) =
+            self.hm_expr_type_strict_path(left)
+        else {
+            return Ok(());
+        };
+        let index_known = matches!(
+            self.hm_expr_type_strict_path(index),
+            crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(_)
+        );
+
+        match left_ty {
+            InferType::App(
+                crate::types::type_constructor::TypeConstructor::Array
+                | crate::types::type_constructor::TypeConstructor::List,
+                _,
+            )
+            | InferType::Tuple(_) => {
+                if index_known {
+                    self.validate_runtime_expected_type(
+                        &RuntimeType::Int,
+                        index,
+                        "index expression is known at compile time",
+                        "use an Int index for Array/List/Tuple access".to_string(),
+                    )?;
+                }
+                Ok(())
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::Map, _) => Ok(()),
+            other => Err(Self::boxed(
+                type_unification_error(
+                    self.file_path.clone(),
+                    left.span(),
+                    "indexable value (Array/List/Tuple/Map)",
+                    &TypeEnv::to_runtime(&other, &TypeSubst::empty()).type_name(),
+                )
+                .with_secondary_label(left.span(), "indexed value is known at compile time")
+                .with_help("index only arrays, lists, tuples, or maps"),
+            )),
+        }
+    }
+
+    fn validate_boolean_expression(
+        &self,
+        expression: &Expression,
+        context: &str,
+    ) -> CompileResult<()> {
+        self.validate_runtime_expected_type(
+            &RuntimeType::Bool,
+            expression,
+            &format!("{context} is known at compile time"),
+            "use a Bool expression, or make the condition/guard explicitly boolean".to_string(),
+        )
+    }
+
     pub(super) fn compile_function_literal(
         &mut self,
         parameters: &[Symbol],
+        parameters_types: &[Option<TypeExpr>],
+        return_type: &Option<TypeExpr>,
+        effects: &[crate::syntax::effect_expr::EffectExpr],
         body: &Block,
     ) -> CompileResult<()> {
         if let Some(name) = Self::find_duplicate_name(parameters) {
@@ -449,11 +1339,16 @@ impl Compiler {
 
         self.enter_scope();
 
-        for param in parameters {
+        for (index, param) in parameters.iter().enumerate() {
             self.symbol_table.define(*param, Span::default());
+            if let Some(Some(param_ty)) = parameters_types.get(index)
+                && let Some(runtime_ty) = convert_type_expr(param_ty, &self.interner)
+            {
+                self.bind_static_type(*param, runtime_ty);
+            }
         }
 
-        self.with_function_context(parameters.len(), |compiler| {
+        self.with_function_context(parameters.len(), effects, |compiler| {
             compiler.compile_block_with_tail(body)
         })?;
 
@@ -487,14 +1382,28 @@ impl Compiler {
             self.load_symbol(free);
         }
 
-        let fn_idx = self.add_constant(Value::Function(Rc::new(CompiledFunction::new(
-            instructions,
-            num_locals,
-            parameters.len(),
-            Some(
-                FunctionDebugInfo::new(None, files, locations).with_effect_summary(effect_summary),
-            ),
-        ))));
+        let runtime_contract = {
+            let contract = FnContract {
+                type_params: vec![],
+                params: parameters_types.to_vec(),
+                ret: return_type.clone(),
+                effects: effects.to_vec(),
+            };
+            self.to_runtime_contract(&contract)
+        };
+
+        let fn_idx = self.add_constant(Value::Function(Rc::new(
+            CompiledFunction::new(
+                instructions,
+                num_locals,
+                parameters.len(),
+                Some(
+                    FunctionDebugInfo::new(None, files, locations)
+                        .with_effect_summary(effect_summary),
+                ),
+            )
+            .with_contract(runtime_contract),
+        )));
 
         self.emit_closure_index(fn_idx, free_symbols.len());
 
@@ -548,6 +1457,7 @@ impl Compiler {
         consequence: &Block,
         alternative: &Option<Block>,
     ) -> CompileResult<()> {
+        self.validate_boolean_expression(condition, "if condition")?;
         self.compile_non_tail_expression(condition)?;
 
         let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
@@ -603,8 +1513,10 @@ impl Compiler {
         &mut self,
         scrutinee: &Expression,
         arms: &[MatchArm],
-        _match_span: Span,
+        match_span: Span,
     ) -> CompileResult<()> {
+        // Exhaustiveness check before compiling arms.
+        self.check_match_exhaustiveness(scrutinee, arms, match_span)?;
         // Compile scrutinee once and store it in a temp symbol.
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
         self.compile_non_tail_expression(scrutinee)?;
@@ -648,6 +1560,7 @@ impl Compiler {
 
             // Guard runs only after a successful pattern match and in the arm binding scope.
             if let Some(guard) = &arm.guard {
+                self.validate_boolean_expression(guard, "match guard")?;
                 self.compile_non_tail_expression(guard)?;
                 arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
             }
@@ -931,6 +1844,77 @@ impl Compiler {
 
                 Ok(jumps)
             }
+            Pattern::Constructor { name, fields, span } => {
+                // 1. Check if this is a known constructor
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+
+                // tag_idx not used in check
+                let _ = constructor_info.tag_idx;
+
+                // 2. Load scrutinee, emit OpIsAdt with constructor name constant
+                self.load_symbol(scrutinee);
+                let constructor_name = self.interner.resolve(*name).to_string();
+                let const_idx =
+                    self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+                self.emit(OpCode::OpIsAdt, &[const_idx]);
+
+                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+
+                // 3. For each non-wildcard/non-identifier field pattern, extract and sub-check
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(
+                        field_pat,
+                        Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                    ) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    let inner_jumps = self.compile_pattern_check(&inner_symbol, field_pat)?;
+                    jumps.extend(inner_jumps);
+                }
+
+                Ok(jumps)
+            }
         }
     }
 
@@ -1099,6 +2083,56 @@ impl Compiler {
                 }
             }
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
+            Pattern::Constructor { name, fields, span } => {
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(field_pat, Pattern::Wildcard { .. }) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(scrutinee);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]);
+                        }
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[inner_symbol.index]);
+                        }
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    }
+                    self.compile_pattern_bind(&inner_symbol, field_pat)?;
+                }
+            }
         }
         Ok(())
     }
@@ -1128,6 +2162,35 @@ impl Compiler {
             return Ok(false);
         };
 
+        let required_name = match primop.effect_kind() {
+            PrimEffect::Io => Some("IO"),
+            PrimEffect::Time => Some("Time"),
+            PrimEffect::Control | PrimEffect::Pure => None,
+        };
+        if let Some(required_name) = required_name
+            && !self.is_effect_available_name(required_name)
+        {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        self.sym(*name),
+                        required_name
+                    ),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        required_name
+                    )),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effectful call occurs here"),
+            ));
+        }
+
         for argument in arguments {
             self.compile_non_tail_expression(argument)?;
         }
@@ -1145,8 +2208,8 @@ impl Compiler {
             return Ok(false);
         };
 
-        let base_name = self.sym(*name);
-        if !is_base_fastcall_allowlisted(base_name) {
+        let base_name = self.sym(*name).to_string();
+        if !is_base_fastcall_allowlisted(base_name.as_str()) {
             return Ok(false);
         }
 
@@ -1157,11 +2220,344 @@ impl Compiler {
             return Ok(false);
         }
 
+        if let Some(required_name) = self.required_effect_for_base_name(base_name.as_str())
+            && !self.is_effect_available_name(required_name)
+        {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Call to `{}` requires effect `{}` in this function signature.",
+                        base_name, required_name
+                    ),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        required_name
+                    )),
+                    self.file_path.clone(),
+                    function.span(),
+                )
+                .with_primary_label(function.span(), "effectful call occurs here"),
+            ));
+        }
+
         for argument in arguments {
             self.compile_non_tail_expression(argument)?;
         }
         self.emit(OpCode::OpCallBase, &[symbol.index, arguments.len()]);
         Ok(true)
+    }
+
+    /// Compile `perform Effect.op(args)` — push args, then `OpPerform`.
+    fn compile_perform(
+        &mut self,
+        effect: Symbol,
+        op: Symbol,
+        args: &[Expression],
+    ) -> CompileResult<()> {
+        let span = self
+            .current_span
+            .unwrap_or_else(|| Span::new(Position::default(), Position::default()));
+
+        let Some(has_operation) = self
+            .effect_declared_ops(effect)
+            .map(|ops| ops.contains(&op))
+        else {
+            let effect_name = self.sym(effect).to_string();
+            let hint = suggest_effect_name(&effect_name)
+                .unwrap_or_else(|| "Declare the effect before using `perform`.".to_string());
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E403",
+                    "UNKNOWN EFFECT",
+                    ErrorType::Compiler,
+                    format!("Effect `{}` is not declared.", effect_name),
+                    Some(hint),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown effect in perform"),
+            ));
+        };
+        if !has_operation {
+            let effect_name = self.sym(effect).to_string();
+            let op_name = self.sym(op).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E404",
+                    "UNKNOWN EFFECT OPERATION",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` has no declared operation `{}`.",
+                        effect_name, op_name
+                    ),
+                    Some("Add the operation to the effect declaration or rename it.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "unknown operation in perform"),
+            ));
+        }
+        let (op_params, _op_ret) =
+            self.effect_operation_function_parts(effect, op, span, "perform checks")?;
+        if args.len() != op_params.len() {
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E300",
+                    "TYPE UNIFICATION ERROR",
+                    ErrorType::Compiler,
+                    format!(
+                        "`perform {}.{}` expects {} argument(s), got {}.",
+                        self.sym(effect),
+                        self.sym(op),
+                        op_params.len(),
+                        args.len()
+                    ),
+                    Some("Pass arguments that match the effect operation signature.".to_string()),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "perform argument count mismatch"),
+            ));
+        }
+
+        for (arg, expected_ty) in args.iter().zip(op_params.iter()) {
+            let Some(expected) = TypeEnv::infer_type_from_type_expr(
+                expected_ty,
+                &Default::default(),
+                &self.interner,
+            ) else {
+                continue;
+            };
+            self.validate_expr_expected_type(
+                &expected,
+                arg,
+                "perform argument type is known at compile time",
+                "argument does not match effect operation signature".to_string(),
+                "perform argument",
+            )?;
+        }
+
+        if !self.is_effect_available(effect) {
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E400",
+                    "MISSING EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Performing `{}` requires effect `{}` in this function signature.",
+                        self.sym(op),
+                        effect_name
+                    ),
+                    Some(format!(
+                        "Add `with {}` to the enclosing function.",
+                        effect_name
+                    )),
+                    self.file_path.clone(),
+                    span,
+                )
+                .with_primary_label(span, "effectful perform occurs here"),
+            ));
+        }
+
+        for arg in args {
+            self.compile_non_tail_expression(arg)?;
+        }
+
+        let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
+        let op_name = self.interner.resolve(op).to_string().into_boxed_str();
+        let desc = Value::PerformDescriptor(Rc::new(PerformDescriptor {
+            effect,
+            op,
+            effect_name,
+            op_name,
+        }));
+        let const_idx = self.add_constant(desc);
+        self.emit(OpCode::OpPerform, &[const_idx, args.len()]);
+
+        Ok(())
+    }
+
+    /// Compile `expr handle Effect { op(resume, args) -> body, ... }`.
+    ///
+    /// Emits one `OpClosure` per arm (leaving closures on the stack in order),
+    /// then `OpHandle desc_idx`, then the handled `expr`, then `OpEndHandle`.
+    fn compile_handle(
+        &mut self,
+        expr: &Expression,
+        effect: Symbol,
+        arms: &[HandleArm],
+    ) -> CompileResult<()> {
+        let mut operations = Vec::new();
+        let mut arm_ops = HashSet::new();
+
+        let Some(declared_ops) = self.effect_declared_ops(effect) else {
+            let effect_name = self.sym(effect).to_string();
+            let hint = suggest_effect_name(&effect_name).unwrap_or_else(|| {
+                "Declare the effect before using `handle`, or fix the effect name.".to_string()
+            });
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E405",
+                    "UNKNOWN HANDLER EFFECT",
+                    ErrorType::Compiler,
+                    format!(
+                        "Effect `{}` is not declared for this handle block.",
+                        effect_name
+                    ),
+                    Some(hint),
+                    self.file_path.clone(),
+                    expr.span(),
+                )
+                .with_primary_label(expr.span(), "unknown effect in handle"),
+            ));
+        };
+
+        for arm in arms {
+            if !declared_ops.contains(&arm.operation_name) {
+                let effect_name = self.sym(effect).to_string();
+                let op_name = self.sym(arm.operation_name).to_string();
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E401",
+                        "UNKNOWN HANDLER OPERATION",
+                        ErrorType::Compiler,
+                        format!(
+                            "Handler for `{}` includes unknown operation `{}`.",
+                            effect_name, op_name
+                        ),
+                        Some(
+                            "Add this operation to the effect declaration or remove the arm."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        arm.span,
+                    )
+                    .with_primary_label(arm.span, "unknown operation arm"),
+                ));
+            }
+            arm_ops.insert(arm.operation_name);
+        }
+
+        let mut missing: Vec<Symbol> = declared_ops.difference(&arm_ops).copied().collect();
+        if !missing.is_empty() {
+            missing.sort_by_key(|sym| self.sym(*sym).to_string());
+            let missing_names = missing
+                .iter()
+                .map(|sym| self.sym(*sym).to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let effect_name = self.sym(effect).to_string();
+            return Err(Self::boxed(
+                Diagnostic::make_error_dynamic(
+                    "E402",
+                    "INCOMPLETE EFFECT HANDLER",
+                    ErrorType::Compiler,
+                    format!(
+                        "Handler for `{}` is missing operations: {}.",
+                        effect_name, missing_names
+                    ),
+                    Some("Add handler arms for all declared operations of the effect.".to_string()),
+                    self.file_path.clone(),
+                    expr.span(),
+                )
+                .with_primary_label(expr.span(), "handled expression"),
+            ));
+        }
+
+        let handled_expression_type = match self.hm_expr_type_strict_path(expr) {
+            crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(ty) => Some(ty),
+            _ => None,
+        };
+
+        for arm in arms {
+            let (op_params, _op_ret) = self.effect_operation_function_parts(
+                effect,
+                arm.operation_name,
+                arm.span,
+                "handle arm checks",
+            )?;
+            if arm.params.len() != op_params.len() {
+                return Err(Self::boxed(
+                    Diagnostic::make_error_dynamic(
+                        "E300",
+                        "TYPE UNIFICATION ERROR",
+                        ErrorType::Compiler,
+                        format!(
+                            "Handle arm `{}` expects {} parameter(s), got {}.",
+                            self.sym(arm.operation_name),
+                            op_params.len(),
+                            arm.params.len()
+                        ),
+                        Some(
+                            "Adjust handler arm parameters to match the effect operation signature."
+                                .to_string(),
+                        ),
+                        self.file_path.clone(),
+                        arm.span,
+                    )
+                    .with_primary_label(arm.span, "handler arm parameter mismatch"),
+                ));
+            }
+
+            if let Some(expected_handled_ty) = handled_expression_type.as_ref() {
+                self.validate_expr_expected_type(
+                    expected_handled_ty,
+                    &arm.body,
+                    "handler arm result type is known at compile time",
+                    "handler arm result should match the handled expression type".to_string(),
+                    "handle arm result",
+                )?;
+            }
+
+            operations.push(arm.operation_name);
+
+            // Build parameter list: [resume_param, param0, param1, ...]
+            let mut params: Vec<Symbol> = Vec::with_capacity(1 + arm.params.len());
+            params.push(arm.resume_param);
+            params.extend_from_slice(&arm.params);
+            let mut parameter_types: Vec<Option<TypeExpr>> =
+                Vec::with_capacity(1 + op_params.len());
+            parameter_types.push(None);
+            for ty in op_params {
+                parameter_types.push(Some(ty.clone()));
+            }
+
+            // Wrap arm body in a synthetic block for compile_function_literal
+            let arm_span = arm.body.span();
+            let arm_block = Block {
+                statements: vec![Statement::Expression {
+                    expression: arm.body.clone(),
+                    has_semicolon: false,
+                    span: arm_span,
+                }],
+                span: arm_span,
+            };
+
+            // compile_function_literal emits OpClosure, leaving a closure on the stack
+            self.compile_function_literal(&params, &parameter_types, &None, &[], &arm_block)?;
+        }
+
+        // Build HandlerDescriptor and emit OpHandle
+        let desc = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
+            effect,
+            ops: operations,
+        }));
+
+        let desc_idx = self.add_constant(desc);
+        self.emit(OpCode::OpHandle, &[desc_idx]);
+
+        // Compile the handled expression with the effect available in scope.
+        self.with_handled_effect(effect, |compiler| {
+            compiler.compile_non_tail_expression(expr)
+        })?;
+
+        // Remove the handler frame
+        self.emit(OpCode::OpEndHandle, &[]);
+        Ok(())
     }
 
     fn compile_non_tail_expression(&mut self, expression: &Expression) -> CompileResult<()> {
@@ -1247,6 +2643,8 @@ impl Compiler {
                 }
             }
             Statement::Import { .. } => {}
+            Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
@@ -1349,6 +2747,18 @@ impl Compiler {
                 self.collect_consumable_param_uses(head, counts);
                 self.collect_consumable_param_uses(tail, counts);
             }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.collect_consumable_param_uses(arg, counts);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.collect_consumable_param_uses(expr, counts);
+
+                for arm in arms {
+                    self.collect_consumable_param_uses(&arm.body, counts);
+                }
+            }
             Expression::Function { .. }
             | Expression::Integer { .. }
             | Expression::Float { .. }
@@ -1387,5 +2797,843 @@ impl Compiler {
             Some(num_params) => symbol.index < num_params,
             None => false,
         }
+    }
+
+    fn try_emit_adt_constructor_call(
+        &mut self,
+        function: &Expression,
+        arguments: &[Expression],
+        span: Span,
+    ) -> CompileResult<bool> {
+        let (name, boundary_module): (Symbol, Option<Symbol>) = match function {
+            Expression::Identifier { name, .. } => (*name, None),
+            Expression::MemberAccess { object, member, .. } => {
+                let Some(module_name) = self.resolve_module_name_from_expr(object) else {
+                    return Ok(false);
+                };
+                let Some(_adt_owner) =
+                    self.module_member_adt_constructor_owner(module_name, *member)
+                else {
+                    return Ok(false);
+                };
+                (*member, Some(module_name))
+            }
+            _ => return Ok(false),
+        };
+
+        // Only intercept if the constructor is known.
+        let Some(info) = self.adt_registry.lookup_constructor(name) else {
+            if let Some((member_name, qualifier)) =
+                self.module_constructor_boundary_from_qualified_identifier(name)
+            {
+                if self.strict_mode {
+                    return Err(Self::boxed(
+                        cross_module_constructor_access_error(
+                            span,
+                            member_name.as_str(),
+                            qualifier.as_str(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+                self.warnings.push(
+                    cross_module_constructor_access_warning(
+                        span,
+                        member_name.as_str(),
+                        qualifier.as_str(),
+                    )
+                    .with_file(self.file_path.clone()),
+                );
+                for arg in arguments {
+                    self.compile_non_tail_expression(arg)?;
+                }
+                let const_idx = self.add_constant(Value::String(Rc::from(member_name.as_str())));
+                self.emit(OpCode::OpMakeAdt, &[const_idx, arguments.len()]);
+                return Ok(true);
+            }
+            return Ok(false);
+        };
+
+        if let Some(module_name) = boundary_module
+            && self.current_module_prefix != Some(module_name)
+        {
+            let module_name_str = self.sym(module_name).to_string();
+            let ctor_name_str = self.sym(name).to_string();
+            if self.strict_mode {
+                return Err(Self::boxed(
+                    cross_module_constructor_access_error(
+                        span,
+                        ctor_name_str.as_str(),
+                        module_name_str.as_str(),
+                    )
+                    .with_file(self.file_path.clone()),
+                ));
+            }
+            self.warnings.push(
+                cross_module_constructor_access_warning(
+                    span,
+                    ctor_name_str.as_str(),
+                    module_name_str.as_str(),
+                )
+                .with_file(self.file_path.clone()),
+            );
+        }
+
+        let expected_arity = info.arity;
+        let actual_arity = arguments.len();
+
+        if actual_arity != expected_arity {
+            let name_str = self.interner.resolve(name).to_string();
+            return Err(Self::boxed(
+                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Constructor `{}` expects {} argument(s) but got {}.",
+                        name_str, expected_arity, actual_arity
+                    )),
+            ));
+        }
+
+        // Compile each argument
+        for arg in arguments {
+            self.compile_non_tail_expression(arg)?;
+        }
+
+        // Add constructor name as a string constant
+        let constructor_name = self.interner.resolve(name).to_string();
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+        self.emit(OpCode::OpMakeAdt, &[const_idx, actual_arity]);
+
+        Ok(true)
+    }
+
+    fn check_match_exhaustiveness(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> CompileResult<()> {
+        let constructor_names: Vec<Symbol> = arms
+            .iter()
+            .filter_map(|arm| {
+                if let Pattern::Constructor { name, .. } = &arm.pattern {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !constructor_names.is_empty()
+            && constructor_names
+                .iter()
+                .all(|name| self.adt_registry.lookup_constructor(*name).is_some())
+        {
+            return self.check_adt_match_exhaustiveness(arms, span);
+        }
+
+        self.check_general_match_exhaustiveness(scrutinee, arms, span)
+    }
+
+    fn check_general_match_exhaustiveness(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+        span: Span,
+    ) -> CompileResult<()> {
+        if arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        }) {
+            return Ok(());
+        }
+
+        let domain = self.infer_general_match_domain(scrutinee, arms);
+        match domain {
+            GeneralCoverageDomain::Bool => {
+                let mut seen_true = false;
+                let mut seen_false = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    if let Pattern::Literal { expression, .. } = &arm.pattern
+                        && let Expression::Boolean { value, .. } = expression
+                    {
+                        if *value {
+                            seen_true = true;
+                        } else {
+                            seen_false = true;
+                        }
+                    }
+                }
+                if seen_true && seen_false {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_true {
+                    missing.push("true");
+                }
+                if !seen_false {
+                    missing.push("false");
+                }
+                let missing_text = missing.join(", ");
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Bool case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing boolean arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::Option => {
+                let mut seen_none = false;
+                let mut seen_some = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::None { .. } => seen_none = true,
+                        Pattern::Some { .. } => seen_some = true,
+                        _ => {}
+                    }
+                }
+                if seen_none && seen_some {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_none {
+                    missing.push("None");
+                }
+                if !seen_some {
+                    missing.push("Some(_)");
+                }
+                let missing_text = missing.join(", ");
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Option case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing Option arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::Either => {
+                let mut seen_left = false;
+                let mut seen_right = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::Left { .. } => seen_left = true,
+                        Pattern::Right { .. } => seen_right = true,
+                        _ => {}
+                    }
+                }
+                if seen_left && seen_right {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_left {
+                    missing.push("Left(_)");
+                }
+                if !seen_right {
+                    missing.push("Right(_)");
+                }
+                let missing_text = missing.join(", ");
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing Either case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing Either arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::ListLike => {
+                let mut seen_empty = false;
+                let mut seen_cons = false;
+                for arm in arms.iter().filter(|arm| arm.guard.is_none()) {
+                    match &arm.pattern {
+                        Pattern::EmptyList { .. } => seen_empty = true,
+                        Pattern::Cons { .. } => seen_cons = true,
+                        _ => {}
+                    }
+                }
+                if seen_empty && seen_cons {
+                    return Ok(());
+                }
+                let mut missing = Vec::new();
+                if !seen_empty {
+                    missing.push("[]");
+                }
+                if !seen_cons {
+                    missing.push("[h | t]");
+                }
+                let missing_text = missing.join(", ");
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: missing list case(s): {}.",
+                            missing_text
+                        ))
+                        .with_hint_text(
+                            "Add missing list arms or an unguarded `_ -> ...` catch-all."
+                                .to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::Tuple(_) => {
+                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
+                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
+                }
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(
+                            "Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm."
+                                .to_string(),
+                        )
+                        .with_hint_text(
+                            "Add an unguarded `_ -> ...` arm. Tuple exhaustiveness is checked conservatively.".to_string(),
+                        ),
+                ))
+            }
+            GeneralCoverageDomain::Unknown => {
+                if Self::has_guarded_wildcard_without_unguarded_catchall(arms) {
+                    return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
+                }
+                Err(Self::boxed(
+                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(
+                            "Match is non-exhaustive without an unguarded catch-all arm."
+                                .to_string(),
+                        )
+                        .with_hint_text(
+                            "Add an unguarded `_ -> ...` arm for conservative exhaustive coverage."
+                                .to_string(),
+                        ),
+                ))
+            }
+        }
+    }
+
+    fn has_guarded_wildcard_without_unguarded_catchall(arms: &[MatchArm]) -> bool {
+        let has_unguarded_catchall = arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        });
+        if has_unguarded_catchall {
+            return false;
+        }
+
+        arms.iter().any(|arm| {
+            arm.guard.is_some()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        })
+    }
+
+    fn infer_general_match_domain(
+        &self,
+        scrutinee: &Expression,
+        arms: &[MatchArm],
+    ) -> GeneralCoverageDomain {
+        if let crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult::Known(ty) =
+            self.hm_expr_type_strict_path(scrutinee)
+            && let Some(domain) = Self::domain_from_infer_type(&ty)
+        {
+            return domain;
+        }
+        Self::domain_from_unguarded_patterns(arms)
+    }
+
+    fn domain_from_infer_type(ty: &InferType) -> Option<GeneralCoverageDomain> {
+        match ty {
+            InferType::Con(crate::types::type_constructor::TypeConstructor::Bool) => {
+                Some(GeneralCoverageDomain::Bool)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::Option, _) => {
+                Some(GeneralCoverageDomain::Option)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::Either, _) => {
+                Some(GeneralCoverageDomain::Either)
+            }
+            InferType::App(crate::types::type_constructor::TypeConstructor::List, _)
+            | InferType::App(crate::types::type_constructor::TypeConstructor::Array, _) => {
+                Some(GeneralCoverageDomain::ListLike)
+            }
+            InferType::Tuple(elements) => Some(GeneralCoverageDomain::Tuple(elements.len())),
+            _ => None,
+        }
+    }
+
+    fn domain_from_unguarded_patterns(arms: &[MatchArm]) -> GeneralCoverageDomain {
+        let patterns: Vec<&Pattern> = arms
+            .iter()
+            .filter(|arm| arm.guard.is_none())
+            .map(|arm| &arm.pattern)
+            .collect();
+        if patterns.is_empty() {
+            return GeneralCoverageDomain::Unknown;
+        }
+
+        if patterns.iter().all(|p| {
+            matches!(
+                p,
+                Pattern::Literal {
+                    expression: Expression::Boolean { .. },
+                    ..
+                }
+            )
+        }) {
+            return GeneralCoverageDomain::Bool;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::None { .. } | Pattern::Some { .. }))
+        {
+            return GeneralCoverageDomain::Option;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Left { .. } | Pattern::Right { .. }))
+        {
+            return GeneralCoverageDomain::Either;
+        }
+        if patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::EmptyList { .. } | Pattern::Cons { .. }))
+        {
+            return GeneralCoverageDomain::ListLike;
+        }
+        if let Some(tuple_arity) = patterns.iter().find_map(|p| match p {
+            Pattern::Tuple { elements, .. } => Some(elements.len()),
+            _ => None,
+        }) && patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_arity))
+        {
+            return GeneralCoverageDomain::Tuple(tuple_arity);
+        }
+
+        GeneralCoverageDomain::Unknown
+    }
+
+    fn check_adt_match_exhaustiveness(&self, arms: &[MatchArm], span: Span) -> CompileResult<()> {
+        // Collect constructor patterns:
+        // - `all_constructor_names`: any constructor arm (guarded or unguarded)
+        // - `constructor_names`: unguarded constructor arms only (these can prove coverage)
+        let all_constructor_names: Vec<Symbol> = arms
+            .iter()
+            .filter_map(|arm| {
+                if let Pattern::Constructor { name, .. } = &arm.pattern {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Guarded constructor arms do not prove exhaustiveness.
+        let constructor_names: Vec<Symbol> = arms
+            .iter()
+            .filter_map(|arm| {
+                if arm.guard.is_none()
+                    && let Pattern::Constructor { name, .. } = &arm.pattern
+                {
+                    Some(*name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // If no constructor patterns at all, nothing to check
+        if all_constructor_names.is_empty() {
+            return Ok(());
+        }
+
+        // Look up the ADT from the first constructor name.
+        let first_constructor = all_constructor_names[0];
+        let Some(constructor_info) = self.adt_registry.lookup_constructor(first_constructor) else {
+            return Ok(()); // Unknown constructor, already reported elsewhere
+        };
+        let adt_name = constructor_info.adt_name;
+        let Some(adt_def) = self.adt_registry.lookup_adt(adt_name) else {
+            return Ok(());
+        };
+
+        // Constructor arms for exhaustiveness must belong to the same ADT.
+        for constructor_name in &all_constructor_names {
+            let Some(info) = self.adt_registry.lookup_constructor(*constructor_name) else {
+                continue;
+            };
+            if info.adt_name != adt_name {
+                let first_adt = self.interner.resolve(adt_name).to_string();
+                let mixed_adt = self.interner.resolve(info.adt_name).to_string();
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match arms mix constructors from different ADTs: `{}` and `{}`.",
+                            first_adt, mixed_adt
+                        ))
+                        .with_hint_text(
+                            "Use constructors from a single ADT in a given match expression."
+                                .to_string(),
+                        ),
+                ));
+            }
+        }
+
+        // If any arm has a wildcard or identifier (catch-all), it's exhaustive
+        let has_catch_all = arms.iter().any(|arm| {
+            arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+                )
+        });
+        if has_catch_all {
+            return Ok(());
+        }
+
+        // If all constructor arms are guarded and there is no unguarded catch-all,
+        // the match is non-exhaustive because guards may fail.
+        if constructor_names.is_empty() {
+            let adt_name_str = self.interner.resolve(adt_name).to_string();
+            let missing_list = adt_def
+                .constructors
+                .iter()
+                .map(|(name, _)| self.interner.resolve(*name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match on `{}` is non-exhaustive because all constructor arms are guarded.",
+                        adt_name_str
+                    ))
+                    .with_hint_text(format!(
+                        "Add unguarded arms for {} or add a `_ -> ...` catch-all.",
+                        missing_list
+                    )),
+            ));
+        }
+
+        // Check if all constructors are covered
+        let covered: HashSet<Symbol> = constructor_names.into_iter().collect();
+        let missing: Vec<&str> = adt_def
+            .constructors
+            .iter()
+            .filter(|(name, _)| !covered.contains(name))
+            .map(|(name, _)| self.interner.resolve(*name))
+            .collect();
+
+        if !missing.is_empty() {
+            let adt_name_str = self.interner.resolve(adt_name).to_string();
+            let missing_list = missing.join(", ");
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match on `{}` is missing constructors: {}.",
+                        adt_name_str, missing_list
+                    ))
+                    .with_hint_text(format!(
+                        "Add arms for {} or add a `_ -> ...` catch-all.",
+                        missing_list
+                    )),
+            ));
+        }
+
+        // Stronger nested check (v0.0.4 scope):
+        // For unary constructors, verify nested constructor-space coverage when
+        // arms constrain the nested field with constructor patterns.
+        self.check_nested_constructor_exhaustiveness(arms, adt_name, adt_def, span)?;
+
+        Ok(())
+    }
+
+    fn check_nested_constructor_exhaustiveness(
+        &self,
+        arms: &[MatchArm],
+        _adt_name: Symbol,
+        adt_def: &crate::bytecode::compiler::adt_definition::AdtDefinition,
+        span: Span,
+    ) -> CompileResult<()> {
+        for (outer_ctor_name, outer_arity) in &adt_def.constructors {
+            let mut ctor_fields: Vec<&[Pattern]> = Vec::new();
+            for arm in arms {
+                if arm.guard.is_some() {
+                    continue;
+                }
+                let Pattern::Constructor { name, fields, .. } = &arm.pattern else {
+                    continue;
+                };
+                if name != outer_ctor_name {
+                    continue;
+                }
+                ctor_fields.push(fields.as_slice());
+            }
+
+            if ctor_fields.is_empty() || *outer_arity == 0 {
+                continue;
+            }
+
+            for field_idx in 0..*outer_arity {
+                let field_patterns: Vec<&Pattern> = ctor_fields
+                    .iter()
+                    .filter_map(|fields| fields.get(field_idx))
+                    .collect();
+                if field_patterns.is_empty() {
+                    continue;
+                }
+
+                self.check_nested_pattern_set(
+                    &field_patterns,
+                    &format!(
+                        "under constructor `{}` field #{}",
+                        self.interner.resolve(*outer_ctor_name),
+                        field_idx + 1
+                    ),
+                    span,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_nested_pattern_set(
+        &self,
+        patterns: &[&Pattern],
+        context: &str,
+        span: Span,
+    ) -> CompileResult<()> {
+        if patterns.is_empty() || patterns.iter().any(|p| self.is_irrefutable_pattern(p)) {
+            return Ok(());
+        }
+
+        let ctor_patterns: Vec<(Symbol, &[Pattern])> = patterns
+            .iter()
+            .filter_map(|p| {
+                if let Pattern::Constructor { name, fields, .. } = p {
+                    Some((*name, fields.as_slice()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // If we have constructor patterns and no irrefutable branch, attempt ADT coverage.
+        if !ctor_patterns.is_empty() {
+            if ctor_patterns.len() != patterns.len() {
+                return Ok(());
+            }
+
+            let Some(first_ctor_info) = self.adt_registry.lookup_constructor(ctor_patterns[0].0)
+            else {
+                return Ok(());
+            };
+            let nested_adt_name = first_ctor_info.adt_name;
+            let Some(nested_adt_def) = self.adt_registry.lookup_adt(nested_adt_name) else {
+                return Ok(());
+            };
+
+            for (ctor_name, _) in &ctor_patterns {
+                let Some(info) = self.adt_registry.lookup_constructor(*ctor_name) else {
+                    continue;
+                };
+                if info.adt_name != nested_adt_name {
+                    return Err(Self::boxed(
+                        diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                            .with_span(span)
+                            .with_message(format!(
+                                "Nested constructor patterns {} mix ADTs.",
+                                context
+                            ))
+                            .with_hint_text(
+                                "Use constructors from a single ADT in a nested pattern set."
+                                    .to_string(),
+                            ),
+                    ));
+                }
+            }
+
+            let covered: HashSet<Symbol> = ctor_patterns.iter().map(|(name, _)| *name).collect();
+            let missing: Vec<&str> = nested_adt_def
+                .constructors
+                .iter()
+                .filter(|(name, _)| !covered.contains(name))
+                .map(|(name, _)| self.interner.resolve(*name))
+                .collect();
+
+            if !missing.is_empty() {
+                let nested_adt = self.interner.resolve(nested_adt_name);
+                let missing_list = missing.join(", ");
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested `{}` patterns {} miss constructors: {}.",
+                            nested_adt, context, missing_list
+                        ))
+                        .with_hint_text(format!(
+                            "Add nested arms for {} or use a nested catch-all (`_`).",
+                            missing_list
+                        )),
+                ));
+            }
+
+            // Recurse into constructor fields.
+            for (ctor_name, arity) in &nested_adt_def.constructors {
+                let ctor_rows: Vec<&[Pattern]> = ctor_patterns
+                    .iter()
+                    .filter_map(|(name, fields)| {
+                        if name == ctor_name {
+                            Some(*fields)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if ctor_rows.is_empty() || *arity == 0 {
+                    continue;
+                }
+                for field_idx in 0..*arity {
+                    let next: Vec<&Pattern> = ctor_rows
+                        .iter()
+                        .filter_map(|fields| fields.get(field_idx))
+                        .collect();
+                    if next.is_empty() {
+                        continue;
+                    }
+                    self.check_nested_pattern_set(
+                        &next,
+                        &format!(
+                            "{} -> `{}` field #{}",
+                            context,
+                            self.interner.resolve(*ctor_name),
+                            field_idx + 1
+                        ),
+                        span,
+                    )?;
+                }
+            }
+
+            return Ok(());
+        }
+
+        // Tuple nested coverage: recurse per position when all nested patterns are tuples
+        // with the same arity.
+        if let Some(tuple_len) = patterns.iter().find_map(|p| {
+            if let Pattern::Tuple { elements, .. } = p {
+                Some(elements.len())
+            } else {
+                None
+            }
+        }) && patterns
+            .iter()
+            .all(|p| matches!(p, Pattern::Tuple { elements, .. } if elements.len() == tuple_len))
+        {
+            for idx in 0..tuple_len {
+                let next: Vec<&Pattern> = patterns
+                    .iter()
+                    .filter_map(|p| match p {
+                        Pattern::Tuple { elements, .. } => elements.get(idx),
+                        _ => None,
+                    })
+                    .collect();
+                if next.is_empty() {
+                    continue;
+                }
+                self.check_nested_pattern_set(
+                    &next,
+                    &format!("{} -> tuple position #{}", context, idx + 1),
+                    span,
+                )?;
+            }
+        } else if patterns.iter().any(|p| matches!(p, Pattern::Tuple { .. })) {
+            return Err(Self::boxed(
+                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    .with_span(span)
+                    .with_message(format!(
+                        "Match is non-exhaustive: nested tuple patterns {} are mixed-shape and cannot be proven exhaustive conservatively.",
+                        context
+                    ))
+                    .with_hint_text(
+                        "Use consistent tuple shapes in nested patterns or add a nested catch-all (`_`)."
+                            .to_string(),
+                    ),
+            ));
+        }
+
+        // List nested coverage: enforce empty/non-empty partition when list patterns are used.
+        let mut has_empty = false;
+        let mut has_cons = false;
+        for p in patterns {
+            match p {
+                Pattern::EmptyList { .. } => has_empty = true,
+                Pattern::Cons { .. } => has_cons = true,
+                _ => {}
+            }
+        }
+        if has_empty || has_cons {
+            if !has_empty {
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested list patterns {} miss the empty list case.",
+                            context
+                        ))
+                        .with_hint_text(
+                            "Add a `[]` nested pattern or a nested catch-all (`_`).".to_string(),
+                        ),
+                ));
+            }
+            if !has_cons {
+                return Err(Self::boxed(
+                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        .with_span(span)
+                        .with_message(format!(
+                            "Match is non-exhaustive: nested list patterns {} miss non-empty list cases.",
+                            context
+                        ))
+                        .with_hint_text(
+                            "Add a `[h | t]` nested pattern or a nested catch-all (`_`)."
+                                .to_string(),
+                        ),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_irrefutable_pattern(&self, pattern: &Pattern) -> bool {
+        matches!(
+            pattern,
+            Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+        )
     }
 }

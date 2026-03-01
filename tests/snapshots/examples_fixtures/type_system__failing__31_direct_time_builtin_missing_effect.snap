@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/31_direct_time_builtin_missing_effect.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `now_ms` requires effect `Time` in this function signature.
+
+  --> examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:4:5
+  |
+4 |     now_ms()
+  |     ^^^^^^
+  |     ------ effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+== stdout ==
+<not executed>

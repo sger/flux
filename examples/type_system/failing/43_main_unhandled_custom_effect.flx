@@ -1,0 +1,13 @@
+// E406: custom effects must be discharged before returning from main.
+
+effect Console {
+    print: String -> ()
+}
+
+fn log(msg: String) -> Unit with Console {
+    perform Console.print(msg)
+}
+
+fn main() -> Unit with Console {
+    log("x");
+}

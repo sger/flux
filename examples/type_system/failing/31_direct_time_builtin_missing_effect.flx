@@ -1,0 +1,9 @@
+// E400: direct Time builtin call inside function with incompatible ambient effects.
+
+fn bad_clock() -> Int with IO {
+    now_ms()
+}
+
+fn main() -> Unit with IO {
+    bad_clock();
+}

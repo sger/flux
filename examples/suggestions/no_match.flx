@@ -1,8 +1,11 @@
 // Test Case 4: No close matches
 
-let apple = 1;
-let banana = 2;
-let cherry = 3;
+let apple = 1
+let banana = 2
+let cherry = 3
 
-// Completely different name - no suggestions expected
-print(zebra);
+fn main() with IO {
+    print(apple)
+    print(banana)
+    print(cherry)
+}

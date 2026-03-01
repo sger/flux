@@ -1,0 +1,15 @@
+// E404: perform uses an operation that is not declared by the effect.
+
+effect Console {
+    print: String -> ()
+}
+
+fn bad() -> Unit with Console {
+    perform Console.read("x")
+}
+
+fn main() -> Unit with IO {
+    bad() handle Console {
+        print(resume, _msg) -> resume(())
+    };
+}

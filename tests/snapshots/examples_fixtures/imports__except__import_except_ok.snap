@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/except/import_except_ok.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `keep`.
+
+  --> examples/imports/except/import_except_ok.flx:7:11
+  |
+7 |     print(Lib.keep());
+  |           ^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 == stdout ==
 <not executed>

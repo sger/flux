@@ -12,14 +12,15 @@ use cranelift_codegen::ir::{
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_jit::JITModule;
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
+use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
-    program::Program, statement::Statement,
+    program::Program, statement::Statement, type_expr::TypeExpr,
 };
 
 use super::context::JitFunctionEntry;
@@ -101,6 +102,8 @@ impl LiteralKey {
 struct LiteralFunctionSpec {
     key: LiteralKey,
     parameters: Vec<Identifier>,
+    parameter_types: Vec<Option<TypeExpr>>,
+    return_type: Option<TypeExpr>,
     body: Block,
     captures: Vec<Identifier>,
     self_name: Option<Identifier>,
@@ -129,6 +132,12 @@ struct Scope {
     literal_functions: HashMap<LiteralKey, JitFunctionMeta>,
     /// Statically resolved capture order per literal.
     literal_captures: HashMap<LiteralKey, Vec<Identifier>>,
+    /// Maps ADT constructor name (interned) → arity. Used to route constructor calls.
+    adt_constructors: HashMap<Identifier, usize>,
+    /// Maps ADT constructor name (interned) → owning ADT name.
+    adt_constructor_owner: HashMap<Identifier, Identifier>,
+    /// Maps ADT name → constructor names.
+    adt_variants: HashMap<Identifier, Vec<Identifier>>,
 }
 
 impl Scope {
@@ -144,6 +153,9 @@ impl Scope {
             import_aliases: HashMap::new(),
             literal_functions: HashMap::new(),
             literal_captures: HashMap::new(),
+            adt_constructors: HashMap::new(),
+            adt_constructor_owner: HashMap::new(),
+            adt_variants: HashMap::new(),
         }
     }
 }
@@ -152,8 +164,17 @@ pub struct JitCompiler {
     pub module: JITModule,
     builder_ctx: FunctionBuilderContext,
     helpers: HelperFuncs,
-    jit_functions: Vec<(FuncId, usize)>,
+    jit_functions: Vec<JitFunctionCompileEntry>,
     named_functions: HashMap<String, usize>,
+    /// Index in `jit_functions` of the compiled identity function used as
+    /// the `resume` value for shallow JIT handlers.
+    pub identity_fn_index: usize,
+}
+
+struct JitFunctionCompileEntry {
+    id: FuncId,
+    num_params: usize,
+    contract: Option<FunctionContract>,
 }
 
 impl JitCompiler {
@@ -190,6 +211,7 @@ impl JitCompiler {
             },
             jit_functions: Vec::new(),
             named_functions: HashMap::new(),
+            identity_fn_index: usize::MAX,
         };
 
         compiler.declare_helpers()?;
@@ -244,10 +266,11 @@ impl JitCompiler {
         apply_base_directives(program, &mut scope, interner)?;
         self.predeclare_imports(program, &mut scope, interner);
         self.predeclare_globals(program, &mut scope);
+        collect_adt_definitions(program, &mut scope, interner);
         let literal_specs = collect_literal_function_specs(program);
         // Predeclare/compile user functions first so calls (and recursion) resolve.
         self.predeclare_functions(program, &mut scope, interner)?;
-        self.predeclare_literal_functions(&literal_specs, &mut scope)?;
+        self.predeclare_literal_functions(&literal_specs, &mut scope, interner)?;
         self.compile_functions(program, &scope, interner)?;
         self.compile_literal_functions(&literal_specs, &scope, interner)?;
         self.record_named_functions(&scope, interner);
@@ -270,7 +293,7 @@ impl JitCompiler {
             // Compile each statement
             let mut last_val = None;
             for stmt in &program.statements {
-                if matches!(stmt, Statement::Function { .. }) {
+                if matches!(stmt, Statement::Function { .. } | Statement::Data { .. }) {
                     continue;
                 }
                 let outcome = compile_statement(
@@ -290,6 +313,41 @@ impl JitCompiler {
                     StmtOutcome::Returned => break,
                     StmtOutcome::None => {}
                 }
+            }
+
+            // Entry-point convention: if `fn main()` exists and there is no explicit
+            // top-level `main()` call, invoke it once after top-level initialization.
+            let main_meta = scope
+                .functions
+                .iter()
+                .find_map(|(name, meta)| (interner.resolve(*name) == "main").then_some(*meta));
+            let has_explicit_top_level_main_call = program.statements.iter().any(|stmt| {
+                matches!(
+                    stmt,
+                    Statement::Expression {
+                        expression: Expression::Call { function, arguments, .. },
+                        ..
+                    } if matches!(function.as_ref(), Expression::Identifier { name, .. } if interner.resolve(*name) == "main")
+                        && arguments.is_empty()
+                )
+            });
+            if let Some(meta) = main_meta
+                && !has_explicit_top_level_main_call
+            {
+                let main_result = compile_user_function_call(
+                    module,
+                    helpers,
+                    &mut builder,
+                    &mut scope,
+                    ctx_val,
+                    None,
+                    None,
+                    meta,
+                    crate::diagnostics::position::Span::default(),
+                    &[],
+                    interner,
+                )?;
+                last_val = Some(main_result);
             }
 
             // Return the last expression value, or None
@@ -313,7 +371,52 @@ impl JitCompiler {
             .define_function(main_id, &mut ctx)
             .map_err(|e| format!("define flux_main: {}", e))?;
 
+        // Compile the identity function used as the `resume` value in JIT shallow handlers.
+        self.identity_fn_index = self.compile_identity_function()?;
+
         Ok(main_id)
+    }
+
+    /// Compile a trivial `identity(ctx, args_ptr, nargs, captures_ptr, ncaptures) -> args_ptr[0]`
+    /// JIT function. Its function_index is stored in `self.identity_fn_index` and exposed
+    /// to the JIT context so `rt_perform` can build a callable `resume` closure.
+    fn compile_identity_function(&mut self) -> Result<usize, String> {
+        let sig = self.user_function_signature();
+        let func_id = self
+            .module
+            .declare_function("__flux_identity", cranelift_module::Linkage::Local, &sig)
+            .map_err(|e| format!("declare __flux_identity: {}", e))?;
+
+        let mut func = Function::with_name_signature(UserFuncName::default(), sig);
+        {
+            let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            // args_ptr is the second parameter (index 1). Load args_ptr[0].
+            let args_ptr = builder.block_params(entry)[1];
+            let first_arg = builder
+                .ins()
+                .load(PTR_TYPE, MemFlags::trusted(), args_ptr, 0);
+            builder.ins().return_(&[first_arg]);
+            builder.finalize();
+        }
+
+        let mut ctx = cranelift_codegen::Context::new();
+        ctx.func = func;
+        self.module
+            .define_function(func_id, &mut ctx)
+            .map_err(|e| format!("define __flux_identity: {}", e))?;
+
+        let function_index = self.jit_functions.len();
+        self.jit_functions.push(JitFunctionCompileEntry {
+            id: func_id,
+            num_params: 1,
+            contract: None,
+        });
+        Ok(function_index)
     }
 
     pub fn named_functions(&self) -> HashMap<String, usize> {
@@ -356,7 +459,12 @@ impl JitCompiler {
         for stmt in &program.statements {
             match stmt {
                 Statement::Function {
-                    name, parameters, ..
+                    name,
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    ..
                 } => {
                     if scope.functions.contains_key(name) {
                         continue;
@@ -369,7 +477,17 @@ impl JitCompiler {
                         .declare_function(&fn_name, Linkage::Local, &sig)
                         .map_err(|e| format!("declare {}: {}", fn_name, e))?;
                     let function_index = self.jit_functions.len();
-                    self.jit_functions.push((id, parameters.len()));
+                    let contract = runtime_contract_from_annotations(
+                        parameter_types,
+                        return_type,
+                        effects,
+                        interner,
+                    );
+                    self.jit_functions.push(JitFunctionCompileEntry {
+                        id,
+                        num_params: parameters.len(),
+                        contract,
+                    });
                     scope.functions.insert(
                         *name,
                         JitFunctionMeta {
@@ -389,6 +507,9 @@ impl JitCompiler {
                         let Statement::Function {
                             name: fn_name,
                             parameters,
+                            parameter_types,
+                            return_type,
+                            effects,
                             ..
                         } = inner
                         else {
@@ -411,7 +532,17 @@ impl JitCompiler {
                             .declare_function(&label, Linkage::Local, &sig)
                             .map_err(|e| format!("declare {}: {}", label, e))?;
                         let function_index = self.jit_functions.len();
-                        self.jit_functions.push((id, parameters.len()));
+                        let contract = runtime_contract_from_annotations(
+                            parameter_types,
+                            return_type,
+                            effects,
+                            interner,
+                        );
+                        self.jit_functions.push(JitFunctionCompileEntry {
+                            id,
+                            num_params: parameters.len(),
+                            contract,
+                        });
                         scope.module_functions.insert(
                             key,
                             JitFunctionMeta {
@@ -462,6 +593,11 @@ impl JitCompiler {
                 Pattern::Tuple { elements, .. } => {
                     for element in elements {
                         collect_pattern_names(element, out);
+                    }
+                }
+                Pattern::Constructor { fields, .. } => {
+                    for field in fields {
+                        collect_pattern_names(field, out);
                     }
                 }
                 Pattern::Wildcard { .. }
@@ -860,6 +996,7 @@ impl JitCompiler {
         &mut self,
         specs: &[LiteralFunctionSpec],
         scope: &mut Scope,
+        interner: &Interner,
     ) -> Result<(), String> {
         for spec in specs {
             if scope.literal_functions.contains_key(&spec.key) {
@@ -884,7 +1021,17 @@ impl JitCompiler {
                 .declare_function(&fn_name, Linkage::Local, &sig)
                 .map_err(|e| format!("declare {}: {}", fn_name, e))?;
             let function_index = self.jit_functions.len();
-            self.jit_functions.push((id, spec.parameters.len()));
+            let contract = runtime_contract_from_annotations(
+                &spec.parameter_types,
+                &spec.return_type,
+                &[],
+                interner,
+            );
+            self.jit_functions.push(JitFunctionCompileEntry {
+                id,
+                num_params: spec.parameters.len(),
+                contract,
+            });
             scope.literal_functions.insert(
                 spec.key,
                 JitFunctionMeta {
@@ -1096,9 +1243,10 @@ impl JitCompiler {
     pub fn jit_function_entries(&self) -> Vec<JitFunctionEntry> {
         self.jit_functions
             .iter()
-            .map(|(id, num_params)| JitFunctionEntry {
-                ptr: self.module.get_finalized_function(*id),
-                num_params: *num_params,
+            .map(|entry| JitFunctionEntry {
+                ptr: self.module.get_finalized_function(entry.id),
+                num_params: entry.num_params,
+                contract: entry.contract.clone(),
             })
             .collect()
     }
@@ -1178,6 +1326,39 @@ fn compile_statement(
             has_semicolon,
             ..
         } => {
+            if !*has_semicolon
+                && let Some(tc) = tail_call
+                && let Some(fn_name) = tc.function_name
+                && let Expression::Call {
+                    function,
+                    arguments,
+                    ..
+                } = expression
+                && let Expression::Identifier { name, .. } = function.as_ref()
+                && *name == fn_name
+                && arguments.len() == tc.params.len()
+            {
+                let mut arg_vals = Vec::with_capacity(arguments.len());
+                for arg in arguments {
+                    arg_vals.push(compile_expression(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        arg,
+                        interner,
+                    )?);
+                }
+                for (idx, (_, var)) in tc.params.iter().enumerate() {
+                    builder.def_var(*var, arg_vals[idx]);
+                }
+                builder.ins().jump(tc.loop_block, &[]);
+                return Ok(StmtOutcome::Returned);
+            }
+
             let val = compile_expression(
                 module,
                 helpers,
@@ -1280,6 +1461,9 @@ fn compile_statement(
         Statement::Function { name, .. } => {
             let Statement::Function {
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 span,
                 ..
@@ -1289,6 +1473,9 @@ fn compile_statement(
             };
             let expr = Expression::Function {
                 parameters: parameters.clone(),
+                parameter_types: parameter_types.clone(),
+                return_type: return_type.clone(),
+                effects: effects.clone(),
                 body: body.clone(),
                 span: *span,
             };
@@ -1316,6 +1503,14 @@ fn compile_statement(
         }
         Statement::Module { name, .. } => {
             scope.imported_modules.insert(*name);
+            Ok(StmtOutcome::None)
+        }
+        Statement::Data { .. } => {
+            // ADT declarations are no-ops at runtime; constructors are called directly.
+            Ok(StmtOutcome::None)
+        }
+        Statement::EffectDecl { .. } => {
+            // Effect declarations are syntax-only; no JIT code emitted.
             Ok(StmtOutcome::None)
         }
     }
@@ -1525,6 +1720,37 @@ fn compile_expression(
                 let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
                 let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
                 Ok(builder.inst_results(call)[0])
+            } else if scope.adt_constructors.get(name).copied() == Some(0) {
+                // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
+
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())?;
+
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).map_err(|e| e.to_string())?;
+
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                let empty_slot = builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    8,
+                    3,
+                ));
+
+                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, empty_slot, 0);
+                let zero = builder.ins().iconst(PTR_TYPE, 0);
+                let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+                let call = builder
+                    .ins()
+                    .call(make_adt, &[ctx_val, name_ptr, name_len, fields_ptr, zero]);
+
+                Ok(builder.inst_results(call)[0])
             } else {
                 Err(format!("undefined identifier: {}", interner.resolve(*name)))
             }
@@ -1708,8 +1934,14 @@ fn compile_expression(
                 interner,
             )? {
                 BlockEval::Returned => {
+                    // The do-block already terminated control-flow (e.g. tail-call jump).
+                    // Continue emission in a fresh block to avoid appending instructions
+                    // after a terminator in the previous block.
+                    let continue_block = builder.create_block();
+                    builder.switch_to_block(continue_block);
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
+                    builder.seal_block(continue_block);
                     Ok(builder.inst_results(call)[0])
                 }
                 BlockEval::Value(v) => Ok(v),
@@ -1720,7 +1952,7 @@ fn compile_expression(
         Expression::Call {
             function,
             arguments,
-            ..
+            span,
         } => {
             if let Some(primop) = resolve_call_primop(scope, function, arguments, interner) {
                 return compile_primop_call(
@@ -1736,6 +1968,63 @@ fn compile_expression(
                     interner,
                 );
             }
+            // Check if calling a registered ADT constructor
+            if let Expression::Identifier { name, .. } = function.as_ref()
+                && let Some(&arity) = scope.adt_constructors.get(name)
+            {
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
+
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())?;
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).map_err(|e| e.to_string())?;
+
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                let mut arg_vals = Vec::with_capacity(arguments.len());
+
+                for arg in arguments {
+                    let value = compile_expression(
+                        module,
+                        helpers,
+                        builder,
+                        scope,
+                        ctx_val,
+                        return_block,
+                        tail_call,
+                        arg,
+                        interner,
+                    )?;
+                    arg_vals.push(value);
+                }
+
+                let n = arg_vals.len();
+                let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    (n as u32).max(1) * 8,
+                    3,
+                ));
+
+                for (i, value) in arg_vals.iter().enumerate() {
+                    builder.ins().stack_store(*value, slot, (i * 8) as i32);
+                }
+
+                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
+                let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+
+                let call = builder.ins().call(
+                    make_adt,
+                    &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
+                );
+
+                return Ok(builder.inst_results(call)[0]);
+            }
             // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
                 if let Some(meta) = scope.functions.get(name).copied() {
@@ -1748,6 +2037,7 @@ fn compile_expression(
                         return_block,
                         tail_call,
                         meta,
+                        *span,
                         arguments,
                         interner,
                     );
@@ -2069,6 +2359,260 @@ fn compile_expression(
                 }
             }
         }
+        Expression::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => compile_jit_perform(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            *effect,
+            *operation,
+            args,
+            interner,
+            *span,
+        ),
+        Expression::Handle {
+            expr, effect, arms, ..
+        } => compile_jit_handle(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            expr,
+            *effect,
+            arms,
+            interner,
+        ),
+    }
+}
+
+/// Compile `perform Effect.op(args)` in JIT mode.
+#[allow(clippy::too_many_arguments)]
+fn compile_jit_perform(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    effect: crate::syntax::symbol::Symbol,
+    op: crate::syntax::symbol::Symbol,
+    args: &[Expression],
+    interner: &Interner,
+    span: crate::diagnostics::position::Span,
+) -> Result<CraneliftValue, String> {
+    let mut arg_vals: Vec<CraneliftValue> = Vec::new();
+    for arg in args {
+        let val = compile_expression(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            return_block,
+            tail_call,
+            arg,
+            interner,
+        )?;
+        arg_vals.push(val);
+    }
+
+    let nargs = arg_vals.len();
+    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (nargs.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, val) in arg_vals.iter().enumerate() {
+        builder.ins().stack_store(*val, slot, (i * 8) as i32);
+    }
+    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+    let op_val = builder.ins().iconst(PTR_TYPE, op.as_u32() as i64);
+
+    // Leak the name strings as stable pointers for the JIT runtime error messages.
+    let effect_str: &'static str = Box::leak(interner.resolve(effect).to_owned().into_boxed_str());
+    let op_str: &'static str = Box::leak(interner.resolve(op).to_owned().into_boxed_str());
+    let effect_name_ptr = builder.ins().iconst(PTR_TYPE, effect_str.as_ptr() as i64);
+    let effect_name_len = builder.ins().iconst(PTR_TYPE, effect_str.len() as i64);
+    let op_name_ptr = builder.ins().iconst(PTR_TYPE, op_str.as_ptr() as i64);
+    let op_name_len = builder.ins().iconst(PTR_TYPE, op_str.len() as i64);
+    let line_val = builder.ins().iconst(PTR_TYPE, span.start.line as i64);
+    let col_val = builder.ins().iconst(PTR_TYPE, span.start.column as i64);
+
+    let rt_perform = get_helper_func_ref(module, helpers, builder, "rt_perform");
+    let call = builder.ins().call(
+        rt_perform,
+        &[
+            ctx_val,
+            effect_val,
+            op_val,
+            args_ptr,
+            nargs_val,
+            effect_name_ptr,
+            effect_name_len,
+            op_name_ptr,
+            op_name_len,
+            line_val,
+            col_val,
+        ],
+    );
+    let result = builder.inst_results(call)[0];
+
+    // Null result means rt_perform set an error in the context; propagate upward.
+    emit_return_on_null_value(builder, result);
+    Ok(result)
+}
+
+/// Compile `expr handle Effect { arms... }` in JIT mode.
+#[allow(clippy::too_many_arguments)]
+fn compile_jit_handle(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    ctx_val: CraneliftValue,
+    return_block: Option<cranelift_codegen::ir::Block>,
+    tail_call: Option<&TailCallContext>,
+    expr: &Expression,
+    effect: crate::syntax::symbol::Symbol,
+    arms: &[crate::syntax::expression::HandleArm],
+    interner: &Interner,
+) -> Result<CraneliftValue, String> {
+    let num_arms = arms.len();
+    let mut op_sym_vals: Vec<CraneliftValue> = Vec::new();
+    let mut closure_vals: Vec<CraneliftValue> = Vec::new();
+
+    for arm in arms {
+        op_sym_vals.push(
+            builder
+                .ins()
+                .iconst(PTR_TYPE, arm.operation_name.as_u32() as i64),
+        );
+
+        // Build a synthetic Function expression for the arm body
+        let mut params = vec![arm.resume_param];
+        params.extend_from_slice(&arm.params);
+        let arm_span = arm.body.span();
+        let arm_fn_expr = Expression::Function {
+            parameters: params,
+            parameter_types: vec![None; 1 + arm.params.len()],
+            return_type: None,
+            effects: vec![],
+            body: crate::syntax::block::Block {
+                statements: vec![crate::syntax::statement::Statement::Expression {
+                    expression: arm.body.clone(),
+                    has_semicolon: false,
+                    span: arm_span,
+                }],
+                span: arm_span,
+            },
+            span: arm.span,
+        };
+        let cv = compile_function_literal(
+            module,
+            helpers,
+            builder,
+            scope,
+            ctx_val,
+            &arm_fn_expr,
+            interner,
+        )?;
+        closure_vals.push(cv);
+    }
+
+    // Store op symbols in a stack slot
+    let ops_slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (num_arms.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, ov) in op_sym_vals.iter().enumerate() {
+        builder.ins().stack_store(*ov, ops_slot, (i * 8) as i32);
+    }
+    let ops_ptr = builder.ins().stack_addr(PTR_TYPE, ops_slot, 0);
+
+    // Store closures in a stack slot
+    let cls_slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (num_arms.max(1) as u32) * 8,
+        3,
+    ));
+    for (i, cv) in closure_vals.iter().enumerate() {
+        builder.ins().stack_store(*cv, cls_slot, (i * 8) as i32);
+    }
+    let closures_ptr = builder.ins().stack_addr(PTR_TYPE, cls_slot, 0);
+
+    let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
+    let narms_val = builder.ins().iconst(PTR_TYPE, num_arms as i64);
+
+    let rt_push_handler = get_helper_func_ref(module, helpers, builder, "rt_push_handler");
+    builder.ins().call(
+        rt_push_handler,
+        &[ctx_val, effect_val, ops_ptr, closures_ptr, narms_val],
+    );
+
+    let result = compile_expression(
+        module,
+        helpers,
+        builder,
+        scope,
+        ctx_val,
+        return_block,
+        tail_call,
+        expr,
+        interner,
+    )?;
+
+    let rt_pop_handler = get_helper_func_ref(module, helpers, builder, "rt_pop_handler");
+    builder.ins().call(rt_pop_handler, &[ctx_val]);
+
+    Ok(result)
+}
+
+fn collect_adt_definitions(program: &Program, scope: &mut Scope, interner: &Interner) {
+    for statement in &program.statements {
+        collect_adt_definitions_from_stmt(statement, scope, interner);
+    }
+}
+
+fn collect_adt_definitions_from_stmt(
+    statement: &Statement,
+    scope: &mut Scope,
+    interner: &Interner,
+) {
+    let _ = interner;
+    match statement {
+        Statement::Data { name, variants, .. } => {
+            let mut constructor_names = Vec::with_capacity(variants.len());
+            for variant in variants {
+                let name_sym = variant.name;
+                scope
+                    .adt_constructors
+                    .insert(name_sym, variant.fields.len());
+                scope.adt_constructor_owner.insert(name_sym, *name);
+                constructor_names.push(name_sym);
+            }
+            scope.adt_variants.insert(*name, constructor_names);
+        }
+        Statement::Module { body, .. } => {
+            for statement in &body.statements {
+                collect_adt_definitions_from_stmt(statement, scope, interner);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -2089,6 +2633,8 @@ fn compile_match_expression(
         let call = builder.ins().call(make_none, &[ctx_val]);
         return Ok(builder.inst_results(call)[0]);
     }
+
+    validate_jit_match_arms(scope, arms, interner)?;
 
     let scrutinee_val = compile_expression(
         module,
@@ -2113,6 +2659,8 @@ fn compile_match_expression(
             break;
         };
         builder.switch_to_block(test_block);
+
+        validate_pattern_constructors_for_jit(&arm.pattern, scope, interner)?;
 
         let arm_block = builder.create_block();
         let mut next_test: Option<cranelift_codegen::ir::Block> = None;
@@ -2217,9 +2765,50 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            Pattern::Tuple { .. } => {
-                let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
-                let call = builder.ins().call(is_tuple, &[ctx_val, scrutinee_val]);
+            Pattern::Tuple { elements, .. } => {
+                let next = builder.create_block();
+                // Use emit_pattern_check to recursively validate the tuple
+                // and each of its elements against their sub-patterns.
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
+                // Seal intermediate element-check blocks created inside
+                // emit_pattern_check (they were created and immediately switched to).
+                // We only need to track elements as a reference to satisfy the compiler.
+                let _ = elements;
+                next_test = Some(next);
+                pending_test = Some(next);
+            }
+            Pattern::Constructor { name, .. } => {
+                // Embed the constructor name as a data constant
+                let name_str = interner.resolve(*name);
+                let bytes = name_str.as_bytes().to_vec();
+
+                let data = module
+                    .declare_anonymous_data(false, false)
+                    .map_err(|e| e.to_string())
+                    .expect("declare unknown data");
+
+                let mut desc = DataDescription::new();
+                desc.define(bytes.into_boxed_slice());
+                module.define_data(data, &desc).expect("define data");
+
+                let global_value = module.declare_data_in_func(data, builder.func);
+                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+
+                let is_adt = get_helper_func_ref(module, helpers, builder, "rt_is_adt_constructor");
+                let call = builder
+                    .ins()
+                    .call(is_adt, &[ctx_val, scrutinee_val, name_ptr, name_len]);
                 let result = builder.inst_results(call)[0];
                 let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
                 let next = builder.create_block();
@@ -2306,6 +2895,151 @@ fn compile_match_expression(
     Ok(builder.block_params(merge_block)[0])
 }
 
+fn validate_jit_match_arms(
+    scope: &Scope,
+    arms: &[crate::syntax::expression::MatchArm],
+    interner: &Interner,
+) -> Result<(), String> {
+    let all_constructor_names: Vec<Identifier> = arms
+        .iter()
+        .filter_map(|arm| match &arm.pattern {
+            Pattern::Constructor { name, .. } => Some(*name),
+            _ => None,
+        })
+        .collect();
+    if all_constructor_names.is_empty() {
+        return Ok(());
+    }
+
+    let constructor_names: Vec<Identifier> = arms
+        .iter()
+        .filter_map(|arm| {
+            if arm.guard.is_none()
+                && let Pattern::Constructor { name, .. } = &arm.pattern
+            {
+                return Some(*name);
+            }
+            None
+        })
+        .collect();
+
+    let first = all_constructor_names[0];
+    let Some(first_adt) = scope.adt_constructor_owner.get(&first).copied() else {
+        return Err(format!(
+            "Unknown constructor `{}`.",
+            interner.resolve(first)
+        ));
+    };
+    for constructor in &all_constructor_names {
+        let Some(owner) = scope.adt_constructor_owner.get(constructor).copied() else {
+            return Err(format!(
+                "Unknown constructor `{}`.",
+                interner.resolve(*constructor)
+            ));
+        };
+        if owner != first_adt {
+            return Err(format!(
+                "Match arms mix constructors from different ADTs: `{}` and `{}`.",
+                interner.resolve(first_adt),
+                interner.resolve(owner)
+            ));
+        }
+    }
+
+    let has_catch_all = arms.iter().any(|arm| {
+        arm.guard.is_none()
+            && matches!(
+                arm.pattern,
+                Pattern::Wildcard { .. } | Pattern::Identifier { .. }
+            )
+    });
+    if has_catch_all {
+        return Ok(());
+    }
+
+    let Some(variants) = scope.adt_variants.get(&first_adt) else {
+        return Ok(());
+    };
+
+    if constructor_names.is_empty() {
+        let all = variants
+            .iter()
+            .map(|name| interner.resolve(*name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "Match on `{}` is non-exhaustive because all constructor arms are guarded. Missing: {}.",
+            interner.resolve(first_adt),
+            all
+        ));
+    }
+
+    let covered: HashSet<Identifier> = constructor_names.into_iter().collect();
+    let missing = variants
+        .iter()
+        .filter(|name| !covered.contains(name))
+        .map(|name| interner.resolve(*name))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "Match on `{}` is missing constructors: {}.",
+            interner.resolve(first_adt),
+            missing.join(", ")
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_pattern_constructors_for_jit(
+    pattern: &Pattern,
+    scope: &Scope,
+    interner: &Interner,
+) -> Result<(), String> {
+    match pattern {
+        Pattern::Constructor { name, fields, .. } => {
+            let Some(expected_arity) = scope.adt_constructors.get(name).copied() else {
+                return Err(format!(
+                    "Unknown constructor `{}`.",
+                    interner.resolve(*name)
+                ));
+            };
+            if fields.len() != expected_arity {
+                return Err(format!(
+                    "Constructor `{}` expects {} argument(s) but got {}.",
+                    interner.resolve(*name),
+                    expected_arity,
+                    fields.len()
+                ));
+            }
+            for field in fields {
+                validate_pattern_constructors_for_jit(field, scope, interner)?;
+            }
+            Ok(())
+        }
+        Pattern::Some { pattern, .. }
+        | Pattern::Left { pattern, .. }
+        | Pattern::Right { pattern, .. } => {
+            validate_pattern_constructors_for_jit(pattern, scope, interner)
+        }
+        Pattern::Cons { head, tail, .. } => {
+            validate_pattern_constructors_for_jit(head, scope, interner)?;
+            validate_pattern_constructors_for_jit(tail, scope, interner)
+        }
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                validate_pattern_constructors_for_jit(element, scope, interner)?;
+            }
+            Ok(())
+        }
+        Pattern::Wildcard { .. }
+        | Pattern::Identifier { .. }
+        | Pattern::Literal { .. }
+        | Pattern::None { .. }
+        | Pattern::EmptyList { .. } => Ok(()),
+    }
+}
+
 fn bind_pattern_value(
     module: &mut JITModule,
     helpers: &HelperFuncs,
@@ -2366,7 +3100,152 @@ fn bind_pattern_value(
             }
             Ok(())
         }
+        Pattern::Constructor { fields, .. } => {
+            let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
+            for (index, field_pattern) in fields.iter().enumerate() {
+                let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
+                let item = builder.inst_results(call)[0];
+                bind_pattern_value(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    field_pattern,
+                    item,
+                )?;
+            }
+            Ok(())
+        }
     }
+}
+
+/// Emits a chain of feasibility checks for `pattern` applied to `value`.
+///
+/// If `value` satisfies the pattern, control falls to `pass_block`.
+/// If it does not, control jumps to `fail_block`.
+/// The caller must switch to `pass_block` afterwards to continue.
+///
+/// Only the _outer_ shape of the value is checked here — identifier/wildcard
+/// sub-patterns always pass since they bind unconditionally.
+fn emit_pattern_check(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    pattern: &Pattern,
+    value: CraneliftValue,
+    pass_block: cranelift_codegen::ir::Block,
+    fail_block: cranelift_codegen::ir::Block,
+    interner: &Interner,
+) -> Result<(), String> {
+    match pattern {
+        Pattern::Wildcard { .. } | Pattern::Identifier { .. } => {
+            builder.ins().jump(pass_block, &[]);
+        }
+        Pattern::Cons { .. } => {
+            let is_cons = get_helper_func_ref(module, helpers, builder, "rt_is_cons");
+            let call = builder.ins().call(is_cons, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::EmptyList { .. } => {
+            let is_el = get_helper_func_ref(module, helpers, builder, "rt_is_empty_list");
+            let call = builder.ins().call(is_el, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::None { .. } => {
+            let is_none = get_helper_func_ref(module, helpers, builder, "rt_is_none");
+            let call = builder.ins().call(is_none, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Some { .. } => {
+            let is_some = get_helper_func_ref(module, helpers, builder, "rt_is_some");
+            let call = builder.ins().call(is_some, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Left { .. } => {
+            let is_left = get_helper_func_ref(module, helpers, builder, "rt_is_left");
+            let call = builder.ins().call(is_left, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Right { .. } => {
+            let is_right = get_helper_func_ref(module, helpers, builder, "rt_is_right");
+            let call = builder.ins().call(is_right, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+        Pattern::Literal { expression, .. } => {
+            // Literals require a runtime value to compare against, but we
+            // don't have an interner-aware compile path here. Fall through
+            // optimistically — the arm body will produce wrong results if
+            // the literal doesn't match, but pattern::Literal inside a Tuple
+            // is rarely used in practice.
+            let _ = (expression, interner);
+            builder.ins().jump(pass_block, &[]);
+        }
+        Pattern::Tuple { elements, .. } => {
+            // Check rt_is_tuple first, then chain checks for each element.
+            let is_tuple = get_helper_func_ref(module, helpers, builder, "rt_is_tuple");
+            let call = builder.ins().call(is_tuple, &[ctx_val, value]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            // Build a chain: check_tuple → check_el_0 → ... → pass_block
+            // Each step jumps to fail_block on failure.
+            // Build a step block per element so we can chain checks forward.
+            let step_blocks: Vec<cranelift_codegen::ir::Block> =
+                elements.iter().map(|_| builder.create_block()).collect();
+            // The first check is rt_is_tuple; on success jump to step_blocks[0] or pass_block.
+            let first = step_blocks.first().copied().unwrap_or(pass_block);
+            builder.ins().brif(cond, first, &[], fail_block, &[]);
+            // Now emit each element check, chaining into the next step or pass_block.
+            for (i, (element, &step)) in elements.iter().zip(step_blocks.iter()).enumerate() {
+                builder.seal_block(step);
+                builder.switch_to_block(step);
+                let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+                let idx_val = builder.ins().iconst(PTR_TYPE, i as i64);
+                let elem_call = builder.ins().call(tuple_get, &[ctx_val, value, idx_val]);
+                let elem_val = builder.inst_results(elem_call)[0];
+                let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
+                emit_pattern_check(
+                    module, helpers, builder, ctx_val, element, elem_val, next, fail_block,
+                    interner,
+                )?;
+            }
+        }
+        Pattern::Constructor { name, .. } => {
+            let name_str = interner.resolve(*name);
+            let bytes = name_str.as_bytes().to_vec();
+            let data = module
+                .declare_anonymous_data(false, false)
+                .map_err(|e| e.to_string())?;
+            let mut desc = DataDescription::new();
+            desc.define(bytes.into_boxed_slice());
+            module.define_data(data, &desc).map_err(|e| e.to_string())?;
+            let global_value = module.declare_data_in_func(data, builder.func);
+            let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
+            let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
+            let is_adt = get_helper_func_ref(module, helpers, builder, "rt_is_adt_constructor");
+            let call = builder
+                .ins()
+                .call(is_adt, &[ctx_val, value, name_ptr, name_len]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+        }
+    }
+    Ok(())
 }
 
 fn bind_top_level_pattern_value(
@@ -2426,6 +3305,24 @@ fn bind_top_level_pattern_value(
                 let item = builder.inst_results(call)[0];
                 bind_top_level_pattern_value(
                     module, helpers, builder, scope, ctx_val, element, item,
+                )?;
+            }
+            Ok(())
+        }
+        Pattern::Constructor { fields, .. } => {
+            let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
+            for (index, field_pattern) in fields.iter().enumerate() {
+                let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
+                let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
+                let item = builder.inst_results(call)[0];
+                bind_top_level_pattern_value(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    field_pattern,
+                    item,
                 )?;
             }
             Ok(())
@@ -2795,6 +3692,7 @@ fn compile_user_function_call(
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
     meta: JitFunctionMeta,
+    call_span: crate::diagnostics::position::Span,
     arguments: &[Expression],
     interner: &Interner,
 ) -> Result<CraneliftValue, String> {
@@ -2835,11 +3733,53 @@ fn compile_user_function_call(
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
     let zero = builder.ins().iconst(PTR_TYPE, 0);
+    let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
+    let line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+
+    let check_call = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
+    let call_ok = builder.ins().call(
+        check_call,
+        &[ctx_val, fn_index, args_ptr, nargs_val, line_val, col_val],
+    );
+    let call_ok_val = builder.inst_results(call_ok)[0];
+    let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
+
+    let call_block = builder.create_block();
+    let fail_block = builder.create_block();
+    let done_block = builder.create_block();
+    builder.append_block_param(done_block, PTR_TYPE);
+    builder
+        .ins()
+        .brif(call_ok_bool, call_block, &[], fail_block, &[]);
+
+    builder.switch_to_block(fail_block);
+    let fail_args = [BlockArg::Value(null_ptr)];
+    builder.ins().jump(done_block, &fail_args);
+    builder.seal_block(fail_block);
+
+    builder.switch_to_block(call_block);
     let callee_ref = module.declare_func_in_func(meta.id, builder.func);
     let call = builder
         .ins()
         .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero]);
-    Ok(builder.inst_results(call)[0])
+    let raw_result = builder.inst_results(call)[0];
+    let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
+    let checked_ret_call = builder.ins().call(
+        check_ret,
+        &[ctx_val, fn_index, raw_result, line_val, col_val],
+    );
+    let checked_ret = builder.inst_results(checked_ret_call)[0];
+    let ok_args = [BlockArg::Value(checked_ret)];
+    builder.ins().jump(done_block, &ok_args);
+    builder.seal_block(call_block);
+
+    builder.switch_to_block(done_block);
+    let result = builder.block_params(done_block)[0];
+    builder.seal_block(done_block);
+    Ok(result)
 }
 
 fn compile_generic_call(
@@ -3120,6 +4060,11 @@ impl LiteralCollector {
                     self.bind_pattern_identifiers(element);
                 }
             }
+            Pattern::Constructor { fields, .. } => {
+                for field in fields {
+                    self.bind_pattern_identifiers(field);
+                }
+            }
             Pattern::Wildcard { .. }
             | Pattern::Literal { .. }
             | Pattern::None { .. }
@@ -3147,11 +4092,17 @@ impl LiteralCollector {
             Statement::Function {
                 name,
                 parameters,
+                parameter_types,
+                return_type,
+                effects,
                 body,
                 ..
             } => {
                 let expr = Expression::Function {
                     parameters: parameters.clone(),
+                    parameter_types: parameter_types.clone(),
+                    return_type: return_type.clone(),
+                    effects: effects.clone(),
                     body: body.clone(),
                     span: stmt.span(),
                 };
@@ -3167,6 +4118,8 @@ impl LiteralCollector {
                     self.specs.push(LiteralFunctionSpec {
                         key,
                         parameters: parameters.clone(),
+                        parameter_types: parameter_types.clone(),
+                        return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
                         self_name: Some(*name),
@@ -3190,19 +4143,57 @@ impl LiteralCollector {
             }
             Statement::Module { body, .. } => {
                 self.push_scope();
+                // Pre-bind all module function names before processing bodies.
+                // This mirrors collect_program's pre-binding for top-level functions and
+                // ensures nested literal functions inside module functions can correctly
+                // include sibling module functions in their capture sets.
                 for s in &body.statements {
-                    self.collect_stmt(s);
+                    if let Statement::Function { name, .. } = s {
+                        self.define(*name);
+                    }
+                }
+                // Process module body: module-level functions are compiled as module
+                // functions (not literal closures), so we must NOT register them as
+                // literal specs. We only collect nested literal functions from their bodies.
+                for s in &body.statements {
+                    match s {
+                        Statement::Function {
+                            name,
+                            parameters,
+                            body,
+                            ..
+                        } => {
+                            // Module-level function: push a scope with params and collect
+                            // any nested literal functions defined inside the body.
+                            self.push_scope();
+                            self.define(*name); // allow self-recursion within the body
+                            for p in parameters {
+                                self.define(*p);
+                            }
+                            for inner in &body.statements {
+                                self.collect_stmt(inner);
+                            }
+                            self.pop_scope();
+                        }
+                        _ => self.collect_stmt(s),
+                    }
                 }
                 self.pop_scope();
             }
             Statement::Import { .. } => {}
+            Statement::Data { .. } => {}
+            Statement::EffectDecl { .. } => {}
         }
     }
 
     fn collect_expr(&mut self, expr: &Expression) {
         match expr {
             Expression::Function {
-                parameters, body, ..
+                parameters,
+                parameter_types,
+                return_type,
+                body,
+                ..
             } => {
                 let key = LiteralKey::from_expr(expr);
                 if !self.seen.contains(&key) {
@@ -3214,6 +4205,8 @@ impl LiteralCollector {
                     self.specs.push(LiteralFunctionSpec {
                         key,
                         parameters: parameters.clone(),
+                        parameter_types: parameter_types.clone(),
+                        return_type: return_type.clone(),
                         body: body.clone(),
                         captures,
                         self_name: None,
@@ -3312,11 +4305,47 @@ impl LiteralCollector {
                 self.collect_expr(head);
                 self.collect_expr(tail);
             }
+            Expression::InterpolatedString { parts, .. } => {
+                for part in parts {
+                    if let crate::syntax::expression::StringPart::Interpolation(expr) = part {
+                        self.collect_expr(expr);
+                    }
+                }
+            }
+            Expression::Perform { args, .. } => {
+                for arg in args {
+                    self.collect_expr(arg);
+                }
+            }
+            Expression::Handle { expr, arms, .. } => {
+                self.collect_expr(expr);
+                for arm in arms {
+                    // Build the same synthetic Function expression used by compile_jit_handle,
+                    // so each arm closure is pre-compiled as a literal function spec.
+                    let mut params = vec![arm.resume_param];
+                    params.extend_from_slice(&arm.params);
+                    let arm_fn_expr = Expression::Function {
+                        parameters: params.clone(),
+                        parameter_types: vec![None; params.len()],
+                        return_type: None,
+                        effects: vec![],
+                        body: crate::syntax::block::Block {
+                            statements: vec![crate::syntax::statement::Statement::Expression {
+                                expression: arm.body.clone(),
+                                has_semicolon: false,
+                                span: arm.body.span(),
+                            }],
+                            span: arm.body.span(),
+                        },
+                        span: arm.span,
+                    };
+                    self.collect_expr(&arm_fn_expr);
+                }
+            }
             Expression::Identifier { .. }
             | Expression::Integer { .. }
             | Expression::Float { .. }
             | Expression::String { .. }
-            | Expression::InterpolatedString { .. }
             | Expression::Boolean { .. }
             | Expression::EmptyList { .. }
             | Expression::None { .. } => {}
@@ -3327,6 +4356,78 @@ impl LiteralCollector {
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
+
+fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeType> {
+    match ty {
+        TypeExpr::Named { name, args, .. } => {
+            let name_str = interner.try_resolve(*name)?;
+            match (name_str, args.len()) {
+                ("Any", 0) => Some(RuntimeType::Any),
+                ("Int", 0) => Some(RuntimeType::Int),
+                ("Float", 0) => Some(RuntimeType::Float),
+                ("Bool", 0) => Some(RuntimeType::Bool),
+                ("String", 0) => Some(RuntimeType::String),
+                ("Unit", 0) => Some(RuntimeType::Unit),
+                ("Option", 1) => Some(RuntimeType::Option(Box::new(
+                    convert_type_expr_for_contract(&args[0], interner)?,
+                ))),
+                ("List", 1) => Some(RuntimeType::List(Box::new(convert_type_expr_for_contract(
+                    &args[0], interner,
+                )?))),
+                ("Either", 2) => Some(RuntimeType::Either(
+                    Box::new(convert_type_expr_for_contract(&args[0], interner)?),
+                    Box::new(convert_type_expr_for_contract(&args[1], interner)?),
+                )),
+                ("Array", 1) => Some(RuntimeType::Array(Box::new(
+                    convert_type_expr_for_contract(&args[0], interner)?,
+                ))),
+                ("Map", 2) => Some(RuntimeType::Map(
+                    Box::new(convert_type_expr_for_contract(&args[0], interner)?),
+                    Box::new(convert_type_expr_for_contract(&args[1], interner)?),
+                )),
+                _ => None,
+            }
+        }
+        TypeExpr::Tuple { elements, .. } => Some(RuntimeType::Tuple(
+            elements
+                .iter()
+                .map(|e| convert_type_expr_for_contract(e, interner))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        TypeExpr::Function { .. } => None,
+    }
+}
+
+fn runtime_contract_from_annotations(
+    parameter_types: &[Option<TypeExpr>],
+    return_type: &Option<TypeExpr>,
+    effects: &[crate::syntax::effect_expr::EffectExpr],
+    interner: &Interner,
+) -> Option<FunctionContract> {
+    let params = parameter_types
+        .iter()
+        .map(|ty| {
+            ty.as_ref()
+                .and_then(|t| convert_type_expr_for_contract(t, interner))
+        })
+        .collect::<Vec<_>>();
+    let ret = return_type
+        .as_ref()
+        .and_then(|ty| convert_type_expr_for_contract(ty, interner));
+    if !params.iter().any(|t| t.is_some()) && ret.is_none() && effects.is_empty() {
+        None
+    } else {
+        let effects = effects
+            .iter()
+            .flat_map(crate::syntax::effect_expr::EffectExpr::normalized_names)
+            .collect::<Vec<_>>();
+        Some(FunctionContract {
+            params,
+            ret,
+            effects,
+        })
+    }
+}
 
 struct HelperSig {
     num_params: usize,
@@ -3575,6 +4676,20 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
                 has_return: false,
             },
         ),
+        (
+            "rt_check_jit_contract_call",
+            HelperSig {
+                num_params: 6,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_return",
+            HelperSig {
+                num_params: 5,
+                has_return: true,
+            },
+        ),
         // Phase 4: value wrappers (ctx, value) -> *mut Value
         (
             "rt_make_some",
@@ -3718,6 +4833,58 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_to_string",
             HelperSig {
                 num_params: 2,
+                has_return: true,
+            },
+        ),
+        // Phase 5: ADT helpers
+        // rt_make_adt(ctx, constructor_ptr, constructor_len, fields_ptr, arity) -> *mut Value
+        (
+            "rt_make_adt",
+            HelperSig {
+                num_params: 5,
+                has_return: true,
+            },
+        ),
+        // rt_is_adt_constructor(ctx, value, constructor_ptr, constructor_len) -> i64
+        (
+            "rt_is_adt_constructor",
+            HelperSig {
+                num_params: 4,
+                has_return: true,
+            },
+        ),
+        // rt_adt_field(ctx, value, field_idx) -> *mut Value
+        (
+            "rt_adt_field",
+            HelperSig {
+                num_params: 3,
+                has_return: true,
+            },
+        ),
+        // Algebraic effects
+        // rt_push_handler(ctx, effect_id, ops_ptr, closures_ptr, narms) -> void
+        (
+            "rt_push_handler",
+            HelperSig {
+                num_params: 5,
+                has_return: false,
+            },
+        ),
+        // rt_pop_handler(ctx) -> void
+        (
+            "rt_pop_handler",
+            HelperSig {
+                num_params: 1,
+                has_return: false,
+            },
+        ),
+        // rt_perform(ctx, effect_id, op_id, args_ptr, nargs,
+        //            effect_name_ptr, effect_name_len, op_name_ptr, op_name_len,
+        //            line, column) -> *mut Value
+        (
+            "rt_perform",
+            HelperSig {
+                num_params: 11,
                 has_return: true,
             },
         ),

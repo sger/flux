@@ -1,0 +1,8 @@
+// E056: statically-known call arity mismatch (too many arguments).
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn main() -> Unit {
+    let _x = add(1, 2, 3)
+}

@@ -1,0 +1,4 @@
+def foo() { 1 }
+match x { 0 -> 1 | 1 -> 2 }
+match y { 0 => 0, _ -> 1 }
+let ok_after = 1;

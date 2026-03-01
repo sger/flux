@@ -1,11 +1,12 @@
 // Advent of Code - Day 1 Part 2 (Secret Entrance, method 0x434C49434B)
 // Uses input file: examples/io/aoc_day1.txt
 
-fn wrap_100(value) {
-    let reduced = value % 100
-    if reduced < 0 {
-        reduced + 100
-    } else {
+fn main() with IO, Time {
+    fn wrap_100(value) {
+        let reduced = value % 100
+        if reduced < 0 {
+            reduced + 100
+        } else {
         reduced
     }
 }
@@ -14,16 +15,16 @@ fn count_every_100(remaining) {
     if remaining < 100 {
         0
     } else {
-        1 + count_every_100(remaining - 100)
-    }
+    1 + count_every_100(remaining - 100)
+}
 }
 
 fn count_hits_for_rotation(first_zero_click, distance) {
     if distance < first_zero_click {
         0
     } else {
-        1 + count_every_100(distance - first_zero_click)
-    }
+    1 + count_every_100(distance - first_zero_click)
+}
 }
 
 fn count_zeros_right(pos, distance) {
@@ -45,10 +46,10 @@ fn apply_rotation(step, rest, pos, hits) {
         let next_pos_right = wrap_100(pos + distance)
         solve(rest, next_pos_right, hits + zeros)
     } else {
-        let zeros_left = count_zeros_left(pos, distance)
-        let next_pos_left = wrap_100(pos - distance)
-        solve(rest, next_pos_left, hits + zeros_left)
-    }
+    let zeros_left = count_zeros_left(pos, distance)
+    let next_pos_left = wrap_100(pos - distance)
+    solve(rest, next_pos_left, hits + zeros_left)
+}
 }
 
 fn solve(lines, pos, hits) {
@@ -62,3 +63,4 @@ let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
 let steps = [trim(line) | line <- lines, trim(line) != ""]
 let password = solve(steps, 50, 0)
 print(password)
+}

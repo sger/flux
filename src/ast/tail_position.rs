@@ -74,6 +74,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 parameters: _,
                 body,
                 span: _,
+                ..
             } => {
                 // Enter a new tail context for the function body
                 let was_tail = self.in_tail;
@@ -160,6 +161,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 parameters: _,
                 body,
                 span: _,
+                ..
             } => {
                 // Enter a new tail context for the lambda body
                 let was_tail = self.in_tail;

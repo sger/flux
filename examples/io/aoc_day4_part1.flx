@@ -1,21 +1,22 @@
 // Advent of Code - Day 4 Part 1 (Printing Department)
 // Input: examples/io/aoc_day4.txt
 
-fn line_at(lines, idx) {
-    match lines[idx] {
-        Some(v) -> v,
-        _ -> ""
+fn main() with IO, Time {
+    fn line_at(lines, idx) {
+        match lines[idx] {
+            Some(v) -> v,
+            _ -> ""
+        }
     }
-}
 
-fn char_at(line, col) {
-    substring(line, col, col + 1)
-}
+    fn char_at(line, col) {
+        substring(line, col, col + 1)
+    }
 
-fn is_roll(lines, rows, cols, r, c) {
-    if r < 0 || c < 0 || r >= rows || c >= cols {
-        false
-    } else {
+    fn is_roll(lines, rows, cols, r, c) {
+        if r < 0 || c < 0 || r >= rows || c >= cols {
+            false
+        } else {
         let line = line_at(lines, r)
         char_at(line, c) == "@"
     }
@@ -37,14 +38,14 @@ fn count_row(lines, rows, cols, r, c, acc) {
     if c >= cols {
         acc
     } else {
-        if is_roll(lines, rows, cols, r, c) {
-            let adj = adjacent_rolls(lines, rows, cols, r, c)
-            let add = if adj < 4 { 1 } else { 0 }
-            count_row(lines, rows, cols, r, c + 1, acc + add)
-        } else {
-            count_row(lines, rows, cols, r, c + 1, acc)
-        }
-    }
+    if is_roll(lines, rows, cols, r, c) {
+        let adj = adjacent_rolls(lines, rows, cols, r, c)
+        let add = if adj < 4 { 1 } else { 0 }
+        count_row(lines, rows, cols, r, c + 1, acc + add)
+    } else {
+    count_row(lines, rows, cols, r, c + 1, acc)
+}
+}
 }
 
 let lines = read_lines("examples/io/aoc_day4.txt")
@@ -52,3 +53,4 @@ let rows = len(lines)
 let cols = if rows == 0 { 0 } else { len(line_at(lines, 0)) }
 let row_counts = [count_row(lines, rows, cols, r, 0, 0) | r <- range(0, rows)]
 print(sum(row_counts))
+}

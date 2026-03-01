@@ -1,0 +1,2 @@
+let value = "oops"
+let n: Int = value

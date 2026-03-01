@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx
+Category: A
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache --root examples/type_system examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== jit tuples ==
+- E400 | MISSING EFFECT | effectful call occurs here
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

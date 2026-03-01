@@ -121,6 +121,8 @@ define_tokens! {
         Let    => "let",
         Do     => "do",
         Fn     => "fn",
+        Public => "public",
+        With   => "with",
         If     => "if",
         Else   => "else",
         Return => "return",
@@ -135,5 +137,10 @@ define_tokens! {
         Left   => "Left",
         Right  => "Right",
         Where  => "where",
+        Type   => "type",
+        Data   => "data",
+        Effect => "effect",
+        Handle => "handle",
+        Perform => "perform",
     }
 }

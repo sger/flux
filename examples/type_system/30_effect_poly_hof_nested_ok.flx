@@ -1,0 +1,21 @@
+// Nested higher-order wrappers preserve polymorphic effects.
+
+fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(x)
+}
+
+fn wrap_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    apply_once(f, x)
+}
+
+fn wrap_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    wrap_once(f, x)
+}
+
+fn add_one(x: Int) -> Int {
+    x + 1
+}
+
+fn main() with IO {
+    print(to_string(wrap_twice(add_one, 41)))
+}

@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/36_pure_context_time_only_rejects_io.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `print` requires effect `IO` in this function signature.
+
+  --> examples/type_system/failing/36_pure_context_time_only_rejects_io.flx:4:5
+  |
+4 |     print("tick")
+  |     ^^^^^
+  |     ----- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

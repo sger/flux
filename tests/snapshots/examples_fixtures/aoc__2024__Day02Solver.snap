@@ -3,8 +3,33 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day02Solver.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `int_at`.
+
+  --> examples/aoc/2024/Day02Solver.flx:24:27
+   |
+24 |                 push(acc, Shared.int_at(xs, idx) - Shared.int_at(xs, idx + 1)),
+   |                           ^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `int_at`.
+
+  --> examples/aoc/2024/Day02Solver.flx:47:44
+   |
+47 |             let keep_head = prepend_to_all(Shared.int_at(xs, 0), try_drops(tail))
+   |                                            ^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 2 errors.
 == stdout ==
 <not executed>

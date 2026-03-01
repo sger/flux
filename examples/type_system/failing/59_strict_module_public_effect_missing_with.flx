@@ -1,0 +1,6 @@
+public fn log(msg: String) -> Unit {
+    print(msg)
+}
+
+fn main() -> Unit {
+}

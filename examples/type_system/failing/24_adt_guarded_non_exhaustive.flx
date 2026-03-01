@@ -1,0 +1,16 @@
+// E083: constructor arm with guard does not make the match exhaustive.
+
+data MaybeInt {
+    SomeI(Int),
+    NoneI,
+}
+
+fn unwrap_positive(x: MaybeInt) -> Int {
+    match x {
+        SomeI(v) if v > 0 -> v,
+    }
+}
+
+fn main() {
+    unwrap_positive(SomeI(1))
+}

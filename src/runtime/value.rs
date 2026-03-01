@@ -1,9 +1,19 @@
-use std::{fmt, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
-    closure::Closure, compiled_function::CompiledFunction, gc::gc_handle::GcHandle,
-    hash_key::HashKey, jit_closure::JitClosure,
+    closure::Closure, compiled_function::CompiledFunction, continuation::Continuation,
+    gc::gc_handle::GcHandle, handler_descriptor::HandlerDescriptor, hash_key::HashKey,
+    jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
 };
+
+/// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
+/// `Value::Adt` stays at one thin pointer (8 bytes) rather than a fat-pointer +
+/// thin-pointer pair (24 bytes), keeping `size_of::<Value>() <= 24`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdtValue {
+    pub constructor: Rc<str>,
+    pub fields: Vec<Value>,
+}
 
 /// Runtime value used by the VM stack, globals, constants, and closures.
 ///
@@ -25,7 +35,7 @@ use crate::runtime::{
 /// **Why this matters:**
 /// - `Rc` cannot handle reference cycles (would cause memory leaks)
 /// - The language design enforces this through immutability and lack of mutable cells
-/// - Future features requiring cycles must migrate to cycle-aware GC (Proposal 017)
+/// - Future features requiring cycles must migrate to cycle-aware GC (Proposal 0017)
 ///
 /// **Validation:**
 /// - Tests verify deeply nested captures complete without leaks
@@ -36,7 +46,7 @@ use crate::runtime::{
 /// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
 /// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
 ///
-/// See [Proposal 019](../../docs/proposals/019_zero_copy_value_passing.md) for details.
+/// See [Proposal 0019](../../docs/proposals/0019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Internal VM stack sentinel for uninitialized/inactive slots.
@@ -77,6 +87,17 @@ pub enum Value {
     Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
+    /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
+    Adt(Rc<AdtValue>),
+    /// A captured one-shot delimited continuation (result of `OpPerform`).
+    /// Calling this value with one argument resumes the suspended computation.
+    Continuation(Rc<RefCell<Continuation>>),
+    /// Internal: handler table stored in the constant pool by the compiler.
+    /// Never exposed to user code.
+    HandlerDescriptor(Rc<HandlerDescriptor>),
+    /// Internal: perform key stored in the constant pool by the compiler.
+    /// Never exposed to user code.
+    PerformDescriptor(Rc<PerformDescriptor>),
 }
 
 impl fmt::Display for Value {
@@ -110,6 +131,18 @@ impl fmt::Display for Value {
                 }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
+            Value::Adt(adt) => {
+                if adt.fields.is_empty() {
+                    write!(f, "{}", adt.constructor)
+                } else {
+                    let items: Vec<String> = adt.fields.iter().map(|v| v.to_string()).collect();
+                    write!(f, "{}({})", adt.constructor, items.join(", "))
+                }
+            }
+            Value::Continuation(_) => write!(f, "<continuation>"),
+            Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => {
+                write!(f, "<internal>")
+            }
         }
     }
 }
@@ -138,6 +171,10 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
+            Value::Adt(_) => "Adt",
+            Value::Continuation(_) => "Continuation",
+            Value::HandlerDescriptor(_) => "HandlerDescriptor",
+            Value::PerformDescriptor(_) => "PerformDescriptor",
         }
     }
 
@@ -202,6 +239,17 @@ impl Value {
                 }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
+            Value::Adt(adt) => {
+                if adt.fields.is_empty() {
+                    adt.constructor.to_string()
+                } else {
+                    let items: Vec<String> =
+                        adt.fields.iter().map(|v| v.to_string_value()).collect();
+                    format!("{}({})", adt.constructor, items.join(", "))
+                }
+            }
+            Value::Continuation(_) => "<continuation>".to_string(),
+            Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => "<internal>".to_string(),
         }
     }
 }
@@ -349,6 +397,9 @@ mod tests {
 
     #[test]
     fn value_size_is_compact() {
+        // Value::Adt(Rc<AdtValue>) is a single thin pointer (8 bytes).
+        // The largest payload is Value::String(Rc<str>) at 16 bytes (fat pointer).
+        // With discriminant + padding the enum fits in 24 bytes on 64-bit platforms.
         assert!(std::mem::size_of::<Value>() <= 24);
     }
 }

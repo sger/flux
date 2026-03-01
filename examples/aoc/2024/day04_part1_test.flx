@@ -1,0 +1,96 @@
+import Day04Solver as Day04
+
+fn sample_grid() {
+    [|
+        "MMMSXXMASM",
+        "MSAMXMSMSA",
+        "AMXSXMAAMM",
+        "MSAMASMSMX",
+        "XMASAMXAMM",
+        "XXAMMXXAMA",
+        "SMSMSASXSS",
+        "SAXAMASAAA",
+        "MAMMMXMMMM",
+        "MXMXAXMASX",
+    |]
+}
+
+fn sample_cross_grid() {
+    [|
+        ".M.S......",
+        "..A..MSMS.",
+        ".M.S.MAA..",
+        "..A.ASMSM.",
+        ".M.S.M....",
+        "..........",
+        "S.S.S.S.S.",
+        ".A.A.A.A..",
+        "M.M.M.M.M.",
+        "..........",
+    |]
+}
+
+fn test_day04_part1_prompt_sample_is_18() {
+    assert_eq(Day04.day04a_from_lines(sample_grid()), 18)
+}
+
+fn test_day04_part1_horizontal_forward() {
+    assert_eq(Day04.day04a_from_lines([|"XMAS"|]), 1)
+}
+
+fn test_day04_part1_horizontal_backward_counts() {
+    assert_eq(Day04.day04a_from_lines([|"SAMX"|]), 1)
+}
+
+fn test_day04_part1_vertical_forward() {
+    assert_eq(Day04.day04a_from_lines([|"X", "M", "A", "S"|]), 1)
+}
+
+fn test_day04_part1_diagonal_down_right() {
+    assert_eq(
+        Day04.day04a_from_lines([|
+            "X...",
+            ".M..",
+            "..A.",
+            "...S",
+        |]),
+        1,
+    )
+}
+
+fn test_day04_part1_overlapping_sequences_counted() {
+    assert_eq(Day04.day04a_from_lines([|"XMASMAS"|]), 1)
+}
+
+fn test_day04_part1_empty_or_too_small() {
+    assert_eq(Day04.day04a_from_memory(""), 0)
+    assert_eq(Day04.day04a_from_lines([|"XM"|]), 0)
+}
+
+fn test_day04_part2_prompt_sample_is_9() {
+    assert_eq(Day04.day04b_from_lines(sample_cross_grid()), 9)
+}
+
+fn test_day04_part2_single_cross() {
+    assert_eq(
+        Day04.day04b_from_lines([|
+            "M.S",
+            ".A.",
+            "M.S",
+        |]),
+        1,
+    )
+}
+
+fn test_day04_part2_rejects_non_cross_and_small() {
+    assert_eq(
+        Day04.day04b_from_lines([|
+            "M.S",
+            ".A.",
+            "M.M",
+        |]),
+        0,
+    )
+    assert_eq(Day04.day04b_from_memory(""), 0)
+    assert_eq(Day04.day04b_from_lines([|"MAS"|]), 0)
+}

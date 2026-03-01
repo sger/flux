@@ -1,0 +1,6 @@
+fn scale(x: Float, factor: Float) -> Float {
+    x * factor
+}
+
+// Compile-time mismatch: argument #1 is String, expected Float.
+scale("3.14", 2.0)

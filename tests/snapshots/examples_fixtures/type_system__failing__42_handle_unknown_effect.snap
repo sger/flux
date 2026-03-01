@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/42_handle_unknown_effect.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E405]: UNKNOWN HANDLER EFFECT
+
+Effect `Console` is not declared for this handle block.
+
+  --> examples/type_system/failing/42_handle_unknown_effect.flx:4:13
+  |
+4 |     let _ = 1 handle Console {
+  |             ^
+  |             - unknown effect in handle
+
+Hint:
+  Declare the effect before using `handle`, or fix the effect name.
+== stdout ==
+<not executed>

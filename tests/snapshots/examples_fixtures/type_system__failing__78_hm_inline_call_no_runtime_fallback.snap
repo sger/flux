@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `_x` does not match its type annotation.
+
+  --> examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:4:23
+  |
+4 |     let _x: String = (/(n: Int) -> n)(1)
+  |                       ^^^^^^^^^^^^^^^^^^
+  |                       ------------------ this is `Int`
+  |             ------ but `_x` was annotated as `String`
+
+Help:
+  Change `_x` to a `String` value or update the annotation to `Int`.
+== stdout ==
+<not executed>

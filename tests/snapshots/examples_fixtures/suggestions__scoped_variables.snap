@@ -3,22 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/suggestions/scoped_variables.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
-
-I can't find a value named `localCoun`.
-
-  --> examples/suggestions/scoped_variables.flx:11:11
-   |
-11 |     print(localCoun);
-   |           ^^^^^^^^^
-
-Hint:
-  Define it first: let localCoun = ...;
-
-
-Help:
-  Did you mean one of: `localCount`, `globalCount`?
+<none>
 == stdout ==
 <not executed>

@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/06_runtime_float_string_return.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `compute_rate` does not match its declared return type.
+
+  --> examples/type_system/failing/06_runtime_float_string_return.flx:2:5
+  |
+1 | fn compute_rate() -> Float {
+
+  |                      ----- `compute_rate` was declared to return `Float`
+2 |     "slow"
+  |     ^^^^^^
+  |     ------ this expression has type `String`
+
+Help:
+  Return a `Float` value from `compute_rate` or change the declared return type.
+== stdout ==
+<not executed>

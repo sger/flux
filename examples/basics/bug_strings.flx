@@ -1,5 +1,6 @@
-let greeting = "hello"; let message = "message"
+fn main() with IO {
+    let greeting = "hello"; let message = "message"
 
-print(greeting)
-print("This is a #{message}")
-print("HELLO WORLD")
+    print(greeting)
+    print("This is a #{message}")
+    print("HELLO WORLD")}

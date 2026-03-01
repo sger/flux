@@ -1,0 +1,7 @@
+// Private module helpers remain internal and are not strict API boundary targets.
+
+import TypeSystem.StrictPrivateHelpers as C
+
+fn main() -> Unit {
+    let value: Int = C.run(1)
+}

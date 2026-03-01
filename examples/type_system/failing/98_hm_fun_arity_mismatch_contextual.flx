@@ -1,0 +1,16 @@
+// E300: function-type arity mismatch should report arity-specific diagnostics.
+fn one_arg(x: Int) -> Int {
+    x
+}
+
+fn two_args(x: Int, y: Int) -> Int {
+    x + y
+}
+
+fn main() -> Unit {
+    let _f = if true {
+        one_arg
+    } else {
+        two_args
+    }
+}

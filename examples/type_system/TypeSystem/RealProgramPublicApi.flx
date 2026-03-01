@@ -1,0 +1,18 @@
+module TypeSystem.RealProgramPublicApi {
+    fn helper_double(x) {
+        x * 2
+    }
+
+    public fn transform(x: Int) -> Int {
+        helper_double(x) + 1
+    }
+
+    public fn render(x: Int) -> String {
+        "value=" + to_string(transform(x))
+    }
+
+    public fn execute(x: Int) -> Int with IO {
+        print(render(x))
+        transform(x)
+    }
+}

@@ -1,0 +1,20 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/177_module_missing_open_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `{` to begin module body.
+
+  --> examples/type_system/failing/177_module_missing_open_brace.flx:2:1
+  |
+2 | let x = 1
+  | ^^^
+
+Hint:
+  Module declarations use `module Name { ... }`.
+== stdout ==
+<not executed>

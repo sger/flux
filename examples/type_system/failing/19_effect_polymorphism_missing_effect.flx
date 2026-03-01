@@ -1,0 +1,18 @@
+// E400: `with e` resolves to IO from callback, but caller only declares Time.
+
+fn apply_twice(f: ((Int) -> Int with e), x: Int) -> Int with e {
+    f(f(x))
+}
+
+fn log_inc(x: Int) -> Int with IO {
+    print("x=#{to_string(x)}")
+    x + 1
+}
+
+fn bad() -> Int with Time {
+    apply_twice(log_inc, 3)
+}
+
+fn main() with Time {
+    bad()
+}

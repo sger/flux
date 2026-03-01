@@ -1,0 +1,12 @@
+fn loop_unknown(n) {
+    if n == 0 {
+        mystery_value
+    } else {
+        loop_unknown(n - 1)
+    }
+}
+
+fn main() -> Unit {
+    let _x = loop_unknown(3)
+    let _y = 1
+}

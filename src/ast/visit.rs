@@ -73,6 +73,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
     match stmt {
         Statement::Let {
             name,
+            type_annotation: _,
             value,
             span: _,
         } => {
@@ -100,8 +101,13 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             visitor.visit_expr(expression);
         }
         Statement::Function {
+            is_public: _,
             name,
+            type_params: _,
             parameters,
+            parameter_types: _,
+            return_type: _,
+            effects: _,
             body,
             span: _,
         } => {
@@ -141,6 +147,8 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
                 visitor.visit_identifier(excluded);
             }
         }
+        Statement::Data { .. } => {}
+        Statement::EffectDecl { .. } => {}
     }
 }
 
@@ -191,6 +199,9 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         }
         Expression::Function {
             parameters,
+            parameter_types: _,
+            return_type: _,
+            effects: _,
             body,
             span: _,
         } => {
@@ -270,6 +281,17 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_expr(head);
             visitor.visit_expr(tail);
         }
+        Expression::Perform { args, .. } => {
+            for arg in args {
+                visitor.visit_expr(arg);
+            }
+        }
+        Expression::Handle { expr, arms, .. } => {
+            visitor.visit_expr(expr);
+            for arm in arms {
+                visitor.visit_expr(&arm.body);
+            }
+        }
     }
 }
 
@@ -303,6 +325,11 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
         Pattern::Tuple { elements, .. } => {
             for element in elements {
                 visitor.visit_pat(element);
+            }
+        }
+        Pattern::Constructor { fields, .. } => {
+            for field in fields {
+                visitor.visit_pat(field);
             }
         }
     }

@@ -88,6 +88,18 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     BASE_ALIAS_FORBIDDEN,
     DUPLICATE_BASE_EXCLUSION,
     UNKNOWN_BASE_MEMBER,
+    UNKNOWN_CONSTRUCTOR,
+    CONSTRUCTOR_ARITY_MISMATCH,
+    ADT_NON_EXHAUSTIVE_MATCH,
+    MODULE_ADT_CONSTRUCTOR_NOT_EXPORTED,
+    CONSTRUCTOR_PATTERN_ARITY_MISMATCH,
+    CROSS_MODULE_CONSTRUCTOR_ACCESS,
+    CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING,
+    UNKNOWN_FUNCTION_EFFECT,
+    // Type inference errors (E300–E399)
+    TYPE_UNIFICATION_ERROR,
+    OCCURS_CHECK_FAILURE,
+    UNDEFINED_TYPE_VAR,
     // Runtime errors (E1000+)
     WRONG_NUMBER_OF_ARGUMENTS,
     NOT_A_FUNCTION,
@@ -144,5 +156,6 @@ pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
         suggestions: Vec::new(),
         hint_chains: Vec::new(),
         related: Vec::new(),
+        phase: None,
     }
 }

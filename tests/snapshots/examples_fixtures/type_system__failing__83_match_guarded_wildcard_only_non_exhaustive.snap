@@ -1,0 +1,24 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E015]: NON-EXHAUSTIVE MATCH
+
+A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.
+
+  --> examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaustive.flx:4:1
+  |
+4 | match n {
+  | ^^^^^^^^^
+5 |     _ if n > 0 -> 1
+  | ^^^^^^^^^^^^^^^^^^^
+6 | };
+  | ^
+
+Hint:
+  Add an unguarded `_ -> ...` fallback arm after guarded arms.
+== stdout ==
+<not executed>

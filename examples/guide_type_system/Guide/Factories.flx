@@ -1,0 +1,22 @@
+module Guide.Factories {
+    type ResultI = Ok(Int) | Err(String)
+
+    fn _double(x: Int) -> Int {
+        x * 2
+    }
+
+    public fn make_ok(v: Int) -> ResultI {
+        Ok(v)
+    }
+
+    public fn unwrap_or_zero(v: ResultI) -> Int {
+        match v {
+            Ok(x) -> x,
+            Err(_) -> 0,
+        }
+    }
+
+    public fn demo(x: Int) -> Int {
+        _double(unwrap_or_zero(make_ok(x)))
+    }
+}

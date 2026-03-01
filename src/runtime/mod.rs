@@ -19,11 +19,18 @@ pub mod base;
 pub mod base_function;
 pub mod closure;
 pub mod compiled_function;
+pub mod continuation;
 pub mod frame;
+pub mod function_contract;
 pub mod gc;
+pub mod handler_arm;
+pub mod handler_descriptor;
+pub mod handler_frame;
 pub mod hash_key;
 pub mod jit_closure;
 pub mod leak_detector;
+pub mod perform_descriptor;
+pub mod runtime_type;
 pub mod value;
 pub mod vm;
 

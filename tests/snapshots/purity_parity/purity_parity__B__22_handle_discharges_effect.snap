@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/22_handle_discharges_effect.flx
+Category: B
+Strict: false
+Expect compile error: false
+
+== vm command ==
+$ flux --no-cache examples/type_system/22_handle_discharges_effect.flx
+exit_code: 0
+
+== jit command ==
+$ flux --no-cache examples/type_system/22_handle_discharges_effect.flx --jit
+exit_code: 0
+
+== vm tuples ==
+<none>
+
+== jit tuples ==
+<none>
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

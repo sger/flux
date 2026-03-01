@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/17_handle_unknown_operation.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E401]: UNKNOWN HANDLER OPERATION
+
+Handler for `Console` includes unknown operation `read`.
+
+  --> examples/type_system/failing/17_handle_unknown_operation.flx:9:9
+  |
+9 |         read(resume) -> resume("x")
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         --------------------------- unknown operation arm
+
+Hint:
+  Add this operation to the effect declaration or remove the arm.
+== stdout ==
+<not executed>

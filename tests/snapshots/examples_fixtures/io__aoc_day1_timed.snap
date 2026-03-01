@@ -3,8 +3,51 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day1_timed.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `parse_rotations`.
+
+  --> examples/io/aoc_day1_timed.flx:27:9
+   |
+27 |         parse_rotations(rest, acc)
+   |         ^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let parse_rotations = ...;
+
+
+Help:
+  Did you mean `parse_rotation`?
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `solve_steps`.
+
+  --> examples/io/aoc_day1_timed.flx:43:9
+   |
+43 |         solve_steps(rest, next_pos, hits + 1)
+   |         ^^^^^^^^^^^
+
+Hint:
+  Define it first: let solve_steps = ...;
+
+
+--> compiler error[E400]: MISSING EFFECT
+
+Call to `read_lines` requires effect `IO` in this function signature.
+
+  --> examples/io/aoc_day1_timed.flx:57:25
+   |
+57 |     let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
+   |                         ^^^^^^^^^^
+   |                         ---------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+
+Found 3 errors.
 == stdout ==
 <not executed>

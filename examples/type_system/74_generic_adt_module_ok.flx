@@ -1,0 +1,9 @@
+import TypeSystem.GenericResultTree
+
+fn value() -> Int {
+    TypeSystem.GenericResultTree.leftmost_ok(TypeSystem.GenericResultTree.demo_tree())
+}
+
+fn main() {
+    print(to_string(value()))
+}

@@ -3,8 +3,22 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day10_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `iter_free_bounded`.
+
+  --> examples/io/aoc_day10_part2.flx:687:1
+    |
+687 | iter_free_bounded(mat, pivot_cols, free_cols, nbtn, fidx, free_vals, 0, max_v, best, mt)
+    | ^^^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let iter_free_bounded = ...;
+
+
+Help:
+  Did you mean one of: `search_free_bounded`, `search_free_bounded`?
 == stdout ==
 <not executed>

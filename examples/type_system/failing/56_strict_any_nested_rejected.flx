@@ -1,0 +1,6 @@
+public fn first(xs: List<Any>) -> Any {
+    1
+}
+
+fn main() -> Unit {
+}

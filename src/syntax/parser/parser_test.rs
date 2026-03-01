@@ -1,6 +1,6 @@
 use crate::syntax::{
-    interner::Interner, lexer::Lexer, parser::Parser, program::Program, statement::Statement,
-    token::Token, token_type::TokenType,
+    expression::Expression, interner::Interner, lexer::Lexer, parser::Parser, program::Program,
+    statement::Statement, token::Token, token_type::TokenType,
 };
 
 use super::{is_pascal_case_ident, is_uppercase_ident};
@@ -17,6 +17,13 @@ fn parse_ok(input: &str) -> (Program, Interner) {
 
     let interner = parser.take_interner();
     (program, interner)
+}
+
+fn parse_with_errors(input: &str) -> (Program, Parser) {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    (program, parser)
 }
 
 #[test]
@@ -161,4 +168,364 @@ fn parse_program_span_covers_all_tokens() {
     let span = program.span();
     assert_eq!(span.start.line, 1);
     assert!(span.end.line >= span.start.line);
+}
+
+#[test]
+fn parses_typed_let_statement() {
+    let (program, interner) = parse_ok("let x: Int = 1;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let {
+            name,
+            type_annotation: Some(ty),
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "x");
+            assert_eq!(ty.display_with(&interner), "Int");
+        }
+        _ => panic!("expected typed let statement"),
+    }
+}
+
+#[test]
+fn parses_typed_function_signature_with_effects() {
+    let (program, interner) = parse_ok("fn add(a: Int, b: Int) -> Int with IO, Time { a + b }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function {
+            name,
+            parameters,
+            parameter_types,
+            return_type,
+            effects,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "add");
+            assert_eq!(parameters.len(), 2);
+            assert_eq!(
+                parameter_types
+                    .iter()
+                    .map(|ty| ty.as_ref().map(|t| t.display_with(&interner)))
+                    .collect::<Vec<_>>(),
+                vec![Some("Int".to_string()), Some("Int".to_string())]
+            );
+            assert_eq!(
+                return_type
+                    .as_ref()
+                    .map(|ty| ty.display_with(&interner))
+                    .as_deref(),
+                Some("Int")
+            );
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["IO".to_string(), "Time".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_public_function_statement() {
+    let (program, interner) = parse_ok("public fn add(a: Int, b: Int) -> Int { a + b }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function {
+            is_public, name, ..
+        } => {
+            assert!(*is_public);
+            assert_eq!(interner.resolve(*name), "add");
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_private_function_statement_by_default() {
+    let (program, interner) = parse_ok("fn helper(x: Int) -> Int { x }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Function {
+            is_public, name, ..
+        } => {
+            assert!(!*is_public);
+            assert_eq!(interner.resolve(*name), "helper");
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_module_with_public_and_private_functions() {
+    let (program, _interner) = parse_ok(
+        "module Math { public fn add(x: Int, y: Int) -> Int { x + y } fn sub(x: Int, y: Int) -> Int { x - y } }",
+    );
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Module { body, .. } => {
+            assert_eq!(body.statements.len(), 2);
+            match &body.statements[0] {
+                Statement::Function { is_public, .. } => assert!(*is_public),
+                _ => panic!("expected public function statement"),
+            }
+            match &body.statements[1] {
+                Statement::Function { is_public, .. } => assert!(!*is_public),
+                _ => panic!("expected private function statement"),
+            }
+        }
+        _ => panic!("expected module statement"),
+    }
+}
+
+#[test]
+fn parses_typed_function_signature_with_effect_row_ops() {
+    let (program, interner) = parse_ok("fn run() -> Int with IO + Console - Console, Time { 1 }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function { effects, .. } => {
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["IO + Console - Console".to_string(), "Time".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
+fn parses_function_type_annotation_with_effect_row_ops() {
+    let (program, interner) =
+        parse_ok("let f: (Int) -> Int with e + IO - Console = \\(x: Int) -> x;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let {
+            type_annotation: Some(ty),
+            ..
+        } => {
+            assert_eq!(
+                ty.display_with(&interner),
+                "Int -> Int with e + IO - Console"
+            );
+        }
+        _ => panic!("expected typed let statement"),
+    }
+}
+
+#[test]
+fn parses_lambda_parameter_annotation() {
+    let (program, interner) = parse_ok("let inc = \\(x: Int) -> x + 1;");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Let { value, .. } => match value {
+            Expression::Function {
+                parameter_types, ..
+            } => {
+                assert_eq!(parameter_types.len(), 1);
+                assert_eq!(
+                    parameter_types[0]
+                        .as_ref()
+                        .map(|t| t.display_with(&interner))
+                        .as_deref(),
+                    Some("Int")
+                );
+            }
+            _ => panic!("expected function expression"),
+        },
+        _ => panic!("expected let statement"),
+    }
+}
+
+#[test]
+fn parses_generic_function_one_type_param() {
+    let (program, interner) = parse_ok("fn identity<T>(x: T) -> T { x }");
+    match &program.statements[0] {
+        Statement::Function {
+            name,
+            type_params,
+            parameters,
+            parameter_types,
+            return_type,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "identity");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(interner.resolve(type_params[0]), "T");
+            assert_eq!(parameters.len(), 1);
+            assert_eq!(
+                parameter_types[0]
+                    .as_ref()
+                    .map(|t| t.display_with(&interner))
+                    .as_deref(),
+                Some("T")
+            );
+            assert_eq!(
+                return_type
+                    .as_ref()
+                    .map(|t| t.display_with(&interner))
+                    .as_deref(),
+                Some("T")
+            );
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_generic_function_two_type_params() {
+    let (program, interner) = parse_ok("fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) }");
+    match &program.statements[0] {
+        Statement::Function {
+            type_params,
+            parameters,
+            ..
+        } => {
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(interner.resolve(type_params[0]), "A");
+            assert_eq!(interner.resolve(type_params[1]), "B");
+            assert_eq!(parameters.len(), 2);
+        }
+        _ => panic!("expected generic function"),
+    }
+}
+
+#[test]
+fn parses_non_generic_function_has_empty_type_params() {
+    let (program, _) = parse_ok("fn f(x: Int) -> Int { x }");
+    match &program.statements[0] {
+        Statement::Function { type_params, .. } => {
+            assert!(type_params.is_empty());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn parses_type_adt_sugar_simple() {
+    let (program, interner) = parse_ok("type Shape = Circle(Float) | Rect(Float, Float)");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Shape");
+            assert!(type_params.is_empty());
+            assert_eq!(variants.len(), 2);
+            assert_eq!(interner.resolve(variants[0].name), "Circle");
+            assert_eq!(variants[0].fields.len(), 1);
+            assert_eq!(interner.resolve(variants[1].name), "Rect");
+            assert_eq!(variants[1].fields.len(), 2);
+        }
+        _ => panic!("expected desugared data statement"),
+    }
+}
+
+#[test]
+fn parses_type_adt_sugar_generic() {
+    let (program, interner) = parse_ok("type Result<T, E> = Ok(T) | Err(E)");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Data {
+            name,
+            type_params,
+            variants,
+            ..
+        } => {
+            assert_eq!(interner.resolve(*name), "Result");
+            assert_eq!(type_params.len(), 2);
+            assert_eq!(interner.resolve(type_params[0]), "T");
+            assert_eq!(interner.resolve(type_params[1]), "E");
+            assert_eq!(variants.len(), 2);
+        }
+        _ => panic!("expected desugared data statement"),
+    }
+}
+
+#[test]
+fn parses_type_adt_sugar_inside_module() {
+    let (program, interner) = parse_ok("module M { type Local = A | B }");
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Statement::Module { body, .. } => {
+            assert_eq!(body.statements.len(), 1);
+            match &body.statements[0] {
+                Statement::Data { name, variants, .. } => {
+                    assert_eq!(interner.resolve(*name), "Local");
+                    assert_eq!(variants.len(), 2);
+                    assert_eq!(interner.resolve(variants[0].name), "A");
+                    assert_eq!(interner.resolve(variants[1].name), "B");
+                }
+                _ => panic!("expected module data statement"),
+            }
+        }
+        _ => panic!("expected module"),
+    }
+}
+
+#[test]
+fn type_adt_sugar_missing_assign_reports_error() {
+    let (_program, parser) = parse_with_errors("type Shape Circle(Float) | Rect(Float, Float)");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser errors for missing '='"
+    );
+}
+
+#[test]
+fn type_adt_sugar_trailing_bar_reports_error() {
+    let (_program, parser) = parse_with_errors("type Shape = Circle(Float) |");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser errors for trailing '|'"
+    );
+}
+
+#[test]
+fn missing_open_brace_reports_contextual_error() {
+    let (_program, parser) = parse_with_errors("fn add(a: Int, b: Int) -> Int\n    a + b\n");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing opening brace"
+    );
+    let msg = parser.errors[0].message.as_deref().unwrap_or("");
+    assert!(
+        msg.contains("Expected `{` to begin function body"),
+        "expected contextual brace error, got: {msg}"
+    );
+}
+
+#[test]
+fn missing_open_brace_mentions_function_name() {
+    let (_program, parser) = parse_with_errors("fn distance_tag(p: Int) -> String\n    p\n");
+    assert!(!parser.errors.is_empty());
+    // The diagnostic should reference the function name in a label
+    let has_fn_name = parser.errors[0]
+        .labels
+        .iter()
+        .any(|l| l.text.contains("distance_tag"));
+    assert!(has_fn_name, "expected label mentioning function name");
+}
+
+#[test]
+fn missing_close_brace_reports_unclosed_delimiter() {
+    let (_program, parser) = parse_with_errors("fn foo() {\n    1 + 2\n");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing closing brace"
+    );
+    let code = parser.errors[0].code.as_deref().unwrap_or("");
+    assert_eq!(code, "E076", "expected UNCLOSED_DELIMITER error code");
 }

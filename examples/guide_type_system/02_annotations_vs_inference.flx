@@ -1,0 +1,11 @@
+fn id<T>(x: T) -> T {
+    x
+}
+
+fn twice(f: (Int) -> Int, x: Int) -> Int {
+    f(f(x))
+}
+
+let inferred = id(21)
+let explicit: Int = id(21)
+let combined: Int = twice(\n -> n + inferred, explicit)

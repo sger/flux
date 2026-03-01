@@ -1,0 +1,7 @@
+import TypeSystem.BoundaryUnknown
+
+fn bad() -> Int {
+    TypeSystem.BoundaryUnknown.dynamic_string()
+}
+
+bad()

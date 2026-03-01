@@ -3,22 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/diagnostic_comment_trim.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
-
-I can't find a value named `prnt`.
-
-  --> examples/basics/diagnostic_comment_trim.flx:11:1
-   |
-11 | prnt(arr)
-   | ^^^^
-
-Hint:
-  Define it first: let prnt = ...;
-
-
-Help:
-  Did you mean one of: `print`, `put`?
+<none>
 == stdout ==
 <not executed>

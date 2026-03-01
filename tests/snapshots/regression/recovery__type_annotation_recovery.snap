@@ -1,0 +1,46 @@
+---
+source: tests/regression_snapshots.rs
+---
+$ flux --no-cache tests/fixtures/recovery/type_annotation_recovery.flx
+exit_code: 1
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected a type expression, got =.
+
+  --> tests/fixtures/recovery/type_annotation_recovery.flx:1:8
+  |
+1 | let x: = 1
+  |        ^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected a type expression, got ,.
+
+  --> tests/fixtures/recovery/type_annotation_recovery.flx:4:9
+  |
+4 | fn f(a: , b: Int) {
+  |         ^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected a type expression, got {.
+
+  --> tests/fixtures/recovery/type_annotation_recovery.flx:9:11
+  |
+9 | fn g() -> {
+  |           ^
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected a type expression, got ->.
+
+  --> tests/fixtures/recovery/type_annotation_recovery.flx:14:15
+   |
+14 | let lam = /x: -> x
+   |               ^^
+
+Found 4 errors.

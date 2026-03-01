@@ -1,4 +1,6 @@
-print("== PrimOps: parse ==");
-print(parse_int("42"));
-print(parse_ints([|"1", "2", "3"|]));
-print(split_ints("10,20,30", ","));
+fn main() with IO {
+    print("== PrimOps: parse ==");
+    print(parse_int("42"));
+    print(parse_ints([|"1", "2", "3"|]));
+    print(split_ints("10,20,30", ","));
+}

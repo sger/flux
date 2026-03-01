@@ -1,0 +1,16 @@
+// Type + effect diagnostics in one file.
+// Note: E400 is a TypeCheck diagnostic and remains visible by design.
+// Stage filtering suppresses downstream Effect-phase diagnostics while preserving structural checks.
+
+fn greet(name: String) -> String {
+    "Hello, #{name}!"
+}
+
+fn bad() with Mystery {
+    1
+}
+
+fn main() with IO {
+    print(greet(42))
+    bad()
+}

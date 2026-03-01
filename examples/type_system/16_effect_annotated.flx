@@ -1,0 +1,31 @@
+// Effect annotations: correct usage of `with IO`.
+//
+// Shows three cases:
+//   1. Annotated + `with IO`  → fine, IO is declared
+//   2. Unannotated            → fine, gradual mode, no enforcement
+//   3. Pure (annotated, no IO call) → fine, no violation
+
+// Case 1: annotated with IO — correct
+fn main() with IO, Time {
+    fn log_and_double(x: Int) -> Int with IO {
+        print(x)
+        x * 2
+    }
+
+    print(log_and_double(5))
+
+    // Case 2: unannotated — gradual mode, IO call is not checked
+    fn just_double(x) {
+        print(x)
+        x * 2
+    }
+
+    print(just_double(5))
+
+    // Case 3: annotated pure, no IO call — correct
+    fn add(a: Int, b: Int) -> Int {
+        a + b
+    }
+
+    print(add(3, 4))
+}

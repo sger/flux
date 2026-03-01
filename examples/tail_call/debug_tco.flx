@@ -1,9 +1,11 @@
 fn countdown(n) {
     if n == 0 {
-        0;
+        0
     } else {
-        countdown(n - 1);
+        countdown(n - 1)
     }
 }
 
-print(countdown(10))
+fn main() with IO {
+    print(countdown(10))
+}

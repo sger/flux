@@ -1,0 +1,21 @@
+module TypeSystem.RealProgramBaseInterop {
+    public fn sorted_copy(xs: Array<Int>) -> Array<Int> {
+        sort(xs)
+    }
+
+    public fn has_value(xs: Array<Int>, value: Int) -> Bool {
+        contains(xs, value)
+    }
+
+    public fn max_pair(a: Int, b: Int) -> Int {
+        if a > b { a } else { b }
+    }
+
+    public fn score_or_zero(m: Map<String, Int>, key: String) -> Int {
+        match get(m, key) {
+            Some(v) -> v,
+            None -> 0,
+            _ -> 0,
+        }
+    }
+}

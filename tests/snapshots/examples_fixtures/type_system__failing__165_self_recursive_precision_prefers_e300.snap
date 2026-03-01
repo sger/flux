@@ -1,0 +1,22 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The value of `x` does not match its type annotation.
+
+  --> examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx:10:21
+   |
+10 |     let x: String = loop_back(3)
+   |                     ^^^^^^^^^^^^
+   |                     ------------ this is `Int`
+   |            ------ but `x` was annotated as `String`
+
+Help:
+  Change `x` to a `String` value or update the annotation to `Int`.
+== stdout ==
+<not executed>

@@ -1,0 +1,90 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/07_modules_and_hof.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `transform_and_sum`.
+
+  --> examples/type_system/07_modules_and_hof.flx:4:24
+  |
+4 | let doubled_sum: Int = Hof.transform_and_sum(nums, /(x: Int) -> x * 2)
+  |                        ^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/07_modules_and_hof.flx:6:1
+  |
+6 | print("module_doubled_sum=#{doubled_sum}")
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------------ top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/07_modules_and_hof.flx:6:1
+  |
+6 | print("module_doubled_sum=#{doubled_sum}")
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------------ effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/07_modules_and_hof.flx:7:1
+  |
+7 | print(Hof.apply_twice(/(x: Int) -> x + 1, 10))
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `apply_twice`.
+
+  --> examples/type_system/07_modules_and_hof.flx:7:7
+  |
+7 | print(Hof.apply_twice(/(x: Int) -> x + 1, 10))
+  |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `log_each`.
+
+  --> examples/type_system/07_modules_and_hof.flx:8:1
+  |
+8 | Hof.log_each(list(5, 6))
+  | ^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 6 errors.
+== stdout ==
+<not executed>

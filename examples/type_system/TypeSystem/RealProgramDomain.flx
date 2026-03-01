@@ -1,0 +1,39 @@
+module TypeSystem.RealProgramDomain {
+    data Band {
+        Low,
+        Mid,
+        High,
+    }
+
+    fn clamp_score(x: Int) -> Int {
+        if x < 0 { 0 }
+        else if x > 100 { 100 }
+        else { x }
+    }
+
+    public fn score_band(score: Int) -> Band {
+        let s = clamp_score(score)
+        if s >= 80 { High }
+        else if s >= 50 { Mid }
+        else { Low }
+    }
+
+    public fn band_label(b: Band) -> String {
+        match b {
+            Low -> "LOW",
+            Mid -> "MID",
+            High -> "HIGH",
+        }
+    }
+
+    public fn normalize(p: (String, Int)) -> (String, Int) {
+        (p.0, clamp_score(p.1))
+    }
+
+    public fn total_scores(xs: List<(String, Int)>) -> Int {
+        match xs {
+            [h | t] -> h.1 + total_scores(t),
+            _ -> 0,
+        }
+    }
+}

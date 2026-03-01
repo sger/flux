@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/io/aoc_day1_part2.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `solve`.
+
+  --> examples/io/aoc_day1_part2.flx:47:9
+   |
+47 |         solve(rest, next_pos_right, hits + zeros)
+   |         ^^^^^
+
+Hint:
+  Define it first: let solve = ...;
 == stdout ==
 <not executed>

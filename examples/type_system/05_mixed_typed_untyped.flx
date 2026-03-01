@@ -1,0 +1,16 @@
+// Untyped helper (gradual style)
+fn main() with IO, Time {
+    fn old_add(x, y) {
+        x + y
+    }
+
+    // Typed boundary
+    fn typed_add(a: Int, b: Int) -> Int {
+        a + b
+    }
+
+    let dynamic_value = old_add(5, 7)
+    let total: Int = typed_add(dynamic_value, 3)
+
+    print("total=#{total}")
+}

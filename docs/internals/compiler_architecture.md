@@ -4,6 +4,15 @@ This document describes the current architecture of the Flux compiler (v0.2.0).
 
 ---
 
+## Canonical Type/Effects Spec
+
+For current type-system + effects semantics and diagnostics contracts, see:
+- `docs/internals/type_system_effects.md`
+
+This architecture document focuses on component layout; semantic truth for type/effects lives in that dedicated spec.
+
+---
+
 ## Pipeline
 
 Flux has two execution backends that share the same front-end:

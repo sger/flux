@@ -1,0 +1,15 @@
+// E082: constructor arity mismatch in match pattern.
+
+data Pair {
+    Pair(Int, Int),
+}
+
+fn bad(x: Pair) -> Int {
+    match x {
+        Pair(a) -> a,
+    }
+}
+
+fn main() {
+    bad(Pair(1, 2))
+}

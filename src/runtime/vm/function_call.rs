@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::diagnostics::NOT_A_FUNCTION;
+use crate::diagnostics::{NOT_A_FUNCTION, RUNTIME_TYPE_ERROR};
 use crate::runtime::RuntimeContext;
 use crate::runtime::base::get_base_function_by_index;
 use crate::runtime::gc::GcHeap;
@@ -8,7 +8,68 @@ use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;
 
+// OpPerform instruction size: opcode (1) + const_idx (1) + arity (1) = 3 bytes.
+// This constant is used during continuation resume to advance the captured frame's IP past OpPerform.
+// We don't need it here since the IP is already advanced during capture, but kept for documentation.
+const _OP_PERFORM_SIZE: usize = 3;
+
 impl VM {
+    #[inline]
+    fn check_closure_contract_stack_args(
+        &self,
+        closure: &Closure,
+        num_args: usize,
+    ) -> Result<(), String> {
+        let Some(contract) = closure.function.contract.as_ref() else {
+            return Ok(());
+        };
+        let args_start = self.sp - num_args;
+        for (index, maybe_expected) in contract.params.iter().enumerate() {
+            let Some(expected) = maybe_expected.as_ref() else {
+                continue;
+            };
+            if index >= num_args {
+                break;
+            }
+            let actual = &self.stack[args_start + index];
+            if !expected.matches_value(actual, self) {
+                let expected_name = expected.type_name();
+                return Err(self.runtime_error_enhanced(
+                    &RUNTIME_TYPE_ERROR,
+                    &[&expected_name, actual.type_name()],
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn check_closure_contract_value_args(
+        &self,
+        closure: &Closure,
+        args: &[Value],
+    ) -> Result<(), String> {
+        let Some(contract) = closure.function.contract.as_ref() else {
+            return Ok(());
+        };
+        for (index, maybe_expected) in contract.params.iter().enumerate() {
+            let Some(expected) = maybe_expected.as_ref() else {
+                continue;
+            };
+            let Some(actual) = args.get(index) else {
+                break;
+            };
+            if !expected.matches_value(actual, self) {
+                let expected_name = expected.type_name();
+                return Err(self.runtime_error_enhanced(
+                    &RUNTIME_TYPE_ERROR,
+                    &[&expected_name, actual.type_name()],
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn unwind_invoke_error(&mut self, start_sp: usize, start_frame_index: usize) {
         while self.frame_index > start_frame_index {
             let bp = self.pop_frame_bp();
@@ -28,7 +89,8 @@ impl VM {
             "contains" | "slice" | "split" | "join" | "starts_with" | "ends_with" | "has_key"
             | "merge" | "delete" | "min" | "max" | "map" | "filter" | "put" | "get" | "range"
             | "split_ints" | "assert_eq" | "assert_neq" => Some(2),
-            "replace" | "substring" | "fold" => Some(3),
+            "replace" | "fold" => Some(3),
+            "substring" => None, // accepts 2 or 3 args
             "read_stdin" => Some(0),
             "assert_true" | "assert_false" => Some(1),
             // Variadic / optional arity Base functions remain on generic path.
@@ -131,6 +193,7 @@ impl VM {
                 closure.function.num_parameters, num_args
             ));
         }
+        self.check_closure_contract_stack_args(&closure, num_args)?;
         let frame = Frame::new(closure, self.sp - num_args);
         let num_locals = frame.closure.function.num_locals;
         let max_stack = frame.closure.function.max_stack;
@@ -162,6 +225,7 @@ impl VM {
                 closure.function.num_parameters, num_args
             ));
         }
+        self.check_closure_contract_stack_args(&closure, num_args)?;
 
         let base_pointer = self.current_frame().base_pointer;
 
@@ -212,6 +276,71 @@ impl VM {
         }
     }
 
+    /// Resume a captured continuation.
+    ///
+    /// Called from the OpCall dispatch when the callee is `Value::Continuation`.
+    /// `num_args` must be 1 (the resume value). Returns `Ok(())` with the VM
+    /// state restored to the captured continuation; ip_delta of 0 is returned by
+    /// the OpCall arm so the restored frame's IP is left unchanged.
+    pub(super) fn execute_resume(&mut self, num_args: usize) -> Result<(), String> {
+        if num_args != 1 {
+            return Err(format!("resume expects 1 argument, got {}", num_args));
+        }
+        let resume_val = self.pop_untracked()?;
+        let cont_val = self.pop_untracked()?; // the callee (Continuation)
+
+        let cont_rc = match cont_val {
+            Value::Continuation(rc) => rc,
+            _ => unreachable!("execute_resume called with non-Continuation callee"),
+        };
+
+        let (entry_frame_index, entry_sp, frames, stack, captured_sp, inner_handlers) = {
+            let mut cont = cont_rc.borrow_mut();
+            if cont.used {
+                return Err("continuation already resumed (one-shot)".to_string());
+            }
+            cont.used = true;
+            (
+                cont.entry_frame_index,
+                cont.entry_sp,
+                cont.frames.clone(),
+                cont.stack.clone(),
+                cont.sp,
+                cont.inner_handlers.clone(),
+            )
+        };
+
+        // Unwind all frames above the handler boundary.
+        self.frame_index = entry_frame_index;
+
+        // Reset stack to handler boundary.
+        self.reset_sp(entry_sp)?;
+
+        // Restore inner handlers that were nested inside the captured region.
+        for h in inner_handlers {
+            self.handler_stack.push(h);
+        }
+
+        // Restore the captured stack slice.
+        let stack_len = stack.len();
+        self.ensure_stack_capacity(entry_sp + stack_len + 1)?;
+        for (i, v) in stack.into_iter().enumerate() {
+            self.stack[entry_sp + i] = v;
+        }
+
+        // Place the resume value at the position corresponding to the result
+        // of the perform expression (= captured_sp, right after the saved stack).
+        self.stack[captured_sp] = resume_val;
+        self.sp = captured_sp + 1;
+
+        // Restore captured frames above the handler boundary.
+        for frame in frames {
+            self.push_frame(frame);
+        }
+
+        Ok(())
+    }
+
     /// Invokes a callable Value (closure or Base function) with the given arguments
     /// and returns the result synchronously.
     ///
@@ -234,6 +363,7 @@ impl VM {
                         closure.function.num_parameters, num_args
                     ));
                 }
+                self.check_closure_contract_value_args(&closure, &args)?;
 
                 // Push the closure onto the stack (callee slot)
                 self.push(Value::Closure(closure.clone()))?;
@@ -286,6 +416,7 @@ impl VM {
                 closure.function.num_parameters
             ));
         }
+        self.check_closure_contract_value_args(&closure, std::slice::from_ref(&arg))?;
 
         self.push(Value::Closure(closure.clone()))?;
         self.push(arg)?;
@@ -326,6 +457,8 @@ impl VM {
                 closure.function.num_parameters
             ));
         }
+        let args = [left.clone(), right.clone()];
+        self.check_closure_contract_value_args(&closure, &args)?;
 
         self.push(Value::Closure(closure.clone()))?;
         self.push(left)?;

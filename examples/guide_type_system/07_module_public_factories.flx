@@ -1,0 +1,3 @@
+import Guide.Factories as F
+
+let value: Int = F.demo(5)

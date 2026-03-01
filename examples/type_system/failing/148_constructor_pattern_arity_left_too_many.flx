@@ -1,0 +1,11 @@
+// E085: constructor-pattern arity mismatch (expects 1 field, pattern provides 3).
+
+type EitherI = LeftI(Int) | RightI(Int)
+
+fn main() {
+    let x = LeftI(1)
+    let _y = match x {
+        LeftI(a, b, c) -> a,
+        RightI(n) -> n,
+    }
+}

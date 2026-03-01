@@ -1,0 +1,31 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/110_call_arg_named_fn.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `greet` has the wrong type.
+
+  --> examples/type_system/failing/110_call_arg_named_fn.flx:6:20
+  |
+1 | fn greet(name: String) -> String {
+
+2 |     name
+
+3 | }
+
+4 | 
+
+5 | fn main() -> Unit {
+
+6 |     let _x = greet(42)
+  |                    ^^
+  |                    -- this argument is `Int`
+
+Help:
+  Expected `String` as the 1st argument.
+== stdout ==
+<not executed>

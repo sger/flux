@@ -1,0 +1,35 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/118_let_missing_eq.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+--> compiler error[E076]: UNCLOSED DELIMITER
+
+Expected a closing `}` to match this opening `{` in function `main`.
+
+  --> examples/type_system/failing/118_let_missing_eq.flx:1:19
+  |
+1 | fn main() -> Unit {
+  |                   ^
+
+Help:
+  Add `}` to close the body of function `main`.
+
+
+--> compiler error[E034]: UNEXPECTED TOKEN
+
+Expected `=` after `let x`. Did you mean `let x = ...`?
+
+  --> examples/type_system/failing/118_let_missing_eq.flx:2:11
+  |
+2 |     let x 1
+  |           ^
+
+Hint:
+  Let bindings require `=`: `let name = value`
+
+Found 2 errors.
+== stdout ==
+<not executed>

@@ -1,0 +1,12 @@
+fn identity(v) {
+    v
+}
+
+fn area(radius: Float) -> Float {
+    3.14159 * radius * radius
+}
+
+let dynamic = identity("not-a-float")
+
+// Runtime contract violation at boundary (dynamic/String -> Float arg).
+area(dynamic)

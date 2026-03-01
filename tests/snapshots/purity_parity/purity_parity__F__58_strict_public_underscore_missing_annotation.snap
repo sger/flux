@@ -1,0 +1,29 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+Category: F
+Strict: true
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache --strict examples/type_system/failing/58_strict_public_underscore_missing_annotation.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
+
+== jit tuples ==
+- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
+- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

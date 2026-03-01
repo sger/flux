@@ -1,0 +1,6 @@
+public fn log(x) {
+    print(to_string(x))
+}
+
+fn main() -> Unit {
+}
