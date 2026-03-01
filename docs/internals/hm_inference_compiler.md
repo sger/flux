@@ -1,5 +1,7 @@
 # HM Inference in the Flux Compiler
 
+> **Related:** [type_system_effects.md](type_system_effects.md) · [Guide Ch. 9 — Type System Basics](../guide/09_type_system_basics.md)
+
 This document explains how Hindley-Milner (HM) inference is wired into Flux compilation today.
 
 Canonical companions:
@@ -205,6 +207,110 @@ Parity and fixture coverage:
    - `cargo test --test type_inference_tests`
    - affected compiler test target(s)
 5. If diagnostics text changes, refresh relevant snapshots.
+
+## Type Variable Lifecycle
+
+Understanding how type variables are created, unified, and consumed is essential for debugging inference issues.
+
+### Creation
+
+Fresh type variables are created by `InferCtx::fresh_var()`. Each call returns a unique `Var(u32)` with a monotonically increasing counter. Fresh variables are created for:
+- Unannotated function parameters.
+- The result type of unannotated `let` bindings.
+- Instantiation of polymorphic schemes (each `forall`-bound variable gets a fresh copy).
+- Internal inference of collection literals and constructor calls.
+
+### Unification
+
+`unify_with_span(t1, t2, subst, span)` in `src/types/unify_error.rs` attempts to unify two types by extending the current substitution:
+
+1. Apply the current substitution to both sides first.
+2. If both sides are the same variable, or one is a variable and the other is not recursive (`occurs_check`), bind the variable.
+3. If both sides are `Con(c1)` and `Con(c2)` with `c1 == c2`, unification succeeds.
+4. If both sides are `App(f1, args1)` and `App(f2, args2)`, recurse on `(f1, f2)` and `zip(args1, args2)`.
+5. If both sides are `Fun(params1, ret1, eff1)` and `Fun(params2, ret2, eff2)`, recurse on each param pair, the return type, and effect sets.
+6. If either side is `Any`, succeed (gradual typing escape).
+7. Otherwise, emit `E300` — but only when both sides are concrete (non-`Any`, no free vars).
+
+### Application
+
+The current substitution is applied via `TypeSubst::apply_to_type(ty)`. This recursively replaces every `Var(n)` that has a binding in the substitution map. The substitution is in compositional form — `compose(s1, s2)` applies `s1` to all values in `s2` before merging, ensuring transitivity.
+
+### Generalization
+
+`generalize(env, ty)` computes the set of free type variables in `ty` that are **not** free in `env` (the outer type environment). These unconstrained variables are universally quantified in the resulting `Scheme`. This is the core of Hindley-Milner let-polymorphism.
+
+Generalization is conservative in Flux:
+- Only explicitly `<T>`-parameterized functions or top-level `fn` declarations are generalized.
+- Unannotated local `let` bindings remain monomorphic (the value restriction).
+
+---
+
+## Gradual Typing Integration
+
+Flux is **gradually typed**: `Any` is a first-class type that unifies with everything. This makes the type system safe for incremental adoption.
+
+### Where `Any` enters
+
+| Source | Description |
+|--------|-------------|
+| Unannotated parameters | When HM can't determine a concrete type (e.g., never used in a typed context) |
+| Heterogeneous `if`/`match` branches | `join_types(t1, t2)` returns `Any` when branches have different concrete types |
+| Unknown module member | `MemberAccess` on non-module values falls back to `Any` |
+| Unresolved `Perform`/`Handle` signatures | Effect operations without resolvable types degrade to `Any` |
+
+### `Any` and error suppression
+
+When either side of a unification is `Any`, the unification succeeds silently. This prevents false positives on partially-typed code. The trade-off: type errors in `Any` regions are not caught statically.
+
+### Strict mode and `Any`
+
+`--strict` enables additional checks that catch `Any` leaking into public API positions:
+- `E423`: `Any` appears in a `public fn` parameter or return type.
+- `E425`: A strict-path HM lookup returned `Any` or unresolved type variables.
+
+---
+
+## ExprTypeMap and Pointer-Stable IDs
+
+The HM engine records the inferred type for each expression node in `ExprTypeMap`:
+
+```
+ExprTypeMap: ExprNodeId → InferType
+```
+
+`ExprNodeId` values are assigned from the allocation address of each `Expression` node in the `Program` instance passed to `infer_program`. This is a pointer-identity approach: the same `Program` allocation must be used by both HM and PASS 2 validation.
+
+**Critical invariant**: all AST transforms (desugaring, constant folding, etc.) must complete **before** `infer_program` is called. Post-HM transforms would create new `Expression` allocations with IDs unknown to the `ExprTypeMap`, breaking strict-path lookups.
+
+In `Compiler::compile`, this ordering is guaranteed by running HM after all pre-compilation passes.
+
+---
+
+## Adding a New Typed Construct
+
+When adding a new expression form or statement that needs type-checked behavior:
+
+1. **Inference side** (`src/ast/type_infer.rs`):
+   - Add a case in the expression/statement inference dispatch.
+   - Produce and record an `InferType` for the new node.
+   - Emit `E300` via `unify_reporting` for concrete mismatches.
+
+2. **Compiler consumption side** (`src/bytecode/compiler/`):
+   - If the construct has an annotated type, call `hm_expr_type_strict_path` to get the HM-inferred type, then `validate_expr_expected_type_with_policy` to check it.
+   - Avoid re-deriving the type in the compiler — always consume the `ExprTypeMap` result.
+
+3. **Add a fixture**:
+   - Passing case in `examples/type_system/`.
+   - Failing case in `examples/type_system/failing/`.
+
+4. **Run targeted tests**:
+   ```bash
+   cargo test --test type_inference_tests
+   cargo test --test compiler_rules_tests
+   ```
+
+---
 
 ## Non-Goals / Current Limits
 
