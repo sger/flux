@@ -26,7 +26,8 @@ use crate::{
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
         LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
         UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR, compiler_errors::UNREACHABLE_PATTERN_ARM,
+        UNKNOWN_PREFIX_OPERATOR,
+        compiler_errors::UNREACHABLE_PATTERN_ARM,
         compiler_errors::{
             call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
@@ -3744,22 +3745,37 @@ impl Compiler {
             Pattern::EmptyList { .. } => matches!(specific, Pattern::EmptyList { .. }),
 
             // Wrapper patterns: subsume if the inner pattern subsumes too.
-            Pattern::Some { pattern: inner_g, .. } => {
-                if let Pattern::Some { pattern: inner_s, .. } = specific {
+            Pattern::Some {
+                pattern: inner_g, ..
+            } => {
+                if let Pattern::Some {
+                    pattern: inner_s, ..
+                } = specific
+                {
                     Self::pattern_subsumes(inner_g, inner_s)
                 } else {
                     false
                 }
             }
-            Pattern::Left { pattern: inner_g, .. } => {
-                if let Pattern::Left { pattern: inner_s, .. } = specific {
+            Pattern::Left {
+                pattern: inner_g, ..
+            } => {
+                if let Pattern::Left {
+                    pattern: inner_s, ..
+                } = specific
+                {
                     Self::pattern_subsumes(inner_g, inner_s)
                 } else {
                     false
                 }
             }
-            Pattern::Right { pattern: inner_g, .. } => {
-                if let Pattern::Right { pattern: inner_s, .. } = specific {
+            Pattern::Right {
+                pattern: inner_g, ..
+            } => {
+                if let Pattern::Right {
+                    pattern: inner_s, ..
+                } = specific
+                {
                     Self::pattern_subsumes(inner_g, inner_s)
                 } else {
                     false
@@ -3768,14 +3784,10 @@ impl Compiler {
 
             // Cons: both head and tail must be subsumed.
             Pattern::Cons {
-                head: hg,
-                tail: tg,
-                ..
+                head: hg, tail: tg, ..
             } => {
                 if let Pattern::Cons {
-                    head: hs,
-                    tail: ts,
-                    ..
+                    head: hs, tail: ts, ..
                 } = specific
                 {
                     Self::pattern_subsumes(hg, hs) && Self::pattern_subsumes(tg, ts)
@@ -3827,12 +3839,10 @@ impl Compiler {
 
             // Literal: subsumes the same literal value only.
             Pattern::Literal {
-                expression: expr_g,
-                ..
+                expression: expr_g, ..
             } => {
                 if let Pattern::Literal {
-                    expression: expr_s,
-                    ..
+                    expression: expr_s, ..
                 } = specific
                 {
                     Self::literals_equal(expr_g, expr_s)
@@ -3848,9 +3858,7 @@ impl Compiler {
             (Expression::Integer { value: v1, .. }, Expression::Integer { value: v2, .. }) => {
                 v1 == v2
             }
-            (Expression::Float { value: v1, .. }, Expression::Float { value: v2, .. }) => {
-                v1 == v2
-            }
+            (Expression::Float { value: v1, .. }, Expression::Float { value: v2, .. }) => v1 == v2,
             (Expression::Boolean { value: v1, .. }, Expression::Boolean { value: v2, .. }) => {
                 v1 == v2
             }
