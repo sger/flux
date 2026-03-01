@@ -1209,6 +1209,123 @@ fn main() -> Unit with Console {
 }
 
 #[test]
+fn infer_effect_row_order_equivalence_for_function_params() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn call_swapped_effects(f: ((Int) -> Int with Time, IO), x: Int) -> Int with IO, Time {
+    f(x)
+}
+
+fn add_one(x: Int) -> Int with IO, Time {
+    x + 1
+}
+
+fn main() -> Unit {
+    let _ = call_swapped_effects(add_one, 1)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no diagnostics for order-equivalent effect rows, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_subtract_var_signature_stays_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+effect Console {
+    print: String -> ()
+}
+fn run_filtered(f: (() -> Int with e - Console)) -> Int with e - Console {
+    f()
+}
+fn io_work() -> Int with IO {
+    print("work")
+    10
+}
+fn main() -> Unit {
+    let _ = run_filtered(io_work)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected no HM diagnostics for satisfiable row-variable subtraction signature, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_subset_callback_requirement_stays_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+    f()
+}
+fn only_io() -> Int with IO {
+    1
+}
+fn main() -> Unit {
+    let _ = run_needs_io_time(only_io)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected HM to remain diagnostics-clean; compiler enforces row subset boundary, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn infer_effect_row_absent_ordering_linked_vars_stays_hm_clean() {
+    let (result, _program) = infer_program_from_source(
+        r#"
+fn needs_linked_absence(
+    first: (() -> Int with e - IO),
+    second: (() -> Int with e)
+) -> Int with e - IO {
+    first() + second()
+}
+fn row_var_worker() -> Int with e {
+    1
+}
+fn time_worker() -> Int with Time {
+    now_ms()
+    2
+}
+fn main() -> Unit with Time {
+    let _ = needs_linked_absence(row_var_worker, time_worker)
+}
+"#,
+    );
+    assert!(
+        result.diagnostics.is_empty(),
+        "expected HM to remain diagnostics-clean for linked row-var absence flow; compiler enforces call-site row constraints, got: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.code().unwrap_or(""))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn infer_handle_result_matches_handled_expression_type() {
     let (result, program) = infer_program_from_source(
         r#"

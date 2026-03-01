@@ -1,0 +1,15 @@
+// E422: callback effect row is missing required effects.
+
+fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
+    f()
+}
+
+fn only_io() -> Int with IO {
+    print("io")
+    1
+}
+
+fn main() with IO, Time {
+    run_needs_io_time(only_io)
+    None
+}

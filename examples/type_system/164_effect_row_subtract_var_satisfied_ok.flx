@@ -1,0 +1,18 @@
+// Row-variable subtraction is satisfiable when callback effects are concrete.
+
+effect Console {
+    print: String -> ()
+}
+
+fn run_filtered(f: (() -> Int with e - Console)) -> Int with e - Console {
+    f()
+}
+
+fn io_work() -> Int with IO {
+    print("work")
+    10
+}
+
+fn main() with IO {
+    print(to_string(run_filtered(io_work)))
+}

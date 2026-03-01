@@ -27,9 +27,8 @@ use crate::{
         LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
         UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
         UNKNOWN_PREFIX_OPERATOR,
-        compiler_errors::UNREACHABLE_PATTERN_ARM,
         compiler_errors::{
-            call_arg_type_mismatch, constructor_pattern_arity_mismatch,
+            UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
             guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
         },
@@ -48,6 +47,7 @@ use crate::{
     },
     syntax::{
         block::Block,
+        effect_expr::EffectExpr,
         expression::{Expression, HandleArm, MatchArm, Pattern, StringPart},
         module_graph::is_valid_module_name,
         statement::Statement,
@@ -695,61 +695,25 @@ impl Compiler {
                 ));
             }
 
-            if !constraints.is_empty() {
-                let unresolved: Vec<Symbol> = required_row
-                    .unresolved_vars(&solution)
-                    .into_iter()
-                    .filter(|effect_var| !self.is_effect_available(*effect_var))
-                    .collect();
+            let unresolved: Vec<Symbol> = required_row
+                .unresolved_vars(&solution)
+                .into_iter()
+                .filter(|effect_var| !self.is_effect_available(*effect_var))
+                .collect();
 
-                if unresolved.len() == 1 {
-                    let effect_name = self.sym(unresolved[0]).to_string();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E419",
-                            "UNRESOLVED EFFECT VARIABLE",
-                            ErrorType::Compiler,
-                            format!(
-                                "Cannot resolve effect variable `{}` for this call.",
-                                effect_name
-                            ),
-                            Some(format!(
-                                "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
-                                effect_name
-                            )),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_primary_label(function.span(), "effect variable is unconstrained"),
-                    ));
-                } else if unresolved.len() > 1 {
-                    let mut names: Vec<String> = unresolved
-                        .iter()
-                        .map(|symbol| self.sym(*symbol).to_string())
-                        .collect();
-                    names.sort();
-                    return Err(Self::boxed(
-                        Diagnostic::make_error_dynamic(
-                            "E420",
-                            "AMBIGUOUS EFFECT VARIABLES",
-                            ErrorType::Compiler,
-                            format!(
-                                "Call leaves multiple effect variables unresolved: {}.",
-                                names.join(", ")
-                            ),
-                            Some(
-                                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
-                                    .to_string(),
-                            ),
-                            self.file_path.clone(),
-                            function.span(),
-                        )
-                        .with_primary_label(function.span(), "effect variables are ambiguous"),
-                    ));
-                }
+            if !unresolved.is_empty() {
+                return Err(Self::boxed(
+                    self.unresolved_effect_vars_diagnostic(&unresolved, function.span()),
+                ));
             }
 
-            for required_name in required_row.concrete_effects(&solution) {
+            let mut required_effects: Vec<Symbol> = required_row
+                .concrete_effects(&solution)
+                .into_iter()
+                .collect();
+            required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
+
+            for required_name in required_effects {
                 if !self.is_effect_available(required_name) {
                     let function_name = match function {
                         Expression::Identifier { name, .. } => self.sym(*name).to_string(),
@@ -942,6 +906,51 @@ impl Compiler {
         Some((member.to_string(), qualifier.to_string()))
     }
 
+    fn unresolved_effect_vars_diagnostic(
+        &self,
+        vars: &[Symbol],
+        span: Span,
+    ) -> Diagnostic {
+        if vars.len() == 1 {
+            let effect_name = self.sym(vars[0]).to_string();
+            Diagnostic::make_error_dynamic(
+                "E419",
+                "UNRESOLVED EFFECT VARIABLE",
+                ErrorType::Compiler,
+                format!("Cannot resolve effect variable `{}` for this call.", effect_name),
+                Some(format!(
+                    "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
+                    effect_name
+                )),
+                self.file_path.clone(),
+                span,
+            )
+            .with_primary_label(span, "effect variable is unconstrained")
+        } else {
+            let mut names: Vec<String> = vars
+                .iter()
+                .map(|symbol| self.sym(*symbol).to_string())
+                .collect();
+            names.sort();
+            Diagnostic::make_error_dynamic(
+                "E420",
+                "AMBIGUOUS EFFECT VARIABLES",
+                ErrorType::Compiler,
+                format!(
+                    "Call leaves multiple effect variables unresolved: {}.",
+                    names.join(", ")
+                ),
+                Some(
+                    "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
+                        .to_string(),
+                ),
+                self.file_path.clone(),
+                span,
+            )
+            .with_primary_label(span, "effect variables are ambiguous")
+        }
+    }
+
     fn diagnostic_for_row_violation(
         &self,
         function: &Expression,
@@ -966,6 +975,9 @@ impl Compiler {
                     function.span(),
                 )
                 .with_primary_label(function.span(), "effect row constraint failed")
+            }
+            RowConstraintViolation::UnresolvedVars { vars } => {
+                self.unresolved_effect_vars_diagnostic(vars, function.span())
             }
             RowConstraintViolation::UnsatisfiedSubset { missing } => {
                 let mut names: Vec<String> = missing
@@ -1072,39 +1084,65 @@ impl Compiler {
             let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
                 self.is_effect_variable(effect)
             });
-            let actual = self.infer_argument_function_effect_row(argument, params.len());
-
-            // Keep current permissive behavior when argument effect info is unavailable.
-            if actual.atoms.is_empty() && actual.vars.is_empty() {
+            let Some(actual) = self.infer_argument_function_effect_row(argument, params.len())
+            else {
+                // Keep current permissive behavior when argument effect info is unavailable.
                 continue;
-            }
+            };
 
             constraints.push(RowConstraint::Eq(expected.clone(), actual.clone()));
-            for required_atom in expected.atoms {
-                constraints.push(RowConstraint::Contains(actual.clone(), required_atom));
+            constraints.push(RowConstraint::Subset(expected, actual.clone()));
+            for effect in param_effects {
+                self.collect_effect_expr_absence_constraints(effect, &actual, &mut constraints);
             }
         }
 
         constraints
     }
 
+    pub(super) fn collect_effect_expr_absence_constraints(
+        &self,
+        effect: &EffectExpr,
+        actual: &EffectRow,
+        constraints: &mut Vec<RowConstraint>,
+    ) {
+        match effect {
+            EffectExpr::Named { .. } => {}
+            EffectExpr::Add { left, right, .. } => {
+                self.collect_effect_expr_absence_constraints(left, actual, constraints);
+                self.collect_effect_expr_absence_constraints(right, actual, constraints);
+            }
+            EffectExpr::Subtract { left, right, .. } => {
+                self.collect_effect_expr_absence_constraints(left, actual, constraints);
+                self.collect_effect_expr_absence_constraints(right, actual, constraints);
+
+                let right_row =
+                    EffectRow::from_effect_expr(right, &|symbol| self.is_effect_variable(symbol));
+
+                for atom in right_row.atoms {
+                    constraints.push(RowConstraint::Absent(actual.clone(), atom));
+                }
+            }
+        }
+    }
+
     fn infer_argument_function_effect_row(
         &self,
         argument: &Expression,
         expected_arity: usize,
-    ) -> EffectRow {
+    ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => {
-                EffectRow::from_effect_exprs(effects, |effect| self.is_effect_variable(effect))
-            }
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(
+                effects,
+                |effect| self.is_effect_variable(effect),
+            )),
             Expression::Identifier { name, .. } => self
                 .lookup_unqualified_contract(*name, expected_arity)
                 .map(|contract| {
                     EffectRow::from_effect_exprs(&contract.effects, |effect| {
                         self.is_effect_variable(effect)
                     })
-                })
-                .unwrap_or_default(),
+                }),
             Expression::MemberAccess { object, member, .. } => {
                 let module_name = self.resolve_module_name_from_expr(object);
                 module_name
@@ -1116,9 +1154,8 @@ impl Compiler {
                             self.is_effect_variable(effect)
                         })
                     })
-                    .unwrap_or_default()
             }
-            _ => EffectRow::default(),
+            _ => None,
         }
     }
 

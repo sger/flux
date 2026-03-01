@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E421]: INVALID EFFECT SUBTRACTION
+
+Cannot subtract effect `IO` from a row that does not contain it.
+
+  --> examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:20:13
+   |
+20 |     let _ = needs_linked_absence(row_var_worker, io_worker)
+   |             ^^^^^^^^^^^^^^^^^^^^
+   |             -------------------- effect row constraint failed
+
+Hint:
+  Handle or include this effect before subtracting it from an effect row.
+== stdout ==
+<not executed>
