@@ -750,6 +750,14 @@ pub const CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING: ErrorCode = ErrorCode {
     hint: Some("Prefer module `public fn` factory/accessor API for cross-module usage."),
 };
 
+pub const UNREACHABLE_PATTERN_ARM: ErrorCode = ErrorCode {
+    code: "W202",
+    title: "UNREACHABLE PATTERN ARM",
+    error_type: ErrorType::Compiler,
+    message: "This arm is unreachable because an earlier unguarded arm already covers this pattern.",
+    hint: Some("Remove or reorder this arm."),
+};
+
 pub const UNKNOWN_FUNCTION_EFFECT: ErrorCode = ErrorCode {
     code: "E407",
     title: "UNKNOWN FUNCTION EFFECT",

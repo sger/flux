@@ -26,7 +26,7 @@ use crate::{
         ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
         LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
         UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR,
+        UNKNOWN_PREFIX_OPERATOR, compiler_errors::UNREACHABLE_PATTERN_ARM,
         compiler_errors::{
             call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
@@ -1517,6 +1517,10 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Exhaustiveness check before compiling arms.
         self.check_match_exhaustiveness(scrutinee, arms, match_span)?;
+        // Unreachable arm detection: warn on arms provably subsumed by earlier ones.
+        for diag in self.collect_unreachable_arm_warnings(arms) {
+            self.warnings.push(diag);
+        }
         // Compile scrutinee once and store it in a temp symbol.
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
         self.compile_non_tail_expression(scrutinee)?;
@@ -2379,12 +2383,13 @@ impl Compiler {
             ) else {
                 continue;
             };
-            self.validate_expr_expected_type(
+            self.validate_expr_expected_type_with_policy(
                 &expected,
                 arg,
                 "perform argument type is known at compile time",
                 "argument does not match effect operation signature".to_string(),
                 "perform argument",
+                true,
             )?;
         }
 
@@ -2552,12 +2557,13 @@ impl Compiler {
             }
 
             if let Some(expected_handled_ty) = handled_expression_type.as_ref() {
-                self.validate_expr_expected_type(
+                self.validate_expr_expected_type_with_policy(
                     expected_handled_ty,
                     &arm.body,
                     "handler arm result type is known at compile time",
                     "handler arm result should match the handled expression type".to_string(),
                     "handle arm result",
+                    true,
                 )?;
             }
 
@@ -3683,5 +3689,175 @@ impl Compiler {
             pattern,
             Pattern::Wildcard { .. } | Pattern::Identifier { .. }
         )
+    }
+
+    // ── Unreachable arm detection ──────────────────────────────────────────
+
+    /// Collect W202 warnings for arms whose patterns are provably subsumed by
+    /// an earlier unguarded arm.  Conservative: only patterns that can be
+    /// structurally proven unreachable are reported.  Guarded arms are never
+    /// considered to subsume later arms (a guard may fail at runtime).
+    fn collect_unreachable_arm_warnings(&self, arms: &[MatchArm]) -> Vec<Diagnostic> {
+        let mut diags = Vec::new();
+        // Build the list of preceding unguarded patterns as we go.
+        let mut covered: Vec<&Pattern> = Vec::new();
+
+        for arm in arms {
+            // A guarded arm can never be proven unreachable — the guard may fail.
+            if arm.guard.is_none() {
+                let is_unreachable = covered
+                    .iter()
+                    .any(|prev| Self::pattern_subsumes(prev, &arm.pattern));
+
+                if is_unreachable {
+                    diags.push(
+                        Diagnostic::make_warning_from_code(
+                            &UNREACHABLE_PATTERN_ARM,
+                            &[],
+                            self.file_path.clone(),
+                            arm.pattern.span(),
+                        )
+                        .with_primary_label(arm.pattern.span(), "unreachable arm"),
+                    );
+                } else {
+                    // Only add to covered set if this arm actually extends coverage.
+                    covered.push(&arm.pattern);
+                }
+            }
+        }
+
+        diags
+    }
+
+    /// Returns `true` if every value matched by `specific` is also matched by
+    /// `general`, meaning `specific` is fully covered when `general` fires first.
+    ///
+    /// Only covers cases that can be determined structurally without type
+    /// information (conservative: returns `false` on ambiguous cases).
+    fn pattern_subsumes(general: &Pattern, specific: &Pattern) -> bool {
+        match general {
+            // Wildcard/identifier catch-alls subsume everything.
+            Pattern::Wildcard { .. } | Pattern::Identifier { .. } => true,
+
+            // None / EmptyList are atomic — only subsume themselves.
+            Pattern::None { .. } => matches!(specific, Pattern::None { .. }),
+            Pattern::EmptyList { .. } => matches!(specific, Pattern::EmptyList { .. }),
+
+            // Wrapper patterns: subsume if the inner pattern subsumes too.
+            Pattern::Some { pattern: inner_g, .. } => {
+                if let Pattern::Some { pattern: inner_s, .. } = specific {
+                    Self::pattern_subsumes(inner_g, inner_s)
+                } else {
+                    false
+                }
+            }
+            Pattern::Left { pattern: inner_g, .. } => {
+                if let Pattern::Left { pattern: inner_s, .. } = specific {
+                    Self::pattern_subsumes(inner_g, inner_s)
+                } else {
+                    false
+                }
+            }
+            Pattern::Right { pattern: inner_g, .. } => {
+                if let Pattern::Right { pattern: inner_s, .. } = specific {
+                    Self::pattern_subsumes(inner_g, inner_s)
+                } else {
+                    false
+                }
+            }
+
+            // Cons: both head and tail must be subsumed.
+            Pattern::Cons {
+                head: hg,
+                tail: tg,
+                ..
+            } => {
+                if let Pattern::Cons {
+                    head: hs,
+                    tail: ts,
+                    ..
+                } = specific
+                {
+                    Self::pattern_subsumes(hg, hs) && Self::pattern_subsumes(tg, ts)
+                } else {
+                    false
+                }
+            }
+
+            // Tuple: element-wise subsumption (same arity required).
+            Pattern::Tuple {
+                elements: elems_g, ..
+            } => {
+                if let Pattern::Tuple {
+                    elements: elems_s, ..
+                } = specific
+                    && elems_g.len() == elems_s.len()
+                {
+                    elems_g
+                        .iter()
+                        .zip(elems_s.iter())
+                        .all(|(g, s)| Self::pattern_subsumes(g, s))
+                } else {
+                    false
+                }
+            }
+
+            // ADT Constructor: same name and field-wise subsumption.
+            Pattern::Constructor {
+                name: name_g,
+                fields: fields_g,
+                ..
+            } => {
+                if let Pattern::Constructor {
+                    name: name_s,
+                    fields: fields_s,
+                    ..
+                } = specific
+                    && name_g == name_s
+                    && fields_g.len() == fields_s.len()
+                {
+                    fields_g
+                        .iter()
+                        .zip(fields_s.iter())
+                        .all(|(g, s)| Self::pattern_subsumes(g, s))
+                } else {
+                    false
+                }
+            }
+
+            // Literal: subsumes the same literal value only.
+            Pattern::Literal {
+                expression: expr_g,
+                ..
+            } => {
+                if let Pattern::Literal {
+                    expression: expr_s,
+                    ..
+                } = specific
+                {
+                    Self::literals_equal(expr_g, expr_s)
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    fn literals_equal(a: &Expression, b: &Expression) -> bool {
+        match (a, b) {
+            (Expression::Integer { value: v1, .. }, Expression::Integer { value: v2, .. }) => {
+                v1 == v2
+            }
+            (Expression::Float { value: v1, .. }, Expression::Float { value: v2, .. }) => {
+                v1 == v2
+            }
+            (Expression::Boolean { value: v1, .. }, Expression::Boolean { value: v2, .. }) => {
+                v1 == v2
+            }
+            (Expression::String { value: v1, .. }, Expression::String { value: v2, .. }) => {
+                v1 == v2
+            }
+            _ => false,
+        }
     }
 }
