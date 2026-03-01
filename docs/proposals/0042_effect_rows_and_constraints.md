@@ -84,6 +84,33 @@ This proposal remains the canonical row-constraint policy for current `with e` b
    - Outcome: **Deferred (linked follow-up proposal)**.
    - Follow-up: `docs/proposals/0049_effect_rows_completeness.md` and strict-boundary policy updates.
 
+### Completion Criteria (March 1, 2026 closure gate)
+
+1. `with e` propagation is deterministic for supported higher-order call paths.
+2. Effect-row normalization/equivalence treats concrete effect ordering as non-semantic.
+3. Supported subtraction forms preserve remaining obligations deterministically.
+4. Diagnostics lock surface remains stable as `code/title/primary label`.
+
+### Evidence Matrix (March 1, 2026)
+
+| Criterion | Fixture Evidence | Test Evidence | Parity / Snapshot Evidence |
+|---|---|---|---|
+| Deterministic `with e` propagation | `examples/type_system/30_effect_poly_hof_nested_ok.flx`, `examples/type_system/failing/19_effect_polymorphism_missing_effect.flx` | `tests/type_inference_tests.rs`, `tests/compiler_rules_tests.rs` | VM/JIT fixture runs for `30` and `19` agree on behavior |
+| Row normalization/equivalence | `examples/type_system/33_effect_row_subtract_surface_syntax.flx`, `examples/type_system/162_effect_row_order_equivalence_ok.flx` | `tests/type_inference_tests.rs` (`infer_effect_row_order_equivalence_for_function_params`) | VM/JIT fixture run for `30` and type-level ordering invariants |
+| Supported subtraction behavior | `examples/type_system/failing/45_effect_row_subtract_missing_io.flx` | `tests/compiler_rules_tests.rs` (effect-row call contract checks) | VM/JIT fixture runs for `45` both emit `E400` |
+| Stable diagnostics contract | `examples/type_system/failing/61_strict_generic_unresolved_boundary.flx` | `tests/compiler_rules_tests.rs` (`strict_unresolved_generic_boundary_has_stable_diagnostic_shape`) | `cargo test --all --all-features purity_vm_jit_parity_snapshots` |
+
+### 13. Closure Evidence (March 1, 2026)
+
+- `cargo test --test type_inference_tests` — green.
+- `cargo test --test compiler_rules_tests` — green.
+- `cargo test --all --all-features purity_vm_jit_parity_snapshots` — green.
+- Focused VM/JIT fixture checks:
+  - `30_effect_poly_hof_nested_ok.flx` (success in VM/JIT),
+  - `19_effect_polymorphism_missing_effect.flx` (`E400` in VM/JIT),
+  - `45_effect_row_subtract_missing_io.flx` (`E400` in VM/JIT),
+  - `61_strict_generic_unresolved_boundary.flx` (`E425` in strict VM/JIT).
+
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
