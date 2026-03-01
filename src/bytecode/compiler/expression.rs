@@ -1847,6 +1847,30 @@ impl Compiler {
             Pattern::Constructor { name, fields, span } => {
                 // 1. Check if this is a known constructor
                 let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    // Before reporting unknown constructor, check for cross-module access
+                    // via a qualified name (e.g. Module.Ctor used in a pattern).
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(*name)
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
                         diag_enhanced(&UNKNOWN_CONSTRUCTOR)
@@ -2085,6 +2109,30 @@ impl Compiler {
             Pattern::Wildcard { .. } | Pattern::Literal { .. } | Pattern::None { .. } => {}
             Pattern::Constructor { name, fields, span } => {
                 let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    // Before reporting unknown constructor, check for cross-module access
+                    // via a qualified name (e.g. Module.Ctor used in a pattern).
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(*name)
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
                         diag_enhanced(&UNKNOWN_CONSTRUCTOR)
