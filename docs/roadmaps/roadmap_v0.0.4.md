@@ -177,7 +177,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M1: HM Zero-Fallback Completion
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [051_any_fallback_reduction.md](../proposals/051_any_fallback_reduction.md), [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0051_any_fallback_reduction.md](../proposals/0051_any_fallback_reduction.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Make HM strict-path authority for typed validation callsites.
 
@@ -197,7 +197,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M2: ADT Semantics Hardening
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [047_adt_semantics_deepening.md](../proposals/047_adt_semantics_deepening.md), [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0047_adt_semantics_deepening.md](../proposals/0047_adt_semantics_deepening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Stabilize ADT constructor typing and supported module-boundary behavior.
 
@@ -215,7 +215,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M3: Strong Exhaustiveness Completion
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** Medium  
-**Proposals:** [050_totality_and_exhaustiveness_hardening.md](../proposals/050_totality_and_exhaustiveness_hardening.md), [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0050_totality_and_exhaustiveness_hardening.md](../proposals/0050_totality_and_exhaustiveness_hardening.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Deterministic compile-time totality checks for supported pattern spaces.
 
@@ -234,7 +234,7 @@ Total: 4 weeks (March 2026 release window)
 
 ### M4: VM/JIT Parity Freeze + Runtime Stability
 **Priority:** CRITICAL | **Effort:** Medium | **Risk:** High  
-**Proposals:** [043_pure_flux_checklist.md](../proposals/043_pure_flux_checklist.md), [054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
+**Proposals:** [0043_pure_flux_checklist.md](../proposals/0043_pure_flux_checklist.md), [0054_0_0_4_hm_adt_exhaustiveness_critical_path.md](../proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md)
 
 **Goal:** Ensure parity and runtime behavior are release-safe.
 
@@ -259,7 +259,7 @@ cargo run --features jit -- --no-cache --test --root lib --root examples/aoc/202
 
 ### M5: Safe Performance Track (Release-Compatible)
 **Priority:** HIGH | **Effort:** Small-Medium | **Risk:** Low  
-**Proposals:** [055_lexer_performance_and_architecture.md](../proposals/055_lexer_performance_and_architecture.md), [056_parser_performance_and_architecture.md](../proposals/056_parser_performance_and_architecture.md), [044_compiler_phase_pipeline_refactor.md](../proposals/044_compiler_phase_pipeline_refactor.md)
+**Proposals:** [0055_lexer_performance_and_architecture.md](../proposals/0055_lexer_performance_and_architecture.md), [0056_parser_performance_and_architecture.md](../proposals/0056_parser_performance_and_architecture.md), [0044_compiler_phase_pipeline_refactor.md](../proposals/0044_compiler_phase_pipeline_refactor.md)
 
 **Status:** Complete (baseline harnesses, two low-risk hot-path changes, and parity-safe evidence locked)
 
@@ -357,8 +357,8 @@ Any intentional change requires snapshot review + proposal note.
 3. No unresolved typed-path fallback gaps remain in strict-path validations.
 4. Docs aligned:
    - `docs/internals/type_system_effects.md`
-   - `docs/proposals/043_pure_flux_checklist.md`
-   - `docs/proposals/000_index.md`
+   - `docs/proposals/0043_pure_flux_checklist.md`
+   - `docs/proposals/0000_index.md`
 5. Safe perf evidence captured (if perf items landed in release).
 
 ---

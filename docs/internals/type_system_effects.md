@@ -3,9 +3,9 @@
 This document is the canonical implementation reference for Flux type/effect behavior as of v0.0.4 work.
 
 Supporting documents:
-- Historical semantics proposal: `docs/proposals/032_type_system_with_effects.md`
-- Effect-row expansion track: `docs/proposals/042_effect_rows_and_constraints.md`
-- Closure evidence and parity checklist: `docs/proposals/043_pure_flux_checklist.md`
+- Historical semantics proposal: `docs/proposals/0032_type_system_with_effects.md`
+- Effect-row expansion track: `docs/proposals/0042_effect_rows_and_constraints.md`
+- Closure evidence and parity checklist: `docs/proposals/0043_pure_flux_checklist.md`
 
 ## 1. Purpose and Scope
 
@@ -33,7 +33,7 @@ Truth sources for this baseline:
 - Type core in `src/types/*`.
 - Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
 - Roadmap orchestration/sequencing in:
-  `docs/proposals/054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
+  `docs/proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
 
 ## 2. Semantic Model (Implemented)
 
@@ -151,7 +151,7 @@ See:
 - Additional row solver features beyond current implemented subset.
 
 Track in:
-- `docs/proposals/042_effect_rows_and_constraints.md`.
+- `docs/proposals/0042_effect_rows_and_constraints.md`.
 
 ## 4. Compiler Pipeline Mapping (Type/Effects)
 
@@ -265,9 +265,9 @@ Non-goals for this spec:
 - macro/type-level metaprogramming.
 
 Tracked separately:
-- `docs/proposals/042_effect_rows_and_constraints.md`
-- `docs/proposals/026_concurrency_model.md`
-- `docs/proposals/045_gc.md`.
+- `docs/proposals/0042_effect_rows_and_constraints.md`
+- `docs/proposals/0026_concurrency_model.md`
+- `docs/proposals/0045_gc.md`.
 
 ## 8. v0.0.4 Release Gate Checklist (Type + Effects)
 
