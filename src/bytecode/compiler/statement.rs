@@ -131,6 +131,7 @@ impl Compiler {
     fn effect_named_span(effect: &EffectExpr, target: Symbol) -> Option<Span> {
         match effect {
             EffectExpr::Named { name, span } => (*name == target).then_some(*span),
+            EffectExpr::RowVar { name, span } => (*name == target).then_some(*span),
             EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
                 Self::effect_named_span(left, target)
                     .or_else(|| Self::effect_named_span(right, target))
