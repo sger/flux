@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    ast::type_infer::InferProgramResult,
     diagnostics::position::Span,
     runtime::runtime_type::RuntimeType,
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
@@ -226,6 +227,15 @@ impl TypeEnv {
             RuntimeType::Tuple(elems) => {
                 InferType::Tuple(elems.iter().map(Self::infer_type_from_runtime).collect())
             }
+            RuntimeType::Function {
+                params,
+                ret,
+                effects,
+            } => InferType::Fun(
+                params.iter().map(Self::infer_type_from_runtime).collect(),
+                Box::new(Self::infer_type_from_runtime(ret)),
+                // InferEffe::closed_from_symbols(effects.iter().copied()),
+            ),
         }
     }
 
