@@ -302,9 +302,28 @@ fn parses_typed_function_signature_with_effect_row_ops() {
 }
 
 #[test]
+fn parses_open_row_tail_only_effect() {
+    let (program, interner) = parse_ok("fn run() -> Int with |e { 1 }");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Statement::Function { effects, .. } => {
+            assert_eq!(
+                effects
+                    .iter()
+                    .map(|e| e.display_with(&interner))
+                    .collect::<Vec<_>>(),
+                vec!["|e".to_string()]
+            );
+        }
+        _ => panic!("expected function statement"),
+    }
+}
+
+#[test]
 fn parses_function_type_annotation_with_effect_row_ops() {
     let (program, interner) =
-        parse_ok("let f: (Int) -> Int with e + IO - Console = \\(x: Int) -> x;");
+        parse_ok("let f: (Int) -> Int with IO | e - Console = \\(x: Int) -> x;");
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
@@ -314,11 +333,71 @@ fn parses_function_type_annotation_with_effect_row_ops() {
         } => {
             assert_eq!(
                 ty.display_with(&interner),
-                "Int -> Int with e + IO - Console"
+                "Int -> Int with IO + |e - Console"
             );
         }
         _ => panic!("expected typed let statement"),
     }
+}
+
+#[test]
+fn rejects_implicit_row_variable_syntax() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with e + IO { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for implicit row variable syntax"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("Implicit row variables"),
+        "expected implicit-row-variable parser diagnostic, got: {renderer}"
+    );
+}
+
+#[test]
+fn rejects_uppercase_row_tail_variable() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with IO | E { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for upppercase row tail variable"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("tail variables must be lowercase"),
+        "expected lowercase-tail parser diagnostic, got: {renderer}"
+    );
+}
+
+#[test]
+fn rejects_missing_row_tail_variable() {
+    let (_program, parser) = parse_with_errors("fn f() -> Int with IO | { 1 }");
+    assert!(
+        !parser.errors.is_empty(),
+        "expected parser error for missing row tail variable"
+    );
+
+    let renderer = parser
+        .errors
+        .iter()
+        .map(|d| d.message().unwrap_or("").to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        renderer.contains("Expected row variable name after `|`"),
+        "expected missing-row-tail parser diagnostic, got: {renderer}"
+    );
 }
 
 #[test]

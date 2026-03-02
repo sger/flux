@@ -690,25 +690,136 @@ impl Parser {
         }
     }
 
+    /// Parses an effect expression used in `with` clauses.
+    ///
+    /// Supported forms are concrete atoms (`IO`), row tails (`|e`), and left-associative
+    /// arithmetic via `+` / `-`. At most one explicit row tail is allowed per expression.
+    ///
+    /// Lowercase identifiers are rejected unless introduced by `|`; implicit row variables
+    /// are intentionally disallowed.
     fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
-        if !self.expect_peek_context(
-            TokenType::Ident,
-            "Expected effect name in effect expression.".to_string(),
-            "Effect expressions use names like `IO` or `IO + Net`.".to_string(),
-        ) {
-            return None;
-        }
+        let is_lowercase_ident = |literal: &str| {
+            literal
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_lowercase())
+        };
 
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
-        let mut expr = EffectExpr::Named {
-            name,
-            span: self.current_token.span(),
+        let mut saw_row_tail;
+        let mut expr = if self.is_peek_token(TokenType::Bar) {
+            self.next_token(); // |
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected row variable name after `|` in effect expression. ".to_string(),
+                "Write row tails as `| e` where `e` is a lowercase identifier.".to_string(),
+            ) {
+                return None;
+            }
+
+            if !is_lowercase_ident(&self.current_token.literal) {
+                self.errors.push(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "Effect row tail variables must be lowecase identifiers.".to_string(),
+                    )
+                    .with_hint_text("Use a lowercase tail name, for example `with |e`."),
+                );
+                return None;
+            }
+            saw_row_tail = true;
+
+            EffectExpr::RowVar {
+                name: self
+                    .current_token
+                    .symbol
+                    .expect("ident token should have symbol"),
+                span: self.current_token.span(),
+            }
+        } else {
+            if !self.expect_peek_context(
+                TokenType::Ident,
+                "Expected effect name after in effect expression. ".to_string(),
+                "Effect expressions use names like `IO`, `IO + Net`, or `|e`.".to_string(),
+            ) {
+                return None;
+            }
+
+            if is_lowercase_ident(&self.current_token.literal) {
+                self.errors.push(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "Implicit row variables are no longer supported in `with` clauses."
+                            .to_string(),
+                    )
+                    .with_hint_text("Rewrite using an explicit tail variable: `with |e`."),
+                );
+                return None;
+            }
+
+            saw_row_tail = false;
+
+            let name = self
+                .current_token
+                .symbol
+                .expect("ident token should have symbol");
+
+            EffectExpr::Named {
+                name,
+                span: self.current_token.span(),
+            }
         };
 
         loop {
+            if self.is_peek_token(TokenType::Bar) {
+                if saw_row_tail {
+                    self.errors.push(
+                        unexpected_token(
+                            self.current_token.span(),
+                            "Effect expressions can contain only one row variable tail."
+                                .to_string(),
+                        )
+                        .with_hint_text("Use a single tail variable, for example `with |e`."),
+                    );
+                    return None;
+                }
+                saw_row_tail = true;
+                self.next_token(); // |
+                if !self.expect_peek_context(
+                    TokenType::Ident,
+                    "Expected row variable name after `|` in effect expression.".to_string(),
+                    "Write row tails as `... | e` where `e` is a lowercase identifier.".to_string(),
+                ) {
+                    return None;
+                }
+
+                if !is_lowercase_ident(&self.current_token.literal) {
+                    self.errors.push(
+                        unexpected_token(
+                            self.current_token.span(),
+                            "Effect row tail variables must be lowercase identifiers.".to_string(),
+                        )
+                        .with_hint_text("Use a lowercase tail name, for example `with IO | e`."),
+                    );
+                    return None;
+                }
+
+                let tail = EffectExpr::RowVar {
+                    name: self
+                        .current_token
+                        .symbol
+                        .expect("ident token should have symbol"),
+                    span: self.current_token.span(),
+                };
+
+                let span = Span::new(expr.span().start, tail.span().end);
+                expr = EffectExpr::Add {
+                    left: Box::new(expr),
+                    right: Box::new(tail),
+                    span,
+                };
+                continue;
+            }
+
             let token = if self.is_peek_token(TokenType::Plus) {
                 Some(TokenType::Plus)
             } else if self.is_peek_token(TokenType::Minus) {
@@ -722,11 +833,25 @@ impl Parser {
             };
 
             self.next_token(); // operator
+
             if !self.expect_peek_context(
                 TokenType::Ident,
                 "Expected effect name after effect operator.".to_string(),
-                "Effect expressions use `Left + Right` or `Left - Right`.".to_string(),
+                "Effect expressions use `Left + Right`, `Left - Right`, and optional `| e` tails."
+                    .to_string(),
             ) {
+                return None;
+            }
+
+            if is_lowercase_ident(&self.current_token.literal) {
+                self.errors.push(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "Implicit row variables are no longer supported in `with` clauses."
+                            .to_string(),
+                    )
+                    .with_hint_text("Rewrite using an explicit tail variable: `with |e`."),
+                );
                 return None;
             }
 
@@ -734,11 +859,14 @@ impl Parser {
                 .current_token
                 .symbol
                 .expect("ident token should have symbol");
+
             let rhs = EffectExpr::Named {
                 name: rhs_name,
                 span: self.current_token.span(),
             };
+
             let span = Span::new(expr.span().start, rhs.span().end);
+
             expr = match operator {
                 TokenType::Plus => EffectExpr::Add {
                     left: Box::new(expr),
