@@ -906,11 +906,7 @@ impl Compiler {
         Some((member.to_string(), qualifier.to_string()))
     }
 
-    fn unresolved_effect_vars_diagnostic(
-        &self,
-        vars: &[Symbol],
-        span: Span,
-    ) -> Diagnostic {
+    fn unresolved_effect_vars_diagnostic(&self, vars: &[Symbol], span: Span) -> Diagnostic {
         if vars.len() == 1 {
             let effect_name = self.sym(vars[0]).to_string();
             Diagnostic::make_error_dynamic(
@@ -1107,7 +1103,7 @@ impl Compiler {
         constraints: &mut Vec<RowConstraint>,
     ) {
         match effect {
-            EffectExpr::Named { .. } => {}
+            EffectExpr::Named { .. } | EffectExpr::RowVar { .. } => {}
             EffectExpr::Add { left, right, .. } => {
                 self.collect_effect_expr_absence_constraints(left, actual, constraints);
                 self.collect_effect_expr_absence_constraints(right, actual, constraints);
@@ -1132,10 +1128,11 @@ impl Compiler {
         expected_arity: usize,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(
-                effects,
-                |effect| self.is_effect_variable(effect),
-            )),
+            Expression::Function { effects, .. } => {
+                Some(EffectRow::from_effect_exprs(effects, |effect| {
+                    self.is_effect_variable(effect)
+                }))
+            }
             Expression::Identifier { name, .. } => self
                 .lookup_unqualified_contract(*name, expected_arity)
                 .map(|contract| {
