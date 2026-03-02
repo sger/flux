@@ -9,6 +9,7 @@ pub(crate) struct EffectRow {
 }
 
 impl EffectRow {
+    /// Builds a row from an effect list, partitioning concrete atoms and row variables.
     pub(crate) fn from_effect_exprs<F>(effects: &[EffectExpr], is_var: F) -> Self
     where
         F: Fn(Symbol) -> bool,
@@ -34,6 +35,12 @@ impl EffectRow {
                 } else {
                     row.atoms.insert(*name);
                 }
+                row
+            }
+            EffectExpr::RowVar { name, .. } => {
+                // Row variables are always treated as open row bindings.
+                let mut row = Self::default();
+                row.vars.insert(*name);
                 row
             }
             EffectExpr::Add { left, right, .. } => {
