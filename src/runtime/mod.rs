@@ -49,6 +49,12 @@ pub trait RuntimeContext {
     }
     fn gc_heap(&self) -> &gc::GcHeap;
     fn gc_heap_mut(&mut self) -> &mut gc::GcHeap;
+    fn callable_contract<'a>(
+        &'a self,
+        _callee: &'a Value,
+    ) -> Option<&'a function_contract::FunctionContract> {
+        None
+    }
 }
 
 pub type BaseFn = fn(&mut dyn RuntimeContext, Vec<Value>) -> Result<Value, String>;
