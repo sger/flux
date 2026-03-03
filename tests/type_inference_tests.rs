@@ -1253,7 +1253,7 @@ fn infer_effect_row_subtract_var_signature_stays_hm_clean() {
 effect Console {
     print: String -> ()
 }
-fn run_filtered(f: (() -> Int with e - Console)) -> Int with e - Console {
+fn run_filtered(f: (() -> Int with |e - Console)) -> Int with |e - Console {
     f()
 }
 fn io_work() -> Int with IO {
