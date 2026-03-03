@@ -8,6 +8,10 @@ pub use registry::{
 
 mod array_ops;
 mod assert_ops;
+mod base_hm_effect_row;
+mod base_hm_signature;
+mod base_hm_signature_id;
+mod base_hm_type;
 mod collection_ops;
 mod hash_ops;
 mod helpers;
