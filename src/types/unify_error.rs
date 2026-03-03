@@ -70,7 +70,7 @@ impl UnifyError {
 #[allow(clippy::result_large_err)]
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     let mut next_row_var_id = 0;
-    unify_with_span_and_fresh(t1, t2, Span::default(), &mut next_row_var_id)
+    unify_with_span_and_row_var_counter(t1, t2, Span::default(), &mut next_row_var_id)
 }
 
 /// Unify with an explicit source span for error reporting.
@@ -81,11 +81,11 @@ pub fn unify_with_span(
     span: Span,
 ) -> Result<TypeSubst, UnifyError> {
     let mut next_row_var_id = 0;
-    unify_with_span_and_fresh(t1, t2, span, &mut next_row_var_id)
+    unify_with_span_and_row_var_counter(t1, t2, span, &mut next_row_var_id)
 }
 
 #[allow(clippy::result_large_err)]
-pub fn unify_with_span_and_fresh(
+pub fn unify_with_span_and_row_var_counter(
     t1: &InferType,
     t2: &InferType,
     span: Span,
@@ -137,7 +137,8 @@ pub fn unify_with_span_and_fresh(
 
             let ret1_sub = ret1.apply_type_subst(&subst);
             let ret2_sub = ret2.apply_type_subst(&subst);
-            let s2 = unify_with_span_and_fresh(&ret1_sub, &ret2_sub, span, next_row_var_id)
+            let s2 =
+                unify_with_span_and_row_var_counter(&ret1_sub, &ret2_sub, span, next_row_var_id)
                 .map_err(|e| {
                     UnifyError::mismatch(
                         e.expected,
@@ -188,7 +189,8 @@ fn unify_many(
     for (t1, t2) in ts1.iter().zip(ts2.iter()) {
         let t1_sub = t1.apply_type_subst(&subst);
         let t2_sub = t2.apply_type_subst(&subst);
-        let s = unify_with_span_and_fresh(&t1_sub, &t2_sub, span, next_row_var_id)?;
+        let s =
+            unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, next_row_var_id)?;
         subst = subst.compose(&s);
     }
     Ok(subst)
