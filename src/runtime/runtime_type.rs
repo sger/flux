@@ -219,9 +219,13 @@ mod tests {
     use super::RuntimeType;
     use crate::runtime::{
         RuntimeContext,
+        closure::Closure,
+        compiled_function::CompiledFunction,
+        function_contract::FunctionContract,
         gc::{GcHeap, HeapObject},
         value::Value,
     };
+    use std::rc::Rc;
 
     struct TestCtx {
         heap: GcHeap,
@@ -246,6 +250,13 @@ mod tests {
 
         fn gc_heap_mut(&mut self) -> &mut GcHeap {
             &mut self.heap
+        }
+
+        fn callable_contract<'a>(&'a self, callee: &'a Value) -> Option<&'a FunctionContract> {
+            match callee {
+                Value::Closure(closure) => closure.function.contract.as_ref(),
+                _ => None,
+            }
         }
     }
 
@@ -291,5 +302,125 @@ mod tests {
         assert!(ty.matches_value(&Value::Left(Value::String("ok".into()).into()), &ctx));
         assert!(ty.matches_value(&Value::Right(Value::Integer(7).into()), &ctx));
         assert!(!ty.matches_value(&Value::Left(Value::Integer(7).into()), &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_accepts_closure_with_subset_effects() {
+        let ctx = TestCtx::new();
+        let contract = FunctionContract {
+            params: vec![Some(RuntimeType::Int)],
+            ret: Some(RuntimeType::Bool),
+            effects: vec![],
+        };
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        };
+        assert!(expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_rejects_closure_missing_contract() {
+        let ctx = TestCtx::new();
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(None);
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        };
+        assert!(!expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_rejects_effect_superset() {
+        let mut interner = crate::syntax::interner::Interner::new();
+        let io = interner.intern("IO");
+        let time = interner.intern("Time");
+        let ctx = TestCtx::new();
+        let contract = FunctionContract {
+            params: vec![Some(RuntimeType::Int)],
+            ret: Some(RuntimeType::Bool),
+            effects: vec![io, time],
+        };
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![io],
+        };
+        assert!(!expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_rejects_param_mismatch() {
+        let ctx = TestCtx::new();
+        let contract = FunctionContract {
+            params: vec![Some(RuntimeType::String)],
+            ret: Some(RuntimeType::Bool),
+            effects: vec![],
+        };
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        };
+        assert!(!expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_rejects_return_mismatch() {
+        let ctx = TestCtx::new();
+        let contract = FunctionContract {
+            params: vec![Some(RuntimeType::Int)],
+            ret: Some(RuntimeType::Int),
+            effects: vec![],
+        };
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        };
+        assert!(!expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_accepts_effect_subset() {
+        let mut interner = crate::syntax::interner::Interner::new();
+        let io = interner.intern("IO");
+        let time = interner.intern("Time");
+        let ctx = TestCtx::new();
+        let contract = FunctionContract {
+            params: vec![Some(RuntimeType::Int)],
+            ret: Some(RuntimeType::Bool),
+            effects: vec![io],
+        };
+        let compiled = CompiledFunction::new(vec![], 0, 1, None).with_contract(Some(contract));
+        let closure = Value::Closure(Rc::new(Closure::new(Rc::new(compiled), vec![])));
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![io, time],
+        };
+        assert!(expected.matches_value(&closure, &ctx));
+    }
+
+    #[test]
+    fn function_runtime_type_rejects_non_closure_callable_kind() {
+        let ctx = TestCtx::new();
+        let expected = RuntimeType::Function {
+            params: vec![RuntimeType::Int],
+            ret: Box::new(RuntimeType::Bool),
+            effects: vec![],
+        };
+        assert!(!expected.matches_value(&Value::BaseFunction(0), &ctx));
     }
 }

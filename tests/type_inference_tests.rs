@@ -1277,7 +1277,7 @@ fn main() -> Unit {
 }
 
 #[test]
-fn infer_effect_row_subset_callback_requirement_stays_hm_clean() {
+fn infer_effect_row_subset_callback_requirement_emits_e300() {
     let (result, _program) = infer_program_from_source(
         r#"
 fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
@@ -1292,8 +1292,8 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        result.diagnostics.is_empty(),
-        "expected HM to remain diagnostics-clean; compiler enforces row subset boundary, got: {:?}",
+        has_diagnostic_code(&result, "E300"),
+        "expected HM effect-row mismatch diagnostics, got: {:?}",
         result
             .diagnostics
             .iter()
@@ -1307,12 +1307,12 @@ fn infer_effect_row_absent_ordering_linked_vars_stays_hm_clean() {
     let (result, _program) = infer_program_from_source(
         r#"
 fn needs_linked_absence(
-    first: (() -> Int with e - IO),
-    second: (() -> Int with e)
-) -> Int with e - IO {
+    first: (() -> Int with |e - IO),
+    second: (() -> Int with |e)
+) -> Int with |e - IO {
     first() + second()
 }
-fn row_var_worker() -> Int with e {
+fn row_var_worker() -> Int with |e {
     1
 }
 fn time_worker() -> Int with Time {
@@ -1771,6 +1771,44 @@ fn main() -> Unit {
             "argument to `accepts_any_param_fn` has the wrong type."
         ),
         "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
+        result.diagnostics
+    );
+}
+
+#[test]
+fn base_missing_hm_metadata_emits_e426() {
+    let source = r#"
+fn id(x: Int) -> Int { x }
+fn main() -> Unit {
+    let _ = map([|1, 2, 3|], id)
+}
+"#;
+    let lexer = Lexer::new(source);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+    let interner = parser.take_interner();
+    let mut interner_for_base = interner.clone();
+    let map = interner_for_base.intern("map");
+    let base = interner_for_base.intern("Base");
+    let known_base_names = HashSet::from([map]);
+    let result = infer_program(
+        &program,
+        &interner,
+        Some("<test>".to_string()),
+        HashMap::new(),
+        HashMap::new(),
+        known_base_names,
+        base,
+        HashMap::new(),
+    );
+    assert!(
+        has_diagnostic_code(&result, "E426"),
+        "expected E426 diagnostics, got: {:#?}",
         result.diagnostics
     );
 }
