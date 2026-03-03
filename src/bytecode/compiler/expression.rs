@@ -683,9 +683,7 @@ impl Compiler {
         };
 
         if !contract.effects.is_empty() {
-            let required_row = EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                self.is_effect_variable(effect)
-            });
+            let required_row = EffectRow::from_effect_exprs(&contract.effects);
             let constraints = self.collect_effect_row_constraints(&contract, arguments);
             let solution = solve_row_constraints(&constraints);
 
@@ -1061,7 +1059,7 @@ impl Compiler {
     }
 
     fn collect_effect_row_constraints(
-        &self,
+        &mut self,
         contract: &FnContract,
         arguments: &[Expression],
     ) -> Vec<RowConstraint> {
@@ -1077,9 +1075,7 @@ impl Compiler {
                 continue;
             };
 
-            let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
-                self.is_effect_variable(effect)
-            });
+            let expected = EffectRow::from_effect_exprs(param_effects);
             let Some(actual) = self.infer_argument_function_effect_row(argument, params.len())
             else {
                 // Keep current permissive behavior when argument effect info is unavailable.
@@ -1112,8 +1108,7 @@ impl Compiler {
                 self.collect_effect_expr_absence_constraints(left, actual, constraints);
                 self.collect_effect_expr_absence_constraints(right, actual, constraints);
 
-                let right_row =
-                    EffectRow::from_effect_expr(right, &|symbol| self.is_effect_variable(symbol));
+                let right_row = EffectRow::from_effect_expr(right);
 
                 for atom in right_row.atoms {
                     constraints.push(RowConstraint::Absent(actual.clone(), atom));
@@ -1123,36 +1118,30 @@ impl Compiler {
     }
 
     fn infer_argument_function_effect_row(
-        &self,
+        &mut self,
         argument: &Expression,
         expected_arity: usize,
     ) -> Option<EffectRow> {
         match argument {
-            Expression::Function { effects, .. } => {
-                Some(EffectRow::from_effect_exprs(effects, |effect| {
-                    self.is_effect_variable(effect)
-                }))
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
-            Expression::Identifier { name, .. } => self
-                .lookup_unqualified_contract(*name, expected_arity)
-                .map(|contract| {
-                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                        self.is_effect_variable(effect)
-                    })
-                }),
             Expression::MemberAccess { object, member, .. } => {
                 let module_name = self.resolve_module_name_from_expr(object);
                 module_name
                     .and_then(|module_name| {
                         self.lookup_contract(Some(module_name), *member, expected_arity)
                     })
-                    .map(|contract| {
-                        EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                            self.is_effect_variable(effect)
-                        })
-                    })
+                    .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
             }
-            _ => None,
+            _ => self.infer_argument_effect_row_from_hm(argument),
         }
     }
 
@@ -1383,9 +1372,13 @@ impl Compiler {
             }
         }
 
-        self.with_function_context(parameters.len(), effects, |compiler| {
-            compiler.compile_block_with_tail(body)
-        })?;
+        let param_effect_rows = self.build_param_effect_rows(parameters, parameters_types);
+        self.with_function_context_with_param_effect_rows(
+            parameters.len(),
+            effects,
+            param_effect_rows,
+            |compiler| compiler.compile_block_with_tail(body),
+        )?;
 
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
