@@ -132,6 +132,11 @@ pub fn validate_base_hm_signatures(interner: &mut Interner) -> Result<(), (&'sta
 mod tests {
     use std::collections::BTreeSet;
 
+    use crate::{
+        runtime::base::{registry::validate_base_hm_signatures, scheme_for_signature_id},
+        syntax::interner::Interner,
+    };
+
     use super::{
         BASE_FASTCALL_ALLOWLIST, BASE_FUNCTIONS, BaseModule, is_base_fastcall_allowlisted,
     };
@@ -234,6 +239,22 @@ mod tests {
                 "non-allowlisted name '{}' unexpectedly returns true",
                 name
             );
+        }
+    }
+
+    #[test]
+    fn base_hm_signatures_cover_all_registered_entries() {
+        let base = BaseModule::new();
+        assert_eq!(base.hm_signatures().count(), base.len())
+    }
+
+    #[test]
+    fn base_hm_signatures_lower_to_schemes() {
+        let mut interner = Interner::new();
+        validate_base_hm_signatures(&mut interner).expect("all Base HM signatures must lower");
+        for (_, sig_id) in BaseModule::new().hm_signatures() {
+            scheme_for_signature_id(sig_id, &mut interner)
+                .expect("each Base signature must lower to a scheme");
         }
     }
 }

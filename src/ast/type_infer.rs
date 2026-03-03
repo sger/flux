@@ -72,7 +72,7 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
                     .map(|e| interner.resolve(e).to_string())
                     .collect();
                 if let Some(tail) = effects.tail() {
-                    eff_str.push(format!("!?{tail}"));
+                    eff_str.push(format!("|?{tail}"));
                 }
                 format!(
                     "({}) -> {} with {}",
@@ -219,7 +219,7 @@ impl<'a> InferCtx<'a> {
         }
 
         InferCtx {
-            env: TypeEnv::new(),
+            env,
             interner,
             errors: Vec::new(),
             file_path,
@@ -244,7 +244,7 @@ impl<'a> InferCtx<'a> {
                 "BASE HM SIGNATURE",
                 crate::diagnostics::ErrorType::Compiler,
                 format!(
-                    "Base function `{}` is missinh HM metadata and cannot be typed.",
+                    "Base function `{}` is missing HM metadata and cannot be typed.",
                     self.interner.resolve(base_name)
                 ),
                 Some(
@@ -963,7 +963,7 @@ impl<'a> InferCtx<'a> {
         name: Identifier,
         parameters: &[Identifier],
         param_tys: &[InferType],
-        effects_row: &InferEffectRow,
+        effect_row: &InferEffectRow,
         body: &Block,
         current_ret: &InferType,
     ) -> InferType {
@@ -979,11 +979,11 @@ impl<'a> InferCtx<'a> {
         let self_fn_ty = InferType::Fun(
             refined_param_tys,
             Box::new(ret_slot.clone()),
-            effects_row.apply_row_subst(&self.subst),
+            effect_row.apply_row_subst(&self.subst),
         );
         self.env.bind(name, Scheme::mono(self_fn_ty));
         let second_body_ty =
-            self.with_ambient_effect_row(effects_row.clone(), |ctx| ctx.infer_block(body));
+            self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
         let refined_ret = self.unify_propagate(&second_body_ty, &ret_slot);
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);

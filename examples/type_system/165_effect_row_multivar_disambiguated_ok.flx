@@ -1,6 +1,6 @@
 // Multiple effect variables are disambiguated by concrete callback effects.
 
-fn run_poly(f: (() -> Int with e, t)) -> Int with e, t {
+fn run_poly(f: (() -> Int with |e, |t)) -> Int with |e, |t {
     f()
 }
 

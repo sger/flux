@@ -74,6 +74,23 @@ fn compile_err_strict(input: &str) -> String {
         .unwrap_or_default()
 }
 
+fn compile_ok_strict(input: &str) {
+    let lexer = Lexer::new(input);
+    let mut parser = Parser::new(lexer);
+    let program = parser.parse_program();
+
+    assert!(
+        parser.errors.is_empty(),
+        "parser errors: {:?}",
+        parser.errors
+    );
+
+    let interner = parser.take_interner();
+    let mut compiler = Compiler::new_with_interner("<unknown>", interner);
+    compiler.set_strict_mode(true);
+    compiler.compile(&program).expect("expected compile ok")
+}
+
 fn compile_ok_with_warnings_in(file_path: &str, input: &str, strict_mode: bool) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
@@ -632,18 +649,18 @@ fn forward_reference_simple() {
 }
 
 #[test]
-fn strict_public_function_typed_contract_is_unsupported() {
-    let code = compile_err_strict(
+fn strict_public_function_typed_contract_is_supported() {
+    compile_ok_strict(
         r#"
+fn is_positive(n: Int) -> Bool { n > 0 }
 public fn apply(f: (Int) -> Bool, x: Int) -> Bool {
     f(x)
 }
 fn main() -> Unit {
-    apply(\(n: Int) -> n > 0, 1)
+    let _ = apply(is_positive, 1)
 }
 "#,
     );
-    assert_eq!(code, "E424");
 }
 
 #[test]
@@ -2123,7 +2140,10 @@ fn import_base_except_hides_unqualified_name() {
 
 #[test]
 fn import_base_except_keeps_qualified_access() {
-    compile_ok_in("test.flx", "import Base except [print]\nBase.print(1);");
+    compile_ok_in(
+        "test.flx",
+        "import Base except [print]\nfn main() with IO { Base.print(1); }",
+    );
 }
 
 #[test]
