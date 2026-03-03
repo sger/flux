@@ -1,4 +1,10 @@
-use crate::runtime::base_function::BaseFunction;
+use crate::{
+    runtime::{
+        base::{base_hm_signature_id::BaseHmSignatureId, scheme_for_signature_id},
+        base_function::BaseFunction,
+    },
+    syntax::interner::Interner,
+};
 
 use super::BASE_FUNCTIONS;
 
@@ -68,6 +74,10 @@ impl BaseModule {
         BASE_FUNCTIONS.iter().map(|b| b.name)
     }
 
+    pub fn hm_signatures(self) -> impl Iterator<Item = (&'static str, BaseHmSignatureId)> {
+        BASE_FUNCTIONS.iter().map(|b| (b.name, b.hm_signature))
+    }
+
     /// Returns the Base entry count.
     pub fn len(self) -> usize {
         BASE_FUNCTIONS.len()
@@ -107,6 +117,15 @@ pub fn get_base_function_by_index(index: usize) -> Option<&'static BaseFunction>
 /// Returns true when a Base function name is allowlisted for `OpCallBase` fastcall lowering.
 pub fn is_base_fastcall_allowlisted(name: &str) -> bool {
     BASE_FASTCALL_ALLOWLIST.binary_search(&name).is_ok()
+}
+
+pub fn validate_base_hm_signatures(interner: &mut Interner) -> Result<(), (&'static str, String)> {
+    for base_fn in BASE_FUNCTIONS {
+        if let Err(err) = scheme_for_signature_id(base_fn.hm_signature, interner) {
+            return Err((base_fn.name, err));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use crate::{
-    runtime::base::helpers::{lower_effect_row, lower_type},
+    runtime::base::{
+        base_hm_effect_row::BaseHmEffectRow,
+        base_hm_type::BaseHmType,
+        helpers::{lower_effect_row, lower_type},
+    },
     syntax::interner::Interner,
     types::{TypeVarId, infer_type::InferType, scheme::Scheme},
 };

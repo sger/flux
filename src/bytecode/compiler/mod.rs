@@ -26,7 +26,9 @@ use crate::{
         position::{Position, Span},
     },
     runtime::{
-        base::BaseModule, function_contract::FunctionContract, runtime_type::RuntimeType,
+        base::{BaseModule, scheme_for_signature_id},
+        function_contract::FunctionContract,
+        runtime_type::RuntimeType,
         value::Value,
     },
     syntax::{
@@ -512,13 +514,41 @@ impl Compiler {
 
     fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
         let mut preloaded = HashMap::new();
-        for base_fn in BaseModule::new().names()  {
+        for base_fn in BaseModule::new().names() {
             let base_name = self.interner.intern(base_fn);
-            let Some(entry) = BaseModule::new().index_of(base_fn).and_then(|i| BaseModule::new().by_index(i))
-        else {
-            continue;
-        };
-        
+            let Some(entry) = BaseModule::new()
+                .index_of(base_fn)
+                .and_then(|i| BaseModule::new().by_index(i))
+            else {
+                continue;
+            };
+            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
+                Ok(scheme) => {
+                    preloaded.insert(base_name, scheme);
+                }
+                Err(message) => {
+                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E426",
+                            "BASE HM SIGNATURE MISSING",
+                            ErrorType::Compiler,
+                            format!(
+                                "Base function `{}` has invalid or missing HM metadata: {}",
+                                base_fn, message
+                            ),
+                            Some(
+                                "Fix the Base HM signature in src/runtime/base/signatures.rs."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            span,
+                        )
+                        .with_primary_label(span, "invalid Base HM metadata"),
+                    );
+                }
+            }
+        }
 
         preloaded
     }
