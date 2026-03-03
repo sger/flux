@@ -1,7 +1,9 @@
 - Feature Name: Totality and Exhaustiveness Hardening
 - Start Date: 2026-02-26
-- Proposal PR: 
-- Flux Issue: 
+- Completion Date: 2026-03-03
+- Status: Completed
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0050: Totality and Exhaustiveness Hardening
 
@@ -127,3 +129,39 @@ No additional prior art identified beyond references already listed in the legac
 
 - Future expansion should preserve diagnostics stability and test-backed semantics.
 - Any post-MVP scope should be tracked as explicit follow-up proposals.
+
+## Completion notes (2026-03-03)
+
+### Coverage domain matrix (implemented)
+
+| Domain | Coverage level | Guarantee |
+|--------|---------------|-----------|
+| ADT constructors | guaranteed | Full constructor-space partition; E083 on missing arms |
+| Bool | guaranteed | `true`/`false` partition; E015 if either missing |
+| Option / Either | guaranteed | `Some`/`None`, `Left`/`Right` partition; E015/E083 |
+| Lists (cons/nil) | guaranteed | `[]` / `[h \| t]` partition |
+| Tuples | conservative | Requires unguarded catch-all; mixed-shape arms conservatively rejected |
+| `Any`-typed values | unsupported | Runtime match failure is expected; no compile-time guarantee |
+
+### Guard semantics (locked)
+
+- Guarded arms never provide unconditional coverage (`arm.guard.is_none()` check in `pattern_validate.rs:159`).
+- Guarded wildcard does **not** satisfy catch-all — emits `E015` with "guard may fail" hint.
+- Only unguarded `_` or identifier arms provide unconditional fallback.
+- Test: `match_guarded_wildcard_only_non_exhaustive_error` in `compiler_rules_tests.rs`.
+- Fixture: `144_guarded_wildcard_only_non_exhaustive_targeted.flx`.
+
+### Residual runtime-failure policy
+
+Runtime match failure (`E1016`) is accepted only when:
+1. Scrutinee type is `Any`-driven (dynamic path).
+2. Pattern-space reasoning is unsupported for the domain (e.g., arbitrary integer literals).
+3. Conservative tuple policy applies and no catch-all arm is present (programmer's responsibility).
+
+Fully-typed ADT/Bool/Option/Either/List programs with correct exhaustiveness are guaranteed no runtime match failure for the covered domains.
+
+### Deferred (explicit non-goals)
+
+- Tuple completeness theorem-prover: deferred per §18.4.
+- Record-pattern totality: deferred until 0048 (typed records) lands.
+- Or-pattern semantics redesign: out of scope.
