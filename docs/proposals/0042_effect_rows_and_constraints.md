@@ -1,5 +1,7 @@
 - Feature Name: Effect Rows and Constraint Solving for `with e`
 - Start Date: 2026-02-25
+- Completion Date: 2026-03-03
+- Status: Completed
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 
