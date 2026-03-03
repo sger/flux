@@ -122,7 +122,7 @@ impl Compiler {
     }
 
     fn is_known_function_effect_annotation(&self, effect: Symbol) -> bool {
-        if self.effect_declared_ops(effect).is_some() || self.is_effect_variable(effect) {
+        if self.effect_declared_ops(effect).is_some() {
             return true;
         }
         matches!(self.sym(effect), "IO" | "Time" | "State")
@@ -575,9 +575,13 @@ impl Compiler {
                 )?;
             }
 
-            let body_errors = self.with_function_context(parameters.len(), effects, |compiler| {
-                compiler.compile_block_with_tail_collect_errors(body)
-            });
+            let param_effect_rows = self.build_param_effect_rows(parameters, parameter_types);
+            let body_errors = self.with_function_context_with_param_effect_rows(
+                parameters.len(),
+                effects,
+                param_effect_rows,
+                |compiler| compiler.compile_block_with_tail_collect_errors(body),
+            );
             if body_errors.is_empty() {
                 if self.block_has_value_tail(body) {
                     if self.is_last_instruction(OpCode::OpPop) {

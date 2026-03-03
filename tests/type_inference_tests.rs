@@ -2,10 +2,11 @@
 // ============================================================================
 // Helper constructors
 // ============================================================================
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use flux::ast::type_infer::infer_program;
 use flux::syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement};
+use flux::types::infer_effect_row::InferEffectRow;
 use flux::types::infer_type::InferType;
 use flux::types::scheme::{Scheme, generalize};
 use flux::types::type_constructor::TypeConstructor;
@@ -46,7 +47,7 @@ fn option(t: InferType) -> InferType {
 }
 
 fn fun(params: Vec<InferType>, ret: InferType) -> InferType {
-    InferType::Fun(params, Box::new(ret), vec![])
+    InferType::Fun(params, Box::new(ret), InferEffectRow::closed_empty())
 }
 
 fn fun_with_effects(
@@ -54,7 +55,11 @@ fn fun_with_effects(
     ret: InferType,
     effects: Vec<flux::syntax::Identifier>,
 ) -> InferType {
-    InferType::Fun(params, Box::new(ret), effects)
+    InferType::Fun(
+        params,
+        Box::new(ret),
+        InferEffectRow::closed_from_symbols(effects),
+    )
 }
 
 fn tuple(elems: Vec<InferType>) -> InferType {
@@ -97,11 +102,16 @@ fn infer_program_from_source(
         }
     }
     collect_effect_sigs(&program.statements, &mut effect_op_sigs);
+    let mut interner_for_base = interner.clone();
+    let base_symbol = interner_for_base.intern("Base");
     let result = infer_program(
         &program,
         &interner,
         Some("<test>".to_string()),
         HashMap::new(),
+        HashMap::new(),
+        HashSet::new(),
+        base_symbol,
         effect_op_sigs,
     );
     (result, program)
