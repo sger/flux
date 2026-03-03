@@ -3,8 +3,913 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day05Solver.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `reverse_list` has the wrong type.
+
+  --> examples/aoc/2024/Day05Solver.flx:72:65
+   |
+21 |     fn reverse_list(xs, acc) {
+
+22 |         match xs {
+
+23 |             [h | t] -> reverse_list(t, [h | acc]),
+
+24 |             _ -> acc,
+
+25 |         }
+
+26 |     }
+
+27 | 
+
+28 |     fn parse_rule(line: String) {
+
+29 |         if len(parts) != 2 {
+
+30 |             Left("invalid rule: " + line)
+
+31 |         } else {
+
+32 |             Right((
+
+33 |                 parse_int(trim(part_at(parts, 0))),
+
+34 |                 parse_int(trim(part_at(parts, 1)))
+
+35 |             ))
+
+36 |         }
+
+37 |         where parts = split(trim(line), "|")
+
+38 |     }
+
+39 | 
+
+40 |     fn parse_update(line: String) -> Either<String, Array<Int>> {
+
+41 |         if len(pages) == 0 {
+
+42 |             Left("invalid update: " + line)
+
+43 |         } else {
+
+44 |             Right(pages)
+
+45 |         }
+
+46 |         where pages =
+
+47 |             split(trim(line), ",")
+
+48 |             |> map(/s -> trim(s))
+
+49 |             |> filter(/s -> s != "")
+
+50 |             |> map(/s -> parse_int(s))
+
+51 |     }
+
+52 | 
+
+53 |     fn parse_sections(lines, section: Section, rules, updates) {
+
+54 |         match lines {
+
+55 |             [line | rest] -> do {
+
+56 |                 let cleaned = trim(line)
+
+57 |                 if cleaned == "" {
+
+58 |                     parse_sections(rest, UpdatesPart, rules, updates)
+
+59 |                 } else {
+
+60 |                     match section {
+
+61 |                         RulesPart -> match parse_rule(cleaned) {
+
+62 |                             Right(rule) -> parse_sections(rest, RulesPart, [rule | rules], updates),
+
+63 |                             Left(err) -> Left(err),
+
+64 |                         },
+
+65 |                         UpdatesPart -> match parse_update(cleaned) {
+
+66 |                             Right(update) -> parse_sections(rest, UpdatesPart, rules, [update | updates]),
+
+67 |                             Left(err) -> Left(err),
+
+68 |                         },
+
+69 |                     }
+
+70 |                 }
+
+71 |             },
+
+72 |             _ -> Right((reverse_list(rules, [||]), reverse_list(updates, [||]))),
+   |                                                                 ^^^^^^^
+   |                                                                 ------- this argument is `List<Array<Int>>`
+
+Help:
+  Expected `List<(Option<Int>, Option<Int>)>` as the 1st argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `update_is_valid` has the wrong type.
+
+  --> examples/aoc/2024/Day05Solver.flx:246:52
+    |
+103 |     fn update_is_valid(update: Array<Int>, rules) -> Bool {
+
+104 |         rules_all_valid(rules, update)
+
+105 |     }
+
+106 | 
+
+107 |     fn middle_page(update: Array<Int>) -> Int {
+
+108 |         int_at(update, len(update) / 2)
+
+109 |     }
+
+110 | 
+
+111 |     fn list_contains(xs, target: Int) -> Bool {
+
+112 |         match xs {
+
+113 |             [h | t] -> if h == target { true } else { list_contains(t, target) },
+
+114 |             _ -> false,
+
+115 |         }
+
+116 |     }
+
+117 | 
+
+118 |     fn list_count_incoming(rules, remaining, node: Int, acc: Int) -> Int {
+
+119 |         match rules {
+
+120 |             [r | rest] -> if r.1 == node && list_contains(remaining, r.0) {
+
+121 |                 list_count_incoming(rest, remaining, node, acc + 1)
+
+122 |             } else {
+
+123 |                 list_count_incoming(rest, remaining, node, acc)
+
+124 |             },
+
+125 |             _ -> acc,
+
+126 |         }
+
+127 |     }
+
+128 | 
+
+129 |     fn relevant_rules(rules, update: Array<Int>) {
+
+130 |         match rules {
+
+131 |             [r | rest] -> if find_index(update, r.0, 0) != -1 && find_index(update, r.1, 0) != -1 {
+
+132 |                 [r | relevant_rules(rest, update)]
+
+133 |             } else {
+
+134 |                 relevant_rules(rest, update)
+
+135 |             },
+
+136 |             _ -> [||],
+
+137 |         }
+
+138 |     }
+
+139 | 
+
+140 |     fn pick_zero_indegree(candidates, remaining, rules) {
+
+141 |         match candidates {
+
+142 |             [h | t] -> if list_count_incoming(rules, remaining, h, 0) == 0 {
+
+143 |                 Some(h)
+
+144 |             } else {
+
+145 |                 pick_zero_indegree(t, remaining, rules)
+
+146 |             },
+
+147 |             _ -> None,
+
+148 |         }
+
+149 |     }
+
+150 | 
+
+151 |     fn contains_array(xs: Array<Int>, target: Int, idx: Int) -> Bool {
+
+152 |         if idx >= len(xs) {
+
+153 |             false
+
+154 |         } else if int_at(xs, idx) == target {
+
+155 |             true
+
+156 |         } else {
+
+157 |             contains_array(xs, target, idx + 1)
+
+158 |         }
+
+159 |     }
+
+160 | 
+
+161 |     fn list_count_incoming_array(rules, remaining: Array<Int>, node: Int, acc: Int) -> Int {
+
+162 |         match rules {
+
+163 |             [r | rest] -> if r.1 == node && contains_array(remaining, r.0, 0) {
+
+164 |                 list_count_incoming_array(rest, remaining, node, acc + 1)
+
+165 |             } else {
+
+166 |                 list_count_incoming_array(rest, remaining, node, acc)
+
+167 |             },
+
+168 |             _ -> acc,
+
+169 |         }
+
+170 |     }
+
+171 | 
+
+172 |     fn pick_zero_indegree_array(remaining: Array<Int>, rules, idx: Int) {
+
+173 |         if idx >= len(remaining) {
+
+174 |             None
+
+175 |         } else {
+
+176 |             if list_count_incoming_array(rules, remaining, candidate, 0) == 0 {
+
+177 |                 Some(candidate)
+
+178 |             } else {
+
+179 |                 pick_zero_indegree_array(remaining, rules, idx + 1)
+
+180 |             }
+
+181 |             where candidate = int_at(remaining, idx)
+
+182 |         }
+
+183 |     }
+
+184 | 
+
+185 |     fn remove_value_array(xs: Array<Int>, target: Int) -> Array<Int> {
+
+186 |         filter(xs, /x -> x != target)
+
+187 |     }
+
+188 | 
+
+189 |     fn sort_update_by_rules(update: Array<Int>, rules) -> Array<Int> {
+
+190 |         topo_sort_array(update, rel, [||])
+
+191 |         where rel = relevant_rules(rules, update)
+
+192 |     }
+
+193 | 
+
+194 |     fn topo_sort_array(remaining: Array<Int>, rules, acc: Array<Int>) -> Array<Int> {
+
+195 |         if len(remaining) == 0 {
+
+196 |             acc
+
+197 |         } else {
+
+198 |             match pick_zero_indegree_array(remaining, rules, 0) {
+
+199 |                 Some(next) -> topo_sort_array(remove_value_array(remaining, next), rules, push(acc, next)),
+
+200 |                 _ -> concat(acc, remaining),
+
+201 |             }
+
+202 |         }
+
+203 |     }
+
+204 | 
+
+205 |     fn sum_valid_middles(updates, rules, acc: Int) -> Int {
+
+206 |         match updates {
+
+207 |             [u | rest] -> if update_is_valid(u, rules) {
+
+208 |                 sum_valid_middles(rest, rules, acc + middle_page(u))
+
+209 |             } else {
+
+210 |                 sum_valid_middles(rest, rules, acc)
+
+211 |             },
+
+212 |             _ -> acc,
+
+213 |         }
+
+214 |     }
+
+215 | 
+
+216 |     fn sum_fixed_invalid_middles(updates, rules, acc: Int) -> Int {
+
+217 |         match updates {
+
+218 |             [u | rest] -> do {
+
+219 |                 if update_is_valid(u, rules) {
+
+220 |                     sum_fixed_invalid_middles(rest, rules, acc)
+
+221 |                 } else {
+
+222 |                     sum_fixed_invalid_middles(rest, rules, acc + middle_page(sorted))
+
+223 |                     where sorted = sort_update_by_rules(u, rules)
+
+224 |                 }
+
+225 |             },
+
+226 |             _ -> acc,
+
+227 |         }
+
+228 |     }
+
+229 | 
+
+230 |     fn list_to_array(xs, acc) {
+
+231 |         match xs {
+
+232 |             [h | t] -> list_to_array(t, push(acc, h)),
+
+233 |             _ -> acc,
+
+234 |         }
+
+235 |     }
+
+236 | 
+
+237 |     public fn parse_day05_input(lines: Array<String>) {
+
+238 |         parse_sections(lines_list, RulesPart, [||], [||])
+
+239 |         where lines_list = to_list(lines)
+
+240 |     }
+
+241 | 
+
+242 |     public fn day05a_from_lines(lines: Array<String>) -> Int {
+
+243 |         match parse_day05_input(lines) {
+
+244 |             Right(parsed) ->
+
+245 |                 list_to_array(parsed.1, [||])
+
+246 |                 |> filter(/u -> update_is_valid(u, parsed.0))
+    |                                                    ^^^^^^^^
+    |                                                    -------- this argument is `List<(Option<Int>, Option<Int>)>`
+
+Help:
+  Expected `List<(Int, Int)>` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `update_is_valid` has the wrong type.
+
+  --> examples/aoc/2024/Day05Solver.flx:261:55
+    |
+103 |     fn update_is_valid(update: Array<Int>, rules) -> Bool {
+
+104 |         rules_all_valid(rules, update)
+
+105 |     }
+
+106 | 
+
+107 |     fn middle_page(update: Array<Int>) -> Int {
+
+108 |         int_at(update, len(update) / 2)
+
+109 |     }
+
+110 | 
+
+111 |     fn list_contains(xs, target: Int) -> Bool {
+
+112 |         match xs {
+
+113 |             [h | t] -> if h == target { true } else { list_contains(t, target) },
+
+114 |             _ -> false,
+
+115 |         }
+
+116 |     }
+
+117 | 
+
+118 |     fn list_count_incoming(rules, remaining, node: Int, acc: Int) -> Int {
+
+119 |         match rules {
+
+120 |             [r | rest] -> if r.1 == node && list_contains(remaining, r.0) {
+
+121 |                 list_count_incoming(rest, remaining, node, acc + 1)
+
+122 |             } else {
+
+123 |                 list_count_incoming(rest, remaining, node, acc)
+
+124 |             },
+
+125 |             _ -> acc,
+
+126 |         }
+
+127 |     }
+
+128 | 
+
+129 |     fn relevant_rules(rules, update: Array<Int>) {
+
+130 |         match rules {
+
+131 |             [r | rest] -> if find_index(update, r.0, 0) != -1 && find_index(update, r.1, 0) != -1 {
+
+132 |                 [r | relevant_rules(rest, update)]
+
+133 |             } else {
+
+134 |                 relevant_rules(rest, update)
+
+135 |             },
+
+136 |             _ -> [||],
+
+137 |         }
+
+138 |     }
+
+139 | 
+
+140 |     fn pick_zero_indegree(candidates, remaining, rules) {
+
+141 |         match candidates {
+
+142 |             [h | t] -> if list_count_incoming(rules, remaining, h, 0) == 0 {
+
+143 |                 Some(h)
+
+144 |             } else {
+
+145 |                 pick_zero_indegree(t, remaining, rules)
+
+146 |             },
+
+147 |             _ -> None,
+
+148 |         }
+
+149 |     }
+
+150 | 
+
+151 |     fn contains_array(xs: Array<Int>, target: Int, idx: Int) -> Bool {
+
+152 |         if idx >= len(xs) {
+
+153 |             false
+
+154 |         } else if int_at(xs, idx) == target {
+
+155 |             true
+
+156 |         } else {
+
+157 |             contains_array(xs, target, idx + 1)
+
+158 |         }
+
+159 |     }
+
+160 | 
+
+161 |     fn list_count_incoming_array(rules, remaining: Array<Int>, node: Int, acc: Int) -> Int {
+
+162 |         match rules {
+
+163 |             [r | rest] -> if r.1 == node && contains_array(remaining, r.0, 0) {
+
+164 |                 list_count_incoming_array(rest, remaining, node, acc + 1)
+
+165 |             } else {
+
+166 |                 list_count_incoming_array(rest, remaining, node, acc)
+
+167 |             },
+
+168 |             _ -> acc,
+
+169 |         }
+
+170 |     }
+
+171 | 
+
+172 |     fn pick_zero_indegree_array(remaining: Array<Int>, rules, idx: Int) {
+
+173 |         if idx >= len(remaining) {
+
+174 |             None
+
+175 |         } else {
+
+176 |             if list_count_incoming_array(rules, remaining, candidate, 0) == 0 {
+
+177 |                 Some(candidate)
+
+178 |             } else {
+
+179 |                 pick_zero_indegree_array(remaining, rules, idx + 1)
+
+180 |             }
+
+181 |             where candidate = int_at(remaining, idx)
+
+182 |         }
+
+183 |     }
+
+184 | 
+
+185 |     fn remove_value_array(xs: Array<Int>, target: Int) -> Array<Int> {
+
+186 |         filter(xs, /x -> x != target)
+
+187 |     }
+
+188 | 
+
+189 |     fn sort_update_by_rules(update: Array<Int>, rules) -> Array<Int> {
+
+190 |         topo_sort_array(update, rel, [||])
+
+191 |         where rel = relevant_rules(rules, update)
+
+192 |     }
+
+193 | 
+
+194 |     fn topo_sort_array(remaining: Array<Int>, rules, acc: Array<Int>) -> Array<Int> {
+
+195 |         if len(remaining) == 0 {
+
+196 |             acc
+
+197 |         } else {
+
+198 |             match pick_zero_indegree_array(remaining, rules, 0) {
+
+199 |                 Some(next) -> topo_sort_array(remove_value_array(remaining, next), rules, push(acc, next)),
+
+200 |                 _ -> concat(acc, remaining),
+
+201 |             }
+
+202 |         }
+
+203 |     }
+
+204 | 
+
+205 |     fn sum_valid_middles(updates, rules, acc: Int) -> Int {
+
+206 |         match updates {
+
+207 |             [u | rest] -> if update_is_valid(u, rules) {
+
+208 |                 sum_valid_middles(rest, rules, acc + middle_page(u))
+
+209 |             } else {
+
+210 |                 sum_valid_middles(rest, rules, acc)
+
+211 |             },
+
+212 |             _ -> acc,
+
+213 |         }
+
+214 |     }
+
+215 | 
+
+216 |     fn sum_fixed_invalid_middles(updates, rules, acc: Int) -> Int {
+
+217 |         match updates {
+
+218 |             [u | rest] -> do {
+
+219 |                 if update_is_valid(u, rules) {
+
+220 |                     sum_fixed_invalid_middles(rest, rules, acc)
+
+221 |                 } else {
+
+222 |                     sum_fixed_invalid_middles(rest, rules, acc + middle_page(sorted))
+
+223 |                     where sorted = sort_update_by_rules(u, rules)
+
+224 |                 }
+
+225 |             },
+
+226 |             _ -> acc,
+
+227 |         }
+
+228 |     }
+
+229 | 
+
+230 |     fn list_to_array(xs, acc) {
+
+231 |         match xs {
+
+232 |             [h | t] -> list_to_array(t, push(acc, h)),
+
+233 |             _ -> acc,
+
+234 |         }
+
+235 |     }
+
+236 | 
+
+237 |     public fn parse_day05_input(lines: Array<String>) {
+
+238 |         parse_sections(lines_list, RulesPart, [||], [||])
+
+239 |         where lines_list = to_list(lines)
+
+240 |     }
+
+241 | 
+
+242 |     public fn day05a_from_lines(lines: Array<String>) -> Int {
+
+243 |         match parse_day05_input(lines) {
+
+244 |             Right(parsed) ->
+
+245 |                 list_to_array(parsed.1, [||])
+
+246 |                 |> filter(/u -> update_is_valid(u, parsed.0))
+
+247 |                 |> map(/u -> middle_page(u))
+
+248 |                 |> fold(0, /(acc, x) -> acc + x),
+
+249 |             Left(_err) -> 0,
+
+250 |         }
+
+251 |     }
+
+252 | 
+
+253 |     public fn day05a_from_memory(memory: String) -> Int {
+
+254 |         day05a_from_lines(split(memory, "/n"))
+
+255 |     }
+
+256 | 
+
+257 |     public fn day05b_from_lines(lines: Array<String>) -> Int {
+
+258 |         match parse_day05_input(lines) {
+
+259 |             Right(parsed) ->
+
+260 |                 list_to_array(parsed.1, [||])
+
+261 |                 |> filter(/u -> if update_is_valid(u, parsed.0) { false } else { true })
+    |                                                       ^^^^^^^^
+    |                                                       -------- this argument is `List<(Option<Int>, Option<Int>)>`
+
+Help:
+  Expected `List<(Int, Int)>` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `sort_update_by_rules` has the wrong type.
+
+  --> examples/aoc/2024/Day05Solver.flx:262:54
+    |
+189 |     fn sort_update_by_rules(update: Array<Int>, rules) -> Array<Int> {
+
+190 |         topo_sort_array(update, rel, [||])
+
+191 |         where rel = relevant_rules(rules, update)
+
+192 |     }
+
+193 | 
+
+194 |     fn topo_sort_array(remaining: Array<Int>, rules, acc: Array<Int>) -> Array<Int> {
+
+195 |         if len(remaining) == 0 {
+
+196 |             acc
+
+197 |         } else {
+
+198 |             match pick_zero_indegree_array(remaining, rules, 0) {
+
+199 |                 Some(next) -> topo_sort_array(remove_value_array(remaining, next), rules, push(acc, next)),
+
+200 |                 _ -> concat(acc, remaining),
+
+201 |             }
+
+202 |         }
+
+203 |     }
+
+204 | 
+
+205 |     fn sum_valid_middles(updates, rules, acc: Int) -> Int {
+
+206 |         match updates {
+
+207 |             [u | rest] -> if update_is_valid(u, rules) {
+
+208 |                 sum_valid_middles(rest, rules, acc + middle_page(u))
+
+209 |             } else {
+
+210 |                 sum_valid_middles(rest, rules, acc)
+
+211 |             },
+
+212 |             _ -> acc,
+
+213 |         }
+
+214 |     }
+
+215 | 
+
+216 |     fn sum_fixed_invalid_middles(updates, rules, acc: Int) -> Int {
+
+217 |         match updates {
+
+218 |             [u | rest] -> do {
+
+219 |                 if update_is_valid(u, rules) {
+
+220 |                     sum_fixed_invalid_middles(rest, rules, acc)
+
+221 |                 } else {
+
+222 |                     sum_fixed_invalid_middles(rest, rules, acc + middle_page(sorted))
+
+223 |                     where sorted = sort_update_by_rules(u, rules)
+
+224 |                 }
+
+225 |             },
+
+226 |             _ -> acc,
+
+227 |         }
+
+228 |     }
+
+229 | 
+
+230 |     fn list_to_array(xs, acc) {
+
+231 |         match xs {
+
+232 |             [h | t] -> list_to_array(t, push(acc, h)),
+
+233 |             _ -> acc,
+
+234 |         }
+
+235 |     }
+
+236 | 
+
+237 |     public fn parse_day05_input(lines: Array<String>) {
+
+238 |         parse_sections(lines_list, RulesPart, [||], [||])
+
+239 |         where lines_list = to_list(lines)
+
+240 |     }
+
+241 | 
+
+242 |     public fn day05a_from_lines(lines: Array<String>) -> Int {
+
+243 |         match parse_day05_input(lines) {
+
+244 |             Right(parsed) ->
+
+245 |                 list_to_array(parsed.1, [||])
+
+246 |                 |> filter(/u -> update_is_valid(u, parsed.0))
+
+247 |                 |> map(/u -> middle_page(u))
+
+248 |                 |> fold(0, /(acc, x) -> acc + x),
+
+249 |             Left(_err) -> 0,
+
+250 |         }
+
+251 |     }
+
+252 | 
+
+253 |     public fn day05a_from_memory(memory: String) -> Int {
+
+254 |         day05a_from_lines(split(memory, "/n"))
+
+255 |     }
+
+256 | 
+
+257 |     public fn day05b_from_lines(lines: Array<String>) -> Int {
+
+258 |         match parse_day05_input(lines) {
+
+259 |             Right(parsed) ->
+
+260 |                 list_to_array(parsed.1, [||])
+
+261 |                 |> filter(/u -> if update_is_valid(u, parsed.0) { false } else { true })
+
+262 |                 |> map(/u -> sort_update_by_rules(u, parsed.0))
+    |                                                      ^^^^^^^^
+    |                                                      -------- this argument is `List<(Option<Int>, Option<Int>)>`
+
+Help:
+  Expected `List<(Int, Int)>` as the 2nd argument.
+
+Found 4 errors.
 == stdout ==
 <not executed>

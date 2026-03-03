@@ -31,6 +31,30 @@ Hint:
   Define it first: let try_occurrences = ...;
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The branches of this `if` expression produce different types.
+
+  --> examples/io/aoc_day3_haskell_style.flx:58:5
+   |
+56 |         Some(0)
+
+   |         ------- `then` branch returns `Int`
+57 |     } else {
+
+58 |     match best_number_string(cleaned, 0, n) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+59 |         Some(s) -> Some(parse_int(s)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+60 |         _ -> None
+   | ^^^^^^^^^^^^^^^^^
+61 |     }
+   | ^^^^^
+
+Help:
+  Both branches must return the same type. Change one branch to match `Int` or `Option<Int>`.
+
+
 --> compiler error[E400]: MISSING EFFECT
 
 Call to `read_lines` requires effect `IO` in this function signature.
@@ -44,6 +68,6 @@ Call to `read_lines` requires effect `IO` in this function signature.
 Hint:
   Add `with IO` to the enclosing function.
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

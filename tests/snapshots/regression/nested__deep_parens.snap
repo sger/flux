@@ -4,6 +4,17 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/nested/deep_parens.flx
 exit_code: 1
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> tests/fixtures/nested/deep_parens.flx:1:1
+  |
+1 | print(((((1 + 2) * 3) - 4) / 5) == 0);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -31,4 +42,4 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+Found 3 errors.

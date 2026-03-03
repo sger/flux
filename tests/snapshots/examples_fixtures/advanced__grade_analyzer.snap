@@ -3,8 +3,82 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/grade_analyzer.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `letter_grade` has the wrong type.
+
+  --> examples/advanced/grade_analyzer.flx:38:30
+   |
+13 | fn letter_grade(avg) {
+
+14 |     if avg >= 90.0 { return GradeA }
+
+15 |     if avg >= 80.0 { return GradeB }
+
+16 |     if avg >= 70.0 { return GradeC }
+
+17 |     if avg >= 60.0 { return GradeD }
+
+18 |     GradeF
+
+19 | }
+
+20 | 
+
+21 | fn grade_label(grade) {
+
+22 |     match grade {
+
+23 |         GradeA -> "A",
+
+24 |         GradeB -> "B",
+
+25 |         GradeC -> "C",
+
+26 |         GradeD -> "D",
+
+27 |         GradeF -> "F",
+
+28 |         _ -> "?",
+
+29 |     }
+
+30 | }
+
+31 | 
+
+32 | fn summarize(student) {
+
+33 |     let scores = match student["scores"] {
+
+34 |         Some(v) -> v,
+
+35 |         _ -> [||],
+
+36 |     }
+
+37 |     let avg = average(scores)
+
+38 |     let grade = letter_grade(avg)
+   |                              ^^^
+   |                              --- this argument is `Int`
+
+Help:
+  Expected `Float` as the 1st argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Float.
+
+  --> examples/advanced/grade_analyzer.flx:39:18
+   |
+39 |     let passed = avg >= 60.0
+   |                  ^^^^^^^^^^^
+   |                  ----------- expected Int, found Float
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -5,6 +5,65 @@ Fixture: examples/io/aoc_day1_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `count_zeros_right` has the wrong type.
+
+  --> examples/io/aoc_day1_part2.flx:45:44
+   |
+30 | fn count_zeros_right(pos, distance) {
+
+31 |     let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
+
+32 |     count_hits_for_rotation(first_zero_click, distance)
+
+33 | }
+
+34 | 
+
+35 | fn count_zeros_left(pos, distance) {
+
+36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
+
+37 |     count_hits_for_rotation(first_zero_click, distance)
+
+38 | }
+
+39 | 
+
+40 | fn apply_rotation(step, rest, pos, hits) {
+
+41 |     let dir = substring(step, 0, 1)
+
+42 |     let distance = parse_int(substring(step, 1, len(step)))
+
+43 | 
+
+44 |     if dir == "R" {
+
+45 |         let zeros = count_zeros_right(pos, distance)
+   |                                            ^^^^^^^^
+   |                                            -------- this argument is `Option<Int>`
+
+Help:
+  Expected `Int` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Option<Int>.
+
+  --> examples/io/aoc_day1_part2.flx:46:39
+   |
+46 |         let next_pos_right = wrap_100(pos + distance)
+   |                                       ^^^^^^^^^^^^^^
+   |                                       -------------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Option<Int>
+   |                                       -------------- operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `solve`.
@@ -16,5 +75,60 @@ I can't find a value named `solve`.
 
 Hint:
   Define it first: let solve = ...;
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `count_zeros_left` has the wrong type.
+
+  --> examples/io/aoc_day1_part2.flx:49:44
+   |
+35 | fn count_zeros_left(pos, distance) {
+
+36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
+
+37 |     count_hits_for_rotation(first_zero_click, distance)
+
+38 | }
+
+39 | 
+
+40 | fn apply_rotation(step, rest, pos, hits) {
+
+41 |     let dir = substring(step, 0, 1)
+
+42 |     let distance = parse_int(substring(step, 1, len(step)))
+
+43 | 
+
+44 |     if dir == "R" {
+
+45 |         let zeros = count_zeros_right(pos, distance)
+
+46 |         let next_pos_right = wrap_100(pos + distance)
+
+47 |         solve(rest, next_pos_right, hits + zeros)
+
+48 |     } else {
+
+49 |     let zeros_left = count_zeros_left(pos, distance)
+   |                                            ^^^^^^^^
+   |                                            -------- this argument is `Option<Int>`
+
+Help:
+  Expected `Int` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Option<Int>.
+
+  --> examples/io/aoc_day1_part2.flx:50:34
+   |
+50 |     let next_pos_left = wrap_100(pos - distance)
+   |                                  ^^^^^^^^^^^^^^
+   |                                  -------------- expected Int, found Option<Int>
+
+Found 5 errors.
 == stdout ==
 <not executed>

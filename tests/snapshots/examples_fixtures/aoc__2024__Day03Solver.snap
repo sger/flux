@@ -3,8 +3,16 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/aoc/2024/Day03Solver.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Option<Int> with Int.
+
+  --> examples/aoc/2024/Day03Solver.flx:59:27
+   |
+59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ------------------------------------------------ expected Option<Int>, found Int
 == stdout ==
 <not executed>

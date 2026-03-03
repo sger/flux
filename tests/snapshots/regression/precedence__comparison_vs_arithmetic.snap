@@ -4,6 +4,20 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/comparison_vs_arithmetic.flx
 exit_code: 1
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> tests/fixtures/precedence/comparison_vs_arithmetic.flx:1:1
+  |
+1 | print(1 + 2 == 3);
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -45,4 +59,4 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 3 errors.
+Found 4 errors.

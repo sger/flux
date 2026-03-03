@@ -20,6 +20,20 @@ Help:
   Change `answer` to a `Int` value or update the annotation to `Float`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/failing/07_typed_let_float_into_int.flx:14:1
+   |
+14 | print("#{label}: #{add(answer, 8)}")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ------------------------------------ expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -61,6 +75,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

@@ -5,31 +5,14 @@ Fixture: examples/aoc/2024/day03.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot access private member `day03a_from_memory`.
+Cannot unify Option<Int> with Int.
 
-  --> examples/aoc/2024/day03.flx:8:11
-  |
-8 |     print(Day03.day03a_from_memory(memory))
-  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03b_from_memory`.
-
-  --> examples/aoc/2024/day03.flx:9:11
-  |
-9 |     print(Day03.day03b_from_memory(memory))
-  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-Found 2 errors.
+  --> examples/aoc/2024/Day03Solver.flx:59:27
+   |
+59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ------------------------------------------------ expected Option<Int>, found Int
 == stdout ==
 <not executed>

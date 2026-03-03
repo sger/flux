@@ -70,10 +70,21 @@ Hint:
   Add `with Mystery` to the enclosing function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with IO with () -> Unit with Mystery.
+
+  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:15:5
+   |
+15 |     bad()
+   |     ^^^^^
+   |     ----- expected () -> Unit with IO, found () -> Unit with Mystery
+
+
 --> note[E000]: DOWNSTREAM ERRORS SUPPRESSED
 
 1 downstream diagnostic (1 effect) was suppressed by stage filtering. Fix earlier-stage errors first.
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>
