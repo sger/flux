@@ -1119,10 +1119,11 @@ impl Compiler {
         use crate::bytecode::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(
-                effects,
-                |effect| self.is_effect_variable(effect),
-            )),
+            Expression::Function { effects, .. } => {
+                Some(EffectRow::from_effect_exprs(effects, |effect| {
+                    self.is_effect_variable(effect)
+                }))
+            }
             Expression::Identifier { name, .. } => self
                 .lookup_unqualified_contract(*name, expected_arity)
                 .map(|contract| {

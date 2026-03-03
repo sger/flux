@@ -6,8 +6,8 @@ use crate::{
     runtime::runtime_type::RuntimeType,
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},
     types::{
-        TypeVarId, infer_type::InferType, scheme::Scheme, type_constructor::TypeConstructor,
-        type_subst::TypeSubst,
+        TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
+        type_constructor::TypeConstructor, type_subst::TypeSubst,
     },
 };
 
@@ -121,6 +121,24 @@ impl TypeEnv {
         type_params: &HashMap<Identifier, TypeVarId>,
         interner: &Interner,
     ) -> Option<InferType> {
+        let mut row_var_env = HashMap::new();
+        let mut fresh: u32 = 0;
+        Self::infer_type_from_type_expr_with_row_vars(
+            type_expr,
+            type_params,
+            interner,
+            &mut row_var_env,
+            &mut fresh,
+        )
+    }
+
+    pub fn infer_type_from_type_expr_with_row_vars(
+        type_expr: &TypeExpr,
+        type_params: &HashMap<Identifier, TypeVarId>,
+        interner: &Interner,
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+        fresh: &mut u32,
+    ) -> Option<InferType> {
         match type_expr {
             TypeExpr::Named { name, args, .. } => {
                 let name_str = interner.resolve(*name);
@@ -155,7 +173,15 @@ impl TypeEnv {
                 // Parametric: App(con, arg_tys)
                 let args_tys: Option<Vec<InferType>> = args
                     .iter()
-                    .map(|a| Self::infer_type_from_type_expr(a, type_params, interner))
+                    .map(|a| {
+                        Self::infer_type_from_type_expr_with_row_vars(
+                            a,
+                            type_params,
+                            interner,
+                            row_var_env,
+                            fresh,
+                        )
+                    })
                     .collect();
                 Some(InferType::App(con, args_tys?))
             }
@@ -165,7 +191,15 @@ impl TypeEnv {
                 }
                 let elem_tys: Option<Vec<InferType>> = elements
                     .iter()
-                    .map(|e| Self::infer_type_from_type_expr(e, type_params, interner))
+                    .map(|e| {
+                        Self::infer_type_from_type_expr_with_row_vars(
+                            e,
+                            type_params,
+                            interner,
+                            row_var_env,
+                            fresh,
+                        )
+                    })
                     .collect();
                 Some(InferType::Tuple(elem_tys?))
             }
@@ -177,14 +211,25 @@ impl TypeEnv {
             } => {
                 let param_tys: Option<Vec<InferType>> = params
                     .iter()
-                    .map(|p| Self::infer_type_from_type_expr(p, type_params, interner))
+                    .map(|p| {
+                        Self::infer_type_from_type_expr_with_row_vars(
+                            p,
+                            type_params,
+                            interner,
+                            row_var_env,
+                            fresh,
+                        )
+                    })
                     .collect();
-                let ret_ty = Self::infer_type_from_type_expr(ret, type_params, interner)?;
-                let effect_symbols = effects
-                    .iter()
-                    .flat_map(crate::syntax::effect_expr::EffectExpr::normalized_names)
-                    .collect();
-                Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_symbols))
+                let ret_ty = Self::infer_type_from_type_expr_with_row_vars(
+                    ret,
+                    type_params,
+                    interner,
+                    row_var_env,
+                    fresh,
+                )?;
+                let effect_row = InferEffectRow::from_effect_exprs(effects, row_var_env, fresh);
+                Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }
         }
     }
@@ -234,7 +279,7 @@ impl TypeEnv {
             } => InferType::Fun(
                 params.iter().map(Self::infer_type_from_runtime).collect(),
                 Box::new(Self::infer_type_from_runtime(ret)),
-                // InferEffe::closed_from_symbols(effects.iter().copied()),
+                InferEffectRow::closed_from_symbols(effects.iter().copied()),
             ),
         }
     }
@@ -307,8 +352,8 @@ mod tests {
         runtime::runtime_type::RuntimeType,
         syntax::{interner::Interner, type_expr::TypeExpr},
         types::{
-            infer_type::InferType, scheme::Scheme, type_constructor::TypeConstructor,
-            type_subst::TypeSubst,
+            infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
+            type_constructor::TypeConstructor, type_subst::TypeSubst,
         },
     };
 
@@ -369,7 +414,11 @@ mod tests {
             a,
             Scheme {
                 forall: vec![0],
-                infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
+                infer_type: InferType::Fun(
+                    vec![infer_var(0)],
+                    Box::new(infer_var(1)),
+                    InferEffectRow::closed_empty(),
+                ),
             },
         );
         env.bind(b, Scheme::mono(InferType::Tuple(vec![infer_var(2), int()])));
@@ -429,7 +478,7 @@ mod tests {
                 TypeConstructor::Option,
                 vec![InferType::Con(TypeConstructor::String)],
             )),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
         assert_eq!(got, expected);
     }
