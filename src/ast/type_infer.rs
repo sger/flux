@@ -25,12 +25,15 @@ use crate::{
     },
     types::{
         TypeVarId,
+        infer_effect_row::InferEffectRow,
         infer_type::InferType,
         scheme::{Scheme, generalize},
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
-        unify_error::{UnifyErrorDetail, UnifyErrorKind, unify_with_span},
+        unify_error::{
+            UnifyErrorDetail, UnifyErrorKind, unify_with_span, unify_with_span_and_fresh,
+        },
     },
 };
 
@@ -59,13 +62,18 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
                 .map(|p| display_infer_type(p, interner))
                 .collect();
             let ret_str = display_infer_type(ret, interner);
-            if effects.is_empty() {
+            if effects.concrete().is_empty() && effects.tail().is_none() {
                 format!("({}) -> {}", params_str.join(", "), ret_str)
             } else {
-                let eff_str: Vec<String> = effects
-                    .iter()
-                    .map(|e| interner.resolve(*e).to_string())
+                let mut concrete: Vec<_> = effects.concrete().iter().copied().collect();
+                concrete.sort_by_key(|s| s.as_u32());
+                let mut eff_str: Vec<String> = concrete
+                    .into_iter()
+                    .map(|e| interner.resolve(e).to_string())
                     .collect();
+                if let Some(tail) = effects.tail() {
+                    eff_str.push(format!("!?{tail}"));
+                }
                 format!(
                     "({}) -> {} with {}",
                     params_str.join(", "),
@@ -136,8 +144,12 @@ struct InferCtx<'a> {
     expr_ptr_to_id: HashMap<usize, ExprNodeId>,
     expr_types: HashMap<ExprNodeId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    known_base_names: HashSet<Identifier>,
+    base_module_symbol: Identifier,
     adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
     effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
+    ambient_effect_rows: Vec<InferEffectRow>,
+    handled_effects: Vec<Identifier>,
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +190,14 @@ enum PatternFamily {
 }
 
 impl<'a> InferCtx<'a> {
+    fn infer_effect_row(
+        effects: &[EffectExpr],
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+        next_row_var_id: &mut u32,
+    ) -> InferEffectRow {
+        InferEffectRow::from_effect_exprs(effects, row_var_env, next_row_var_id)
+    }
+
     /// Format an `InferType` for user-facing diagnostics, resolving ADT
     /// symbols to their human-readable names via the interner.
     fn display_type(&self, ty: &InferType) -> String {
@@ -187,9 +207,17 @@ impl<'a> InferCtx<'a> {
     fn new(
         interner: &'a Interner,
         file_path: String,
+        preloaded_base_schemes: HashMap<Identifier, Scheme>,
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+        known_base_names: HashSet<Identifier>,
+        base_module_symbol: Identifier,
         preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ) -> Self {
+        let mut env = TypeEnv::new();
+        for (name, scheme) in preloaded_base_schemes {
+            env.bind(name, scheme);
+        }
+
         InferCtx {
             env: TypeEnv::new(),
             interner,
@@ -200,13 +228,69 @@ impl<'a> InferCtx<'a> {
             expr_ptr_to_id: HashMap::new(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
+            known_base_names,
+            base_module_symbol,
             adt_constructor_types: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
+            ambient_effect_rows: Vec::new(),
+            handled_effects: Vec::new(),
         }
     }
 
+    fn emit_missing_base_hm_signature(&mut self, base_name: Identifier, span: Span) {
+        self.errors.push(
+            Diagnostic::make_error_dynamic(
+                "E426",
+                "BASE HM SIGNATURE",
+                crate::diagnostics::ErrorType::Compiler,
+                format!(
+                    "Base function `{}` is missinh HM metadata and cannot be typed.",
+                    self.interner.resolve(base_name)
+                ),
+                Some(
+                    "Add an HM signature for this Base function in src/runtime/base/signatures.rs."
+                        .to_string(),
+                ),
+                self.file_path.clone(),
+                span,
+            )
+            .with_primary_label(span, "missing Base HM metadata"),
+        );
+    }
+
+    fn current_ambient_effect_row(&self) -> InferEffectRow {
+        let mut row = self
+            .ambient_effect_rows
+            .last()
+            .cloned()
+            .unwrap_or_else(InferEffectRow::closed_empty);
+        row.concrete_mut()
+            .extend(self.handled_effects.iter().copied());
+        row
+    }
+
+    fn with_ambient_effect_row<F, R>(&mut self, row: InferEffectRow, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.ambient_effect_rows.push(row);
+        let result = f(self);
+        self.ambient_effect_rows.pop();
+        result
+    }
+
+    fn with_handle_effect<F, R>(&mut self, effect: Identifier, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.handled_effects.push(effect);
+        let result = f(self);
+        self.handled_effects.pop();
+        result
+    }
+
     fn effect_op_signature_types(
-        &self,
+        &mut self,
         effect: Identifier,
         operation: Identifier,
     ) -> Option<(Vec<InferType>, InferType)> {
@@ -221,11 +305,28 @@ impl<'a> InferCtx<'a> {
             return None;
         };
         let tp_map: HashMap<Identifier, TypeVarId> = HashMap::new();
+        let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
+        let mut fresh = self.env.counter;
         let param_tys = params
             .iter()
-            .map(|p| TypeEnv::infer_type_from_type_expr(p, &tp_map, self.interner))
+            .map(|p| {
+                TypeEnv::infer_type_from_type_expr_with_row_vars(
+                    p,
+                    &tp_map,
+                    self.interner,
+                    &mut row_var_env,
+                    &mut fresh,
+                )
+            })
             .collect::<Option<Vec<_>>>()?;
-        let ret_ty = TypeEnv::infer_type_from_type_expr(ret, &tp_map, self.interner)?;
+        let ret_ty = TypeEnv::infer_type_from_type_expr_with_row_vars(
+            ret,
+            &tp_map,
+            self.interner,
+            &mut row_var_env,
+            &mut fresh,
+        )?;
+        self.env.counter = fresh;
         Some((param_tys, ret_ty))
     }
 
@@ -346,7 +447,7 @@ impl<'a> InferCtx<'a> {
     fn unify_propagate(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
-        match unify_with_span(&t1_sub, &t2_sub, Span::default()) {
+        match unify_with_span_and_fresh(&t1_sub, &t2_sub, Span::default(), &mut self.env.counter) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
                 t1_sub.apply_type_subst(&self.subst)
@@ -371,7 +472,7 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
-        match unify_with_span(&t1_sub, &t2_sub, span) {
+        match unify_with_span_and_fresh(&t1_sub, &t2_sub, span, &mut self.env.counter) {
             Ok(s) => {
                 // Compose the new solution into the global substitution.
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
@@ -539,6 +640,69 @@ impl<'a> InferCtx<'a> {
         self.unify_with_context(t1, t2, span, ReportContext::Plain)
     }
 
+    fn constrain_call_effects(
+        &mut self,
+        callee_effects: &InferEffectRow,
+        ambient_effects: &InferEffectRow,
+        span: Span,
+    ) {
+        let callee = callee_effects.apply_row_subst(&self.subst);
+        let ambient = ambient_effects.apply_row_subst(&self.subst);
+        let mut missing: Vec<Identifier> = callee
+            .concrete()
+            .iter()
+            .filter(|effect| !ambient.concrete().contains(effect))
+            .copied()
+            .collect();
+        missing.sort_by_key(|s| s.as_u32());
+
+        if missing.is_empty() {
+            if let (Some(callee_tail), Some(ambient_tail)) = (callee.tail(), ambient.tail()) {
+                let mut subst = TypeSubst::empty();
+                subst.insert_row(
+                    callee_tail,
+                    InferEffectRow::open_from_symbols(
+                        std::iter::empty::<Identifier>(),
+                        ambient_tail,
+                    ),
+                );
+                self.subst = std::mem::take(&mut self.subst).compose(&subst);
+            }
+            return;
+        }
+
+        if let Some(ambient_tail) = ambient.tail() {
+            if let Some(callee_tail) = callee.tail() {
+                let mut subst = TypeSubst::empty();
+                subst.insert_row(
+                    callee_tail,
+                    InferEffectRow::open_from_symbols(missing, ambient_tail),
+                );
+                self.subst = std::mem::take(&mut self.subst).compose(&subst);
+            }
+            return;
+        }
+
+        let actual_effect_ty = InferType::Fun(
+            vec![],
+            Box::new(InferType::Con(TypeConstructor::Unit)),
+            callee,
+        );
+
+        let expected_effect_ty = InferType::Fun(
+            vec![],
+            Box::new(InferType::Con(TypeConstructor::Unit)),
+            ambient,
+        );
+
+        let _ = self.unify_with_context(
+            &expected_effect_ty,
+            &actual_effect_ty,
+            span,
+            ReportContext::Plain,
+        );
+    }
+
     // ── Program / statement inference ─────────────────────────────────────────
 
     fn infer_program(&mut self, program: &Program) {
@@ -659,7 +823,11 @@ impl<'a> InferCtx<'a> {
             let ctor_ty = if field_tys.is_empty() {
                 result_ty
             } else {
-                InferType::Fun(field_tys, Box::new(result_ty), vec![])
+                InferType::Fun(
+                    field_tys,
+                    Box::new(result_ty),
+                    InferEffectRow::closed_empty(),
+                )
             };
             let scheme = generalize(&ctor_ty, &HashSet::new());
             self.env.bind(variant.name, scheme);
@@ -683,6 +851,7 @@ impl<'a> InferCtx<'a> {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map: HashMap<Identifier, TypeVarId> =
             type_params.iter().map(|s| (*s, self.env.fresh())).collect();
+        let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
 
         self.env.enter_scope();
 
@@ -692,21 +861,53 @@ impl<'a> InferCtx<'a> {
             let ty = parameter_types
                 .get(i)
                 .and_then(|opt| opt.as_ref())
-                .and_then(|te| TypeEnv::infer_type_from_type_expr(te, &tp_map, self.interner))
+                .and_then(|te| {
+                    TypeEnv::infer_type_from_type_expr_with_row_vars(
+                        te,
+                        &tp_map,
+                        self.interner,
+                        &mut row_var_env,
+                        &mut self.env.counter,
+                    )
+                })
                 .unwrap_or_else(|| self.env.fresh_infer_type());
             param_tys.push(ty.clone());
             self.env.bind(param, Scheme::mono(ty));
         }
 
+        let ambient_effect_row = if effects.is_empty() {
+            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.fresh())
+        } else {
+            Self::infer_effect_row(effects, &mut row_var_env, &mut self.env.counter)
+        };
+
+        // The *declared* row is what appears in the function's published scheme.
+        // Unannotated functions get a closed-empty row so they don't suddenly
+        // acquire inferred effect types in their signatures (gradual compat).
+        // The *ambient* row (open) is used only inside the body for permissive
+        // call-site checking.
+        let declared_effect_row = if effects.is_empty() {
+            InferEffectRow::closed_empty()
+        } else {
+            ambient_effect_row.clone()
+        };
+
         // Infer the body type.
-        let body_ty = self.infer_block(body);
+        let body_ty =
+            self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| ctx.infer_block(body));
 
         // Propagate the return type annotation constraint silently — the
         // compiler's boundary checker in statement.rs is the authoritative
         // reporter for return type mismatches.
         let mut ret_ty = match return_type {
             Some(ret_ann) => {
-                match TypeEnv::infer_type_from_type_expr(ret_ann, &tp_map, self.interner) {
+                match TypeEnv::infer_type_from_type_expr_with_row_vars(
+                    ret_ann,
+                    &tp_map,
+                    self.interner,
+                    &mut row_var_env,
+                    &mut self.env.counter,
+                ) {
                     Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
                     None => body_ty.apply_type_subst(&self.subst),
                 }
@@ -722,7 +923,12 @@ impl<'a> InferCtx<'a> {
             && self.block_contains_self_call(body, name)
         {
             ret_ty = self.refine_unannotated_self_recursive_return(
-                name, parameters, &param_tys, effects, body, &ret_ty,
+                name,
+                parameters,
+                &param_tys,
+                &ambient_effect_row,
+                body,
+                &ret_ty,
             );
         }
 
@@ -731,11 +937,8 @@ impl<'a> InferCtx<'a> {
             .iter()
             .map(|t| t.apply_type_subst(&self.subst))
             .collect();
-        let effect_symbols = effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect();
-        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols);
+        let effect_row = declared_effect_row.apply_row_subst(&self.subst);
+        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty), effect_row);
 
         self.env.leave_scope();
 
@@ -760,7 +963,7 @@ impl<'a> InferCtx<'a> {
         name: Identifier,
         parameters: &[Identifier],
         param_tys: &[InferType],
-        effects: &[EffectExpr],
+        effects_row: &InferEffectRow,
         body: &Block,
         current_ret: &InferType,
     ) -> InferType {
@@ -773,17 +976,14 @@ impl<'a> InferCtx<'a> {
             self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
         }
         let ret_slot = self.env.fresh_infer_type();
-        let effect_symbols = effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect();
         let self_fn_ty = InferType::Fun(
             refined_param_tys,
             Box::new(ret_slot.clone()),
-            effect_symbols,
+            effects_row.apply_row_subst(&self.subst),
         );
         self.env.bind(name, Scheme::mono(self_fn_ty));
-        let second_body_ty = self.infer_block(body);
+        let second_body_ty =
+            self.with_ambient_effect_row(effects_row.clone(), |ctx| ctx.infer_block(body));
         let refined_ret = self.unify_propagate(&second_body_ty, &ret_slot);
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);
@@ -920,7 +1120,14 @@ impl<'a> InferCtx<'a> {
         // typed-let initializer mismatches.
         let final_ty = match annotation {
             Some(ann) => {
-                match TypeEnv::infer_type_from_type_expr(ann, &HashMap::new(), self.interner) {
+                let mut row_var_env = HashMap::new();
+                match TypeEnv::infer_type_from_type_expr_with_row_vars(
+                    ann,
+                    &HashMap::new(),
+                    self.interner,
+                    &mut row_var_env,
+                    &mut self.env.counter,
+                ) {
                     Some(ann_ty) => self.unify_propagate(&val_ty, &ann_ty),
                     None => val_ty.apply_type_subst(&self.subst),
                 }
@@ -1051,6 +1258,9 @@ impl<'a> InferCtx<'a> {
                     let (ty, _) = scheme.instantiate(&mut self.env.counter);
                     ty
                 } else {
+                    if self.known_base_names.contains(name) {
+                        self.emit_missing_base_hm_signature(*name, expr.span());
+                    }
                     // Unknown at this stage (may be a built-in / runtime binding).
                     // Gradual typing: treat as Any without an error.
                     InferType::Con(TypeConstructor::Any)
@@ -1192,6 +1402,7 @@ impl<'a> InferCtx<'a> {
                 ..
             } => {
                 self.env.enter_scope();
+                let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
 
                 let mut param_tys: Vec<InferType> = Vec::with_capacity(parameters.len());
                 for (i, &param) in parameters.iter().enumerate() {
@@ -1199,20 +1410,43 @@ impl<'a> InferCtx<'a> {
                         .get(i)
                         .and_then(|opt| opt.as_ref())
                         .and_then(|te| {
-                            TypeEnv::infer_type_from_type_expr(te, &HashMap::new(), self.interner)
+                            TypeEnv::infer_type_from_type_expr_with_row_vars(
+                                te,
+                                &HashMap::new(),
+                                self.interner,
+                                &mut row_var_env,
+                                &mut self.env.counter,
+                            )
                         })
                         .unwrap_or_else(|| self.env.fresh_infer_type());
                     param_tys.push(ty.clone());
                     self.env.bind(param, Scheme::mono(ty));
                 }
 
-                let body_ty = self.infer_block(body);
+                let ambient_effect_row = if effects.is_empty() {
+                    InferEffectRow::open_from_symbols(
+                        std::iter::empty::<Identifier>(),
+                        self.env.fresh(),
+                    )
+                } else {
+                    Self::infer_effect_row(effects, &mut row_var_env, &mut self.env.counter)
+                };
+
+                // Lambdas are effect-transparent: their published row matches
+                // the ambient row (open when unannotated). This differs from
+                // named functions, which publish closed-empty when unannotated
+                // to preserve backward-compatible signatures.
+                let declared_effect_row = ambient_effect_row.clone();
+                let body_ty =
+                    self.with_ambient_effect_row(ambient_effect_row, |ctx| ctx.infer_block(body));
                 let ret_ty = match return_type {
                     Some(ret_ann) => {
-                        match TypeEnv::infer_type_from_type_expr(
+                        match TypeEnv::infer_type_from_type_expr_with_row_vars(
                             ret_ann,
                             &HashMap::new(),
                             self.interner,
+                            &mut row_var_env,
+                            &mut self.env.counter,
                         ) {
                             Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
                             None => body_ty.apply_type_subst(&self.subst),
@@ -1227,11 +1461,11 @@ impl<'a> InferCtx<'a> {
                     .collect();
                 self.env.leave_scope();
 
-                let effect_symbols = effects
-                    .iter()
-                    .flat_map(EffectExpr::normalized_names)
-                    .collect();
-                InferType::Fun(final_param_tys, Box::new(ret_ty), effect_symbols)
+                InferType::Fun(
+                    final_param_tys,
+                    Box::new(ret_ty),
+                    declared_effect_row.apply_row_subst(&self.subst),
+                )
             }
 
             // ── Function call ─────────────────────────────────────────────────
@@ -1381,6 +1615,14 @@ impl<'a> InferCtx<'a> {
                     let (ty, _) = scheme.instantiate(&mut self.env.counter);
                     ty
                 } else {
+                    if let Expression::Identifier {
+                        name: module_name, ..
+                    } = object.as_ref()
+                        && *module_name == self.base_module_symbol
+                        && self.known_base_names.contains(member)
+                    {
+                        self.emit_missing_base_hm_signature(*member, expr.span());
+                    }
                     self.infer_expr(object);
                     InferType::Con(TypeConstructor::Any)
                 }
@@ -1425,7 +1667,7 @@ impl<'a> InferCtx<'a> {
                 arms,
                 span,
             } => {
-                let handled_ty = self.infer_expr(expr);
+                let handled_ty = self.with_handle_effect(*effect, |ctx| ctx.infer_expr(expr));
                 let mut arm_result: Option<InferType> = None;
                 for arm in arms {
                     self.env.enter_scope();
@@ -1436,7 +1678,7 @@ impl<'a> InferCtx<'a> {
                             self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
                         }
                     }
-                    let body_ty = self.infer_expr(&arm.body);
+                    let body_ty = self.with_handle_effect(*effect, |ctx| ctx.infer_expr(&arm.body));
                     self.env.leave_scope();
                     arm_result = Some(match arm_result {
                         Some(prev) => self.join_types(&prev, &body_ty),
@@ -1538,6 +1780,9 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let fn_ty = self.infer_expr(function);
         let fn_ty_resolved = fn_ty.apply_type_subst(&self.subst);
+        let ambient_effect_row = self
+            .current_ambient_effect_row()
+            .apply_row_subst(&self.subst);
 
         let (fn_name, fn_def_span) = match function {
             Expression::Identifier { name, .. } => {
@@ -1547,7 +1792,9 @@ impl<'a> InferCtx<'a> {
             _ => (None, None),
         };
 
-        if let InferType::Fun(param_tys, ret_ty, _) = fn_ty_resolved.clone() {
+        if let InferType::Fun(param_tys, ret_ty, fn_effects) = fn_ty_resolved.clone() {
+            self.constrain_call_effects(&fn_effects, &ambient_effect_row, span);
+
             let has_higher_order_params = param_tys
                 .iter()
                 .map(|t| t.apply_type_subst(&self.subst))
@@ -1559,7 +1806,11 @@ impl<'a> InferCtx<'a> {
                 let arg_tys: Vec<InferType> =
                     arguments.iter().map(|a| self.infer_expr(a)).collect();
                 let ret_var = self.env.fresh_infer_type();
-                let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
+                let expected_fn_ty = InferType::Fun(
+                    arg_tys,
+                    Box::new(ret_var.clone()),
+                    fn_effects.apply_row_subst(&self.subst),
+                );
                 self.unify_reporting(&fn_ty, &expected_fn_ty, span);
                 return ret_var.apply_type_subst(&self.subst);
             }
@@ -1581,7 +1832,12 @@ impl<'a> InferCtx<'a> {
                     && !expected_resolved.contains_any()
                     && !actual_resolved.contains_any();
 
-                match unify_with_span(&expected_resolved, &actual_resolved, arg_expr.span()) {
+                match unify_with_span_and_fresh(
+                    &expected_resolved,
+                    &actual_resolved,
+                    arg_expr.span(),
+                    &mut self.env.counter,
+                ) {
                     Ok(s) => {
                         self.subst = std::mem::take(&mut self.subst).compose(&s);
                     }
@@ -1609,7 +1865,7 @@ impl<'a> InferCtx<'a> {
         // Fallback for dynamic/unknown callees keeps prior behavior.
         let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
         let ret_var = self.env.fresh_infer_type();
-        let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), vec![]);
+        let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), ambient_effect_row);
         self.unify_with_context(
             &fn_ty,
             &expected_fn_ty,
@@ -1770,7 +2026,16 @@ impl<'a> InferCtx<'a> {
         let field_tys: Vec<InferType> = info
             .fields
             .iter()
-            .map(|field| TypeEnv::infer_type_from_type_expr(field, &type_param_map, self.interner))
+            .map(|field| {
+                let mut row_var_env = HashMap::new();
+                TypeEnv::infer_type_from_type_expr_with_row_vars(
+                    field,
+                    &type_param_map,
+                    self.interner,
+                    &mut row_var_env,
+                    &mut self.env.counter,
+                )
+            })
             .collect::<Option<Vec<_>>>()?;
 
         let result_ty = if info.type_params.is_empty() {
@@ -1835,14 +2100,20 @@ pub fn infer_program(
     program: &Program,
     interner: &Interner,
     file_path: Option<String>,
+    preloaded_base_schemes: HashMap<Identifier, Scheme>,
     preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
+    known_base_names: HashSet<Identifier>,
+    base_module_symbol: Identifier,
     preloaded_effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
 ) -> InferProgramResult {
     let file = file_path.unwrap_or_default();
     let mut ctx = InferCtx::new(
         interner,
         file,
+        preloaded_base_schemes,
         preloaded_module_member_schemes,
+        known_base_names,
+        base_module_symbol,
         preloaded_effect_op_signatures,
     );
     ctx.infer_program(program);
