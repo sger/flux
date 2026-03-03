@@ -1,3 +1,4 @@
+use crate::runtime::closure;
 use crate::runtime::{
     RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
 };
@@ -300,5 +301,16 @@ impl RuntimeContext for JitContext {
 
     fn gc_heap_mut(&mut self) -> &mut GcHeap {
         &mut self.gc_heap
+    }
+
+    fn callable_contract<'a>(&'a self, callee: &'a Value) -> Option<&'a FunctionContract> {
+        match callee {
+            Value::JitClosure(closure) => self
+                .jit_functions
+                .get(closure.function_index)
+                .and_then(|entry| entry.contract.as_ref()),
+            Value::Closure(closure) => closure.function.contract.as_ref(),
+            _ => None,
+        }
     }
 }
