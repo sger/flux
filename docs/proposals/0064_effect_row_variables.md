@@ -1,5 +1,7 @@
 - Feature Name: Effect Row Variables (`|e`) in EffectExpr
 - Start Date: 2026-03-01
+- Completion Date: 2026-03-03
+- Status: Completed
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -43,9 +45,9 @@ Solver features: worklist algorithm, variable linking, deferred absent evaluatio
 Error codes: E400 (missing effect), E419 (unresolved single var), E420 (ambiguous multi var),
 E421 (invalid subtraction), E422 (unsatisfied subset).
 
-**What is NOT yet done:**
+**What is NOT yet done (at time of writing — now resolved):**
 
-1. Full stdlib migration to explicit `|e` row-tail style everywhere
+1. ~~Full stdlib migration to explicit `|e` row-tail style everywhere~~ — completed: `is_effect_variable` removed, all `examples/type_system/` fixtures migrated to `|e`, `lib/FTest.flx` had no row variables to migrate.
 
 ## Motivation
 

@@ -285,18 +285,36 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
     match id {
         Id::Print => sig(vec![t_any()], t_unit(), row(vec!["IO"], None)),
         Id::Len => sig(vec![t_any()], t_int(), row(vec![], None)),
-        Id::First => sig(vec![t_any()], t_option(t_any()), row(vec![], None)),
-        Id::Last => sig(vec![t_any()], t_option(t_any()), row(vec![], None)),
-        Id::Rest => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::Push => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
+        Id::First => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a"))], t_option(t_var("a")), row(vec![], None),
+        ),
+        Id::Last => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a"))], t_option(t_var("a")), row(vec![], None),
+        ),
+        Id::Rest => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a"))], t_array(t_var("a")), row(vec![], None),
+        ),
+        Id::Push => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a")), t_var("a")], t_array(t_var("a")), row(vec![], None),
+        ),
         Id::ToString => sig(vec![t_any()], t_string(), row(vec![], None)),
         Id::Concat => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
         Id::Reverse => sig(vec![t_any()], t_any(), row(vec![], None)),
         Id::Contains => sig(vec![t_any(), t_any()], t_bool(), row(vec![], None)),
-        Id::Slice => sig(vec![t_any(), t_int(), t_int()], t_any(), row(vec![], None)),
-        Id::Sort => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::Split => sig(vec![t_string(), t_string()], t_any(), row(vec![], None)),
-        Id::Join => sig(vec![t_any(), t_string()], t_string(), row(vec![], None)),
+        Id::Slice => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a")), t_int(), t_int()], t_array(t_var("a")), row(vec![], None),
+        ),
+        Id::Sort => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a"))], t_array(t_var("a")), row(vec![], None),
+        ),
+        Id::Split => sig(vec![t_string(), t_string()], t_array(t_string()), row(vec![], None)),
+        Id::Join => sig(vec![t_array(t_string()), t_string()], t_string(), row(vec![], None)),
         Id::Trim => sig(vec![t_string()], t_string(), row(vec![], None)),
         Id::Upper => sig(vec![t_string()], t_string(), row(vec![], None)),
         Id::Lower => sig(vec![t_string()], t_string(), row(vec![], None)),
@@ -307,17 +325,34 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
             t_string(),
             row(vec![], None),
         ),
-        Id::Chars => sig(vec![t_string()], t_any(), row(vec![], None)),
+        Id::Chars => sig(vec![t_string()], t_array(t_string()), row(vec![], None)),
         Id::Substring => sig(
             vec![t_string(), t_int(), t_int()],
             t_string(),
             row(vec![], None),
         ),
-        Id::Keys => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::Values => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::HasKey => sig(vec![t_any(), t_any()], t_bool(), row(vec![], None)),
-        Id::Merge => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
-        Id::Delete => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
+        Id::Keys => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v"))], t_array(t_var("k")), row(vec![], None),
+        ),
+        Id::Values => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v"))], t_array(t_var("v")), row(vec![], None),
+        ),
+        Id::HasKey => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v")), t_var("k")], t_bool(), row(vec![], None),
+        ),
+        Id::Merge => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v")), t_map(t_var("k"), t_var("v"))],
+            t_map(t_var("k"), t_var("v")), row(vec![], None),
+        ),
+        Id::Delete => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v")), t_var("k")],
+            t_map(t_var("k"), t_var("v")), row(vec![], None),
+        ),
         Id::Abs => sig(vec![t_any()], t_any(), row(vec![], None)),
         Id::Min => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
         Id::Max => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
@@ -361,30 +396,50 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
             t_any(),
             row(vec![], Some("e")),
         ),
-        Id::Hd => sig(vec![t_any()], t_option(t_any()), row(vec![], None)),
-        Id::Tl => sig(vec![t_any()], t_any(), row(vec![], None)),
+        Id::Hd => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_list(t_var("a"))], t_option(t_var("a")), row(vec![], None),
+        ),
+        Id::Tl => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_list(t_var("a"))], t_list(t_var("a")), row(vec![], None),
+        ),
         Id::IsList => sig(vec![t_any()], t_bool(), row(vec![], None)),
-        Id::ToList => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::ToArray => sig(vec![t_any()], t_any(), row(vec![], None)),
-        Id::Put => sig(vec![t_any(), t_any(), t_any()], t_any(), row(vec![], None)),
-        Id::Get => sig(vec![t_any(), t_any()], t_option(t_any()), row(vec![], None)),
+        Id::ToList => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_var("a"))], t_list(t_var("a")), row(vec![], None),
+        ),
+        Id::ToArray => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_list(t_var("a"))], t_array(t_var("a")), row(vec![], None),
+        ),
+        Id::Put => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v")), t_var("k"), t_var("v")],
+            t_map(t_var("k"), t_var("v")), row(vec![], None),
+        ),
+        Id::Get => sig_with_row_params(
+            vec!["k", "v"], vec![],
+            vec![t_map(t_var("k"), t_var("v")), t_var("k")],
+            t_option(t_var("v")), row(vec![], None),
+        ),
         Id::IsMap => sig(vec![t_any()], t_bool(), row(vec![], None)),
         Id::List => sig(vec![t_any()], t_any(), row(vec![], None)),
         Id::ReadFile => sig(vec![t_string()], t_string(), row(vec!["IO"], None)),
-        Id::ReadLines => sig(vec![t_string()], t_any(), row(vec!["IO"], None)),
+        Id::ReadLines => sig(vec![t_string()], t_array(t_string()), row(vec!["IO"], None)),
         Id::ReadStdin => sig(vec![], t_string(), row(vec!["IO"], None)),
         Id::ParseInt => sig(vec![t_string()], t_option(t_int()), row(vec![], None)),
         Id::NowMs => sig(vec![], t_int(), row(vec!["Time"], None)),
         Id::Time => sig(vec![], t_int(), row(vec!["Time"], None)),
-        Id::Range => sig(vec![t_int(), t_int()], t_any(), row(vec![], None)),
+        Id::Range => sig(vec![t_int(), t_int()], t_array(t_int()), row(vec![], None)),
         Id::Sum => sig(vec![t_any()], t_any(), row(vec![], None)),
         Id::Product => sig(vec![t_any()], t_any(), row(vec![], None)),
         Id::ParseInts => sig(
-            vec![BaseHmType::Array(Box::new(t_string()))],
-            t_any(),
+            vec![t_array(t_string())],
+            t_array(t_int()),
             row(vec![], None),
         ),
-        Id::SplitInts => sig(vec![t_string(), t_string()], t_any(), row(vec![], None)),
+        Id::SplitInts => sig(vec![t_string(), t_string()], t_array(t_int()), row(vec![], None)),
         Id::FlatMap => sig_with_row_params(
             vec![],
             vec!["e"],
@@ -435,8 +490,16 @@ pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
             t_any(),
             row(vec![], Some("e")),
         ),
-        Id::Zip => sig(vec![t_any(), t_any()], t_any(), row(vec![], None)),
-        Id::Flatten => sig(vec![t_any()], t_any(), row(vec![], None)),
+        Id::Zip => sig_with_row_params(
+            vec!["a", "b"], vec![],
+            vec![t_array(t_var("a")), t_array(t_var("b"))],
+            t_array(t_tuple(vec![t_var("a"), t_var("b")])),
+            row(vec![], None),
+        ),
+        Id::Flatten => sig_with_row_params(
+            vec!["a"], vec![],
+            vec![t_array(t_array(t_var("a")))], t_array(t_var("a")), row(vec![], None),
+        ),
         Id::Count => sig_with_row_params(
             vec![],
             vec!["e"],
@@ -513,6 +576,26 @@ fn t_unit() -> BaseHmType {
 
 fn t_option(inner: BaseHmType) -> BaseHmType {
     BaseHmType::Option(Box::new(inner))
+}
+
+fn t_array(inner: BaseHmType) -> BaseHmType {
+    BaseHmType::Array(Box::new(inner))
+}
+
+fn t_list(inner: BaseHmType) -> BaseHmType {
+    BaseHmType::List(Box::new(inner))
+}
+
+fn t_map(k: BaseHmType, v: BaseHmType) -> BaseHmType {
+    BaseHmType::Map(Box::new(k), Box::new(v))
+}
+
+fn t_tuple(elements: Vec<BaseHmType>) -> BaseHmType {
+    BaseHmType::Tuple(elements)
+}
+
+fn t_var(name: &'static str) -> BaseHmType {
+    BaseHmType::TypeVar(name)
 }
 
 fn t_fun(params: Vec<BaseHmType>, ret: BaseHmType, effects: BaseHmEffectRow) -> BaseHmType {
