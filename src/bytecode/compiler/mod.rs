@@ -543,7 +543,7 @@ impl Compiler {
                                 base_fn, message
                             ),
                             Some(
-                                "Fix the Base HM signature in src/runtime/base/signatures.rs."
+                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
                                     .to_string(),
                             ),
                             self.file_path.clone(),
@@ -586,7 +586,7 @@ impl Compiler {
                                 base_fn, message
                             ),
                             Some(
-                                "Fix the Base HM signature in src/runtime/base/signatures.rs."
+                                "Fix the Base HM signature in src/runtime/base/base_hm_signature.rs."
                                     .to_string(),
                             ),
                             self.file_path.clone(),

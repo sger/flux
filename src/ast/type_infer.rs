@@ -31,7 +31,7 @@ use crate::{
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
-        unify_error::{UnifyErrorDetail, UnifyErrorKind, unify_with_span_and_fresh},
+        unify_error::{UnifyErrorDetail, UnifyErrorKind, unify_with_span_and_row_var_counter},
     },
 };
 
@@ -188,6 +188,31 @@ enum PatternFamily {
 }
 
 impl<'a> InferCtx<'a> {
+    /// Infer an [`InferEffectRow`] from parsed effect annotations.
+    ///
+    /// This helper is the AST/type-inference entrypoint for converting a list
+    /// of parsed [`EffectExpr`] nodes (for example from `fn ... with ...`) into
+    /// the canonical row representation used by HM inference and row unification.
+    ///
+    /// Behavior:
+    /// - Collects and normalizes all concrete effect names from `effects`.
+    /// - Resolves symbolic row variables through `row_var_env` so the same
+    ///   source-level row variable always maps to the same [`TypeVarId`] within
+    ///   this inference context.
+    /// - Allocates fresh row-variable ids using `next_row_var_id` when a symbol
+    ///   appears for the first time.
+    /// - Produces a closed row when no row-variable is present, otherwise an open
+    ///   row whose tail is the last row-variable encountered in `effects`.
+    ///
+    /// Parameters:
+    /// - `effects`: parsed effect expressions for the current annotation site.
+    /// - `row_var_env`: per-site/per-scope mapping from symbolic row variables
+    ///   to canonical row-variable ids.
+    /// - `next_row_var_id`: monotonic allocator for fresh row-variable ids.
+    ///
+    /// This function intentionally delegates construction details to
+    /// [`InferEffectRow::from_effect_exprs`] so row-shape policy stays
+    /// centralized.
     fn infer_effect_row(
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
@@ -202,6 +227,30 @@ impl<'a> InferCtx<'a> {
         display_infer_type(ty, self.interner)
     }
 
+    /// Construct a fresh inference context for one compilation unit.
+    ///
+    /// This initializes:
+    /// - a new [`TypeEnv`] pre-populated with `preloaded_base_schemes`,
+    /// - lookup tables for module-member HM schemes and effect operation
+    ///   signatures loaded from earlier compiler phases,
+    /// - interner-backed naming context and file-path metadata used by
+    ///   diagnostics,
+    /// - empty substitution/error/trace state used during inference.
+    ///
+    /// The resulting context is ready to infer top-level declarations and
+    /// expressions while preserving deterministic ids and diagnostics for this
+    /// source file.
+    ///
+    /// Parameters:
+    /// - `interner`: shared symbol table used for display and name resolution.
+    /// - `file_path`: source path to stamp diagnostics with origin metadata.
+    /// - `preloaded_base_schemes`: HM schemes for Base runtime bindings.
+    /// - `preloaded_module_member_schemes`: HM schemes for imported module
+    ///   members, keyed by `(module, member)`.
+    /// - `known_base_names`: fast-membership set for names belonging to Base.
+    /// - `base_module_symbol`: canonical symbol identifying the Base module.
+    /// - `preloaded_effect_op_signatures`: signatures for effect operations,
+    ///   keyed by `(effect, operation)`.
     fn new(
         interner: &'a Interner,
         file_path: String,
@@ -235,18 +284,28 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Emit diagnostic `E426` when a referenced Base function has no HM metadata.
+    ///
+    /// This is raised when inference needs a Base function scheme but cannot
+    /// obtain one from the preloaded Base signature registry. The diagnostic
+    /// points at the use site (`span`) and includes a fix hint directing
+    /// contributors to the Base HM signature definitions.
+    ///
+    /// Parameters:
+    /// - `base_name`: interned symbol of the missing Base function.
+    /// - `span`: source location where the missing metadata was required.
     fn emit_missing_base_hm_signature(&mut self, base_name: Identifier, span: Span) {
         self.errors.push(
             Diagnostic::make_error_dynamic(
                 "E426",
-                "BASE HM SIGNATURE",
+                "BASE HM SIGNATURE MISSING",
                 crate::diagnostics::ErrorType::Compiler,
                 format!(
                     "Base function `{}` is missing HM metadata and cannot be typed.",
                     self.interner.resolve(base_name)
                 ),
                 Some(
-                    "Add an HM signature for this Base function in src/runtime/base/signatures.rs."
+                    "Add an HM signature for this Base function in src/runtime/base/base_hm_signature.rs."
                         .to_string(),
                 ),
                 self.file_path.clone(),
@@ -256,6 +315,14 @@ impl<'a> InferCtx<'a> {
         );
     }
 
+    /// Compute the currently active ambient effect row for the inference point.
+    ///
+    /// The base row comes from the top of `ambient_effect_rows` (if any),
+    /// otherwise it starts as a closed empty row. Effects currently marked as
+    /// handled via [`Self::with_handle_effect`] are then merged into the
+    /// concrete set so downstream checks treat them as available in scope.
+    ///
+    /// Returns a cloned row value; internal stacks are not mutated.
     fn current_ambient_effect_row(&self) -> InferEffectRow {
         let mut row = self
             .ambient_effect_rows
@@ -267,6 +334,16 @@ impl<'a> InferCtx<'a> {
         row
     }
 
+    /// Execute `f` with `row` pushed as the ambient effect context.
+    ///
+    /// This provides scoped ambient-effect tracking: the row is pushed before
+    /// executing `f` and always popped afterward, then `f`'s result is returned.
+    /// It is used for entering bodies (for example function bodies) that carry a
+    /// known ambient effect annotation.
+    ///
+    /// Parameters:
+    /// - `row`: ambient row to make active for the duration of `f`.
+    /// - `f`: closure executed under that ambient row.
     fn with_ambient_effect_row<F, R>(&mut self, row: InferEffectRow, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -277,6 +354,16 @@ impl<'a> InferCtx<'a> {
         result
     }
 
+    /// Execute `f` while marking one effect as handled in the current scope.
+    ///
+    /// The effect symbol is pushed to `handled_effects` before running `f` and
+    /// removed immediately afterward, giving nested handle scopes stack-like
+    /// behavior. [`Self::current_ambient_effect_row`] incorporates these handled
+    /// effects into the concrete ambient row used by compatibility checks.
+    ///
+    /// Parameters:
+    /// - `effect`: effect symbol treated as handled during `f`.
+    /// - `f`: closure executed with that temporary handled-effect binding.
     fn with_handle_effect<F, R>(&mut self, effect: Identifier, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -287,6 +374,29 @@ impl<'a> InferCtx<'a> {
         result
     }
 
+    /// Resolve an effect operation signature and lower it to inference types.
+    ///
+    /// Looks up `(effect, operation)` in `effect_op_signatures`, expects the
+    /// stored type expression to be function-shaped, and lowers its parameter
+    /// and return type expressions into [`InferType`] values.
+    ///
+    /// Lowering details:
+    /// - Uses `TypeEnv::infer_type_from_type_expr_with_row_vars` for each
+    ///   parameter and the return type.
+    /// - Tracks row-variable symbols through a local `row_var_env` so repeated
+    ///   row vars in one signature map to stable row-variable ids.
+    /// - Advances `self.env.counter` to reserve any fresh ids consumed during
+    ///   lowering.
+    ///
+    /// Returns:
+    /// - `Some((params, ret))` when a well-formed function signature is found
+    ///   and fully lowered.
+    /// - `None` when the operation is missing, the stored expression is not a
+    ///   function type, or any component cannot be lowered.
+    ///
+    /// Parameters:
+    /// - `effect`: effect symbol containing the operation.
+    /// - `operation`: operation symbol to resolve within that effect.
     fn effect_op_signature_types(
         &mut self,
         effect: Identifier,
@@ -445,7 +555,12 @@ impl<'a> InferCtx<'a> {
     fn unify_propagate(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
-        match unify_with_span_and_fresh(&t1_sub, &t2_sub, Span::default(), &mut self.env.counter) {
+        match unify_with_span_and_row_var_counter(
+            &t1_sub,
+            &t2_sub,
+            Span::default(),
+            &mut self.env.counter,
+        ) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
                 t1_sub.apply_type_subst(&self.subst)
@@ -470,7 +585,7 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
-        match unify_with_span_and_fresh(&t1_sub, &t2_sub, span, &mut self.env.counter) {
+        match unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, &mut self.env.counter) {
             Ok(s) => {
                 // Compose the new solution into the global substitution.
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
@@ -1830,7 +1945,7 @@ impl<'a> InferCtx<'a> {
                     && !expected_resolved.contains_any()
                     && !actual_resolved.contains_any();
 
-                match unify_with_span_and_fresh(
+                match unify_with_span_and_row_var_counter(
                     &expected_resolved,
                     &actual_resolved,
                     arg_expr.span(),
