@@ -10,31 +10,21 @@ pub(crate) struct EffectRow {
 
 impl EffectRow {
     /// Builds a row from an effect list, partitioning concrete atoms and row variables.
-    pub(crate) fn from_effect_exprs<F>(effects: &[EffectExpr], is_var: F) -> Self
-    where
-        F: Fn(Symbol) -> bool,
-    {
+    pub(crate) fn from_effect_exprs(effects: &[EffectExpr]) -> Self {
         let mut row = Self::default();
         for effect in effects {
-            let piece = Self::from_effect_expr(effect, &is_var);
+            let piece = Self::from_effect_expr(effect);
             row.atoms.extend(piece.atoms);
             row.vars.extend(piece.vars);
         }
         row
     }
 
-    pub(crate) fn from_effect_expr<F>(effect: &EffectExpr, is_var: &F) -> Self
-    where
-        F: Fn(Symbol) -> bool,
-    {
+    pub(crate) fn from_effect_expr(effect: &EffectExpr) -> Self {
         match effect {
             EffectExpr::Named { name, .. } => {
                 let mut row = Self::default();
-                if is_var(*name) {
-                    row.vars.insert(*name);
-                } else {
-                    row.atoms.insert(*name);
-                }
+                row.atoms.insert(*name);
                 row
             }
             EffectExpr::RowVar { name, .. } => {
@@ -44,15 +34,15 @@ impl EffectRow {
                 row
             }
             EffectExpr::Add { left, right, .. } => {
-                let mut row = Self::from_effect_expr(left, is_var);
-                let right_row = Self::from_effect_expr(right, is_var);
+                let mut row = Self::from_effect_expr(left);
+                let right_row = Self::from_effect_expr(right);
                 row.atoms.extend(right_row.atoms);
                 row.vars.extend(right_row.vars);
                 row
             }
             EffectExpr::Subtract { left, right, .. } => {
-                let mut row = Self::from_effect_expr(left, is_var);
-                let right_row = Self::from_effect_expr(right, is_var);
+                let mut row = Self::from_effect_expr(left);
+                let right_row = Self::from_effect_expr(right);
                 for atom in right_row.atoms {
                     row.atoms.remove(&atom);
                 }

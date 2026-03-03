@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::syntax::entry;
+use crate::bytecode::compiler::effect_rows::EffectRow;
+use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::types::infer_effect_row::InferEffectRow;
+use crate::types::scheme;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
     ast::{
@@ -110,6 +112,8 @@ pub struct Compiler {
     pub(super) function_param_counts: Vec<usize>,
     // Declared ambient effects for active function scopes innermost last.
     pub(super) function_effects: Vec<Vec<Symbol>>,
+    // Annotated function-typed parameter effect rows for active function scopes.
+    pub(super) function_param_effect_rows: Vec<HashMap<Symbol, effect_rows::EffectRow>>,
     // Effects currently handled by enclosing `handle ...` scopes.
     pub(super) handled_effects: Vec<Symbol>,
     // For each active function scope track local indexes captured by nested closures.
@@ -175,6 +179,7 @@ impl Compiler {
             in_tail_position: false,
             function_param_counts: Vec::new(),
             function_effects: Vec::new(),
+            function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
@@ -233,6 +238,7 @@ impl Compiler {
         self.hm_expr_types.clear();
         self.expr_ptr_to_id.clear();
         self.function_effects.clear();
+        self.function_param_effect_rows.clear();
         self.handled_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
@@ -549,8 +555,57 @@ impl Compiler {
                 }
             }
         }
-
         preloaded
+    }
+
+    fn build_preload_base_member_schemes(&mut self) -> HashMap<(Symbol, Symbol), Scheme> {
+        let mut preloaded = HashMap::new();
+        let base_module = self.interner.intern("Base");
+
+        for base_fn in BaseModule::new().names() {
+            let member = self.interner.intern(base_fn);
+            let Some(entry) = BaseModule::new()
+                .index_of(base_fn)
+                .and_then(|i| BaseModule::new().by_index(i))
+            else {
+                continue;
+            };
+
+            match scheme_for_signature_id(entry.hm_signature, &mut self.interner) {
+                Ok(scheme) => {
+                    preloaded.insert((base_module, member), scheme);
+                }
+                Err(message) => {
+                    let span = Span::new(Position::new(1, 0), Position::new(1, 0));
+                    self.errors.push(
+                        Diagnostic::make_error_dynamic(
+                            "E426",
+                            "BASE HM SIGNATURE MISSING",
+                            ErrorType::Compiler,
+                            format!(
+                                "Base member `Base.{}` has invalid or missing HM metadata: {}",
+                                base_fn, message
+                            ),
+                            Some(
+                                "Fix the Base HM signature in src/runtime/base/signatures.rs."
+                                    .to_string(),
+                            ),
+                            self.file_path.clone(),
+                            span,
+                        )
+                        .with_primary_label(span, "invalid Base HM metadata"),
+                    );
+                }
+            }
+        }
+        preloaded
+    }
+
+    fn known_base_name_set(&mut self) -> HashSet<Symbol> {
+        BaseModule::new()
+            .names()
+            .map(|name| self.interner.intern(name))
+            .collect()
     }
 
     fn collect_function_effect_seeds(&self, program: &Program) -> Vec<FunctionEffectSeed> {
@@ -691,7 +746,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_block(
-        &self,
+        &mut self,
         block: &Block,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -712,7 +767,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_statement(
-        &self,
+        &mut self,
         statement: &Statement,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -750,7 +805,7 @@ impl Compiler {
     }
 
     fn infer_effects_from_expr(
-        &self,
+        &mut self,
         expr: &Expression,
         current_module: Option<Symbol>,
         inferred: &HashMap<ContractKey, HashSet<Symbol>>,
@@ -1032,7 +1087,7 @@ impl Compiler {
     }
 
     fn infer_call_effects(
-        &self,
+        &mut self,
         function: &Expression,
         arguments: &[Expression],
         current_module: Option<Symbol>,
@@ -1052,11 +1107,14 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(self.resolve_call_effect_row_with_args(
-                            found,
-                            self.lookup_contract(Some(module_name), *name, arity),
-                            arguments,
-                        ));
+                        effects.extend(
+                            self.resolve_call_effect_row_with_args(
+                                found,
+                                self.lookup_contract(Some(module_name), *name, arity)
+                                    .cloned(),
+                                arguments,
+                            ),
+                        );
                         resolved = true;
                     }
                 }
@@ -1069,7 +1127,7 @@ impl Compiler {
                     if let Some(found) = inferred.get(&key) {
                         effects.extend(self.resolve_call_effect_row_with_args(
                             found,
-                            self.lookup_unqualified_contract(*name, arity),
+                            self.lookup_unqualified_contract(*name, arity).cloned(),
                             arguments,
                         ));
                         resolved = true;
@@ -1095,11 +1153,14 @@ impl Compiler {
                         arity,
                     };
                     if let Some(found) = inferred.get(&key) {
-                        effects.extend(self.resolve_call_effect_row_with_args(
-                            found,
-                            self.lookup_contract(Some(module_name), *member, arity),
-                            arguments,
-                        ));
+                        effects.extend(
+                            self.resolve_call_effect_row_with_args(
+                                found,
+                                self.lookup_contract(Some(module_name), *member, arity)
+                                    .cloned(),
+                                arguments,
+                            ),
+                        );
                     }
                 }
             }
@@ -1109,9 +1170,9 @@ impl Compiler {
     }
 
     fn resolve_call_effect_row_with_args(
-        &self,
+        &mut self,
         raw_effects: &HashSet<Symbol>,
-        contract: Option<&FnContract>,
+        contract: Option<FnContract>,
         arguments: &[Expression],
     ) -> HashSet<Symbol> {
         use crate::bytecode::compiler::effect_rows::{
@@ -1125,9 +1186,7 @@ impl Compiler {
                 span: Span::default(),
             });
         }
-        let required = EffectRow::from_effect_exprs(&effects_as_expr, |effect| {
-            self.is_effect_variable(effect)
-        });
+        let required = EffectRow::from_effect_exprs(&effects_as_expr);
 
         let mut constraints = Vec::new();
         if let Some(contract) = contract {
@@ -1141,9 +1200,7 @@ impl Compiler {
                     continue;
                 };
 
-                let expected = EffectRow::from_effect_exprs(param_effects, |effect| {
-                    self.is_effect_variable(effect)
-                });
+                let expected = EffectRow::from_effect_exprs(param_effects);
                 let Some(actual) = self.infer_argument_effect_row_for_inference(
                     argument,
                     params.len(),
@@ -1165,7 +1222,7 @@ impl Compiler {
     }
 
     fn infer_argument_effect_row_for_inference(
-        &self,
+        &mut self,
         argument: &Expression,
         expected_arity: usize,
         inferred_effects: &HashSet<Symbol>,
@@ -1174,46 +1231,59 @@ impl Compiler {
         use crate::bytecode::compiler::effect_rows::EffectRow;
 
         match argument {
-            Expression::Function { effects, .. } => {
-                Some(EffectRow::from_effect_exprs(effects, |effect| {
-                    self.is_effect_variable(effect)
-                }))
-            }
-            Expression::Identifier { name, .. } => self
-                .lookup_unqualified_contract(*name, expected_arity)
-                .map(|contract| {
-                    let mut set: HashSet<Symbol> = contract
-                        .effects
-                        .iter()
-                        .flat_map(EffectExpr::normalized_names)
-                        .collect();
-                    if set.is_empty() {
-                        set.extend(inferred_effects.iter().copied());
-                    }
-                    let effect_exprs: Vec<EffectExpr> = set
-                        .into_iter()
-                        .map(|name| EffectExpr::Named {
-                            name,
-                            span: Span::default(),
-                        })
-                        .collect();
-                    EffectRow::from_effect_exprs(&effect_exprs, |effect| {
-                        self.is_effect_variable(effect)
+            Expression::Function { effects, .. } => Some(EffectRow::from_effect_exprs(effects)),
+            Expression::Identifier { name, .. } => {
+                if let Some(local) = self.current_function_param_effect_row(*name) {
+                    return Some(local);
+                }
+
+                self.lookup_unqualified_contract(*name, expected_arity)
+                    .map(|contract| {
+                        let mut set: HashSet<Symbol> = contract
+                            .effects
+                            .iter()
+                            .flat_map(EffectExpr::normalized_names)
+                            .collect();
+                        if set.is_empty() {
+                            set.extend(inferred_effects.iter().copied());
+                        }
+                        let effect_exprs: Vec<EffectExpr> = set
+                            .into_iter()
+                            .map(|name| EffectExpr::Named {
+                                name,
+                                span: Span::default(),
+                            })
+                            .collect();
+                        EffectRow::from_effect_exprs(&effect_exprs)
                     })
-                }),
+                    .or_else(|| self.infer_argument_effect_row_from_hm(argument))
+            }
             Expression::MemberAccess { object, member, .. } => self
                 .resolve_module_name_from_expr(object)
                 .and_then(|module| self.lookup_contract(Some(module), *member, expected_arity))
-                .map(|contract| {
-                    EffectRow::from_effect_exprs(&contract.effects, |effect| {
-                        self.is_effect_variable(effect)
-                    })
-                }),
+                .map(|contract| EffectRow::from_effect_exprs(&contract.effects))
+                .or_else(|| self.infer_argument_effect_row_from_hm(argument)),
             _ => {
                 let _ = call_arguments;
-                None
+                self.infer_argument_effect_row_from_hm(argument)
             }
         }
+    }
+
+    fn infer_argument_effect_row_from_hm(&mut self, argument: &Expression) -> Option<EffectRow> {
+        let HmExprTypeResult::Known(InferType::Fun(_, _, effects)) =
+            self.hm_expr_type_strict_path(argument)
+        else {
+            return None;
+        };
+
+        let mut row = EffectRow::default();
+        row.atoms.extend(effects.concrete().iter().copied());
+        if let Some(tail) = effects.tail() {
+            let synthetic = self.interner.intern(&format!("__hm_row_{tail}"));
+            row.vars.insert(synthetic);
+        }
+        Some(row)
     }
 
     fn validate_main_entrypoint(&mut self, program: &Program) -> MainValidationState {
@@ -1532,41 +1602,6 @@ impl Compiler {
                         );
                     }
 
-                    let function_contract_position = parameter_types
-                        .iter()
-                        .flatten()
-                        .find(|ty| Self::type_expr_contains_function(ty))
-                        .map(TypeExpr::span)
-                        .or_else(|| {
-                            return_type
-                                .as_ref()
-                                .filter(|ret| Self::type_expr_contains_function(ret))
-                                .map(TypeExpr::span)
-                        });
-                    if let Some(function_span) = function_contract_position {
-                        self.errors.push(
-                            Diagnostic::make_error_dynamic(
-                                "E424",
-                                "STRICT UNSUPPORTED FUNCTION CONTRACT",
-                                ErrorType::Compiler,
-                                format!(
-                                    "Public function `{}` uses function-typed boundary annotations that are not runtime-enforced yet.",
-                                    self.sym(*name)
-                                ),
-                                Some(
-                                    "Use concrete boundary types or keep this API internal/private until function-typed runtime contracts are implemented."
-                                        .to_string(),
-                                ),
-                                self.file_path.clone(),
-                                function_span,
-                            )
-                            .with_primary_label(
-                                function_span,
-                                "function-typed boundary contract is unsupported in strict mode",
-                            ),
-                        );
-                    }
-
                     let is_effectful = self
                         .lookup_contract(module_name, *name, parameters.len())
                         .is_some_and(|contract| !contract.effects.is_empty());
@@ -1641,16 +1676,6 @@ impl Compiler {
                     .iter()
                     .any(|param| Self::type_expr_contains_any(param, interner))
                     || Self::type_expr_contains_any(ret, interner)
-            }
-        }
-    }
-
-    fn type_expr_contains_function(ty: &TypeExpr) -> bool {
-        match ty {
-            TypeExpr::Function { .. } => true,
-            TypeExpr::Named { args, .. } => args.iter().any(Self::type_expr_contains_function),
-            TypeExpr::Tuple { elements, .. } => {
-                elements.iter().any(Self::type_expr_contains_function)
             }
         }
     }
@@ -1808,13 +1833,6 @@ impl Compiler {
 
     pub(super) fn effect_op_signature(&self, effect: Symbol, op: Symbol) -> Option<&TypeExpr> {
         self.effect_op_signatures.get(&(effect, op))
-    }
-
-    pub(super) fn is_effect_variable(&self, effect: Symbol) -> bool {
-        self.sym(effect)
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase())
     }
 
     pub(super) fn to_runtime_contract(&self, contract: &FnContract) -> Option<FunctionContract> {
@@ -2013,12 +2031,21 @@ impl Compiler {
         // spurious failures in partially-typed programs where base-function return
         // types are not yet registered in the inference environment.
         let mut hm_diagnostics = {
+            let base_schemes = self.build_preloaded_base_schemes();
             let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+            let base_member_schemes = self.build_preload_base_member_schemes();
+            let known_base_names = self.known_base_name_set();
+            let base_module_symbol = self.interner.intern("Base");
+            let mut merged_member_schemes = preloaded_member_schemes;
+            merged_member_schemes.extend(base_member_schemes);
             let hm = infer_program(
                 program,
                 &self.interner,
                 Some(self.file_path.clone()),
-                preloaded_member_schemes,
+                base_schemes,
+                merged_member_schemes,
+                known_base_names,
+                base_module_symbol,
                 self.effect_op_signatures.clone(),
             );
             self.type_env = hm.type_env;
@@ -2395,10 +2422,11 @@ impl Compiler {
         result
     }
 
-    pub(super) fn with_function_context<F, R>(
+    pub(super) fn with_function_context_with_param_effect_rows<F, R>(
         &mut self,
         num_params: usize,
         effects: &[EffectExpr],
+        param_effect_rows: HashMap<Symbol, effect_rows::EffectRow>,
         f: F,
     ) -> R
     where
@@ -2411,9 +2439,11 @@ impl Compiler {
                 .flat_map(EffectExpr::normalized_names)
                 .collect(),
         );
+        self.function_param_effect_rows.push(param_effect_rows);
         self.captured_local_indices.push(HashSet::new());
         let result = f(self);
         self.captured_local_indices.pop();
+        self.function_param_effect_rows.pop();
         self.function_effects.pop();
         self.function_param_counts.pop();
         result
@@ -2425,6 +2455,30 @@ impl Compiler {
 
     pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {
         self.function_effects.last().map(Vec::as_slice)
+    }
+
+    pub(super) fn current_function_param_effect_row(
+        &self,
+        name: Symbol,
+    ) -> Option<effect_rows::EffectRow> {
+        self.function_param_effect_rows
+            .last()
+            .and_then(|rows| rows.get(&name).cloned())
+    }
+
+    pub(super) fn build_param_effect_rows(
+        &self,
+        parameters: &[Symbol],
+        parameter_types: &[Option<TypeExpr>],
+    ) -> HashMap<Symbol, effect_rows::EffectRow> {
+        let mut rows = HashMap::new();
+        for (index, param) in parameters.iter().enumerate() {
+            let Some(Some(TypeExpr::Function { effects, .. })) = parameter_types.get(index) else {
+                continue;
+            };
+            rows.insert(*param, effect_rows::EffectRow::from_effect_exprs(effects));
+        }
+        rows
     }
 
     pub(super) fn with_handled_effect<F, R>(&mut self, effect: Symbol, f: F) -> R
