@@ -1,4 +1,3 @@
-use crate::runtime::closure;
 use crate::runtime::{
     RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
 };

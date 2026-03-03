@@ -5,6 +5,22 @@ Fixture: examples/errors/pattern_validation_error_path.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/pattern_validation_error_path.flx:9:1
+   |
+ 9 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^^
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -56,6 +72,22 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/pattern_validation_error_path.flx:14:1
+   |
+14 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^^
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -92,6 +124,17 @@ Match is non-exhaustive without an unguarded catch-all arm.
 
 Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/pattern_validation_error_path.flx:19:1
+   |
+19 | print(match value { });
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- expected () -> Unit, found () -> Unit with IO
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -133,6 +176,6 @@ Match is non-exhaustive without an unguarded catch-all arm.
 Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
-Found 8 errors.
+Found 11 errors.
 == stdout ==
 <not executed>

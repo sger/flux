@@ -5,122 +5,14 @@ Fixture: examples/aoc/2024/day03_test.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot access private member `day03a_from_memory`.
+Cannot unify Option<Int> with Int.
 
-  --> examples/aoc/2024/day03_test.flx:4:15
-  |
-4 |     assert_eq(Day03.day03a_from_memory("mul(44,46)"), 2024)
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03a_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:9:9
-  |
-9 |         Day03.day03a_from_memory("xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))"),
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03a_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:16:9
+  --> examples/aoc/2024/Day03Solver.flx:59:27
    |
-16 |         Day03.day03a_from_memory("mul(4*, mul(6,9!, ?(12,34), or mul ( 2 , 4 )"),
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03a_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:23:9
-   |
-23 |         Day03.day03a_from_memory("mul(1234,5)mul(12,3456)mul(99,99)"),
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03a_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:29:15
-   |
-29 |     assert_eq(Day03.day03a_from_memory("mul(123,4)mul(1,1)"), 493)
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03a_from_memory_hof`.
-
-  --> examples/aoc/2024/day03_test.flx:34:15
-   |
-34 |     assert_eq(Day03.day03a_from_memory_hof(input), Day03.day03a_from_memory(input))
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03b_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:39:9
-   |
-39 |         Day03.day03b_from_memory("xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))"),
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03b_from_memory`.
-
-  --> examples/aoc/2024/day03_test.flx:46:9
-   |
-46 |         Day03.day03b_from_memory("mul(1,2)don't()mul(9,9)do()mul(3,4)"),
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03b_from_memory_hof`.
-
-  --> examples/aoc/2024/day03_test.flx:53:15
-   |
-53 |     assert_eq(Day03.day03b_from_memory_hof(input), Day03.day03b_from_memory(input))
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-Found 9 errors.
+59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ------------------------------------------------ expected Option<Int>, found Int
 == stdout ==
 <not executed>

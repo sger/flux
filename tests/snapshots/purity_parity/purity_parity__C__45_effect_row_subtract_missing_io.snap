@@ -16,9 +16,11 @@ exit_code: 1
 
 == vm tuples ==
 - E400 | MISSING EFFECT | effectful call occurs here
+- E300 | TYPE UNIFICATION ERROR | expected () -> Unit with Time, found () -> Unit with IO
 
 == jit tuples ==
 - E400 | MISSING EFFECT | effectful call occurs here
+- E300 | TYPE UNIFICATION ERROR | expected () -> Unit with Time, found () -> Unit with IO
 
 == parity ==
 match

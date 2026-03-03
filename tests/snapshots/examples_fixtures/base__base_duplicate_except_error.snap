@@ -16,5 +16,18 @@ Duplicate Base exclusion `print`.
 
 Hint:
   Each name in `import Base except [...]` must appear only once.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/base/base_duplicate_except_error.flx:4:1
+  |
+4 | Base.print("unreachable");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------- expected () -> Unit, found () -> Unit with IO
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1,21 +1,31 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/85_hm_function_effect_mismatch.flx
 == compile ==
-failed (parse)
+failed (compile)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Expected `,` or `)` after function parameter.
+The 1st argument to `apply_with_time` has the wrong type.
 
-  --> examples/type_system/failing/85_hm_function_effect_mismatch.flx:3:48
+  --> examples/type_system/failing/85_hm_function_effect_mismatch.flx:8:21
   |
-3 | fn apply_with_time(f: (Int) -> Int with Time, x: Int) -> Int {
-  |                                                ^
+3 | fn apply_with_time(f: ((Int) -> Int with Time), x: Int) -> Int {
 
-Hint:
-  Separate parameters with `,` and close the parameter list with `)`.
+4 |     f(x)
+
+5 | }
+
+6 | 
+
+7 | fn main() -> Unit {
+
+8 |     apply_with_time(io_add_one, 1)
+  |                     ^^^^^^^^^^
+  |                     ---------- this argument is `(Int) -> Int with IO`
+
+Help:
+  Expected `(Int) -> Int with Time` as the 1st argument.
 == stdout ==
 <not executed>

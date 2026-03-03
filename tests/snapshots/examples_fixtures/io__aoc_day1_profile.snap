@@ -5,6 +5,21 @@ Fixture: examples/io/aoc_day1_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify numeric operands (Int or Float) with Int and Option<Int>.
+
+  --> examples/io/aoc_day1_profile.flx:18:9
+   |
+18 |         0 - distance
+   |         ^^^^^^^^^^^^
+   |         ------------ expected numeric operands (Int or Float), found Int and Option<Int>
+   |         ------------ operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `parse_rotations`.
@@ -34,6 +49,6 @@ I can't find a value named `solve_steps`.
 Hint:
   Define it first: let solve_steps = ...;
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

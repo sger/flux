@@ -19,6 +19,28 @@ Hint:
   Add `with IO` to the enclosing function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with Time with () -> Unit with IO.
+
+  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:8:5
+  |
+8 |     sink("hello")
+  |     ^^^^^^^^^^^^^
+  |     ------------- expected () -> Unit with Time, found () -> Unit with IO
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with Time.
+
+  --> examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:12:1
+   |
+12 | typed_time_only()
+   | ^^^^^^^^^^^^^^^^^
+   | ----------------- expected () -> Unit, found () -> Unit with Time
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: Time).
@@ -46,6 +68,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 3 errors.
+Found 5 errors.
 == stdout ==
 <not executed>

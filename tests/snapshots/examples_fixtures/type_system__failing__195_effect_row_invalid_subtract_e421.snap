@@ -17,5 +17,18 @@ Cannot subtract effect `Console` from a row that does not contain it.
 
 Hint:
   Handle or include this effect before subtracting it from an effect row.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Function parameter 1 type does not match: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`.
+
+  --> examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:18:5
+   |
+18 |     run_filtered(io_console_work)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ----------------------------- parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
+
+Found 2 errors.
 == stdout ==
 <not executed>

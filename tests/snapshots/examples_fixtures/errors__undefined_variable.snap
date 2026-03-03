@@ -5,6 +5,17 @@ Fixture: examples/errors/undefined_variable.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/undefined_variable.flx:6:1
+  |
+6 | print(nonexistent_variable)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | --------------------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -45,6 +56,6 @@ I can't find a value named `nonexistent_variable`.
 Hint:
   Define it first: let nonexistent_variable = ...;
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

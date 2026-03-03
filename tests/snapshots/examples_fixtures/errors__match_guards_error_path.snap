@@ -5,6 +5,17 @@ Fixture: examples/errors/match_guards_error_path.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/match_guards_error_path.flx:6:1
+  |
+6 | print("Run one of the dedicated match-guard error examples in this folder.");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------------------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -32,6 +43,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

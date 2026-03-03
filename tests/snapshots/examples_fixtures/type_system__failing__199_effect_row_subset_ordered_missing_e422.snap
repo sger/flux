@@ -17,5 +17,18 @@ Effect row is missing required effects: IO, Time.
 
 Hint:
   Add missing effects to the enclosing function or handle them before this call.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Function parameter 1 type does not match: expected `() -> Unit with IO, Time`, found `() -> Unit`.
+
+  --> examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:12:5
+   |
+12 |     run_needs_io_time(pure_worker)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     ------------------------------ parameter 1: expected `() -> Unit with IO, Time`, found `() -> Unit`
+
+Found 2 errors.
 == stdout ==
 <not executed>

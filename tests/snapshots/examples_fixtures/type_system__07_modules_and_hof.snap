@@ -18,6 +18,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/07_modules_and_hof.flx:6:1
+  |
+6 | print("module_doubled_sum=#{doubled_sum}")
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------------ expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -85,6 +99,6 @@ Cannot access private member `log_each`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 6 errors.
+Found 7 errors.
 == stdout ==
 <not executed>

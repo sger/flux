@@ -5,6 +5,43 @@ Fixture: examples/errors/wrong_arguments.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+
+The `substring` function takes 3 arguments, but 2 were provided.
+
+  --> examples/errors/wrong_arguments.flx:7:14
+  |
+1 | 
+
+2 | 
+
+3 | 
+
+4 | 
+
+5 | 
+
+6 | 
+
+7 | let result = substring("hello", 0)
+  |              ^^^^^^^^^^^^^^^^^^^^^
+  |              --------------------- 2 arguments provided here, expected 3
+
+Help:
+  Add 1 missing argument(s), for example: `substring(arg1, arg2, arg3)`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/wrong_arguments.flx:8:1
+  |
+8 | print(result)
+  | ^^^^^^^^^^^^^
+  | ------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -32,6 +69,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 2 errors.
+Found 4 errors.
 == stdout ==
 <not executed>
