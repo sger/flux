@@ -7,7 +7,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::types::{TypeVarId, infer_type::InferType, type_subst::TypeSubst};
+use crate::{
+    syntax::Identifier,
+    types::{
+        TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, type_subst::TypeSubst,
+    },
+};
 
 /// A type scheme — a type with universally quantified type variables.
 ///
@@ -67,7 +72,11 @@ impl Scheme {
         let type_subst: TypeSubst = {
             let mut s = TypeSubst::empty();
             for (&old, &new) in &mapping {
-                s.insert(old, InferType::Var(new));
+                s.insert_type(old, InferType::Var(new));
+                s.insert_row(
+                    old,
+                    InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), new),
+                );
             }
             s
         };
@@ -97,8 +106,9 @@ impl Scheme {
 ///   the surrounding context).
 /// - Variables free in `ty` but not the env are truly polymorphic.
 ///
-/// The `forall` list is sorted to keep output deterministic for diagnostics,
-/// snapshots, and tests.
+/// Effect-row tail variables (`|e`) are `TypeVarId`s on `InferEffectRow` and
+/// are included via `free_vars()` → `collect_row_free_vars`, so they participate
+/// in `forall` quantification alongside regular type variables.
 pub fn generalize(infer_type: &InferType, env_free_vars: &HashSet<TypeVarId>) -> Scheme {
     let mut free: Vec<TypeVarId> = infer_type
         .free_vars()
@@ -118,7 +128,9 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{Scheme, generalize};
-    use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+    use crate::types::{
+        infer_effect_row::InferEffectRow, infer_type::InferType, type_constructor::TypeConstructor,
+    };
 
     fn infer_var(id: u32) -> InferType {
         InferType::Var(id)
@@ -137,7 +149,7 @@ mod tests {
                 InferType::Tuple(vec![infer_var(1), infer_var(2)]),
             ],
             Box::new(infer_var(0)),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
 
         let scheme = generalize(&infer_type, &HashSet::new());
@@ -149,7 +161,11 @@ mod tests {
         let scheme = Scheme {
             forall: vec![0],
             // ?1 is free in the scheme body (not quantified) and must remain unchanged.
-            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
+            infer_type: InferType::Fun(
+                vec![infer_var(0)],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty(),
+            ),
         };
 
         let mut counter = 10;
@@ -159,7 +175,11 @@ mod tests {
         assert_eq!(counter, 11);
         assert_eq!(
             instantiated,
-            InferType::Fun(vec![infer_var(10)], Box::new(infer_var(1)), vec![])
+            InferType::Fun(
+                vec![infer_var(10)],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty()
+            )
         );
     }
 
@@ -167,7 +187,11 @@ mod tests {
     fn instantiate_produces_distinct_fresh_vars_per_call() {
         let scheme = Scheme {
             forall: vec![0, 1],
-            infer_type: InferType::Fun(vec![infer_var(0)], Box::new(infer_var(1)), vec![]),
+            infer_type: InferType::Fun(
+                vec![infer_var(0)],
+                Box::new(infer_var(1)),
+                InferEffectRow::closed_empty(),
+            ),
         };
 
         let mut counter = 20;
@@ -181,11 +205,19 @@ mod tests {
         assert_eq!(counter, 24);
         assert_eq!(
             first,
-            InferType::Fun(vec![infer_var(20)], Box::new(infer_var(21)), vec![])
+            InferType::Fun(
+                vec![infer_var(20)],
+                Box::new(infer_var(21)),
+                InferEffectRow::closed_empty()
+            )
         );
         assert_eq!(
             second,
-            InferType::Fun(vec![infer_var(22)], Box::new(infer_var(23)), vec![])
+            InferType::Fun(
+                vec![infer_var(22)],
+                Box::new(infer_var(23)),
+                InferEffectRow::closed_empty()
+            )
         );
     }
 
@@ -194,7 +226,7 @@ mod tests {
         let infer_type = InferType::Fun(
             vec![infer_var(0), infer_var(1), int()],
             Box::new(infer_var(2)),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
         let env_free_vars = HashSet::from([1, 42]);
 
