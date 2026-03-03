@@ -9,15 +9,9 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum EffectExpr {
     /// A concrete effect atom, such as `IO` or `Time`.
-    Named {
-        name: Identifier,
-        span: Span,
-    },
+    Named { name: Identifier, span: Span },
     /// An open row variable, rendered as `|e`.
-    RowVar {
-        name: Identifier,
-        span: Span,
-    },
+    RowVar { name: Identifier, span: Span },
     Add {
         left: Box<EffectExpr>,
         right: Box<EffectExpr>,

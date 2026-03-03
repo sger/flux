@@ -2,9 +2,9 @@
 
 use std::{collections::HashSet, fmt};
 
-use crate::{
-    syntax::Identifier,
-    types::{TypeVarId, type_constructor::TypeConstructor, type_subst::TypeSubst},
+use crate::types::{
+    TypeVarId, infer_effect_row::InferEffectRow, type_constructor::TypeConstructor,
+    type_subst::TypeSubst,
 };
 
 /// The compile-time type representation used by the HM type checker.
@@ -20,7 +20,7 @@ pub enum InferType {
     /// Type application: `List<T>`, `Map<K, V>`, `Option<T>`, `Adt<T>`.
     App(TypeConstructor, Vec<InferType>),
     /// Function type: `(T, U) -> V with E1, E2`.
-    Fun(Vec<InferType>, Box<InferType>, Vec<Identifier>),
+    Fun(Vec<InferType>, Box<InferType>, InferEffectRow),
     /// Tuple type: `(Int, String)`.
     Tuple(Vec<InferType>),
 }
@@ -29,11 +29,18 @@ impl InferType {
     /// Collect all free (unbound) type variables.
     pub fn free_vars(&self) -> HashSet<TypeVarId> {
         let mut set = HashSet::new();
-        self.collect_free_vars(&mut set);
+        self.collect_type_free_vars(&mut set);
+        self.collect_row_free_vars(&mut set);
         set
     }
 
-    fn collect_free_vars(&self, acc: &mut HashSet<TypeVarId>) {
+    pub fn free_type_vars(&self) -> HashSet<TypeVarId> {
+        let mut set = HashSet::new();
+        self.collect_type_free_vars(&mut set);
+        set
+    }
+
+    fn collect_type_free_vars(&self, acc: &mut HashSet<TypeVarId>) {
         match self {
             InferType::Var(v) => {
                 acc.insert(*v);
@@ -41,20 +48,38 @@ impl InferType {
             InferType::Con(_) => {}
             InferType::App(_, args) => {
                 for arg in args {
-                    arg.collect_free_vars(acc);
+                    arg.collect_type_free_vars(acc);
                 }
             }
             InferType::Fun(params, ret, _) => {
                 for param in params {
-                    param.collect_free_vars(acc);
+                    param.collect_type_free_vars(acc);
                 }
-                ret.collect_free_vars(acc);
+                ret.collect_type_free_vars(acc);
             }
             InferType::Tuple(elements) => {
                 for element in elements {
-                    element.collect_free_vars(acc);
+                    element.collect_type_free_vars(acc);
                 }
             }
+        }
+    }
+
+    fn collect_row_free_vars(&self, acc: &mut HashSet<TypeVarId>) {
+        match self {
+            InferType::Fun(params, ret, effects) => {
+                for param in params {
+                    param.collect_row_free_vars(acc);
+                }
+                ret.collect_row_free_vars(acc);
+                acc.extend(effects.free_row_vars());
+            }
+            InferType::App(_, args) | InferType::Tuple(args) => {
+                for arg in args {
+                    arg.collect_row_free_vars(acc);
+                }
+            }
+            InferType::Var(_) | InferType::Con(_) => {}
         }
     }
 
@@ -82,7 +107,7 @@ impl InferType {
                     .map(|p| p.apply_type_subst(type_subst))
                     .collect(),
                 Box::new(ret.apply_type_subst(type_subst)),
-                effects.clone(),
+                effects.apply_row_subst(type_subst),
             ),
             InferType::Tuple(elements) => InferType::Tuple(
                 elements
@@ -141,15 +166,23 @@ impl fmt::Display for InferType {
                     }
                     write!(f, "{p}")?;
                 }
-                if effects.is_empty() {
+                if effects.concrete().is_empty() && effects.tail().is_none() {
                     write!(f, ") -> {ret}")
                 } else {
                     write!(f, ") -> {ret} with ")?;
-                    for (i, effect) in effects.iter().enumerate() {
+                    let mut concrete: Vec<_> = effects.concrete().iter().copied().collect();
+                    concrete.sort_by_key(|symbol| symbol.as_u32());
+                    for (i, effect) in concrete.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
                         write!(f, "{effect}")?;
+                    }
+                    if let Some(tail) = effects.tail() {
+                        if !effects.concrete().is_empty() {
+                            write!(f, " ")?;
+                        }
+                        write!(f, "|?{tail}")?;
                     }
                     Ok(())
                 }
@@ -173,7 +206,9 @@ mod tests {
     use std::collections::HashSet;
 
     use super::InferType;
-    use crate::types::{type_constructor::TypeConstructor, type_subst::TypeSubst};
+    use crate::types::{
+        infer_effect_row::InferEffectRow, type_constructor::TypeConstructor, type_subst::TypeSubst,
+    };
 
     fn infer_var(id: u32) -> InferType {
         InferType::Var(id)
@@ -192,7 +227,7 @@ mod tests {
                 InferType::App(TypeConstructor::List, vec![infer_var(2)]),
             ],
             Box::new(infer_var(1)),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
 
         let got = infer_type.free_vars();
@@ -205,7 +240,7 @@ mod tests {
         let infer_type = InferType::Fun(
             vec![infer_var(0), InferType::Tuple(vec![infer_var(2)])],
             Box::new(InferType::App(TypeConstructor::Option, vec![infer_var(1)])),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
 
         let mut type_subst = TypeSubst::empty();
@@ -220,7 +255,7 @@ mod tests {
                 InferType::Tuple(vec![InferType::Con(TypeConstructor::Bool)]),
             ],
             Box::new(InferType::App(TypeConstructor::Option, vec![int()])),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
         assert_eq!(applied, expected);
     }
@@ -232,7 +267,11 @@ mod tests {
         assert!(!concrete.is_any());
         assert!(!concrete.contains_any());
 
-        let not_concrete = InferType::Fun(vec![infer_var(0)], Box::new(int()), vec![]);
+        let not_concrete = InferType::Fun(
+            vec![infer_var(0)],
+            Box::new(int()),
+            InferEffectRow::closed_empty(),
+        );
         assert!(!not_concrete.is_concrete());
         assert!(!not_concrete.contains_any());
 
@@ -256,7 +295,7 @@ mod tests {
         let nested_any_fun = InferType::Fun(
             vec![InferType::Con(TypeConstructor::Any)],
             Box::new(int()),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
         assert!(nested_any_fun.contains_any());
 
@@ -266,7 +305,7 @@ mod tests {
                 TypeConstructor::Option,
                 vec![InferType::Con(TypeConstructor::Any)],
             )),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
         assert!(nested_any_fun_ret.contains_any());
     }
@@ -282,7 +321,7 @@ mod tests {
                 TypeConstructor::Map,
                 vec![InferType::Con(TypeConstructor::String), int()],
             )),
-            vec![],
+            InferEffectRow::closed_empty(),
         );
 
         assert_eq!(
