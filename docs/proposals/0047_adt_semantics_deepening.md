@@ -1,7 +1,9 @@
 - Feature Name: ADT Semantics Deepening (Post-Sugar Hardening)
 - Start Date: 2026-02-26
-- Proposal PR: 
-- Flux Issue: 
+- Completion Date: 2026-03-03
+- Status: Completed
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0047: ADT Semantics Deepening (Post-Sugar Hardening)
 
@@ -104,3 +106,20 @@ No additional prior art identified beyond references already listed in the legac
 
 - Future expansion should preserve diagnostics stability and test-backed semantics.
 - Any post-MVP scope should be tracked as explicit follow-up proposals.
+
+## Completion notes (2026-03-03)
+
+All four goals are implemented and test-backed:
+
+| Goal | Implementation | Key fixtures |
+|------|---------------|--------------|
+| Constructor field constraints under generics | `src/ast/type_infer/adt.rs:52-89` `instantiate_constructor_parts()` | `93_adt_generic_constructor_hm_ok.flx`, `89_adt_generic_constructor_hm_mismatch.flx` |
+| Module-qualified constructor boundary policy | `expression.rs:879-905`, E084/E086/W201 | `94_adt_module_factory_boundary_ok.flx` |
+| HM inference for nested constructors/patterns | `adt.rs:91-120`, `check_nested_pattern_set()` | `95_adt_generic_nested_pattern_hm_ok.flx`, `91_adt_nested_pattern_binding_type_mismatch.flx` |
+| Nested exhaustiveness + diagnostics determinism | `check_nested_constructor_exhaustiveness()` expression.rs:3458–3713 | `76_adt_nested_exhaustive_ok.flx`, `67_adt_multi_arity_nested_non_exhaustive.flx` |
+
+Verification:
+```bash
+cargo test --test compiler_rules_tests   # 144 passed
+cargo test --test type_inference_tests   # 78 passed
+```
