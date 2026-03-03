@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::syntax::entry;
+use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
     ast::{
@@ -440,6 +442,7 @@ impl Compiler {
 
         let mut next_var: TypeVarId = 0;
         let mut tp_map = HashMap::new();
+        let mut row_var_env: HashMap<Symbol, TypeVarId> = HashMap::new();
         for type_param in &contract.type_params {
             tp_map.insert(*type_param, next_var);
             next_var = next_var.saturating_add(1);
@@ -448,20 +451,29 @@ impl Compiler {
         let mut param_tys = Vec::with_capacity(contract.params.len());
         for param in &contract.params {
             let ty_expr = param.as_ref()?;
-            let inferred = TypeEnv::infer_type_from_type_expr(ty_expr, &tp_map, interner)?;
+            let inferred = TypeEnv::infer_type_from_type_expr_with_row_vars(
+                ty_expr,
+                &tp_map,
+                interner,
+                &mut row_var_env,
+                &mut next_var,
+            )?;
             param_tys.push(inferred);
         }
 
         let ret_expr = contract.ret.as_ref()?;
-        let ret_ty = TypeEnv::infer_type_from_type_expr(ret_expr, &tp_map, interner)?;
-        let effects = contract
-            .effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect::<Vec<_>>();
+        let ret_ty = TypeEnv::infer_type_from_type_expr_with_row_vars(
+            ret_expr,
+            &tp_map,
+            interner,
+            &mut row_var_env,
+            &mut next_var,
+        )?;
+        let effects =
+            InferEffectRow::from_effect_exprs(&contract.effects, &mut row_var_env, &mut next_var);
 
         let infer_type = InferType::Fun(param_tys, Box::new(ret_ty), effects);
-        let mut forall = tp_map.values().copied().collect::<Vec<_>>();
+        let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
         forall.sort_unstable();
         forall.dedup();
         Some(Scheme { forall, infer_type })
@@ -494,6 +506,19 @@ impl Compiler {
                 }
             }
         }
+
+        preloaded
+    }
+
+    fn build_preloaded_base_schemes(&mut self) -> HashMap<Symbol, Scheme> {
+        let mut preloaded = HashMap::new();
+        for base_fn in BaseModule::new().names()  {
+            let base_name = self.interner.intern(base_fn);
+            let Some(entry) = BaseModule::new().index_of(base_fn).and_then(|i| BaseModule::new().by_index(i))
+        else {
+            continue;
+        };
+        
 
         preloaded
     }
