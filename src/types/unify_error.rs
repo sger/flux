@@ -69,8 +69,8 @@ impl UnifyError {
 /// `Any` is compatible with everything (gradual typing escape).
 #[allow(clippy::result_large_err)]
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
-    let mut fresh = 0;
-    unify_with_span_and_fresh(t1, t2, Span::default(), &mut fresh)
+    let mut next_row_var_id = 0;
+    unify_with_span_and_fresh(t1, t2, Span::default(), &mut next_row_var_id)
 }
 
 /// Unify with an explicit source span for error reporting.
@@ -80,8 +80,8 @@ pub fn unify_with_span(
     t2: &InferType,
     span: Span,
 ) -> Result<TypeSubst, UnifyError> {
-    let mut fresh = 0;
-    unify_with_span_and_fresh(t1, t2, span, &mut fresh)
+    let mut next_row_var_id = 0;
+    unify_with_span_and_fresh(t1, t2, span, &mut next_row_var_id)
 }
 
 #[allow(clippy::result_large_err)]
@@ -89,7 +89,7 @@ pub fn unify_with_span_and_fresh(
     t1: &InferType,
     t2: &InferType,
     span: Span,
-    fresh: &mut u32,
+    next_row_var_id: &mut u32,
 ) -> Result<TypeSubst, UnifyError> {
     match (t1, t2) {
         // Any is compatible with everything (gradual typing)
@@ -110,7 +110,7 @@ pub fn unify_with_span_and_fresh(
         (InferType::App(c1, args1), InferType::App(c2, args2))
             if c1 == c2 && args1.len() == args2.len() =>
         {
-            unify_many(args1, args2, span, fresh)
+            unify_many(args1, args2, span, next_row_var_id)
         }
 
         // Function types: same arity and same effect set
@@ -118,7 +118,8 @@ pub fn unify_with_span_and_fresh(
             if params1.len() == params2.len() =>
         {
             let mut subst = TypeSubst::empty();
-            let row_subst = unify_effect_rows(effects1, effects2, span, fresh, &subst)?;
+            let row_subst =
+                unify_effect_rows(effects1, effects2, span, next_row_var_id, &subst)?;
             subst = subst.compose(&row_subst);
             for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
                 let p1_sub = p1.apply_type_subst(&subst);
@@ -136,14 +137,15 @@ pub fn unify_with_span_and_fresh(
 
             let ret1_sub = ret1.apply_type_subst(&subst);
             let ret2_sub = ret2.apply_type_subst(&subst);
-            let s2 = unify_with_span_and_fresh(&ret1_sub, &ret2_sub, span, fresh).map_err(|e| {
-                UnifyError::mismatch(
-                    e.expected,
-                    e.actual,
-                    e.span,
-                    UnifyErrorDetail::FunReturnMismatch,
-                )
-            })?;
+            let s2 = unify_with_span_and_fresh(&ret1_sub, &ret2_sub, span, next_row_var_id)
+                .map_err(|e| {
+                    UnifyError::mismatch(
+                        e.expected,
+                        e.actual,
+                        e.span,
+                        UnifyErrorDetail::FunReturnMismatch,
+                    )
+                })?;
             Ok(subst.compose(&s2))
         }
 
@@ -160,7 +162,7 @@ pub fn unify_with_span_and_fresh(
 
         // Tuple types: same length
         (InferType::Tuple(elems1), InferType::Tuple(elems2)) if elems1.len() == elems2.len() => {
-            unify_many(elems1, elems2, span, fresh)
+            unify_many(elems1, elems2, span, next_row_var_id)
         }
 
         // Everything else is a mismatch
@@ -179,14 +181,14 @@ fn unify_many(
     ts1: &[InferType],
     ts2: &[InferType],
     span: Span,
-    fresh: &mut u32,
+    next_row_var_id: &mut u32,
 ) -> Result<TypeSubst, UnifyError> {
     debug_assert_eq!(ts1.len(), ts2.len());
     let mut subst = TypeSubst::empty();
     for (t1, t2) in ts1.iter().zip(ts2.iter()) {
         let t1_sub = t1.apply_type_subst(&subst);
         let t2_sub = t2.apply_type_subst(&subst);
-        let s = unify_with_span_and_fresh(&t1_sub, &t2_sub, span, fresh)?;
+        let s = unify_with_span_and_fresh(&t1_sub, &t2_sub, span, next_row_var_id)?;
         subst = subst.compose(&s);
     }
     Ok(subst)
@@ -197,7 +199,7 @@ fn unify_effect_rows(
     left: &InferEffectRow,
     right: &InferEffectRow,
     span: Span,
-    fresh: &mut u32,
+    next_row_var_id: &mut u32,
     current_subst: &TypeSubst,
 ) -> Result<TypeSubst, UnifyError> {
     let left_resolved = left.apply_row_subst(current_subst);
@@ -305,8 +307,8 @@ fn unify_effect_rows(
             }
         }
         (Some(left_tail), Some(right_tail)) => {
-            let residual = *fresh;
-            *fresh += 1;
+            let residual = *next_row_var_id;
+            *next_row_var_id += 1;
             let left_extra = left_set
                 .difference(&right_set)
                 .copied()

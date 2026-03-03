@@ -122,13 +122,13 @@ impl TypeEnv {
         interner: &Interner,
     ) -> Option<InferType> {
         let mut row_var_env = HashMap::new();
-        let mut fresh: u32 = 0;
+        let mut next_row_var_id: u32 = 0;
         Self::infer_type_from_type_expr_with_row_vars(
             type_expr,
             type_params,
             interner,
             &mut row_var_env,
-            &mut fresh,
+            &mut next_row_var_id,
         )
     }
 
@@ -137,7 +137,7 @@ impl TypeEnv {
         type_params: &HashMap<Identifier, TypeVarId>,
         interner: &Interner,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
-        fresh: &mut u32,
+        next_row_var_id: &mut u32,
     ) -> Option<InferType> {
         match type_expr {
             TypeExpr::Named { name, args, .. } => {
@@ -179,7 +179,7 @@ impl TypeEnv {
                             type_params,
                             interner,
                             row_var_env,
-                            fresh,
+                            next_row_var_id,
                         )
                     })
                     .collect();
@@ -197,7 +197,7 @@ impl TypeEnv {
                             type_params,
                             interner,
                             row_var_env,
-                            fresh,
+                            next_row_var_id,
                         )
                     })
                     .collect();
@@ -217,7 +217,7 @@ impl TypeEnv {
                             type_params,
                             interner,
                             row_var_env,
-                            fresh,
+                            next_row_var_id,
                         )
                     })
                     .collect();
@@ -226,9 +226,10 @@ impl TypeEnv {
                     type_params,
                     interner,
                     row_var_env,
-                    fresh,
+                    next_row_var_id,
                 )?;
-                let effect_row = InferEffectRow::from_effect_exprs(effects, row_var_env, fresh);
+                let effect_row =
+                    InferEffectRow::from_effect_exprs(effects, row_var_env, next_row_var_id);
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }
         }
