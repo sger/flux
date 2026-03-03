@@ -6,17 +6,14 @@
 # Proposal 0000: Index
 
 ## Summary
-[summary]: #summary
 
 This proposal defines the scope and delivery model for Index in Flux. It consolidates the legacy specification into the canonical proposal template while preserving technical and diagnostic intent.
 
 ## Motivation
-[motivation]: #motivation
 
 The proposal addresses correctness, maintainability, and diagnostics consistency for this feature area. It exists to make expected behavior explicit and testable across compiler, runtime, and documentation workflows.
 
 ## Guide-level explanation
-[guide-level-explanation]: #guide-level-explanation
 
 This proposal should be read as a user-facing and contributor-facing guide for the feature.
 
@@ -25,13 +22,12 @@ This proposal should be read as a user-facing and contributor-facing guide for t
 - Diagnostics and policy boundaries remain aligned with current proposal contracts.
 
 ## Reference-level explanation
-[reference-level-explanation]: #reference-level-explanation
 
 The technical details below consolidate implementation, validation, and policy notes from the legacy proposal.
 
 ### Consolidated technical points
 
-- **__preamble__:** This is the canonical inventory for `docs/proposals`. Feature state is evidence-driven: - `have` = implemented and exercised in `src/` plus tests/examples - `partial` = implemen...
+- ****preamble**:** This is the canonical inventory for `docs/proposals`. Feature state is evidence-driven: - `have` = implemented and exercised in `src/` plus tests/examples - `partial` = implemen...
 - **Active Track (Implemented / In Progress):** | ID | Proposal | Status | Feature State | Evidence | Action | |---|---|---|---|---|---| | 0001 | [0001_module_constants.md](0001_module_constants.md) | Implemented | have | `sr...
 - **Backlog (Draft / Proposed):** | ID | Proposal | Status | Feature State | Evidence | Action | |---|---|---|---|---|---| | 0003 | [0003_stdlib_proposal.md](0003_stdlib_proposal.md) | Draft | gap | proposal-onl...
 - **Superseded Historical Docs:** | ID | Proposal | Status | Canonical Successor | Action | |---|---|---|---|---| | 0009 | [0009_macro_system.md](0009_macro_system.md) | Superseded | [0040_macro_system.md](0040_...
@@ -44,6 +40,7 @@ The technical details below consolidate implementation, validation, and policy n
 
 This is the canonical inventory for `docs/proposals`.
 Feature state is evidence-driven:
+
 - `have` = implemented and exercised in `src/` plus tests/examples
 - `partial` = implemented in part or implemented without full hardening/coverage
 - `gap` = proposal-only or no convincing implementation evidence yet
@@ -84,6 +81,7 @@ Feature state is evidence-driven:
 | 0060 | [0060_parser_diagnostics_hm_typechecker_hardening.md](0060_parser_diagnostics_hm_typechecker_hardening.md) | Draft | gap | proposal-only | four-track hardening: parser recovery breadth (P1–P4), diagnostic precision (D1–D3), HM Any-fallback reduction (H1–H4), type checker completeness (T1–T4); fixtures 122–150, new codes E085/E086/W201 |
 | 0062 | [0062_performance_stabilization_program.md](0062_performance_stabilization_program.md) | Draft | gap | proposal-only | stabilization-first perf gates and evidence consolidation across compiler throughput, runtime parity, and cache/harness determinism |
 | 0063 | [0063_true_fp_completion_program.md](0063_true_fp_completion_program.md) | Draft | gap | proposal-only | true-FP feature closure program across principal effect rows, typed determinism/exhaustiveness, typed immutable records, and core FP abstractions (currying + traits) |
+| 0064 | [0064_effect_row_variables.md](0064_effect_row_variables.md) | Implemented | have | explicit `EffectExpr::RowVar`, parser-enforced `|e` tails, implicit-row rejection with migration diagnostics, HM open-row function-effect unification, runtime-enforced strict public function-typed boundaries (closure/jit closure + effect subset check), and effect-row fixture migration/test coverage | keep as baseline for explicit row-tail semantics and strict runtime function contracts |
 
 ### Backlog (Draft / Proposed)
 
@@ -119,6 +117,7 @@ Feature state is evidence-driven:
 | 0041 | [0041_nan_boxing_runtime_optimization.md](0041_nan_boxing_runtime_optimization.md) | Proposed | gap | proposal-only | keep in runtime perf backlog |
 | 0045 | [0045_gc.md](0045_gc.md) | Draft | gap | proposal-only (renamed from `0010_gc.md`) | continue as canonical GC proposal |
 | 0048 | [0048_typed_record_types.md](0048_typed_record_types.md) | Draft | gap | proposal-only | typed immutable records with compile-time field checking and spread update |
+| 0074 | [0074_base_signature_tightening.md](0074_base_signature_tightening.md) | Draft | gap | proposal-only | tighten BaseHmSignature types from Any to precise polymorphic types for compile-time error detection on builtin calls |
 
 ### Superseded Historical Docs
 
@@ -159,32 +158,27 @@ If an old link still points to macro roadmap proposal `009`, prefer `040` unless
 - **Depends on:** None
 
 ## Drawbacks
-[drawbacks]: #drawbacks
 
 1. Restructuring legacy material into a strict template can reduce local narrative flow.
 2. Consolidation may temporarily increase document length due to historical preservation.
 3. Additional review effort is required to keep synthesized sections aligned with implementation changes.
 
 ## Rationale and alternatives
-[rationale-and-alternatives]: #rationale-and-alternatives
 
 1. A strict template improves comparability and review quality across proposals.
 2. Preserving migrated technical content avoids loss of implementation context.
 3. Historical notes keep prior status decisions auditable without duplicating top-level metadata.
 
 ## Prior art
-[prior-art]: #prior-art
 
 No additional prior art identified beyond references already listed in the legacy content.
 
 ## Unresolved questions
-[unresolved-questions]: #unresolved-questions
 
 - No unresolved questions were explicitly listed in the legacy text.
 - Follow-up questions should be tracked in Proposal PR and Flux Issue fields when created.
 
 ## Future possibilities
-[future-possibilities]: #future-possibilities
 
 - Future expansion should preserve diagnostics stability and test-backed semantics.
 - Any post-MVP scope should be tracked as explicit follow-up proposals.

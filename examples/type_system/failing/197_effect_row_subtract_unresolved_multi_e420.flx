@@ -1,6 +1,6 @@
 // E420: unresolved multiple effect variables in subtraction paths.
 
-fn unresolved_many(x: Int) -> Int with e - IO, t - Time {
+fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
     x
 }
 

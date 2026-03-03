@@ -1,10 +1,11 @@
 use crate::{
     runtime::{
-        base::{base_hm_signature_id::BaseHmSignatureId, scheme_for_signature_id},
+        base::base_hm_signature_id::BaseHmSignatureId,
         base_function::BaseFunction,
     },
-    syntax::interner::Interner,
 };
+#[cfg(test)]
+use crate::{runtime::base::scheme_for_signature_id, syntax::interner::Interner};
 
 use super::BASE_FUNCTIONS;
 
@@ -119,6 +120,7 @@ pub fn is_base_fastcall_allowlisted(name: &str) -> bool {
     BASE_FASTCALL_ALLOWLIST.binary_search(&name).is_ok()
 }
 
+#[cfg(test)]
 pub fn validate_base_hm_signatures(interner: &mut Interner) -> Result<(), (&'static str, String)> {
     for base_fn in BASE_FUNCTIONS {
         if let Err(err) = scheme_for_signature_id(base_fn.hm_signature, interner) {

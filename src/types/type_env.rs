@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    ast::type_infer::InferProgramResult,
     diagnostics::position::Span,
     runtime::runtime_type::RuntimeType,
     syntax::{Identifier, interner::Interner, type_expr::TypeExpr},

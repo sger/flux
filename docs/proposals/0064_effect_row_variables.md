@@ -6,7 +6,6 @@
 # Proposal 0064: Effect Row Variables (`|e`) in EffectExpr
 
 ## Summary
-[summary]: #summary
 
 Extend Flux's `EffectExpr` with explicit row-variable tail syntax (`|e`) so that
 higher-order functions like `map`, `filter`, and `fold` can be polymorphic over their
@@ -16,6 +15,14 @@ effect set.
 
 This proposal builds directly on 0042 (effect rows) and 0049 (row completeness) and is
 required before any actor or concurrency effects can compose correctly with user code.
+
+### Implementation status (2026-03-01)
+
+- `EffectExpr::RowVar` is implemented and threaded through parser/compiler/HM paths.
+- `with` clauses require explicit row-tail syntax (`|e`) for row variables.
+- Legacy implicit forms such as `with e + IO` are rejected with migration guidance.
+- HM function-effect unification now supports open rows (`|e`) in addition to closed rows.
+- Strict public function-typed boundaries are runtime-enforced via function contracts.
 
 ### Current state (what 0042 + 0049 already deliver)
 
@@ -37,15 +44,13 @@ Error codes: E400 (missing effect), E419 (unresolved single var), E420 (ambiguou
 E421 (invalid subtraction), E422 (unsatisfied subset).
 
 **What is NOT yet done:**
-1. Explicit `|e` syntax in the parser and AST
-2. HM inference integration (effect rows as unification variables)
-3. Effect propagation through higher-order stdlib functions
-4. `--strict` mode enforcement for row variable annotations on public APIs
+
+1. Full stdlib migration to explicit `|e` row-tail style everywhere
 
 ## Motivation
-[motivation]: #motivation
 
 Without explicit row-variable syntax, every higher-order function in Flux must either:
+
 1. Declare every effect the callback might use — impossible to predict at definition time.
 2. Omit effect annotations and accept `Any`-effect fallback — defeats purity checking.
 
@@ -71,7 +76,6 @@ This is the standard Koka/Eff row-polymorphism solution, and it is required for 
 `Actor` effect (proposal 0065) to compose with existing stdlib functions.
 
 ## Guide-level explanation
-[guide-level-explanation]: #guide-level-explanation
 
 ### New surface syntax
 
@@ -120,7 +124,7 @@ The `|e` syntax addresses all three by making row variables a first-class AST co
 
 1. A row variable `e` stands for any (possibly empty) set of effects.
 2. `with IO | e` means "this function has IO plus all effects in e."
-3. `with e` alone means "this function has exactly the effects in e" (pure when e = {}).
+3. Open-row-only signatures are encoded explicitly as `with |e`.
 4. Row variables are unified during HM inference — if `f` is called with a callback that
    has `IO`, the row variable `e` in `f`'s signature unifies with `IO`.
 5. Row variables in `public fn` API positions require explicit annotation (`E425`-extended).
@@ -145,7 +149,6 @@ error[E419]: effect row mismatch
 ```
 
 ## Reference-level explanation
-[reference-level-explanation]: #reference-level-explanation
 
 ### Phase 1: AST + Parser (no solver changes needed)
 
@@ -226,10 +229,9 @@ if self.current_token_is(TokenType::Pipe) {
 
 #### Backward compatibility
 
-The current syntax `with e + IO` (implicit row variable as `Named`) continues to work.
-The compiler's `is_effect_variable` heuristic handles it as before. The `|e` syntax is
-strictly additive. Migration path: users can opt into `|e` for clarity; a future lint
-can suggest the explicit form.
+Implicit row-variable syntax is intentionally rejected. Forms like `with e + IO` must be
+rewritten to explicit row-tail form (`with IO | e`), and open-row-only signatures use
+`with |e`.
 
 #### Constraint solver impact
 
@@ -328,7 +330,6 @@ variable and later arguments bind it to effects that earlier subtraction constra
 must exclude.
 
 ## Drawbacks
-[drawbacks]: #drawbacks
 
 - Row variable syntax (`|e`) is new surface syntax. Existing programs are unaffected
   (the tail is optional), but it extends the learning surface.
@@ -340,7 +341,6 @@ must exclude.
   initially.
 
 ## Rationale and alternatives
-[rationale-and-alternatives]: #rationale-and-alternatives
 
 **Why `|e` syntax?** Consistent with Koka, Eff, and the academic literature on row
 polymorphism. The `|` visually separates the concrete effects from the polymorphic tail,
@@ -364,7 +364,6 @@ effect cannot propagate through `map`, `filter`, or any stdlib combinator, sever
 limiting composability. This is a blocker for proposal 0065.
 
 ## Prior art
-[prior-art]: #prior-art
 
 - **Koka** (Leijen, 2017) — the canonical reference for row-polymorphic effect types.
   Uses identical `<e>` syntax in function types.
@@ -375,7 +374,6 @@ limiting composability. This is a blocker for proposal 0065.
   diagnostics, deferred evaluation (implemented).
 
 ## Unresolved questions
-[unresolved-questions]: #unresolved-questions
 
 1. **Row variable naming:** Should row variables be any lowercase identifier, or should
    they use a reserved convention (e.g., single lowercase letter)? Koka allows any
@@ -397,7 +395,6 @@ limiting composability. This is a blocker for proposal 0065.
    machinery. HM integration (Phase 2) can follow separately.
 
 ## Future possibilities
-[future-possibilities]: #future-possibilities
 
 - **Absence constraints in syntax** (`with IO | e \ Console`): explicit syntax for "e
   does not contain Console". The solver already supports `Absent`; this would surface it

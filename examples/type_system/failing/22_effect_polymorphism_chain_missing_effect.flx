@@ -1,10 +1,10 @@
-// E400: chained `with e` resolves to IO from callback, but caller only declares Time.
+// E400: chained `with |e` resolves to IO from callback, but caller only declares Time.
 
-fn apply_once(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn apply_once(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     f(x)
 }
 
-fn wrap_apply(f: ((Int) -> Int with e), x: Int) -> Int with e {
+fn wrap_apply(f: ((Int) -> Int with |e), x: Int) -> Int with |e {
     apply_once(f, x)
 }
 
