@@ -1,5 +1,7 @@
 - Feature Name: Base Function HM Signature Tightening
 - Start Date: 2026-03-01
+- Completion Date: 2026-03-03
+- Status: Completed
 - Proposal PR: pending
 - Flux Issue: pending
 
@@ -64,18 +66,21 @@ follow-up iteration can introduce union-style overload resolution if needed.
 
 ## Reference-level explanation
 
-### Phase 1: String builtins (low risk, high coverage)
+### Phase 1: String builtins (low risk, high coverage) ✅ Complete (2026-03-03)
 
 These builtins already have `String` parameters but return `Any` where the return type is
-known. Tighten the return types:
+known. Tightened in `src/runtime/base/helpers.rs`:
 
-| Built-in | Current Signature | Tightened Signature |
-|----------|------------------|---------------------|
+| Built-in | Before | After |
+|----------|--------|-------|
 | `chars` | `String -> Any` | `String -> Array<String>` |
 | `split` | `(String, String) -> Any` | `(String, String) -> Array<String>` |
-| `parse_ints` | `String -> Any` | `String -> Array<Int>` |
+| `parse_ints` | `Array<String> -> Any` | `Array<String> -> Array<Int>` |
 | `split_ints` | `(String, String) -> Any` | `(String, String) -> Array<Int>` |
 | `read_lines` | `String -> Any with IO` | `String -> Array<String> with IO` |
+
+Also added `t_array()` helper constructor alongside existing `t_option()`, `t_fun()` etc.
+All tests pass (78 type_inference, 144 compiler_rules, 122 base_functions).
 
 ### Phase 2: Collection builtins with polymorphic signatures
 
@@ -420,3 +425,29 @@ are the most complex because they combine type variables with effect row variabl
 
 3. **Numeric overloads**: `abs`, `min`, `max`, `sum`, `product` work on both `Int` and
    `Float`. Same overload question applies.
+
+## Completion notes (2026-03-03)
+
+All phases that can be implemented without type classes or overload resolution are complete.
+Tightened in `src/runtime/base/helpers.rs`:
+
+| Phase | Built-ins | Status |
+|-------|-----------|--------|
+| 1: String returns | `chars`, `split`, `parse_ints`, `split_ints`, `read_lines` | ✅ Done |
+| 2: Collection | `first`, `last`, `rest`, `push`, `slice`, `sort`, `zip`, `flatten` | ✅ Done |
+| 3: Map | `keys`, `values`, `has_key`, `merge`, `delete`, `put`, `get` | ✅ Done |
+| 4: List | `hd`, `tl`, `to_list`, `to_array` | ✅ Done |
+| 5: Misc | `range` → `(Int,Int)->Array<Int>`, `join` → `(Array<String>,String)->String` | ✅ Done |
+| 5: Deferred | `abs/min/max/sum/product/concat` — require type classes or union types | Deferred |
+| 6: HOF element types | `map/filter/fold/flat_map/any/all/find/sort_by/count` | Deferred |
+
+Deferred items depend on proposal 0053 (traits/type classes) or a dedicated overload resolution mechanism.
+
+Helper constructors added: `t_array`, `t_list`, `t_map`, `t_tuple`, `t_var`.
+
+Verification commands:
+```bash
+cargo test --test type_inference_tests    # 78 passed
+cargo test --test compiler_rules_tests   # 144 passed
+cargo test --test base_functions_tests   # 122 passed
+```
