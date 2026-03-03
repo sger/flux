@@ -1,13 +1,13 @@
 // E421: deferred Absent catches shared-row binding from a later argument.
 
 fn needs_linked_absence(
-    first: (() -> Int with e - IO),
-    second: (() -> Int with e)
-) -> Int with e - IO {
+    first: (() -> Int with |e - IO),
+    second: (() -> Int with |e)
+) -> Int with |e - IO {
     first() + second()
 }
 
-fn row_var_worker() -> Int with e {
+fn row_var_worker() -> Int with |e {
     1
 }
 

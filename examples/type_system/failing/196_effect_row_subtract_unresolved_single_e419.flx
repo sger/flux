@@ -1,6 +1,6 @@
 // E419: unresolved single effect variable in subtraction path.
 
-fn unresolved(x: Int) -> Int with e - IO {
+fn unresolved(x: Int) -> Int with |e - IO {
     x
 }
 

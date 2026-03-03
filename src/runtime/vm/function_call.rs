@@ -1,9 +1,9 @@
 use std::rc::Rc;
 
 use crate::diagnostics::{NOT_A_FUNCTION, RUNTIME_TYPE_ERROR};
+use crate::runtime::RuntimeContext;
 use crate::runtime::base::get_base_function_by_index;
 use crate::runtime::gc::GcHeap;
-use crate::runtime::{RuntimeContext, closure};
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
 use super::VM;

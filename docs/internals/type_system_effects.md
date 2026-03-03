@@ -5,6 +5,7 @@
 This document is the canonical implementation reference for Flux type/effect behavior as of v0.0.4 work.
 
 Supporting documents:
+
 - Historical semantics proposal: `docs/proposals/0032_type_system_with_effects.md`
 - Effect-row expansion track: `docs/proposals/0042_effect_rows_and_constraints.md`
 - Closure evidence and parity checklist: `docs/proposals/0043_pure_flux_checklist.md`
@@ -14,6 +15,7 @@ Supporting documents:
 Audience: compiler contributors.
 
 This file defines:
+
 - what type/effect behavior is implemented today,
 - where it lives in compiler code,
 - which diagnostics and fixtures lock behavior,
@@ -24,6 +26,7 @@ Non-goal: introduce new language semantics in this document.
 ## 1.1 0.0.4 HM/ADT/Exhaustiveness Baseline
 
 Release-critical track for v0.0.4 is:
+
 - Core HM inference for unannotated typed code paths.
 - User-defined nominal generic ADTs (`data T<...> { ... }`).
 - Stronger exhaustiveness (top-level constructor coverage + nested constructor-space checks for supported shapes).
@@ -31,6 +34,7 @@ Release-critical track for v0.0.4 is:
   spaces with deterministic guarded-arm behavior.
 
 Truth sources for this baseline:
+
 - Compiler paths in `src/bytecode/compiler/mod.rs` and `src/bytecode/compiler/expression.rs`.
 - Type core in `src/types/*`.
 - Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
@@ -46,6 +50,7 @@ Truth sources for this baseline:
 - Strict mode adds extra API-boundary constraints for `public fn`.
 
 Primary anchors:
+
 - `src/bytecode/compiler/mod.rs`:
   - `compile`
   - `infer_unannotated_function_effects`
@@ -60,6 +65,7 @@ Primary anchors:
 - Direct effectful builtins/primops (`print`, `read_file`, `now_ms`, etc.) are checked statically.
 
 Primary anchors:
+
 - `src/bytecode/compiler/expression.rs`:
   - `ensure_base_call_effect_available`
   - `required_effect_for_base_name`
@@ -83,6 +89,7 @@ Primary anchors:
   - handled effect discharges from enclosing call chain where modeled.
 
 Primary anchors:
+
 - `src/bytecode/compiler/expression.rs`:
   - `compile_perform`
   - `compile_handle`
@@ -111,6 +118,7 @@ Primary anchors:
   - custom undischarged effects at root -> `E406`.
 
 Primary anchors:
+
 - `src/bytecode/compiler/mod.rs`:
   - `validate_main_entrypoint`
   - `validate_top_level_effectful_code`
@@ -123,11 +131,13 @@ Primary anchors:
 Effect polymorphism is solved in compiler effect-row constraints (not syntax-only propagation).
 
 Implemented behavior:
+
 - preserves `e` through higher-order wrappers/composition,
 - supports row extension and subtraction in current model,
 - validates resolved required effects at call boundaries.
 
 Primary anchors:
+
 - `src/bytecode/compiler/expression.rs`:
   - `collect_effect_row_constraints`
   - `infer_argument_function_effect_row`
@@ -138,11 +148,13 @@ Primary anchors:
 ### 3.2 Surface forms in use
 
 Current fixtures exercise forms such as:
+
 - `with e`
 - `with IO, e`
 - `with e + IO - Console`
 
 See:
+
 - `examples/type_system/21_effect_polymorphism_with_e.flx`
 - `examples/type_system/30_effect_poly_hof_nested_ok.flx`
 - `examples/type_system/33_effect_row_subtract_surface_syntax.flx`.
@@ -153,6 +165,7 @@ See:
 - Additional row solver features beyond current implemented subset.
 
 Track in:
+
 - `docs/proposals/0042_effect_rows_and_constraints.md`.
 
 ## 4. Compiler Pipeline Mapping (Type/Effects)
@@ -172,6 +185,7 @@ Current order in `Compiler::compile` (`src/bytecode/compiler/mod.rs`):
 11. Statement codegen + diagnostics aggregation.
 
 HM pass output contract (0.0.4):
+
 - `TypeEnv` for identifier/scheme lookup.
 - HM expression typing map keyed by compiler-assigned expression node IDs
   (`ExprTypeMap`) for typed validation callsites.
@@ -191,6 +205,7 @@ HM pass output contract (0.0.4):
   - unknown/unsupported projection shapes fall back to `Any`.
 
 Diagnostics ordering contract for entry/strict class is intentionally deterministic:
+
 - main signature class (`E410-E412`)
 - top-level purity (`E413`, `E414`)
 - root discharge (`E406`) when main signature is valid
@@ -215,6 +230,7 @@ This section maps each conceptual layer of the type system to its source files.
 ### HM Inference Engine (`src/ast/type_infer.rs`)
 
 The engine is organized as:
+
 - **`InferCtx`** — holds the type environment, fresh-variable counter, substitution accumulator, and diagnostics list.
 - **`infer_program`** — top-level entry point called by the compiler between PASS 1 and PASS 2. Returns `(TypeEnv, ExprTypeMap, expr_ptr_to_id, diagnostics)`.
 - **Statement inference** — prebinds top-level functions to fresh variables (enabling mutual recursion), then infers each statement.
@@ -278,12 +294,14 @@ The engine is organized as:
 Effects are validated at two points:
 
 **Compile-time** (authoritative):
+
 - `ensure_base_call_effect_available` — checks `IO`/`Time` base calls have the required ambient effect.
 - `collect_effect_row_constraints` + `infer_argument_function_effect_row` — row solver for `with e` propagation.
 - `compile_perform` / `compile_handle` — validates `perform`/`handle` operation names and arity against effect declarations.
 - `validate_main_entrypoint` + `validate_top_level_effectful_code` — enforces main-boundary and top-level purity policies.
 
 **Runtime** (fallback only):
+
 - Unhandled custom-effect paths that escape static analysis fall through to runtime error paths. These are rare for fully-typed programs.
 
 ## 5. Diagnostics Contract Matrix
@@ -307,16 +325,17 @@ Effects are validated at two points:
 | E417 | STRICT RETURN ANNOTATION REQUIRED | `public fn` missing return type in strict mode | add `-> Type` |
 | E418 | STRICT EFFECT ANNOTATION REQUIRED | effectful `public fn` missing explicit `with` | add `with ...` |
 | E423 | STRICT ANY TYPE | `Any` appears in strict-checked API types | replace `Any` with concrete type |
-| E424 | STRICT UNSUPPORTED FUNCTION CONTRACT | strict/public boundary uses function-typed runtime contract | use concrete boundary types or keep API internal |
 | E425 | STRICT UNRESOLVED BOUNDARY TYPE | strict mode cannot resolve runtime boundary type for generic/unconverted annotation | make boundary type concrete |
 
 Notes:
+
 - Runtime unhandled-effect diagnostics remain fallback only for non-static paths.
 - VM/JIT parity is measured as tuple equality: code + title + primary label.
 
 ## 6. Fixture Evidence Matrix
 
 Canonical fixture references:
+
 - passing: `examples/type_system/README.md`
 - failing: `examples/type_system/failing/README.md`
 - parity harness: `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`.
@@ -331,13 +350,15 @@ Canonical fixture references:
 | Strict/public boundary | `58`, `59`, `60`, `61` | `29`, `30`, `51`, `52`, `53`, `54`, `55`, `56`, `57`, `58`, `59` |
 
 Module-qualified fixtures must run with:
+
 - `--root examples/type_system`
 
 ## 7. Known Limitations and Non-Goals
 
 Current limitations:
+
 - Advanced row-constraint expressiveness remains limited vs full research-grade systems.
-- Function-typed runtime boundary contracts are not enforced yet; strict/public boundary usage is rejected (`E424`).
+- Strict/public function-typed boundaries are runtime-enforced for closure/jit-closure callback values when contract metadata is present.
 - In strict mode, unresolved generic runtime boundary checks are rejected (`E425`) to avoid silent skips.
 - HM expression typing uses a strict-path authority for typed validation.
   Typed validators must not use runtime-boundary compatibility inference.
@@ -352,11 +373,13 @@ Current limitations:
 - Some historical proposal text may still include broader/future claims not yet implemented.
 
 Non-goals for this spec:
+
 - concurrency/effect integration model,
 - GC design and runtime memory model changes,
 - macro/type-level metaprogramming.
 
 Tracked separately:
+
 - `docs/proposals/0042_effect_rows_and_constraints.md`
 - `docs/proposals/0026_concurrency_model.md`
 - `docs/proposals/0045_gc.md`.
@@ -390,11 +413,13 @@ cargo run --features jit -- --no-cache --strict examples/type_system/failing/53_
 ```
 
 Acceptance criteria:
+
 - parity suite green,
 - no VM/JIT mismatch on purity-critical diagnostics,
 - no known fixture regression in A-G matrices from `043`.
 
 Snapshot governance:
+
 - intentional parity changes must update snapshots with review:
   - `INSTA_UPDATE=always cargo test --all --all-features purity_vm_jit_parity_snapshots`
 

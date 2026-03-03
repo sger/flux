@@ -28,7 +28,9 @@
 2	type_system	effect_row_subset_unsatisfied_e422_198	examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx	-	false	both	1	E422
 2	type_system	effect_row_subset_sorted_e422_199	examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx	-	false	both	1	E422
 2	type_system	effect_row_absent_ordering_ok_166	examples/type_system/166_effect_row_absent_ordering_linked_ok.flx	-	false	both	0	-
+2	type_system	base_hof_effect_row_ok_167	examples/type_system/167_base_hof_callback_effect_row_ok.flx	-	false	both	0	-
 2	type_system	effect_row_absent_ordering_violation_e421_200	examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx	-	false	both	1	E421
+2	type_system	base_hof_effect_missing_e400_201	examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx	-	false	both	1	E400
 2	type_system	runtime_boundary_list_187	examples/type_system/failing/187_runtime_list_boundary_e1004.flx	examples/type_system	false	both	1	E1004
 2	jit	flow_wrapper_test	tests/flux/flow_wrapper.flx	lib	false	both	0	-
 
