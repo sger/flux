@@ -3,8 +3,75 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/strings.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+
+The `substring` function takes 3 arguments, but 2 were provided.
+
+  --> examples/basics/strings.flx:29:11
+   |
+ 1 | fn main() with IO {
+
+ 2 | 
+
+ 3 | 
+
+ 4 | 
+
+ 5 | 
+
+ 6 | 
+
+ 7 | 
+
+ 8 | 
+
+ 9 | 
+
+10 | 
+
+11 |     let greeting = "hello"
+
+12 |     let target = " world"
+
+13 |     print(greeting + target)
+
+14 | 
+
+15 |     let lang = "flux"
+
+16 |     let desc = " is awesome";
+
+17 |     print(lang + desc);
+
+18 | 
+
+19 |     print("a" + "b" + "c");
+
+20 | 
+
+21 |     print(split("hello world", " "));
+
+22 |     print(split("hello%world", "%"));
+
+23 |     print(split("hello", "!"));
+
+24 | 
+
+25 |     print(upper("hello world"));
+
+26 |     print(lower("HELLO world"));
+
+27 | 
+
+28 |     print(chars("HELLO world"));
+
+29 |     print(substring("HELLO world", 0));
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |           --------------------------- 2 arguments provided here, expected 3
+
+Help:
+  Add 1 missing argument(s), for example: `substring(arg1, arg2, arg3)`.
 == stdout ==
 <not executed>

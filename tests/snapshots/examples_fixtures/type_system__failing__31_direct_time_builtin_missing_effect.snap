@@ -17,5 +17,18 @@ Call to `now_ms` requires effect `Time` in this function signature.
 
 Hint:
   Add `with Time` to the enclosing function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with IO with () -> Unit with Time.
+
+  --> examples/type_system/failing/31_direct_time_builtin_missing_effect.flx:4:5
+  |
+4 |     now_ms()
+  |     ^^^^^^^^
+  |     -------- expected () -> Unit with IO, found () -> Unit with Time
+
+Found 2 errors.
 == stdout ==
 <not executed>

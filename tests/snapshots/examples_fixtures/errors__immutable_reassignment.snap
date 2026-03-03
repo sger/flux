@@ -18,6 +18,17 @@ Hint:
   In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_x = ...`).
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/errors/immutable_reassignment.flx:8:1
+  |
+8 | print(x)
+  | ^^^^^^^^
+  | -------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -45,6 +56,6 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>

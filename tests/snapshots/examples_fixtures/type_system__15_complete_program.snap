@@ -57,6 +57,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:43:1
+   |
+43 | print("=== Grade Report ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -99,6 +113,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:45:1
+   |
+45 | print("Scores by student:")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -124,6 +149,20 @@ Cannot access private member `fold_list`.
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:52:1
+   |
+52 | print("")
+   | ^^^^^^^^^
+   | --------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -193,6 +232,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:58:1
+   |
+58 | print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -245,6 +298,20 @@ Cannot access private member `list_len`.
 
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:63:1
+   |
+63 | print("")
+   | ^^^^^^^^^
+   | --------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -301,6 +368,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:73:1
+   |
+73 | print("")
+   | ^^^^^^^^^
+   | --------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -342,6 +423,20 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:76:1
+   |
+76 | print("  A (4pts): " + to_string(dist.0))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -368,6 +463,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:78:1
+   |
+78 | print("  C (2pts): " + to_string(dist.2))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -398,6 +507,17 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:80:1
+   |
+80 | print("  F (0pts): " + to_string(dist.4))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -410,6 +530,20 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:84:1
+   |
+84 | print("")
+   | ^^^^^^^^^
+   | --------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -452,6 +586,6 @@ Cannot access private member `fold_list`.
 Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
-Found 33 errors.
+Found 43 errors.
 == stdout ==
 <not executed>

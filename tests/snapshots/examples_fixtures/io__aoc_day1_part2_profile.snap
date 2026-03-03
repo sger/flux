@@ -16,5 +16,131 @@ I can't find a value named `solve`.
 
 Hint:
   Define it first: let solve = ...;
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `count_zeros_right` has the wrong type.
+
+  --> examples/io/aoc_day1_part2_profile.flx:49:44
+   |
+30 | fn count_zeros_right(pos, distance) {
+
+31 |     let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
+
+32 |     count_hits_for_rotation(first_zero_click, distance)
+
+33 | }
+
+34 | 
+
+35 | fn count_zeros_left(pos, distance) {
+
+36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
+
+37 |     count_hits_for_rotation(first_zero_click, distance)
+
+38 | }
+
+39 | 
+
+40 | fn apply_rotation(line, rest, pos, hits) {
+
+41 |     let cleaned = trim(line)
+
+42 |     if cleaned == "" {
+
+43 |         solve(rest, pos, hits)
+
+44 |     } else {
+
+45 |     let dir = substring(cleaned, 0, 1)
+
+46 |     let distance = parse_int(substring(cleaned, 1, len(cleaned)))
+
+47 | 
+
+48 |     if dir == "R" {
+
+49 |         let zeros = count_zeros_right(pos, distance)
+   |                                            ^^^^^^^^
+   |                                            -------- this argument is `Option<Int>`
+
+Help:
+  Expected `Int` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Option<Int>.
+
+  --> examples/io/aoc_day1_part2_profile.flx:50:39
+   |
+50 |         let next_pos_right = wrap_100(pos + distance)
+   |                                       ^^^^^^^^^^^^^^
+   |                                       -------------- expected Int, found Option<Int>
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `count_zeros_left` has the wrong type.
+
+  --> examples/io/aoc_day1_part2_profile.flx:53:44
+   |
+35 | fn count_zeros_left(pos, distance) {
+
+36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
+
+37 |     count_hits_for_rotation(first_zero_click, distance)
+
+38 | }
+
+39 | 
+
+40 | fn apply_rotation(line, rest, pos, hits) {
+
+41 |     let cleaned = trim(line)
+
+42 |     if cleaned == "" {
+
+43 |         solve(rest, pos, hits)
+
+44 |     } else {
+
+45 |     let dir = substring(cleaned, 0, 1)
+
+46 |     let distance = parse_int(substring(cleaned, 1, len(cleaned)))
+
+47 | 
+
+48 |     if dir == "R" {
+
+49 |         let zeros = count_zeros_right(pos, distance)
+
+50 |         let next_pos_right = wrap_100(pos + distance)
+
+51 |         solve(rest, next_pos_right, hits + zeros)
+
+52 |     } else {
+
+53 |     let zeros_left = count_zeros_left(pos, distance)
+   |                                            ^^^^^^^^
+   |                                            -------- this argument is `Option<Int>`
+
+Help:
+  Expected `Int` as the 2nd argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Option<Int>.
+
+  --> examples/io/aoc_day1_part2_profile.flx:54:34
+   |
+54 |     let next_pos_left = wrap_100(pos - distance)
+   |                                  ^^^^^^^^^^^^^^
+   |                                  -------------- expected Int, found Option<Int>
+
+Found 5 errors.
 == stdout ==
 <not executed>

@@ -5,17 +5,36 @@ Fixture: examples/type_system/failing/32_direct_time_hof_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+--> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Call to `time` requires effect `Time` in this function signature.
+Cannot unify () -> Unit with IO with () -> Unit with Time.
 
   --> examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
   |
 4 |     time(/() -> 1)
-  |     ^^^^
-  |     ---- effectful call occurs here
+  |     ^^^^^^^^^^^^^^
+  |     -------------- expected () -> Unit with IO, found () -> Unit with Time
 
-Hint:
-  Add `with Time` to the enclosing function.
+
+--> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+
+The `time` function takes 0 arguments, but 1 were provided.
+
+  --> examples/type_system/failing/32_direct_time_hof_missing_effect.flx:4:5
+  |
+1 | 
+
+2 | 
+
+3 | fn profiled() -> Int with IO {
+
+4 |     time(/() -> 1)
+  |     ^^^^^^^^^^^^^^
+  |     -------------- 1 arguments provided here, expected 0
+
+Help:
+  Remove 1 extra argument(s), for example: `time()`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

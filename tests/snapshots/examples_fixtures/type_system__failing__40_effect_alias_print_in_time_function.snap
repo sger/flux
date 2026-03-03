@@ -17,5 +17,18 @@ Call to `p` requires effect `IO` in this function signature.
 
 Hint:
   Add `with IO` to the enclosing function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with Time with () -> Unit with IO.
+
+  --> examples/type_system/failing/40_effect_alias_print_in_time_function.flx:5:5
+  |
+5 |     p("tick")
+  |     ^^^^^^^^^
+  |     --------- expected () -> Unit with Time, found () -> Unit with IO
+
+Found 2 errors.
 == stdout ==
 <not executed>

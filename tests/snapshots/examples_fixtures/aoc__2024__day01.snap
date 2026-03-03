@@ -46,6 +46,20 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/aoc/2024/day01.flx:60:22
+   |
+60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                      ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+
+Help:
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -58,6 +72,17 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/aoc/2024/day01.flx:62:1
+   |
+62 | print(day01b(all_pairs_data))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- expected () -> Unit, found () -> Unit with IO
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -73,6 +98,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 5 errors.
+Found 7 errors.
 == stdout ==
 <not executed>

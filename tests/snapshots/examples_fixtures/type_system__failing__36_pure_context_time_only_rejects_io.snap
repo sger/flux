@@ -17,5 +17,18 @@ Call to `print` requires effect `IO` in this function signature.
 
 Hint:
   Add `with IO` to the enclosing function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with Time with () -> Unit with IO.
+
+  --> examples/type_system/failing/36_pure_context_time_only_rejects_io.flx:4:5
+  |
+4 |     print("tick")
+  |     ^^^^^^^^^^^^^
+  |     ------------- expected () -> Unit with Time, found () -> Unit with IO
+
+Found 2 errors.
 == stdout ==
 <not executed>

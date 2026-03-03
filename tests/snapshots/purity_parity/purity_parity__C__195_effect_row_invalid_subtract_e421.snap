@@ -16,9 +16,11 @@ exit_code: 1
 
 == vm tuples ==
 - E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
+- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
 
 == jit tuples ==
 - E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
+- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
 
 == parity ==
 match
