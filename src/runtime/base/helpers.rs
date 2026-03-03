@@ -10,7 +10,7 @@ use crate::{
     },
     syntax::{Identifier, interner::Interner},
     types::{
-        TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType,
+        TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType, scheme::Scheme,
         type_constructor::TypeConstructor,
     },
 };
@@ -268,19 +268,19 @@ pub(super) fn lower_effect_row(
         })
     });
     match tail {
-        Some(tail) => Ok(InferEffectRow::open_from_symbols(concrete, tail_var)),
+        Some(tail_var) => Ok(InferEffectRow::open_from_symbols(concrete, tail_var)),
         None => Ok(InferEffectRow::closed_from_symbols(concrete)),
     }
 }
 
-pub fn scheme_for_signature_id(
+pub(crate) fn scheme_for_signature_id(
     id: BaseHmSignatureId,
     interner: &mut Interner,
 ) -> Result<Scheme, String> {
     signature_for_id(id).to_scheme(interner)
 }
 
-fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
+pub fn signature_for_id(id: BaseHmSignatureId) -> BaseHmSignature {
     use BaseHmSignatureId as Id;
     match id {
         Id::Print => sig(vec![t_any()], t_unit(), row(vec!["IO"], None)),

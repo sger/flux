@@ -1,3 +1,5 @@
+use crate::runtime::base::base_hm_effect_row::BaseHmEffectRow;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseHmType {
     Any,
