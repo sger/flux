@@ -36,13 +36,20 @@ The problem: `apply_twice` declares a pure callback type (`Int -> Int`). When an
 
 ---
 
-## The Solution: `with e` Effect Row Variables
+## The Solution: `|e` Effect Row Variables
 
-The `with e` syntax introduces an **effect row variable** — a variable that stands for "whatever effects the callback carries":
+The `|e` tail syntax introduces an **effect row variable** — a variable that stands for "whatever effects the callback carries". The `|` separates concrete effects from the open row:
 
 ```flux
-fn apply_twice(f: (Int -> Int with e), x: Int) -> Int with e {
+-- callback-only row variable
+fn apply_twice(f: (Int -> Int with |e), x: Int) -> Int with |e {
     f(f(x))
+}
+
+-- concrete effect + row variable
+fn log_apply(f: (Int -> Int with |e), x: Int) -> Int with IO | e {
+    print("calling f")
+    f(x)
 }
 ```
 
@@ -52,12 +59,14 @@ Now:
 
 The effect row variable `e` propagates the callback's effect through the wrapper transparently.
 
+> **Note on syntax:** Row variables must appear as a `|e` tail after any concrete effects. `with IO | e` means "IO plus whatever e is". `with |e` means "only whatever e is". The old implicit form `with e` (lowercase identifier without `|`) is **rejected** — always use `|e`.
+
 ---
 
 ## Worked Example
 
 ```flux
-fn apply_twice(f: (Int -> Int with e), x: Int) -> Int with e {
+fn apply_twice(f: (Int -> Int with |e), x: Int) -> Int with |e {
     f(f(x))
 }
 
@@ -94,13 +103,16 @@ Effect rows support additive composition in annotations:
 
 | Syntax | Meaning |
 |--------|---------|
-| `with e` | Row variable — inherits callback's effects |
+| `with \|e` | Row variable only — inherits exactly the callback's effects |
 | `with IO` | Fixed `IO` effect |
-| `with IO, e` | `IO` plus whatever `e` resolves to |
+| `with IO \| e` | `IO` plus whatever `e` resolves to |
 | `with IO, Time` | Fixed `IO` and `Time` |
-| `with e + IO - Console` | Row extension/subtraction (advanced) |
+| `with IO + State - Console` | Row extension/subtraction (advanced) |
 
-The most common pattern in practice is `with e` for generic wrappers and `with IO` or `with IO, Time` for concrete effectful functions.
+The `|e` tail always comes last. The most common patterns:
+- `with |e` — pure generic wrapper (propagates whatever the callback has)
+- `with IO | e` — wrapper that also requires IO itself
+- `with IO` — concrete effectful function, no polymorphism
 
 ---
 
@@ -109,11 +121,11 @@ The most common pattern in practice is `with e` for generic wrappers and `with I
 Effect rows propagate through multi-level call chains:
 
 ```flux
-fn step(f: (Int -> Int with e), x: Int) -> Int with e {
+fn step(f: (Int -> Int with |e), x: Int) -> Int with |e {
     f(x + 1)
 }
 
-fn pipeline(f: (Int -> Int with e), x: Int) -> Int with e {
+fn pipeline(f: (Int -> Int with |e), x: Int) -> Int with |e {
     step(f, step(f, x))
 }
 
@@ -132,11 +144,11 @@ The `e` variable threads through `step` → `pipeline` → `main` without any ex
 If a caller declares an incompatible effect for a polymorphic callback chain, Flux emits `E400`:
 
 ```flux
-fn apply(f: (Int -> Int with e), x: Int) -> Int with e { f(x) }
+fn apply(f: (Int -> Int with |e), x: Int) -> Int with |e { f(x) }
 
-// pure context — but f is IO
+-- pure context — but f is IO
 fn bad_pure() -> Int {
-    apply(\x -> do { print(x); x }, 1)   // E400: IO not in scope
+    apply(\x -> do { print(x); x }, 1)   -- E400: IO not in scope
 }
 ```
 
@@ -144,13 +156,16 @@ The fix is either to declare `with IO` on `bad_pure` or use a pure callback.
 
 ---
 
-## Failure Patterns to Remember
+## Row Variable Diagnostics
 
-| Pattern | Error |
-|---------|-------|
-| IO callback passed to a wrapper without `with e` or `with IO` | `E400` |
-| Caller context doesn't carry the propagated effect | `E400` |
-| Using `with e` but not declaring `e` in callback signature | type mismatch |
+| Code | Trigger | Fix |
+|------|---------|-----|
+| `E400` | IO callback passed to wrapper without `with \|e` or `with IO` | add `with IO` or `with IO \| e` |
+| `E400` | Caller context doesn't carry the propagated effect | annotate enclosing function with the required effect |
+| `E419` | Single row variable remains unresolved after inference | provide a concrete `with` annotation |
+| `E420` | Multiple row variables are ambiguous | disambiguate with explicit effect annotations |
+| `E421` | Effect subtracted that isn't in the row | remove invalid subtraction |
+| `E422` | Required effect subset not satisfied | add the missing effects to the row |
 
 ---
 
