@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::types::infer_effect_row::InferEffectRow;
-use crate::types::scheme;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
     ast::{

@@ -1,5 +1,6 @@
 use crate::runtime::base::base_hm_effect_row::BaseHmEffectRow;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseHmType {
     Any,

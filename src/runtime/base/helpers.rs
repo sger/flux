@@ -175,9 +175,9 @@ pub(super) fn lower_type(
         BaseHmType::Unit => InferType::Con(TypeConstructor::Unit),
         BaseHmType::TypeVar(name) => {
             let id = *type_params.entry(name).or_insert_with(|| {
-                let var = *next_var;
+                let v = *next_var;
                 *next_var = next_var.saturating_add(1);
-                var
+                v
             });
             InferType::Var(id)
         }
