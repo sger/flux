@@ -3,8 +3,35 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `upper` has the wrong type.
+
+  --> examples/advanced/functional_pipeline.flx:93:17
+   |
+93 |     let name1 = first(names) |> upper;
+   |                 ^^^^^^^^^^^^
+   |                 ------------ this argument is `Option<String>`
+
+Help:
+  Expected `String` as the 1st argument.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `upper` has the wrong type.
+
+  --> examples/advanced/functional_pipeline.flx:96:17
+   |
+96 |     let name2 = first(rest(names)) |> upper;
+   |                 ^^^^^^^^^^^^^^^^^^
+   |                 ------------------ this argument is `Option<String>`
+
+Help:
+  Expected `String` as the 1st argument.
+
+Found 2 errors.
 == stdout ==
 <not executed>

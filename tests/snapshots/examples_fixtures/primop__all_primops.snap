@@ -3,8 +3,19 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/primop/all_primops.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 3rd argument to `put` has the wrong type.
+
+  --> examples/primop/all_primops.flx:56:30
+   |
+56 |     let m2 = put(m1, "year", 2026);
+   |                              ^^^^
+   |                              ---- this argument is `Int`
+
+Help:
+  Expected `String` as the 3rd argument.
 == stdout ==
 <not executed>

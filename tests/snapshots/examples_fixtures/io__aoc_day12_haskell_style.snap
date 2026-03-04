@@ -16,5 +16,18 @@ I can't find a value named `str_at`.
 
 Hint:
   Define it first: let str_at = ...;
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Int with Array<Option<Int>>.
+
+  --> examples/io/aoc_day12_haskell_style.flx:92:55
+   |
+92 |         parse_areas(lines, idx + 1, push(acc, [|w, h, counts|]))
+   |                                                       ^^^^^^
+   |                                                       ------ expected Int, found Array<Option<Int>>
+
+Found 2 errors.
 == stdout ==
 <not executed>

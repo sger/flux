@@ -3,8 +3,69 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/basics/mini_database.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify indexable value (Array/List/Tuple/Map) with Option<Map<String, Int>>.
+
+  --> examples/basics/mini_database.flx:43:11
+   |
+43 |     print(first_record["name"])
+   |           ^^^^^^^^^^^^
+   |           ------------ expected indexable value (Array/List/Tuple/Map), found Option<Map<String, Int>>
+   |           ------------ indexed value is known at compile time
+
+Help:
+  index only arrays, lists, tuples, or maps
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify indexable value (Array/List/Tuple/Map) with Option<Map<String, Int>>.
+
+  --> examples/basics/mini_database.flx:47:11
+   |
+47 |     print(second_record["name"])
+   |           ^^^^^^^^^^^^^
+   |           ------------- expected indexable value (Array/List/Tuple/Map), found Option<Map<String, Int>>
+   |           ------------- indexed value is known at compile time
+
+Help:
+  index only arrays, lists, tuples, or maps
+  Suppressed 1 nearby duplicate E300 diagnostic(s).
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify indexable value (Array/List/Tuple/Map) with Option<Map<String, Int>>.
+
+  --> examples/basics/mini_database.flx:54:11
+   |
+54 |     print(found["name"])
+   |           ^^^^^
+   |           ----- expected indexable value (Array/List/Tuple/Map), found Option<Map<String, Int>>
+   |           ----- indexed value is known at compile time
+
+Help:
+  index only arrays, lists, tuples, or maps
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify indexable value (Array/List/Tuple/Map) with Option<Map<String, Int>>.
+
+  --> examples/basics/mini_database.flx:57:11
+   |
+57 |     print(maybe_charlie["name"])
+   |           ^^^^^^^^^^^^^
+   |           ------------- expected indexable value (Array/List/Tuple/Map), found Option<Map<String, Int>>
+   |           ------------- indexed value is known at compile time
+
+Help:
+  index only arrays, lists, tuples, or maps
+
+Found 4 errors.
 == stdout ==
 <not executed>

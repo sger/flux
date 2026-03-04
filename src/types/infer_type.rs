@@ -1,6 +1,9 @@
 //! Internal inference-time type AST used by the HM type checker.
 
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt,
+};
 
 use crate::types::{
     TypeVarId, infer_effect_row::InferEffectRow, type_constructor::TypeConstructor,
@@ -85,11 +88,25 @@ impl InferType {
 
     /// Apply a substitution, replacing any `Var(v)` that appears in `TypeSubst`.
     pub fn apply_type_subst(&self, type_subst: &TypeSubst) -> InferType {
+        self.apply_type_subst_with_seen(type_subst, &mut VecDeque::new())
+    }
+
+    fn apply_type_subst_with_seen(
+        &self,
+        type_subst: &TypeSubst,
+        seen_vars: &mut VecDeque<TypeVarId>,
+    ) -> InferType {
         match self {
             InferType::Var(v) => {
+                if seen_vars.contains(v) {
+                    // Break substitution cycles (e.g. ?1 -> ?1 or ?1 -> ?2 -> ?1).
+                    return InferType::Var(*v);
+                }
                 if let Some(infer_type) = type_subst.get(*v) {
-                    // Apply recursively in case the substitution chains.
-                    infer_type.apply_type_subst(type_subst)
+                    seen_vars.push_back(*v);
+                    let applied = infer_type.apply_type_subst_with_seen(type_subst, seen_vars);
+                    seen_vars.pop_back();
+                    applied
                 } else {
                     InferType::Var(*v)
                 }
@@ -98,21 +115,21 @@ impl InferType {
             InferType::App(con, args) => InferType::App(
                 con.clone(),
                 args.iter()
-                    .map(|a| a.apply_type_subst(type_subst))
+                    .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect(),
             ),
             InferType::Fun(params, ret, effects) => InferType::Fun(
                 params
                     .iter()
-                    .map(|p| p.apply_type_subst(type_subst))
+                    .map(|p| p.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect(),
-                Box::new(ret.apply_type_subst(type_subst)),
+                Box::new(ret.apply_type_subst_with_seen(type_subst, seen_vars)),
                 effects.apply_row_subst(type_subst),
             ),
             InferType::Tuple(elements) => InferType::Tuple(
                 elements
                     .iter()
-                    .map(|e| e.apply_type_subst(type_subst))
+                    .map(|e| e.apply_type_subst_with_seen(type_subst, seen_vars))
                     .collect(),
             ),
         }
@@ -328,5 +345,16 @@ mod tests {
             infer_type.to_string(),
             "(List<Int>, (Bool, ?3)) -> Map<String, Int>"
         );
+    }
+
+    #[test]
+    fn apply_type_subst_breaks_cycles() {
+        let infer_type = infer_var(0);
+        let mut type_subst = TypeSubst::empty();
+        type_subst.insert(0, infer_var(1));
+        type_subst.insert(1, infer_var(0));
+
+        let applied = infer_type.apply_type_subst(&type_subst);
+        assert!(matches!(applied, InferType::Var(0) | InferType::Var(1)));
     }
 }
