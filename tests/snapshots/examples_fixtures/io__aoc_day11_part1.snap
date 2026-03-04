@@ -5,6 +5,17 @@ Fixture: examples/io/aoc_day11_part1.flx
 == compile ==
 failed (compile)
 == diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify String with Array<String>.
+
+  --> examples/io/aoc_day11_part1.flx:66:13
+   |
+66 |     [|name, outs|]
+   |             ^^^^
+   |             ---- expected String, found Array<String>
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `dfs_count`.
@@ -16,5 +27,7 @@ I can't find a value named `dfs_count`.
 
 Hint:
   Define it first: let dfs_count = ...;
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -22,5 +22,31 @@ Hint:
    |
 13 |     let counter = 0;
    |     ^^^^^^^^^^^^^^^^
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 1st argument to `double` has the wrong type.
+
+  --> examples/functions/immutability_valid.flx:32:32
+   |
+27 |     fn double(n) {
+
+28 |         return n * 2;
+
+29 |     }
+
+30 | 
+
+31 | 
+
+32 |     let first_doubled = double(first(numbers));
+   |                                ^^^^^^^^^^^^^^
+   |                                -------------- this argument is `Option<Int>`
+
+Help:
+  Expected `Int` as the 1st argument.
+
+Found 2 errors.
 == stdout ==
 <not executed>
