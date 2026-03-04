@@ -769,6 +769,52 @@ impl Compiler {
                         ),
                     ));
                 }
+                // Stage 2 (0051): when the contract has no concrete RuntimeType (e.g. generic
+                // param T or user ADT), fall back to HM's call-site-instantiated function type.
+                // Only fires when HM has fully resolved the function's param type and the
+                // argument type, and they don't match. Skipped if HM already emitted E300 for
+                // this argument to avoid duplicate diagnostics.
+                if !self.type_error_already_reported_for(argument) {
+                    use super::hm_expr_typer::HmExprTypeResult;
+                    if let HmExprTypeResult::Known(InferType::Fun(hm_params, _, _)) =
+                        self.hm_expr_type_strict_path(function)
+                    {
+                        if let Some(hm_expected) = hm_params.get(index) {
+                            if hm_expected.free_vars().is_empty()
+                                && !hm_expected.contains_any()
+                            {
+                                if let HmExprTypeResult::Known(actual) =
+                                    self.hm_expr_type_strict_path(argument)
+                                {
+                                    if actual.free_vars().is_empty() && !actual.contains_any() {
+                                        let types_match =
+                                            if let Ok(subst) = unify(hm_expected, &actual) {
+                                                hm_expected.apply_type_subst(&subst)
+                                                    == actual.apply_type_subst(&subst)
+                                            } else {
+                                                false
+                                            };
+                                        if !types_match {
+                                            let expected_str =
+                                                display_infer_type(hm_expected, &self.interner);
+                                            let actual_str =
+                                                display_infer_type(&actual, &self.interner);
+                                            return Err(Self::boxed(call_arg_type_mismatch(
+                                                self.file_path.clone(),
+                                                argument.span(),
+                                                Some(&function_name),
+                                                index + 1,
+                                                def_span,
+                                                &expected_str,
+                                                &actual_str,
+                                            )));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 continue;
             };
             let expected_infer = TypeEnv::infer_type_from_runtime(&expected_runtime);
