@@ -103,6 +103,11 @@ impl TypeSubst {
             }
         }
 
+        // Step 3b: drop trivial self-bindings (?t -> ?t), which are no-ops and can
+        // otherwise participate in substitution cycles.
+        self.type_bindings
+            .retain(|key, infer_type| !matches!(infer_type, InferType::Var(v) if v == key));
+
         // Step 4: apply the same normalization pass for row values.
         // This keeps row substitutions stable after composition and prevents
         // stale tail chains from surviving in stored bindings.
@@ -229,5 +234,15 @@ mod tests {
         for (_, infer_type) in composed.iter() {
             assert!(infer_type.free_vars().is_empty());
         }
+    }
+
+    #[test]
+    fn compose_drops_trivial_self_bindings() {
+        let mut left = TypeSubst::empty();
+        left.insert(0, var(0));
+
+        let composed = left.compose(&TypeSubst::empty());
+
+        assert!(composed.get(0).is_none());
     }
 }

@@ -19,6 +19,118 @@ Hint:
   Add `with Time` to the enclosing function.
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 3rd argument to `bench_list_head` has the wrong type.
+
+  --> examples/perf/complexity_scaling.flx:57:47
+   |
+ 8 |     fn bench_list_head(lst, reps, acc) {
+
+ 9 |         if reps <= 0 {
+
+10 |             acc
+
+11 |         } else {
+
+12 |         bench_list_head(lst, reps - 1, acc + hd(lst))
+
+13 |     }
+
+14 | }
+
+15 | 
+
+16 | fn bench_array_first(arr, reps, acc) {
+
+17 |     if reps <= 0 {
+
+18 |         acc
+
+19 |     } else {
+
+20 |     bench_array_first(arr, reps - 1, acc + first(arr))
+
+21 | }
+
+22 | }
+
+23 | 
+
+24 | fn bench_list_len(lst, reps, acc) {
+
+25 |     if reps <= 0 {
+
+26 |         acc
+
+27 |     } else {
+
+28 |     bench_list_len(lst, reps - 1, acc + len(lst))
+
+29 | }
+
+30 | }
+
+31 | 
+
+32 | fn bench_array_concat(arr, reps, acc) {
+
+33 |     if reps <= 0 {
+
+34 |         acc
+
+35 |     } else {
+
+36 |     let out = concat(arr, [|1|])
+
+37 |     bench_array_concat(arr, reps - 1, acc + len(out))
+
+38 | }
+
+39 | }
+
+40 | 
+
+41 | fn value_at(arr, idx) {
+
+42 |     match arr[idx] {
+
+43 |         Some(x) -> x,
+
+44 |         _ -> 0,
+
+45 |     }
+
+46 | }
+
+47 | 
+
+48 | fn run_cases(sizes, idx, reps_o1, reps_on) {
+
+49 |     if idx >= len(sizes) {
+
+50 |         None
+
+51 |     } else {
+
+52 |     let n = value_at(sizes, idx)
+
+53 |     let arr = range(0, n)
+
+54 |     let lst = to_list(arr)
+
+55 | 
+
+56 |     let t0 = now_ms()
+
+57 |     let sink1 = bench_list_head(lst, reps_o1, 0)
+   |                                               ^
+   |                                               - this argument is `Int`
+
+Help:
+  Expected `Option<Int>` as the 3rd argument.
+
+
 --> compiler error[E400]: MISSING EFFECT
 
 Call to `now_ms` requires effect `Time` in this function signature.
@@ -45,6 +157,110 @@ Call to `now_ms` requires effect `Time` in this function signature.
 
 Hint:
   Add `with Time` to the enclosing function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 3rd argument to `bench_array_first` has the wrong type.
+
+  --> examples/perf/complexity_scaling.flx:61:49
+   |
+16 | fn bench_array_first(arr, reps, acc) {
+
+17 |     if reps <= 0 {
+
+18 |         acc
+
+19 |     } else {
+
+20 |     bench_array_first(arr, reps - 1, acc + first(arr))
+
+21 | }
+
+22 | }
+
+23 | 
+
+24 | fn bench_list_len(lst, reps, acc) {
+
+25 |     if reps <= 0 {
+
+26 |         acc
+
+27 |     } else {
+
+28 |     bench_list_len(lst, reps - 1, acc + len(lst))
+
+29 | }
+
+30 | }
+
+31 | 
+
+32 | fn bench_array_concat(arr, reps, acc) {
+
+33 |     if reps <= 0 {
+
+34 |         acc
+
+35 |     } else {
+
+36 |     let out = concat(arr, [|1|])
+
+37 |     bench_array_concat(arr, reps - 1, acc + len(out))
+
+38 | }
+
+39 | }
+
+40 | 
+
+41 | fn value_at(arr, idx) {
+
+42 |     match arr[idx] {
+
+43 |         Some(x) -> x,
+
+44 |         _ -> 0,
+
+45 |     }
+
+46 | }
+
+47 | 
+
+48 | fn run_cases(sizes, idx, reps_o1, reps_on) {
+
+49 |     if idx >= len(sizes) {
+
+50 |         None
+
+51 |     } else {
+
+52 |     let n = value_at(sizes, idx)
+
+53 |     let arr = range(0, n)
+
+54 |     let lst = to_list(arr)
+
+55 | 
+
+56 |     let t0 = now_ms()
+
+57 |     let sink1 = bench_list_head(lst, reps_o1, 0)
+
+58 |     let t1 = now_ms()
+
+59 | 
+
+60 |     let t2 = now_ms()
+
+61 |     let sink2 = bench_array_first(arr, reps_o1, 0)
+   |                                                 ^
+   |                                                 - this argument is `Int`
+
+Help:
+  Expected `Option<Int>` as the 3rd argument.
 
 
 --> compiler error[E400]: MISSING EFFECT
@@ -130,6 +346,17 @@ Call to `print` requires effect `IO` in this function signature.
 Hint:
   Add `with IO` to the enclosing function.
 
-Found 9 errors.
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify Option<Int> with Int.
+
+  --> examples/perf/complexity_scaling.flx:78:28
+   |
+78 |     + " sink=" + to_string(sink1 + sink2 + sink3 + sink4)
+   |                            ^^^^^^^^^^^^^
+   |                            ------------- expected Option<Int>, found Int
+
+Found 12 errors.
 == stdout ==
 <not executed>

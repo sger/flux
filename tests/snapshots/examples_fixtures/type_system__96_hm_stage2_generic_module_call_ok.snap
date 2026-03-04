@@ -1,0 +1,10 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/96_hm_stage2_generic_module_call_ok.flx
+== compile ==
+ok
+== diagnostics ==
+<none>
+== stdout ==
+<not executed>
