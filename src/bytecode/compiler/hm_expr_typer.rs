@@ -160,7 +160,7 @@ impl Compiler {
         if self.is_concrete_array_literal_conflict(expression) {
             return Ok(());
         }
-        if self.has_concrete_e300_for_expression(expression) {
+        if self.type_error_already_reported_for(expression) {
             return Ok(());
         }
         self.check_private_module_member_access_for_expr(expression)?;
@@ -225,7 +225,7 @@ impl Compiler {
         false
     }
 
-    fn has_concrete_e300_for_expression(&self, expression: &Expression) -> bool {
+    pub(super) fn type_error_already_reported_for(&self, expression: &Expression) -> bool {
         let expr_span = expression.span();
         self.errors.iter().any(|diag| {
             if diag.code() != Some("E300") {
