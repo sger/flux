@@ -1,0 +1,13 @@
+// 0051 Stage 2: HM fallback catches argument type mismatch for module generic params.
+// M.prepend<T>(elem: T, xs: Array<T>) -- T and Array<T> are generic, convert_type_expr
+// returns None for both. Stage 2 uses HM's instantiated function type:
+//   HM resolves T=String from "hello" : String (first argument),
+//   then checks second argument [|1, 2, 3|] : Array<Int> against Array<T>=Array<String>.
+// Expected: E300 -- 2nd argument is Array<Int>, expected Array<String>.
+
+import TypeSystem.HmGenericModule as M
+
+fn main() -> Unit {
+    let _xs = M.prepend("hello", [|1, 2, 3|])
+    None
+}

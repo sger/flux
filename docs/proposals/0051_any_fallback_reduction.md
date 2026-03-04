@@ -3,7 +3,7 @@
 - Proposal PR: —
 - Flux Issue: —
 - Status: Completed
-- Completion Date: 2026-03-03
+- Completion Date: 2026-03-03 (Stage 1); Stage 2: 2026-03-03
 
 # Proposal 0051: Any Fallback Reduction and Typed-Path Soundness
 
@@ -72,7 +72,7 @@ Fallback to `Any` is **blocked** (Stage 1) when:
 | Strict path unresolved boundary | `src/bytecode/compiler/hm_expr_typer.rs` `maybe_unresolved()` | Silent acceptance | Emits E425 in `--strict` mode | High | ✅ Done |
 | Typed-path zero-fallback gate | `src/bytecode/compiler/hm_expr_typer.rs` `hm_expr_type_strict_path()` | Any propagation through typed path | Returns `Unresolved` unless `is_hm_type_resolved()` passes | High | ✅ Done |
 | `join_types()` branch mismatch | `src/types/unification.rs` `join_types()` | Widening to `Any` for mixed branches | Retained: widening still occurs when at least one side is non-concrete | Medium | ✅ Retained (intentional) |
-| Non-strict unannotated module calls | `src/bytecode/compiler/expression.rs` module-qualified generic paths | Unchecked propagation to `Any` | Not blocked — non-strict mode is allowed fallback | Medium | 📋 Stage 2 |
+| Non-strict module-qualified generic calls | `src/bytecode/compiler/expression.rs` `check_static_contract_call()` line 748 | Unchecked propagation (silent `continue`) when `convert_type_expr` returns `None` | HM-instantiated function type used as fallback; emits E300 via `call_arg_type_mismatch` when resolved params disagree with resolved argument | Medium | ✅ Done (Stage 2) |
 | HOF element types (`map`/`filter` etc.) | `src/runtime/base/helpers.rs` HOF signatures | `Any` element types in signatures | `Any` retained pending proposal 0053 (traits) | Low | 📋 Deferred (0053) |
 | Overloaded builtins (`len`/`abs`/`min`/`max`) | `src/runtime/base/helpers.rs` | `Any -> Any` signatures | `Any` retained pending proposal 0053 (type classes) | Low | 📋 Deferred (0053) |
 
@@ -84,12 +84,16 @@ Fallback to `Any` is **blocked** (Stage 1) when:
 | Strict-path query | `src/bytecode/compiler/hm_expr_typer.rs` | `hm_expr_type_strict_path(expr, env)` | Returns `Known(ty)` only when resolved; `Unresolved` otherwise |
 | Concrete mismatch | `src/types/unification.rs` | `unify_with_context(t1, t2, ctx)` | E300 emitted only when both types satisfy `is_hm_type_resolved()` |
 | Strict unresolved | `src/bytecode/compiler/hm_expr_typer.rs` | `maybe_unresolved(ty, span, strict)` | E425 emitted in strict mode when `!is_hm_type_resolved(ty)` |
+| Stage 2 HM fallback | `src/bytecode/compiler/expression.rs` | `check_static_contract_call()` | When `convert_type_expr` returns `None`, extracts HM-instantiated `Fun(params, ..)` type of the function; emits `call_arg_type_mismatch` (E300) when resolved param and resolved argument types disagree |
+| Stage 2 deduplication | `src/bytecode/compiler/hm_expr_typer.rs` | `has_concrete_e300_for_expression(expr)` (now `pub(super)`) | Guards Stage 2 — skips if HM already emitted E300 for the argument span |
 
 ### Test coverage
 
 - 40+ E425 cases in `tests/compiler_rules_tests.rs` validating strict-path behavior
 - E300 concrete-only guard tests in `tests/type_inference_tests.rs`
-- `examples/type_system/failing/` contains fixture files for both disallowed-fallback categories
+- `examples/type_system/96_hm_stage2_generic_module_call_ok.flx` — passing: consistent generic calls, no error
+- `examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx` — failing: `prepend<T>("hello", [|1,2,3|])` → E300 arg #2 `Array<Int>` vs `Array<String>`
+- VM/JIT diagnostic parity verified for both fixtures
 
 ---
 
@@ -127,7 +131,6 @@ Fallback to `Any` is **blocked** (Stage 1) when:
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Stage 2: non-strict module-qualified generic call paths — tracked as follow-up to 0051.
 - HOF element type tightening — tracked in proposal 0053 (traits/type classes).
 
 ---
@@ -144,7 +147,7 @@ Fallback to `Any` is **blocked** (Stage 1) when:
 
 **Stage 1 deliverable:** Disallowed Any fallback blocked in strict mode and HM-known typed contexts. Three implementation anchors ship together as an atomic gate: `is_hm_type_resolved()`, `hm_expr_type_strict_path()`, and the `unify_with_context()` concrete-only E300 guard.
 
-**Stage 2 gap (documented):** Non-strict module-qualified generic call paths still widen to `Any` — this is classified as intentional gradual behavior until 0053 provides type classes for overloaded builtins. No regression risk from Stage 1: those paths are untouched.
+**Stage 2 deliverable:** Non-strict module-qualified generic call paths now use HM's call-site-instantiated function type as a fallback when `convert_type_expr` returns `None` (e.g. generic param `T`, user ADT types, `Array<T>` with generic element). When HM resolves the function type and argument type concretely and they conflict, E300 is emitted via `call_arg_type_mismatch`. Deduplication via `has_concrete_e300_for_expression` prevents double-emitting when HM already flagged the same argument span.
 
 **Deferred to 0053:** HOF element types (`map`/`filter`/`fold` etc.) and overloaded builtins (`len`, `abs`, `min`, `max`, `sum`, `product`, `contains`, `concat`, `reverse`) remain `Any`-typed in HOF signatures until type classes land.
 
