@@ -1,6 +1,9 @@
 use super::*;
 
 impl<'a> InferCtx<'a> {
+    /// Predeclare all ADT constructors from the provided statement list.
+    ///
+    /// This enables constructor references before their textual declaration.
     pub(super) fn predeclare_data_constructors_in_statements(&mut self, statements: &[Statement]) {
         for stmt in statements {
             if let Statement::Data {
@@ -15,6 +18,7 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Register constructors for an ADT and bind constructor schemes in the type environment.
     pub(super) fn register_data_constructors(
         &mut self,
         adt_name: Identifier,
@@ -49,6 +53,9 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Instatiate constructor field and result types with fresh type variables.
+    ///
+    /// Returns `None` when constructor metadata is unavailable or lowering fails.
     pub(super) fn instantiate_constructor_parts(
         &mut self,
         constructor: Identifier,
@@ -88,13 +95,16 @@ impl<'a> InferCtx<'a> {
         Some((field_tys, result_ty))
     }
 
+    /// Infer constructor call arguments and return instantiated ADT result type.
+    ///
+    /// Arity mismatches emit constructor-specific diagnostics and return `Any`.
     pub(super) fn infer_constructor_call(
         &mut self,
         constructor: Identifier,
         arguments: &[Expression],
         span: Span,
     ) -> InferType {
-        let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expr(a)).collect();
+        let arg_tys: Vec<InferType> = arguments.iter().map(|a| self.infer_expression(a)).collect();
         let Some((param_tys, result_ty)) = self.instantiate_constructor_parts(constructor) else {
             return InferType::Con(TypeConstructor::Any);
         };

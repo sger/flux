@@ -55,6 +55,7 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
     }
 }
 
+/// Render a type constructor, resolving ADT symbols through the interner.
 pub(super) fn display_type_constructor(c: &TypeConstructor, interner: &Interner) -> String {
     match c {
         TypeConstructor::Adt(sym) => interner.resolve(*sym).to_string(),

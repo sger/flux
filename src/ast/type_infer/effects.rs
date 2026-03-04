@@ -26,6 +26,19 @@ impl<'a> InferCtx<'a> {
     /// This function intentionally delegates construction details to
     /// [`InferEffectRow::from_effect_exprs`] so row-shape policy stays
     /// centralized.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // In a function annotation like: fn f() with io, e
+    /// // `effects` contains parsed nodes for `io` and row variable `e`.
+    /// let mut row_var_env = HashMap::new();
+    /// let mut next_row_var_id = 100;
+    /// let row = InferCtx::infer_effect_row(&effects, &mut row_var_env, &mut next_row_var_id);
+    ///
+    /// assert!(row.concrete().contains(&io_symbol));
+    /// assert!(row.tail().is_some()); // open row due to `e`
+    /// ```
     pub(super) fn infer_effect_row(
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
@@ -73,6 +86,16 @@ impl<'a> InferCtx<'a> {
     /// concrete set so downstream checks treat them as available in scope.
     ///
     /// Returns a cloned row value; internal stacks are not mutated.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // If the ambient stack has {io | e} and `time` is currently handled,
+    /// // the resulting row contains both `io` and `time` plus tail `e`.
+    /// let row = ctx.current_ambient_effect_row();
+    /// assert!(row.concrete().contains(&io_symbol));
+    /// assert!(row.concrete().contains(&time_symbol));
+    /// ```
     pub(super) fn current_ambient_effect_row(&self) -> InferEffectRow {
         let mut row = self
             .ambient_effect_rows
@@ -94,6 +117,16 @@ impl<'a> InferCtx<'a> {
     /// Parameters:
     /// - `row`: ambient row to make active for the duration of `f`.
     /// - `f`: closure executed under that ambient row.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let row = InferEffectRow::closed_from_symbols([io_symbol]);
+    /// ctx.with_ambient_effect_row(row, |ctx| {
+    ///     let active = ctx.current_ambient_effect_row();
+    ///     assert!(active.concrete().contains(&io_symbol));
+    /// });
+    /// ```
     pub(super) fn with_ambient_effect_row<F, R>(&mut self, row: InferEffectRow, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -114,6 +147,16 @@ impl<'a> InferCtx<'a> {
     /// Parameters:
     /// - `effect`: effect symbol treated as handled during `f`.
     /// - `f`: closure executed with that temporary handled-effect binding.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// ctx.with_handle_effect(io_symbol, |ctx| {
+    ///     // `io` is considered available while inside this closure.
+    ///     let active = ctx.current_ambient_effect_row();
+    ///     assert!(active.concrete().contains(&io_symbol));
+    /// });
+    /// ```
     pub(super) fn with_handle_effect<F, R>(&mut self, effect: Identifier, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -147,6 +190,16 @@ impl<'a> InferCtx<'a> {
     /// Parameters:
     /// - `effect`: effect symbol containing the operation.
     /// - `operation`: operation symbol to resolve within that effect.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // For signature: effect IO { readLine : () -> String }
+    /// let sig = ctx.effect_op_signature_types(io_symbol, read_line_symbol);
+    /// let (params, ret) = sig.expect("operation exists");
+    /// assert!(params.is_empty());
+    /// assert_eq!(ctx.display_type(&ret), "String");
+    /// ```
     pub(super) fn effect_op_signature_types(
         &mut self,
         effect: Identifier,
@@ -188,6 +241,29 @@ impl<'a> InferCtx<'a> {
         Some((param_tys, ret_ty))
     }
 
+    /// Constrain callee effects against currently ambient effects at a call-site.
+    ///
+    /// Behaviour:
+    /// - Resolves both rows through current substitution.
+    /// - Computes concrete effects missing from ambient scope.
+    /// - Rewrites row tails when ambient/callee openness allows absorption.
+    /// - Emits mismatch diagnostics only when ambient row is closed and missing
+    ///   effects remain incompatible.
+    ///
+    /// Side effects:
+    /// - May compose row substitutions into `self.subst`.
+    /// - May append diagnostics through `unify_with_context`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Callee requires {io, time}, ambient allows only {io} (closed).
+    /// // This emits a type/effect mismatch diagnostic at the call span.
+    /// let callee = InferEffectRow::closed_from_symbols([io_symbol, time_symbol]);
+    /// let ambient = InferEffectRow::closed_from_symbols([io_symbol]);
+    /// ctx.constrain_call_effects(&callee, &ambient, call_span);
+    /// assert!(!ctx.errors.is_empty());
+    /// ```
     pub(super) fn constrain_call_effects(
         &mut self,
         callee_effects: &InferEffectRow,
@@ -204,45 +280,82 @@ impl<'a> InferCtx<'a> {
             .collect();
         missing.sort_by_key(|s| s.as_u32());
 
-        if missing.is_empty() {
-            if let (Some(callee_tail), Some(ambient_tail)) = (callee.tail(), ambient.tail()) {
-                let mut subst = TypeSubst::empty();
-                subst.insert_row(
-                    callee_tail,
-                    InferEffectRow::open_from_symbols(
-                        std::iter::empty::<Identifier>(),
-                        ambient_tail,
-                    ),
-                );
-                self.subst = std::mem::take(&mut self.subst).compose(&subst);
-            }
+        if self.try_constrain_when_no_missing_effects(&missing, &callee, &ambient) {
             return;
         }
 
-        if let Some(ambient_tail) = ambient.tail() {
-            if let Some(callee_tail) = callee.tail() {
-                let mut subst = TypeSubst::empty();
-                subst.insert_row(
-                    callee_tail,
-                    InferEffectRow::open_from_symbols(missing, ambient_tail),
-                );
-                self.subst = std::mem::take(&mut self.subst).compose(&subst);
-            }
+        if self.try_constrain_with_ambient_open_tail(&missing, &callee, &ambient) {
             return;
         }
 
+        self.emit_closed_ambient_effect_mismatch(callee, ambient, span);
+    }
+
+    /// Apply row-tail linking when no concrete effects are missing.
+    ///
+    /// Returns `true` when handled and no further checks are required.
+    fn try_constrain_when_no_missing_effects(
+        &mut self,
+        missing: &[Identifier],
+        callee: &InferEffectRow,
+        ambient: &InferEffectRow,
+    ) -> bool {
+        if !missing.is_empty() {
+            return false;
+        }
+
+        if let (Some(callee_tail), Some(ambient_tail)) = (callee.tail(), ambient.tail()) {
+            let mut subst = TypeSubst::empty();
+            subst.insert_row(
+                callee_tail,
+                InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), ambient_tail),
+            );
+            self.subst = std::mem::take(&mut self.subst).compose(&subst);
+        }
+        true
+    }
+
+    /// Push missing effects into callee tail when ambient row is open.
+    ///
+    /// Returns `true` when handled and no mismatch diagnostic is needed.
+    fn try_constrain_with_ambient_open_tail(
+        &mut self,
+        missing: &[Identifier],
+        callee: &InferEffectRow,
+        ambient: &InferEffectRow,
+    ) -> bool {
+        let Some(ambient_tail) = ambient.tail() else {
+            return false;
+        };
+
+        if let Some(callee_tail) = callee.tail() {
+            let mut subst = TypeSubst::empty();
+            subst.insert_row(
+                callee_tail,
+                InferEffectRow::open_from_symbols(missing.iter().copied(), ambient_tail),
+            );
+            self.subst = std::mem::take(&mut self.subst).compose(&subst);
+        }
+        true
+    }
+
+    // Emit mismatch diagnostics for closed ambient effect rows.
+    fn emit_closed_ambient_effect_mismatch(
+        &mut self,
+        callee: InferEffectRow,
+        ambient: InferEffectRow,
+        span: Span,
+    ) {
         let actual_effect_ty = InferType::Fun(
             vec![],
             Box::new(InferType::Con(TypeConstructor::Unit)),
             callee,
         );
-
         let expected_effect_ty = InferType::Fun(
             vec![],
             Box::new(InferType::Con(TypeConstructor::Unit)),
             ambient,
         );
-
         let _ = self.unify_with_context(
             &expected_effect_ty,
             &actual_effect_ty,
