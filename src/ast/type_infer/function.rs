@@ -1,130 +1,208 @@
+use serde_json::map;
+
 use super::*;
 
 impl<'a> InferCtx<'a> {
     // ── Function inference ────────────────────────────────────────────────────
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn infer_fn(
-        &mut self,
-        name: Identifier,
-        fn_span: Span,
-        type_params: &[Identifier],
-        parameters: &[Identifier],
-        parameter_types: &[Option<TypeExpr>],
-        return_type: &Option<TypeExpr>,
-        effects: &[EffectExpr],
-        body: &Block,
-    ) {
+    pub(super) fn infer_function_declaration(&mut self, input: FnInferInput<'_>) {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
-        let tp_map: HashMap<Identifier, TypeVarId> =
-            type_params.iter().map(|s| (*s, self.env.fresh())).collect();
+        let tp_map = self.allocate_type_parameter_vars(input.type_params);
         let mut row_var_env: HashMap<Identifier, TypeVarId> = HashMap::new();
 
         self.env.enter_scope();
 
         // Bind each parameter to its annotated type (or a fresh variable).
+        let param_tys = self.infer_and_bind_parameter_types(
+            &tp_map,
+            &mut row_var_env,
+            input.parameters,
+            input.parameter_types,
+        );
+        let (declared_effect_row, ambient_effect_row) =
+            self.infer_declared_and_ambient_effect_rows(input.effects, &mut row_var_env);
+
+        let body_ty = self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| {
+            ctx.infer_block(input.body)
+        });
+        let mut ret_ty = self.infern_return_type_with_optional_annotation(
+            &tp_map,
+            &mut row_var_env,
+            input.return_type,
+            &body_ty,
+        );
+
+        // T11 (self-only): run one extra refinement pass for unannotated
+        // self-recursive functions so recursive call result types can feed
+        // back into the function return slot.
+        if input.return_type.is_none()
+            && input.type_params.is_empty()
+            && self.block_contains_self_call(input.body, input.name)
+        {
+            ret_ty = self.refine_unannotated_self_recursive_return(
+                input.name,
+                input.parameters,
+                &param_tys,
+                &ambient_effect_row,
+                input.body,
+                &ret_ty,
+            );
+        }
+
+        self.finalize_and_bind_function_scheme(
+            input.name,
+            input.fn_span,
+            input.type_params,
+            &param_tys,
+            &ret_ty,
+            &declared_effect_row,
+        )
+    }
+
+    /// Allocate fresh HM type variables for explicit generic type parameters.
+    fn allocate_type_parameter_vars(
+        &mut self,
+        type_params: &[Identifier],
+    ) -> HashMap<Identifier, TypeVarId> {
+        type_params
+            .iter()
+            .map(|symbol| (*symbol, self.env.fresh()))
+            .collect()
+    }
+
+    /// Infer and bind function parameters in the current scope.
+    ///
+    /// Each parameter uses its annotation when provided, otherwise a fresh type
+    /// variable. Bound parameter schemes are monomorphic.
+    pub(super) fn infer_and_bind_parameter_types(
+        &mut self,
+        type_params: &HashMap<Identifier, TypeVarId>,
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+        parameters: &[Identifier],
+        parameter_types: &[Option<TypeExpr>],
+    ) -> Vec<InferType> {
         let mut param_tys: Vec<InferType> = Vec::with_capacity(parameters.len());
-        for (i, &param) in parameters.iter().enumerate() {
+        for (index, &param) in parameters.iter().enumerate() {
             let ty = parameter_types
-                .get(i)
+                .get(index)
                 .and_then(|opt| opt.as_ref())
-                .and_then(|te| {
-                    TypeEnv::infer_type_from_type_expr_with_row_vars(
-                        te,
-                        &tp_map,
-                        self.interner,
-                        &mut row_var_env,
-                        &mut self.env.counter,
-                    )
+                .and_then(|type_expr| {
+                    self.infer_type_from_annotation(type_expr, type_params, row_var_env)
                 })
                 .unwrap_or_else(|| self.env.fresh_infer_type());
             param_tys.push(ty.clone());
             self.env.bind(param, Scheme::mono(ty));
         }
+        param_tys
+    }
 
+    /// Infer the function effect rows used for signature publication and body checks.
+    ///
+    /// Returns `(declared, ambient)` where:
+    /// - `declared` is written into the function type scheme.
+    /// - `ambient` is pushed while inferring the body.
+    fn infer_declared_and_ambient_effect_rows(
+        &mut self,
+        effects: &[EffectExpr],
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+    ) -> (InferEffectRow, InferEffectRow) {
         let ambient_effect_row = if effects.is_empty() {
             InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.fresh())
         } else {
-            Self::infer_effect_row(effects, &mut row_var_env, &mut self.env.counter)
+            Self::infer_effect_row(effects, row_var_env, &mut self.env.counter)
         };
-
-        // The *declared* row is what appears in the function's published scheme.
-        // Unannotated functions get a closed-empty row so they don't suddenly
-        // acquire inferred effect types in their signatures (gradual compat).
-        // The *ambient* row (open) is used only inside the body for permissive
-        // call-site checking.
         let declared_effect_row = if effects.is_empty() {
             InferEffectRow::closed_empty()
         } else {
             ambient_effect_row.clone()
         };
+        (declared_effect_row, ambient_effect_row)
+    }
 
-        // Infer the body type.
-        let body_ty =
-            self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| ctx.infer_block(body));
-
-        // Propagate the return type annotation constraint silently — the
-        // compiler's boundary checker in statement.rs is the authoritative
-        // reporter for return type mismatches.
-        let mut ret_ty = match return_type {
+    /// Infer the function return type, applying annotation constraints silently.
+    ///
+    /// Annotation mismatches are propagated via substitutions diagnostics are
+    /// emitted by compiler boundary checks, not by this HM helper.
+    fn infern_return_type_with_optional_annotation(
+        &mut self,
+        type_params: &HashMap<Identifier, TypeVarId>,
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+        return_type: &Option<TypeExpr>,
+        body_ty: &InferType,
+    ) -> InferType {
+        match return_type {
             Some(ret_ann) => {
-                match TypeEnv::infer_type_from_type_expr_with_row_vars(
-                    ret_ann,
-                    &tp_map,
-                    self.interner,
-                    &mut row_var_env,
-                    &mut self.env.counter,
-                ) {
-                    Some(ann_ty) => self.unify_propagate(&body_ty, &ann_ty),
+                match self.infer_type_from_annotation(ret_ann, type_params, row_var_env) {
+                    Some(ann_ty) => self.unify_propagate(body_ty, &ann_ty),
                     None => body_ty.apply_type_subst(&self.subst),
                 }
             }
             None => body_ty.apply_type_subst(&self.subst),
-        };
-
-        // T11 (self-only): run one extra refinement pass for unannotated
-        // self-recursive functions so recursive call result types can feed
-        // back into the function return slot.
-        if return_type.is_none()
-            && type_params.is_empty()
-            && self.block_contains_self_call(body, name)
-        {
-            ret_ty = self.refine_unannotated_self_recursive_return(
-                name,
-                parameters,
-                &param_tys,
-                &ambient_effect_row,
-                body,
-                &ret_ty,
-            );
         }
+    }
 
-        // Resolve parameter types through the accumulated substitution.
+    /// Infer one type annotation in the current type/row parameter context.
+    ///
+    /// Behavior:
+    /// - Lowers a syntax level annotation into an HM type using the provided
+    ///   type parameter map and row variable environment.
+    ///
+    /// Side effects:
+    /// - May allocate fresh row/type variables by mutating `row_var_env` and
+    ///   the type environment counter.
+    ///
+    /// Diagnostics:
+    /// - Emits no diagnostics directly; callers choose fallback/error behavior.
+    ///
+    /// Returns:
+    /// - `Some(InferType)` when lowering succeeds otherwise `None`.
+    pub(super) fn infer_type_from_annotation(
+        &mut self,
+        annotation: &TypeExpr,
+        type_params: &HashMap<Identifier, TypeVarId>,
+        row_var_env: &mut HashMap<Identifier, TypeVarId>,
+    ) -> Option<InferType> {
+        TypeEnv::infer_type_from_type_expr_with_row_vars(
+            annotation,
+            type_params,
+            self.interner,
+            row_var_env,
+            &mut self.env.counter,
+        )
+    }
+
+    /// Finalize and bind the inferred function scheme in the outer scope.
+    fn finalize_and_bind_function_scheme(
+        &mut self,
+        name: Identifier,
+        fn_span: Span,
+        type_params: &[Identifier],
+        param_tys: &[InferType],
+        ret_ty: &InferType,
+        declared_effect_row: &InferEffectRow,
+    ) {
         let final_param_tys: Vec<InferType> = param_tys
             .iter()
-            .map(|t| t.apply_type_subst(&self.subst))
+            .map(|ty| ty.apply_type_subst(&self.subst))
             .collect();
         let effect_row = declared_effect_row.apply_row_subst(&self.subst);
-        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty), effect_row);
+        let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty.clone()), effect_row);
 
         self.env.leave_scope();
 
-        // Generalize: quantify over type variables that are free in `fn_ty`
-        // but not in the surrounding environment (the let-generalization step).
-        // We only generalize functions with explicit type parameters — for
-        // implicitly typed functions, we keep the monomorphic type so that
-        // unification constraints across call sites are preserved.
-        let env_free = self.env.free_vars();
         let scheme = if !type_params.is_empty() {
-            generalize(&fn_ty, &env_free)
+            generalize(&fn_ty, &self.env.free_vars())
         } else {
             Scheme::mono(fn_ty)
         };
 
-        // Update the pre-declared entry (from Phase A).
         self.env.bind_with_span(name, scheme, Some(fn_span));
     }
 
+    /// Run a second pass for unannotated self recursive functions to refine type.
+    ///
+    /// This preserves existing T11 behavior by feeding recursive call result
+    /// constraints back into the fucntion return slot.
     pub(super) fn refine_unannotated_self_recursive_return(
         &mut self,
         name: Identifier,
@@ -172,6 +250,7 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Return `true` when any statement in `block` contains a self call to `name`.
     pub(super) fn block_contains_self_call(&self, block: &Block, name: Identifier) -> bool {
         block
             .statements

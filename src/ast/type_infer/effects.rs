@@ -303,7 +303,6 @@ impl<'a> InferCtx<'a> {
         if !missing.is_empty() {
             return false;
         }
-
         if let (Some(callee_tail), Some(ambient_tail)) = (callee.tail(), ambient.tail()) {
             let mut subst = TypeSubst::empty();
             subst.insert_row(
