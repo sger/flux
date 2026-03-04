@@ -1,7 +1,9 @@
 - Feature Name: Module Constants
 - Start Date: 2026-01-30
-- Proposal PR: 
-- Flux Issue: 
+- Proposal PR: —
+- Flux Issue: —
+- Status: Completed
+- Completion Date: 2026-03-03
 
 # Proposal 0001: Module Constants
 
@@ -108,4 +110,22 @@ Establishes template for adding new compiler features:
 - Type inference (`type_infer/`)
 - Effect checking (`effect_check/`)
 
-### 4. Pattern for Future Features
+---
+
+## Completion Notes
+
+**Implemented:**
+- Module-level `let` constants with compile-time evaluation (`src/bytecode/module_constants/eval.rs`)
+- Order-independent definition — `topological_sort_constants()` resolves dependencies automatically (`src/bytecode/module_constants/dependency.rs`)
+- Circular dependency detection with diagnostics E040–E048 (`src/bytecode/module_constants/error.rs`)
+- Constant inlining at all call sites — no runtime lookup (`src/bytecode/compiler/expression.rs:163, 536`)
+- PASS 0 in module compilation orchestrates analysis + evaluation before function declarations (`src/bytecode/compiler/statement.rs:713-741`)
+- `_`-prefixed private constants respected via existing naming convention
+
+**Supported constant expressions:** literals (int, float, string, bool, None), arrays, arithmetic/comparison/boolean operators, references to other constants in the same module.
+
+**Design-intentional non-support:** list/hash literals (require heap allocation at compile time), function calls, runtime expressions.
+
+**Tests:** `src/bytecode/module_constants/module_constants_test.rs` — dependency ordering, cycle detection, topological sort.
+
+**Example:** `examples/advanced/using_constants.flx` — live demo with `PI`, `TAU = PI * 2.0` cross-reference.
