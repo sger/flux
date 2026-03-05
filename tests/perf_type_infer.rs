@@ -7,6 +7,7 @@ use std::{
 use flux::{
     ast::type_infer::{InferProgramConfig, infer_program},
     syntax::{lexer::Lexer, parser::Parser},
+    types::{infer_type::InferType, type_constructor::TypeConstructor, type_subst::TypeSubst},
 };
 
 /// Build a call-chain heavy source program for HM inference perf sampling.
@@ -60,5 +61,52 @@ fn infer_program_perf_guard() {
     eprintln!(
         "inferred call-chain depth {} x {} iterations in {:?}",
         300, iterations, elapsed
+    );
+}
+
+/// Micro-benchmark: compose() cost with growing substitution size.
+///
+/// Simulates the Algorithm W pattern: each unification produces a small
+/// substitution that is composed into the accumulator. With lazy normalization,
+/// compose() should be O(|other|) instead of O(|self| * |other|).
+#[test]
+#[ignore = "perf guard; run with `cargo test --test perf_type_infer -- --ignored --nocapture`"]
+fn compose_scaling_perf_guard() {
+    let var_count = 2000usize;
+    let iterations = 10usize;
+
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        // Build a chain: ?0 → ?1, ?1 → ?2, ..., ?(n-1) → Int
+        let mut accumulated = TypeSubst::empty();
+
+        for i in 0..var_count {
+            let mut single = TypeSubst::empty();
+            if i + 1 < var_count {
+                single.insert(i as u32, InferType::Var((i + 1) as u32));
+            } else {
+                single.insert(i as u32, InferType::Con(TypeConstructor::Int));
+            }
+            accumulated = accumulated.compose(&single);
+        }
+
+        // Verify observable correctness: first var resolves to Int via chain.
+        let resolved = InferType::Var(0).apply_type_subst(&accumulated);
+        assert_eq!(resolved, InferType::Con(TypeConstructor::Int));
+        black_box(&accumulated);
+    }
+
+    let elapsed = start.elapsed();
+    let per_compose_ns = elapsed.as_nanos() / (var_count as u128 * iterations as u128);
+    eprintln!(
+        "compose chain length {} x {} iterations in {:?} ({} ns/compose)",
+        var_count, iterations, elapsed, per_compose_ns
+    );
+    // With lazy normalization, per-compose cost should be roughly constant
+    // (not proportional to accumulated size). Fail if > 10µs per compose.
+    assert!(
+        per_compose_ns < 10_000,
+        "compose() took {per_compose_ns} ns per call — expected < 10µs with lazy normalization"
     );
 }
