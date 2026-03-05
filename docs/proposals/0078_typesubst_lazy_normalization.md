@@ -1,7 +1,7 @@
 - Feature Name: TypeSubst Lazy Normalization
 - Start Date: 2026-03-04
-- Completion Date: pending
-- Status: Draft
+- Completion Date: 2026-03-05
+- Status: Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 - Depends on: 0032 (type system), 0051 (HM zero-fallback), 0077 (type-informed optimization)
