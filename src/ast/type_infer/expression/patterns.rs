@@ -57,7 +57,7 @@ impl<'a> InferCtx<'a> {
                 self.bind_either_pattern_variables(pattern, &resolved_scrutinee, span)
             }
             Pattern::EmptyList { .. } => {
-                let elem = self.env.fresh_infer_type();
+                let elem = self.env.alloc_infer_type_var();
                 let expected = InferType::App(TypeConstructor::List, vec![elem]);
                 self.unify_reporting(&resolved_scrutinee, &expected, span);
             }
@@ -82,12 +82,12 @@ impl<'a> InferCtx<'a> {
     ) {
         match pattern {
             Pattern::None { .. } => {
-                let inner = self.env.fresh_infer_type();
+                let inner = self.env.alloc_infer_type_var();
                 let expected = InferType::App(TypeConstructor::Option, vec![inner]);
                 self.unify_reporting(resolved_scrutinee, &expected, span);
             }
             Pattern::Some { pattern, .. } => {
-                let inner = self.env.fresh_infer_type();
+                let inner = self.env.alloc_infer_type_var();
                 let expected = InferType::App(TypeConstructor::Option, vec![inner.clone()]);
                 let unified = self.unify_reporting(resolved_scrutinee, &expected, span);
                 let inner_ty = match unified.apply_type_subst(&self.subst) {
@@ -111,8 +111,8 @@ impl<'a> InferCtx<'a> {
     ) {
         match pattern {
             Pattern::Left { pattern, .. } => {
-                let left = self.env.fresh_infer_type();
-                let right = self.env.fresh_infer_type();
+                let left = self.env.alloc_infer_type_var();
+                let right = self.env.alloc_infer_type_var();
                 let expected = InferType::App(TypeConstructor::Either, vec![left.clone(), right]);
                 let unified = self.unify_reporting(resolved_scrutinee, &expected, span);
                 let left_ty = match unified.apply_type_subst(&self.subst) {
@@ -124,8 +124,8 @@ impl<'a> InferCtx<'a> {
                 self.bind_pattern_variables(pattern, &left_ty, span);
             }
             Pattern::Right { pattern, .. } => {
-                let left = self.env.fresh_infer_type();
-                let right = self.env.fresh_infer_type();
+                let left = self.env.alloc_infer_type_var();
+                let right = self.env.alloc_infer_type_var();
                 let expected = InferType::App(TypeConstructor::Either, vec![left, right.clone()]);
                 let unified = self.unify_reporting(resolved_scrutinee, &expected, span);
                 let right_ty = match unified.apply_type_subst(&self.subst) {
@@ -148,7 +148,7 @@ impl<'a> InferCtx<'a> {
         resolved_scrutinee: &InferType,
         span: Span,
     ) {
-        let elem = self.env.fresh_infer_type();
+        let elem = self.env.alloc_infer_type_var();
         let list_ty = InferType::App(TypeConstructor::List, vec![elem.clone()]);
         let unified = self.unify_reporting(resolved_scrutinee, &list_ty, span);
         let element_ty = match unified.apply_type_subst(&self.subst) {
@@ -169,7 +169,7 @@ impl<'a> InferCtx<'a> {
         let tuple_shape = InferType::Tuple(
             elements
                 .iter()
-                .map(|_| self.env.fresh_infer_type())
+                .map(|_| self.env.alloc_infer_type_var())
                 .collect(),
         );
         let unified = self.unify_reporting(resolved_scrutinee, &tuple_shape, span);
@@ -191,7 +191,7 @@ impl<'a> InferCtx<'a> {
             ));
         }
         for elem in elements {
-            let fallback = self.env.fresh_infer_type();
+            let fallback = self.env.alloc_infer_type_var();
             self.bind_pattern_variables(elem, &fallback, span);
         }
     }
@@ -268,18 +268,18 @@ impl<'a> InferCtx<'a> {
         match family {
             PatternFamily::Option => Some(InferType::App(
                 TypeConstructor::Option,
-                vec![self.env.fresh_infer_type()],
+                vec![self.env.alloc_infer_type_var()],
             )),
             PatternFamily::Either => Some(InferType::App(
                 TypeConstructor::Either,
-                vec![self.env.fresh_infer_type(), self.env.fresh_infer_type()],
+                vec![self.env.alloc_infer_type_var(), self.env.alloc_infer_type_var()],
             )),
             PatternFamily::List => Some(InferType::App(
                 TypeConstructor::List,
-                vec![self.env.fresh_infer_type()],
+                vec![self.env.alloc_infer_type_var()],
             )),
             PatternFamily::Tuple(arity) => Some(InferType::Tuple(
-                (0..*arity).map(|_| self.env.fresh_infer_type()).collect(),
+                (0..*arity).map(|_| self.env.alloc_infer_type_var()).collect(),
             )),
             PatternFamily::Adt(adt_name) => {
                 let info = self
@@ -293,7 +293,7 @@ impl<'a> InferCtx<'a> {
                         TypeConstructor::Adt(*adt_name),
                         info.type_params
                             .iter()
-                            .map(|_| self.env.fresh_infer_type())
+                            .map(|_| self.env.alloc_infer_type_var())
                             .collect(),
                     ))
                 }

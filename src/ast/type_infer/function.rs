@@ -80,7 +80,7 @@ impl<'a> InferCtx<'a> {
     ) -> HashMap<Identifier, TypeVarId> {
         type_params
             .iter()
-            .map(|symbol| (*symbol, self.env.fresh()))
+            .map(|symbol| (*symbol, self.env.alloc_type_var_id()))
             .collect()
     }
 
@@ -103,7 +103,7 @@ impl<'a> InferCtx<'a> {
                 .and_then(|type_expr| {
                     self.infer_type_from_annotation(type_expr, type_params, row_var_env)
                 })
-                .unwrap_or_else(|| self.env.fresh_infer_type());
+                .unwrap_or_else(|| self.env.alloc_infer_type_var());
             param_tys.push(ty.clone());
             self.env.bind(param, Scheme::mono(ty));
         }
@@ -121,7 +121,7 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> (InferEffectRow, InferEffectRow) {
         let ambient_effect_row = if effects.is_empty() {
-            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.fresh())
+            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.alloc_type_var_id())
         } else {
             Self::infer_effect_row(effects, row_var_env, &mut self.env.counter)
         };
@@ -234,7 +234,7 @@ impl<'a> InferCtx<'a> {
         for (param_name, param_ty) in parameters.iter().zip(refined_param_tys.iter()) {
             self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
         }
-        let ret_slot = self.env.fresh_infer_type();
+        let ret_slot = self.env.alloc_infer_type_var();
         let self_fn_ty = InferType::Fun(
             refined_param_tys,
             Box::new(ret_slot.clone()),

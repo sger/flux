@@ -63,7 +63,7 @@ impl<'a> InferCtx<'a> {
         let info = self.adt_constructor_types.get(&constructor)?.clone();
         let mut type_param_map: HashMap<Identifier, TypeVarId> = HashMap::new();
         for type_param in &info.type_params {
-            type_param_map.insert(*type_param, self.env.fresh());
+            type_param_map.insert(*type_param, self.env.alloc_type_var_id());
         }
 
         let field_tys: Vec<InferType> = info

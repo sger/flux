@@ -13,7 +13,7 @@ impl<'a> InferCtx<'a> {
                 InferType::Con(TypeConstructor::String)
             }
             Expression::None { .. } => {
-                InferType::App(TypeConstructor::Option, vec![self.env.fresh_infer_type()])
+                InferType::App(TypeConstructor::Option, vec![self.env.alloc_infer_type_var()])
             }
             Expression::Some { value, .. } => {
                 let inner = self.infer_expression(value);
@@ -21,12 +21,12 @@ impl<'a> InferCtx<'a> {
             }
             Expression::Left { value, .. } => {
                 let inner = self.infer_expression(value);
-                let right = self.env.fresh_infer_type();
+                let right = self.env.alloc_infer_type_var();
                 InferType::App(TypeConstructor::Either, vec![inner, right])
             }
             Expression::Right { value, .. } => {
                 let inner = self.infer_expression(value);
-                let left = self.env.fresh_infer_type();
+                let left = self.env.alloc_infer_type_var();
                 InferType::App(TypeConstructor::Either, vec![left, inner])
             }
             Expression::Identifier { name, .. } => {

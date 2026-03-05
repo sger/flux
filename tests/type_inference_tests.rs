@@ -1566,8 +1566,8 @@ fn generalize_fun_partial() {
 #[test]
 fn type_env_fresh() {
     let mut env = TypeEnv::new();
-    let v0 = env.fresh();
-    let v1 = env.fresh();
+    let v0 = env.alloc_type_var_id();
+    let v1 = env.alloc_type_var_id();
     assert_ne!(v0, v1);
     assert_eq!(v0 + 1, v1);
 }

@@ -34,16 +34,16 @@ impl TypeEnv {
         }
     }
 
-    /// Allocate a fresh type variable.
-    pub fn fresh(&mut self) -> TypeVarId {
+    /// Allocate a fresh type variable id.
+    pub fn alloc_type_var_id(&mut self) -> TypeVarId {
         let v = self.counter;
         self.counter += 1;
         v
     }
 
     /// Allocate a fresh `InferType::Var`.
-    pub fn fresh_infer_type(&mut self) -> InferType {
-        InferType::Var(self.fresh())
+    pub fn alloc_infer_type_var(&mut self) -> InferType {
+        InferType::Var(self.alloc_type_var_id())
     }
 
     /// Bind a name to a scheme in the current (innermost) scope.
@@ -368,10 +368,10 @@ mod tests {
     }
 
     #[test]
-    fn fresh_and_fresh_infer_type_increment_counter() {
+    fn alloc_helpers_increment_counter() {
         let mut env = TypeEnv::new();
-        assert_eq!(env.fresh(), 0);
-        assert_eq!(env.fresh_infer_type(), infer_var(1));
+        assert_eq!(env.alloc_type_var_id(), 0);
+        assert_eq!(env.alloc_infer_type_var(), infer_var(1));
         assert_eq!(env.counter, 2);
     }
 
