@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ast::visit::{self, Visitor};
 use crate::syntax::{
@@ -9,38 +9,55 @@ use crate::syntax::{
 };
 
 /// Collects free variables — identifiers referenced but not bound in scope.
+///
+/// Uses a flat `HashMap<Symbol, usize>` where the value is the number of
+/// active scopes that bind the symbol. This gives O(1) lookup instead of
+/// O(depth) linear scan through a scope stack.
 struct FreeVarCollector {
-    scopes: Vec<HashSet<Symbol>>,
+    bound: HashMap<Symbol, usize>,
     free: HashSet<Symbol>,
 }
 
 impl FreeVarCollector {
     fn new() -> Self {
         Self {
-            scopes: vec![HashSet::new()],
+            bound: HashMap::new(),
             free: HashSet::new(),
         }
     }
 
     fn define(&mut self, name: Symbol) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name);
+        *self.bound.entry(name).or_insert(0) += 1;
+    }
+
+    fn undefine(&mut self, name: Symbol) {
+        if let Some(count) = self.bound.get_mut(&name) {
+            *count -= 1;
+            if *count == 0 {
+                self.bound.remove(&name);
+            }
         }
     }
 
     fn is_bound(&self, name: Symbol) -> bool {
-        self.scopes.iter().rev().any(|s| s.contains(&name))
+        self.bound.contains_key(&name)
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashSet::new());
+    /// Execute `f` inside a scope where `names` are defined, then clean up.
+    fn with_scope<F>(&mut self, names: &[Symbol], f: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        for &name in names {
+            self.define(name);
+        }
+        f(self);
+        for &name in names {
+            self.undefine(name);
+        }
     }
 
-    fn pop_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    fn extract_pattern_bindings(&mut self, pattern: &Pattern) {
+    fn define_pattern_bindings(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Identifier { name, .. } => {
                 self.define(*name);
@@ -48,20 +65,49 @@ impl FreeVarCollector {
             Pattern::Some { pattern, .. }
             | Pattern::Left { pattern, .. }
             | Pattern::Right { pattern, .. } => {
-                self.extract_pattern_bindings(pattern);
+                self.define_pattern_bindings(pattern);
             }
             Pattern::Cons { head, tail, .. } => {
-                self.extract_pattern_bindings(head);
-                self.extract_pattern_bindings(tail);
+                self.define_pattern_bindings(head);
+                self.define_pattern_bindings(tail);
             }
             Pattern::Tuple { elements, .. } => {
                 for element in elements {
-                    self.extract_pattern_bindings(element);
+                    self.define_pattern_bindings(element);
                 }
             }
             Pattern::Constructor { fields, .. } => {
                 for field in fields {
-                    self.extract_pattern_bindings(field);
+                    self.define_pattern_bindings(field);
+                }
+            }
+            Pattern::Wildcard { .. }
+            | Pattern::Literal { .. }
+            | Pattern::None { .. }
+            | Pattern::EmptyList { .. } => {}
+        }
+    }
+
+    /// Collect all symbol names bound by a pattern (for scope cleanup).
+    fn collect_pattern_names(&self, pattern: &Pattern) -> Vec<Symbol> {
+        let mut names = Vec::new();
+        Self::collect_pattern_names_into(pattern, &mut names);
+        names
+    }
+
+    fn collect_pattern_names_into(pattern: &Pattern, names: &mut Vec<Symbol>) {
+        match pattern {
+            Pattern::Identifier { name, .. } => names.push(*name),
+            Pattern::Some { pattern, .. }
+            | Pattern::Left { pattern, .. }
+            | Pattern::Right { pattern, .. } => Self::collect_pattern_names_into(pattern, names),
+            Pattern::Cons { head, tail, .. } => {
+                Self::collect_pattern_names_into(head, names);
+                Self::collect_pattern_names_into(tail, names);
+            }
+            Pattern::Tuple { elements, .. } | Pattern::Constructor { fields: elements, .. } => {
+                for element in elements {
+                    Self::collect_pattern_names_into(element, names);
                 }
             }
             Pattern::Wildcard { .. }
@@ -91,7 +137,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 span: _,
             } => {
                 self.visit_expr(value);
-                self.extract_pattern_bindings(pattern);
+                self.define_pattern_bindings(pattern);
             }
             Statement::Function {
                 name,
@@ -102,12 +148,10 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
             } => {
                 // Define function in outer scope first to support recursion.
                 self.define(*name);
-                self.push_scope();
-                for param in parameters {
-                    self.define(*param);
-                }
-                self.visit_block(body);
-                self.pop_scope();
+                let params: Vec<Symbol> = parameters.to_vec();
+                self.with_scope(&params, |this| {
+                    this.visit_block(body);
+                });
             }
             Statement::Assign {
                 name,
@@ -136,25 +180,25 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 span: _,
                 ..
             } => {
-                self.push_scope();
-                for param in parameters {
-                    self.define(*param);
-                }
-                self.visit_block(body);
-                self.pop_scope();
+                let params: Vec<Symbol> = parameters.to_vec();
+                self.with_scope(&params, |this| {
+                    this.visit_block(body);
+                });
             }
             Expression::Match {
                 scrutinee, arms, ..
             } => {
                 self.visit_expr(scrutinee);
                 for arm in arms {
-                    self.push_scope();
-                    self.extract_pattern_bindings(&arm.pattern);
+                    let names = self.collect_pattern_names(&arm.pattern);
+                    self.define_pattern_bindings(&arm.pattern);
                     if let Some(guard) = &arm.guard {
                         self.visit_expr(guard);
                     }
                     self.visit_expr(&arm.body);
-                    self.pop_scope();
+                    for name in &names {
+                        self.undefine(*name);
+                    }
                 }
             }
             _ => visit::walk_expr(self, expr),
