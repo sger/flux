@@ -1,3 +1,5 @@
+use crate::types::unify_error::UnifyError;
+
 use super::*;
 
 impl<'a> InferCtx<'a> {
@@ -49,8 +51,253 @@ impl<'a> InferCtx<'a> {
         }
     }
 
+    /// Try to unify two types and compose the resulting substitution into context state.
+    ///
+    /// Behavior:
+    /// - Resolves both input types through the current substitution.
+    /// - Calls row-aware unification with the provided `span`.
+    /// - On success, composes solved bindings into `self.subst`.
+    ///
+    /// Side effects:
+    /// - Mutates `self.subst` only on successful unification.
+    ///
+    /// Returns:
+    /// - `Ok(resolved_type)` on success where the return value is `t1` resolved
+    ///   under the updated substitution.
+    /// - `Err(UnifyError)` when unification fails.
+    fn try_unify_and_compose_subst(
+        &mut self,
+        t1: &InferType,
+        t2: &InferType,
+        span: Span,
+    ) -> Result<InferType, UnifyError> {
+        let t1_sub = t1.apply_type_subst(&self.subst);
+        let t2_sub = t2.apply_type_subst(&self.subst);
+        let solved =
+            unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, &mut self.env.counter)?;
+        self.subst = std::mem::take(&mut self.subst).compose(&solved);
+        Ok(t1_sub.apply_type_subst(&self.subst))
+    }
+
+    /// Return whether a unification error should be emitted as a diagnostic.
+    ///
+    /// Behavior:
+    /// - Emits only when both expected/actual are fully concrete and neither
+    ///   side contains gradual `Any`.
+    fn should_emit_unification_diagnostic(&self, error: &UnifyError) -> bool {
+        error.expected.is_concrete()
+            && error.actual.is_concrete()
+            && !error.expected.contains_any()
+            && !error.actual.contains_any()
+    }
+
+    /// Build function-detail mismatch diagnostics when available.
+    ///
+    /// Returns:
+    /// - `Some(diagnostic)` for function arity/param/return mismatches.
+    /// - `None` when no function-specific detail applies.
+    fn build_function_detail_diagnostic(
+        &self,
+        error: &UnifyError,
+        span: Span,
+    ) -> Option<Diagnostic> {
+        let file = self.file_path.clone();
+        match &error.detail {
+            UnifyErrorDetail::FunArityMismatch { expected, actual } => {
+                Some(fun_arity_mismatch(file, span, *expected, *actual))
+            }
+            UnifyErrorDetail::FunParamMismatch { index } => {
+                let exp_param = self.display_type(&error.expected);
+                let act_param = self.display_type(&error.actual);
+                Some(fun_param_type_mismatch(
+                    file,
+                    span,
+                    *index + 1,
+                    &exp_param,
+                    &act_param,
+                ))
+            }
+            UnifyErrorDetail::FunReturnMismatch => {
+                let exp_ret = self.display_type(&error.expected);
+                let act_ret = self.display_type(&error.actual);
+                Some(fun_return_type_mismatch(file, span, &exp_ret, &act_ret))
+            }
+            UnifyErrorDetail::None => None,
+        }
+    }
+
+    /// Build diagnostics for plain report context.
+    fn build_plain_context_diagnostic(&self, error: &UnifyError, span: Span) -> Diagnostic {
+        if let Some(diag) = self.build_function_detail_diagnostic(error, span) {
+            return diag;
+        }
+        let file = self.file_path.clone();
+        match &error.kind {
+            UnifyErrorKind::OccursCheck(v) => {
+                let v_str = format!("t{v}");
+                let ty_str = self.display_type(&error.actual);
+                occurs_check_failure(file, span, &v_str, &ty_str)
+            }
+            UnifyErrorKind::Mismatch => {
+                let exp_str = self.display_type(&error.expected);
+                let act_str = self.display_type(&error.actual);
+                type_unification_error(file, span, &exp_str, &act_str)
+            }
+        }
+    }
+
+    /// Build diagnostics for if-branch report context.
+    fn build_if_branch_context_diagnostic(
+        &self,
+        then_span: Span,
+        else_span: Span,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        if let Some(diag) = self.build_function_detail_diagnostic(error, span) {
+            return diag;
+        }
+        let file = self.file_path.clone();
+        match &error.kind {
+            UnifyErrorKind::Mismatch => {
+                let then_ty = self.display_type(&error.expected);
+                let else_ty = self.display_type(&error.actual);
+                if_branch_type_mismatch(file, then_span, else_span, &then_ty, &else_ty)
+            }
+            UnifyErrorKind::OccursCheck(v) => {
+                let v_str = format!("t{v}");
+                let ty_str = self.display_type(&error.actual);
+                occurs_check_failure(file, span, &v_str, &ty_str)
+            }
+        }
+    }
+
+    /// Build diagnostics for match-arm report context.
+    fn build_match_arm_context_diagnostic(
+        &self,
+        first_span: Span,
+        arm_span: Span,
+        arm_index: usize,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        if let Some(diag) = self.build_function_detail_diagnostic(error, span) {
+            return diag;
+        }
+        let file = self.file_path.clone();
+        match &error.kind {
+            UnifyErrorKind::Mismatch => {
+                let first_ty = self.display_type(&error.expected);
+                let arm_ty = self.display_type(&error.actual);
+                crate::diagnostics::compiler_errors::match_arm_type_mismatch(
+                    file, first_span, arm_span, &first_ty, &arm_ty, arm_index,
+                )
+            }
+            UnifyErrorKind::OccursCheck(v) => {
+                let v_str = format!("t{v}");
+                let ty_str = self.display_type(&error.actual);
+                occurs_check_failure(file, span, &v_str, &ty_str)
+            }
+        }
+    }
+
+    /// Build diagnostics for call-argument report context.
+    fn build_call_arg_context_diagnostic(
+        &self,
+        fn_name: &Option<String>,
+        fn_def_span: Option<Span>,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        if let Some(diag) = self.build_function_detail_diagnostic(error, span) {
+            return diag;
+        }
+        let file = self.file_path.clone();
+        match &error.kind {
+            UnifyErrorKind::Mismatch => {
+                let exp_str = self.display_type(&error.expected);
+                let act_str = self.display_type(&error.actual);
+                call_arg_type_mismatch(
+                    file,
+                    span,
+                    fn_name.as_deref(),
+                    1,
+                    fn_def_span,
+                    &exp_str,
+                    &act_str,
+                )
+            }
+            UnifyErrorKind::OccursCheck(v) => {
+                let v_str = format!("t{v}");
+                let ty_str = self.display_type(&error.actual);
+                occurs_check_failure(file, span, &v_str, &ty_str)
+            }
+        }
+    }
+
+    /// Build one diagnostic according to the report context and unification error kind.
+    fn build_diagnostic_for_report_context(
+        &self,
+        context: &ReportContext,
+        error: &UnifyError,
+        span: Span,
+    ) -> Diagnostic {
+        match context {
+            ReportContext::Plain => self.build_plain_context_diagnostic(error, span),
+            ReportContext::IfBranch {
+                then_span,
+                else_span,
+            } => self.build_if_branch_context_diagnostic(*then_span, *else_span, error, span),
+            ReportContext::MatchArm {
+                first_span,
+                arm_span,
+                arm_index,
+            } => self.build_match_arm_context_diagnostic(
+                *first_span,
+                *arm_span,
+                *arm_index,
+                error,
+                span,
+            ),
+            ReportContext::CallArg {
+                fn_name,
+                fn_def_span,
+            } => self.build_call_arg_context_diagnostic(fn_name, *fn_def_span, error, span),
+        }
+    }
+
+    /// Append type-name typo suggestion hints onto an existing diagnostic.
+    ///
+    /// Side effects:
+    /// - Mutates `diagnostic.hints` when ADT names are close to known type names.
+    fn append_type_name_suggestions(&self, diagnostic: &mut Diagnostic, error: &UnifyError) {
+        for ty in [&error.expected, &error.actual] {
+            if let InferType::Con(TypeConstructor::Adt(sym)) = ty {
+                let name = self.interner.resolve(*sym);
+                if let Some(suggestion) = suggest_type_name(name) {
+                    diagnostic
+                        .hints
+                        .push(crate::diagnostics::types::Hint::help(format!(
+                            "Unknown type `{name}` — {suggestion}"
+                        )));
+                }
+            }
+        }
+    }
+
     /// Unify `t1` with `t2`, composing the result into `self.subst` with an
     /// explicit reporting context.
+    ///
+    /// Behavior:
+    /// - Performs row-aware unification.
+    /// - Emits contextual diagnostics only when both sides are concrete and non-`Any`.
+    ///
+    /// Side effects:
+    /// - Mutates `self.subst` on success.
+    /// - Pushes diagnostics into `self.errors` on eligible failures.
+    ///
+    /// Invariants:
+    /// - Maintains diagnostic context mapping used by snapshot tests.
     pub(super) fn unify_with_context(
         &mut self,
         t1: &InferType,
@@ -58,161 +305,14 @@ impl<'a> InferCtx<'a> {
         span: Span,
         context: ReportContext,
     ) -> InferType {
-        let t1_sub = t1.apply_type_subst(&self.subst);
-        let t2_sub = t2.apply_type_subst(&self.subst);
-        match unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, &mut self.env.counter) {
-            Ok(s) => {
-                // Compose the new solution into the global substitution.
-                self.subst = std::mem::take(&mut self.subst).compose(&s);
-                t1_sub.apply_type_subst(&self.subst)
-            }
-            Err(e) => {
-                // Only emit a diagnostic when both conflicting types are fully
-                // concrete (no unresolved type variables) and neither is `Any`.
-                //
-                // This prevents false positives in gradual / partially-typed code
-                // where a fresh variable from an uninferred base-function call
-                // collides with a known type — those conflicts resolve to `Any`
-                // once the base-function signature is known.
-                let should_emit = e.expected.is_concrete()
-                    && e.actual.is_concrete()
-                    && !e.expected.contains_any()
-                    && !e.actual.contains_any();
-
-                if should_emit {
-                    let file = self.file_path.clone();
-                    let function_detail_diag = || match &e.detail {
-                        UnifyErrorDetail::FunArityMismatch { expected, actual } => {
-                            Some(fun_arity_mismatch(file.clone(), span, *expected, *actual))
-                        }
-                        UnifyErrorDetail::FunParamMismatch { index } => {
-                            let exp_param = self.display_type(&e.expected);
-                            let act_param = self.display_type(&e.actual);
-                            Some(fun_param_type_mismatch(
-                                file.clone(),
-                                span,
-                                *index + 1,
-                                &exp_param,
-                                &act_param,
-                            ))
-                        }
-                        UnifyErrorDetail::FunReturnMismatch => {
-                            let exp_ret = self.display_type(&e.expected);
-                            let act_ret = self.display_type(&e.actual);
-                            Some(fun_return_type_mismatch(
-                                file.clone(),
-                                span,
-                                &exp_ret,
-                                &act_ret,
-                            ))
-                        }
-                        UnifyErrorDetail::None => None,
-                    };
-                    let mut diag = match (context, &e.kind) {
-                        (ReportContext::Plain, UnifyErrorKind::OccursCheck(v)) => {
-                            let v_str = format!("t{v}");
-                            let ty_str = self.display_type(&e.actual);
-                            occurs_check_failure(file, span, &v_str, &ty_str)
-                        }
-                        (ReportContext::Plain, UnifyErrorKind::Mismatch) => {
-                            if let Some(diag) = function_detail_diag() {
-                                diag
-                            } else {
-                                let exp_str = self.display_type(&e.expected);
-                                let act_str = self.display_type(&e.actual);
-                                type_unification_error(file, span, &exp_str, &act_str)
-                            }
-                        }
-                        (
-                            ReportContext::IfBranch {
-                                then_span,
-                                else_span,
-                            },
-                            UnifyErrorKind::Mismatch,
-                        ) => {
-                            if let Some(diag) = function_detail_diag() {
-                                diag
-                            } else {
-                                let then_ty = self.display_type(&e.expected);
-                                let else_ty = self.display_type(&e.actual);
-                                if_branch_type_mismatch(
-                                    file, then_span, else_span, &then_ty, &else_ty,
-                                )
-                            }
-                        }
-                        (ReportContext::IfBranch { .. }, UnifyErrorKind::OccursCheck(v)) => {
-                            let v_str = format!("t{v}");
-                            let ty_str = self.display_type(&e.actual);
-                            occurs_check_failure(file, span, &v_str, &ty_str)
-                        }
-                        (
-                            ReportContext::MatchArm {
-                                first_span,
-                                arm_span,
-                                arm_index,
-                            },
-                            UnifyErrorKind::Mismatch,
-                        ) => {
-                            if let Some(diag) = function_detail_diag() {
-                                diag
-                            } else {
-                                let first_ty = self.display_type(&e.expected);
-                                let arm_ty = self.display_type(&e.actual);
-                                crate::diagnostics::compiler_errors::match_arm_type_mismatch(
-                                    file, first_span, arm_span, &first_ty, &arm_ty, arm_index,
-                                )
-                            }
-                        }
-                        (ReportContext::MatchArm { .. }, UnifyErrorKind::OccursCheck(v)) => {
-                            let v_str = format!("t{v}");
-                            let ty_str = self.display_type(&e.actual);
-                            occurs_check_failure(file, span, &v_str, &ty_str)
-                        }
-                        (
-                            ReportContext::CallArg {
-                                fn_name,
-                                fn_def_span,
-                            },
-                            UnifyErrorKind::Mismatch,
-                        ) => {
-                            if let Some(diag) = function_detail_diag() {
-                                diag
-                            } else {
-                                let exp_str = self.display_type(&e.expected);
-                                let act_str = self.display_type(&e.actual);
-                                // Fallback path is for dynamic/opaque callees where we do
-                                // not have per-argument mismatch detail. Keep `1` as a stable
-                                // placeholder until/if this path is upgraded with indexed detail.
-                                call_arg_type_mismatch(
-                                    file,
-                                    span,
-                                    fn_name.as_deref(),
-                                    1,
-                                    fn_def_span,
-                                    &exp_str,
-                                    &act_str,
-                                )
-                            }
-                        }
-                        (ReportContext::CallArg { .. }, UnifyErrorKind::OccursCheck(v)) => {
-                            let v_str = format!("t{v}");
-                            let ty_str = self.display_type(&e.actual);
-                            occurs_check_failure(file, span, &v_str, &ty_str)
-                        }
-                    };
-                    // Add "did you mean?" hint for likely type name typos
-                    for ty in [&e.expected, &e.actual] {
-                        if let InferType::Con(TypeConstructor::Adt(sym)) = ty {
-                            let name = self.interner.resolve(*sym);
-                            if let Some(suggestion) = suggest_type_name(name) {
-                                diag.hints
-                                    .push(crate::diagnostics::types::Hint::help(format!(
-                                        "Unknown type `{name}` — {suggestion}"
-                                    )));
-                            }
-                        }
-                    }
-                    self.errors.push(diag);
+        match self.try_unify_and_compose_subst(t1, t2, span) {
+            Ok(infer_type) => infer_type,
+            Err(error) => {
+                if self.should_emit_unification_diagnostic(&error) {
+                    let mut diagnostic =
+                        self.build_diagnostic_for_report_context(&context, &error, span);
+                    self.append_type_name_suggestions(&mut diagnostic, &error);
+                    self.errors.push(diagnostic);
                 }
                 InferType::Con(TypeConstructor::Any)
             }
@@ -224,7 +324,12 @@ impl<'a> InferCtx<'a> {
     /// On success, returns the resolved first type.
     /// On failure, emits a diagnostic and returns `Any` so that inference can
     /// continue without cascading errors.
-    pub(super) fn unify_reporting(&mut self, t1: &InferType, t2: &InferType, span: Span) -> InferType {
+    pub(super) fn unify_reporting(
+        &mut self,
+        t1: &InferType,
+        t2: &InferType,
+        span: Span,
+    ) -> InferType {
         self.unify_with_context(t1, t2, span, ReportContext::Plain)
     }
 }
