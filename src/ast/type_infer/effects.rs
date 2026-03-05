@@ -29,7 +29,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// // In a function annotation like: fn f() with io, e
     /// // `effects` contains parsed nodes for `io` and row variable `e`.
     /// let mut row_var_env = HashMap::new();
@@ -89,7 +89,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// // If the ambient stack has {io | e} and `time` is currently handled,
     /// // the resulting row contains both `io` and `time` plus tail `e`.
     /// let row = ctx.current_ambient_effect_row();
@@ -120,7 +120,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// let row = InferEffectRow::closed_from_symbols([io_symbol]);
     /// ctx.with_ambient_effect_row(row, |ctx| {
     ///     let active = ctx.current_ambient_effect_row();
@@ -150,7 +150,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// ctx.with_handle_effect(io_symbol, |ctx| {
     ///     // `io` is considered available while inside this closure.
     ///     let active = ctx.current_ambient_effect_row();
@@ -193,7 +193,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// // For signature: effect IO { readLine : () -> String }
     /// let sig = ctx.effect_op_signature_types(io_symbol, read_line_symbol);
     /// let (params, ret) = sig.expect("operation exists");
@@ -256,7 +256,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// // Callee requires {io, time}, ambient allows only {io} (closed).
     /// // This emits a type/effect mismatch diagnostic at the call span.
     /// let callee = InferEffectRow::closed_from_symbols([io_symbol, time_symbol]);
