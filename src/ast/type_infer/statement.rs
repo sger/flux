@@ -129,7 +129,7 @@ impl<'a> InferCtx<'a> {
                     &mut row_var_env,
                     &mut self.env.counter,
                 ) {
-                    Some(ann_ty) => self.unify_propagate(&val_ty, &ann_ty),
+                    Some(ann_ty) => self.unify_silent(&val_ty, &ann_ty),
                     None => val_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -160,6 +160,32 @@ impl<'a> InferCtx<'a> {
             }
         }
         self.env.leave_scope();
+    }
+
+    /// Span of the expression that determines a block's value in HM inference.
+    /// Falls back to the full block span when the block has no value expression.
+    pub(super) fn block_value_span(&self, block: &Block) -> Span {
+        let mut value_span = block.span;
+        for stmt in &block.statements {
+            match stmt {
+                Statement::Expression {
+                    expression,
+                    has_semicolon: false,
+                    ..
+                } => {
+                    value_span = expression.span();
+                }
+                Statement::Return {
+                    value: Some(expr), ..
+                } => {
+                    value_span = expr.span();
+                }
+                _ => {
+                    value_span = block.span;
+                }
+            }
+        }
+        value_span
     }
 
     /// Infer the type of a block from its last value-producing statement.

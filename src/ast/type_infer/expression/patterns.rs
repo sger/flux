@@ -282,16 +282,13 @@ impl<'a> InferCtx<'a> {
                 (0..*arity).map(|_| self.env.alloc_infer_type_var()).collect(),
             )),
             PatternFamily::Adt(adt_name) => {
-                let info = self
-                    .adt_constructor_types
-                    .values()
-                    .find(|info| info.adt_name == *adt_name)?;
-                if info.type_params.is_empty() {
+                let type_params = self.adt_type_params.get(adt_name)?;
+                if type_params.is_empty() {
                     Some(InferType::Con(TypeConstructor::Adt(*adt_name)))
                 } else {
                     Some(InferType::App(
                         TypeConstructor::Adt(*adt_name),
-                        info.type_params
+                        type_params
                             .iter()
                             .map(|_| self.env.alloc_infer_type_var())
                             .collect(),

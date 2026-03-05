@@ -32,7 +32,7 @@ impl<'a> InferCtx<'a> {
     /// initializers) where the compiler's boundary checker is the authoritative
     /// error reporter.  HM still needs the substitution side-effect so that
     /// downstream inference sees the annotation constraint.
-    pub(super) fn unify_propagate(&mut self, t1: &InferType, t2: &InferType) -> InferType {
+    pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         let t1_sub = t1.apply_type_subst(&self.subst);
         let t2_sub = t2.apply_type_subst(&self.subst);
         match unify_with_span_and_row_var_counter(
