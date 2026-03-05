@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::ast::type_infer::InferProgramConfig;
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
 use crate::types::infer_effect_row::InferEffectRow;
@@ -2040,12 +2041,14 @@ impl Compiler {
             let hm = infer_program(
                 program,
                 &self.interner,
-                Some(self.file_path.clone()),
-                base_schemes,
-                merged_member_schemes,
-                known_base_names,
-                base_module_symbol,
-                self.effect_op_signatures.clone(),
+                InferProgramConfig {
+                    file_path: Some(self.file_path.clone()),
+                    preloaded_base_schemes: base_schemes,
+                    preloaded_module_member_schemes: merged_member_schemes,
+                    known_base_names,
+                    base_module_symbol,
+                    preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+                },
             );
             self.type_env = hm.type_env;
             self.hm_expr_types = hm.expr_types;
