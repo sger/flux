@@ -107,6 +107,10 @@ impl<'a> InferCtx<'a> {
         spec.ret_ty.apply_type_subst(&self.subst)
     }
 
+    /// Infer higher-order calls by unifying callee type with an expected function shape.
+    ///
+    /// Uses inferred argument types as parameters, preserves callee effects, and
+    /// returns the resolved fresh return variable.
     fn infer_call_higher_order_path(
         &mut self,
         fn_ty: &InferType,

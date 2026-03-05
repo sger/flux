@@ -338,7 +338,10 @@ impl<'a> InferCtx<'a> {
         true
     }
 
-    // Emit mismatch diagnostics for closed ambient effect rows.
+    /// Emit mismatch diagnostics when ambient effect rows are closed.
+    ///
+    /// Models both rows as nullary function effect annotations so existing
+    /// unification diagnostics can report missing/incompatible effects.
     fn emit_closed_ambient_effect_mismatch(
         &mut self,
         callee: InferEffectRow,
