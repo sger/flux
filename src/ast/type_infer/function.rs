@@ -147,7 +147,7 @@ impl<'a> InferCtx<'a> {
         match return_type {
             Some(ret_ann) => {
                 match self.infer_type_from_annotation(ret_ann, type_params, row_var_env) {
-                    Some(ann_ty) => self.unify_propagate(body_ty, &ann_ty),
+                    Some(ann_ty) => self.unify_silent(body_ty, &ann_ty),
                     None => body_ty.apply_type_subst(&self.subst),
                 }
             }
@@ -216,7 +216,7 @@ impl<'a> InferCtx<'a> {
     /// Run a second pass for unannotated self recursive functions to refine type.
     ///
     /// This preserves existing T11 behavior by feeding recursive call result
-    /// constraints back into the fucntion return slot.
+    /// constraints back into the function return slot.
     pub(super) fn refine_unannotated_self_recursive_return(
         &mut self,
         name: Identifier,
@@ -243,7 +243,7 @@ impl<'a> InferCtx<'a> {
         self.env.bind(name, Scheme::mono(self_fn_ty));
         let second_body_ty =
             self.with_ambient_effect_row(effect_row.clone(), |ctx| ctx.infer_block(body));
-        let refined_ret = self.unify_propagate(&second_body_ty, &ret_slot);
+        let refined_ret = self.unify_silent(&second_body_ty, &ret_slot);
         self.env.leave_scope();
         let refined_resolved = refined_ret.apply_type_subst(&self.subst);
         let current_resolved = current_ret.apply_type_subst(&self.subst);
@@ -259,63 +259,29 @@ impl<'a> InferCtx<'a> {
             // increase precision and would otherwise fall back to Any.
             current_resolved
         } else {
-            self.unify_propagate(&current_resolved, &refined_resolved)
+            self.unify_silent(&current_resolved, &refined_resolved)
                 .apply_type_subst(&self.subst)
         }
     }
 
     /// Return `true` when any statement in `block` contains a self call to `name`.
     pub(super) fn block_contains_self_call(&self, block: &Block, name: Identifier) -> bool {
-        let mut search = ExpSearch::new(name);
+        let mut search = SelfCallSearch::new(name);
         search.visit_block(block);
         search.found
     }
 
-    /// Span of the expression that determines a block's value in HM inference.
-    /// Falls back to the full block span when the block has no value expression.
-    pub(super) fn block_value_span(&self, block: &Block) -> Span {
-        let mut value_span = block.span;
-        for stmt in &block.statements {
-            match stmt {
-                Statement::Expression {
-                    expression,
-                    has_semicolon: false,
-                    ..
-                } => {
-                    value_span = expression.span();
-                }
-                Statement::Return {
-                    value: Some(expr), ..
-                } => {
-                    value_span = expr.span();
-                }
-                _ => {
-                    value_span = block.span;
-                }
-            }
-        }
-        value_span
-    }
 }
 
-/// Read-only expression tree search for direct self calls to a named function.
+/// Read-only AST search for direct self-calls to a named function.
 ///
-/// Behavior:
-/// - Traverses statements/blocks/expressions until a direct call target `name(...)` is found.
-/// - Sets `found` and short circuits subsequent traversal.
-/// - Intentionally does not descend into nested function literals.
-///
-/// Side effects:
-/// - Mutates only local `found` state.
-///
-/// Invariants:
-/// - Mirrors prior self call detection semantics used by recursive return refinement.
-struct ExpSearch {
+/// Short-circuits on first match. Does not descend into nested function literals.
+struct SelfCallSearch {
     target_name: Identifier,
     found: bool,
 }
 
-impl ExpSearch {
+impl SelfCallSearch {
     /// Create a new self call search instance for `target_name`.
     fn new(target_name: Identifier) -> Self {
         Self {
@@ -325,24 +291,8 @@ impl ExpSearch {
     }
 }
 
-impl<'ast> Visitor<'ast> for ExpSearch {
-    /// Visit a block and continue searching child statements unless already resolved.
-    ///
-    /// Behavior:
-    /// - Returns early when a self-call has already been found.
-    /// - Delegates recursive traversal to `walk_block`.
-    ///
-    /// Side effects:
-    /// - May set `found` indirectly through nested expression visits.
-    ///
-    /// Diagnostics:
-    /// - Emits no diagnostics.
-    ///
-    /// Invariants:
-    /// - Preserves short-circuit behavior across traversal depth.
-    ///
-    /// Returns:
-    /// - No direct return value; updates `found` state.
+impl<'ast> Visitor<'ast> for SelfCallSearch {
+    /// Walk child statements, short-circuiting if already found.
     fn visit_block(&mut self, block: &'ast Block) {
         if self.found {
             return;
@@ -350,23 +300,7 @@ impl<'ast> Visitor<'ast> for ExpSearch {
         walk_block(self, block);
     }
 
-    /// Visit a statement and continue searching expression children when needed.
-    ///
-    /// Behavior:
-    /// - Returns immediately when `found` is already true.
-    /// - Delegates recursion to `walk_stmt`.
-    ///
-    /// Side effects:
-    /// - May set `found` via nested `visit_expr` calls.
-    ///
-    /// Diagnostics:
-    /// - Emits no diagnostics.
-    ///
-    /// Invariants:
-    /// - Statement traversal remains read-only and deterministic.
-    ///
-    /// Returns:
-    /// - No direct return value; updates `found` state.
+    /// Walk child expressions, short-circuiting if already found.
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         if self.found {
             return;
@@ -374,25 +308,7 @@ impl<'ast> Visitor<'ast> for ExpSearch {
         walk_stmt(self, stmt);
     }
 
-    /// Visit an expression and mark search complete when direct self-call is found.
-    ///
-    /// Behavior:
-    /// - Short-circuits when already resolved.
-    /// - Marks `found` on direct callee match `target_name(...)`.
-    /// - Skips recursion into nested function literals intentionally.
-    /// - Delegates all other recursion to `walk_expr`.
-    ///
-    /// Side effects:
-    /// - Mutates `found` when a matching call is encountered.
-    ///
-    /// Diagnostics:
-    /// - Emits no diagnostics.
-    ///
-    /// Invariants:
-    /// - Does not treat nested function bodies as evidence for outer self-recursion.
-    ///
-    /// Returns:
-    /// - No direct return value; updates `found` state.
+    /// Mark found on direct `target_name(...)` call; skip nested function bodies.
     fn visit_expr(&mut self, expr: &'ast Expression) {
         if self.found {
             return;

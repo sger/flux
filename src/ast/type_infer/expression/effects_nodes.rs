@@ -22,9 +22,6 @@ impl<'a> InferCtx<'a> {
                 InferType::Con(TypeConstructor::Any)
             }
         } else {
-            for arg in args {
-                self.infer_expression(arg);
-            }
             InferType::Con(TypeConstructor::Any)
         }
     }

@@ -25,6 +25,8 @@ impl<'a> InferCtx<'a> {
         type_params: &[Identifier],
         variants: &[DataVariant],
     ) {
+        self.adt_type_params
+            .insert(adt_name, type_params.to_vec());
         for variant in variants {
             self.adt_constructor_types.insert(
                 variant.name,
@@ -53,21 +55,24 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Instatiate constructor field and result types with fresh type variables.
+    /// Instantiate constructor field and result types with fresh type variables.
     ///
     /// Returns `None` when constructor metadata is unavailable or lowering fails.
     pub(super) fn instantiate_constructor_parts(
         &mut self,
         constructor: Identifier,
     ) -> Option<(Vec<InferType>, InferType)> {
-        let info = self.adt_constructor_types.get(&constructor)?.clone();
+        let info = self.adt_constructor_types.get(&constructor)?;
+        let type_params = info.type_params.clone();
+        let fields = info.fields.clone();
+        let adt_name = info.adt_name;
+
         let mut type_param_map: HashMap<Identifier, TypeVarId> = HashMap::new();
-        for type_param in &info.type_params {
+        for type_param in &type_params {
             type_param_map.insert(*type_param, self.env.alloc_type_var_id());
         }
 
-        let field_tys: Vec<InferType> = info
-            .fields
+        let field_tys: Vec<InferType> = fields
             .iter()
             .map(|field| {
                 let mut row_var_env = HashMap::new();
@@ -81,15 +86,15 @@ impl<'a> InferCtx<'a> {
             })
             .collect::<Option<Vec<_>>>()?;
 
-        let result_ty = if info.type_params.is_empty() {
-            InferType::Con(TypeConstructor::Adt(info.adt_name))
+        let result_ty = if type_params.is_empty() {
+            InferType::Con(TypeConstructor::Adt(adt_name))
         } else {
-            let mut args = Vec::with_capacity(info.type_params.len());
-            for type_param in &info.type_params {
+            let mut args = Vec::with_capacity(type_params.len());
+            for type_param in &type_params {
                 let var = type_param_map.get(type_param)?;
                 args.push(InferType::Var(*var));
             }
-            InferType::App(TypeConstructor::Adt(info.adt_name), args)
+            InferType::App(TypeConstructor::Adt(adt_name), args)
         };
 
         Some((field_tys, result_ty))
