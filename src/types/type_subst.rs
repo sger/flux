@@ -5,8 +5,12 @@ use std::collections::HashMap;
 
 /// A substitution mapping type variables to types.
 ///
-/// Invariant: the substitution is *idempotent* — no key appears in any value.
-/// Use `compose` to merge substitutions while maintaining this invariant.
+/// Uses **lazy normalization**: stored values may contain variable references
+/// that are themselves mapped in the substitution. Full resolution happens
+/// at read time via `apply_type_subst`, which recursively follows chains.
+///
+/// The acyclicity invariant (enforced by the occurs check in unification)
+/// guarantees that chain-following always terminates.
 #[derive(Debug, Clone, Default)]
 pub struct TypeSubst {
     type_bindings: HashMap<TypeVarId, InferType>,
@@ -29,11 +33,17 @@ impl TypeSubst {
 
     /// Insert a new binding `type_var_id → infer_type`.
     ///
-    /// Panics in debug builds if `infer_type` contains `type_var_id` (would violate idempotency).
+    /// Under lazy normalization, values may contain other mapped variables.
+    /// Full normalization is performed by `apply_type_subst` on lookup.
+    ///
+    /// Panics in debug builds if `infer_type` directly references `type_var_id`
+    /// (self-reference would create an infinite chain). The full occurs check
+    /// (preventing `?a → Foo<?a>`) is enforced by `unify_with_span` before
+    /// any `insert_type` call.
     pub fn insert_type(&mut self, type_var_id: TypeVarId, infer_type: InferType) {
         debug_assert!(
-            !infer_type.free_vars().contains(&type_var_id),
-            "occurs check: inserting {type_var_id} -> {infer_type} would create infinite type"
+            !matches!(&infer_type, InferType::Var(v) if *v == type_var_id),
+            "occurs check: inserting {type_var_id} -> {infer_type} would create a self-referential chain"
         );
         self.type_bindings.insert(type_var_id, infer_type);
     }
@@ -68,11 +78,16 @@ impl TypeSubst {
     ///
     /// If both substitutions contain the same key, this substitution's binding
     /// is retained.
+    ///
+    /// Uses lazy normalization: incoming values from `other` are applied through
+    /// `self` to collapse one level of transitive links, but stored values in
+    /// `self` are **not** re-walked. Full resolution happens at read time via
+    /// `apply_type_subst`, which recursively follows variable chains.
     pub fn compose(mut self, other: &TypeSubst) -> TypeSubst {
-        // Step 1: merge type bindings from `other` into `self`.
-        // We first rewrite each `other` value through `self` so transitive links are
-        // collapsed early (e.g. {a -> b} composed with {b -> Int} can immediately
-        // produce {b -> Int} in the merged view).
+        // Merge type bindings from `other` into `self`.
+        // Each `other` value is rewritten through `self` so transitive links are
+        // collapsed for the incoming entry (e.g. {a -> b} composed with {b -> Int}
+        // produces {b -> Int} in the merged view).
         // Existing keys in `self` win by design to preserve left-bias of composition.
         for (type_var_id, infer_type) in &other.type_bindings {
             if !self.type_bindings.contains_key(type_var_id) {
@@ -81,7 +96,7 @@ impl TypeSubst {
             }
         }
 
-        // Step 2: same merge strategy for row bindings.
+        // Same merge strategy for row bindings.
         // `apply_row_subst` follows row-tail chains and unions concrete effects,
         // so each imported row binding is normalized against what `self` already knows.
         for (row_var_id, row) in &other.row_bindings {
@@ -91,34 +106,11 @@ impl TypeSubst {
             }
         }
 
-        // Step 3: enforce idempotency for all type values now present in `self`.
-        // Even if a binding originated in `self`, newly merged keys can unlock
-        // additional rewrites, so we re-run substitution over every stored value.
-        let keys: Vec<TypeVarId> = self.type_bindings.keys().copied().collect();
-
-        for key in keys {
-            if let Some(infer_type) = self.type_bindings.get(&key).cloned() {
-                let applied = infer_type.apply_type_subst(&self);
-                self.type_bindings.insert(key, applied);
-            }
-        }
-
-        // Step 3b: drop trivial self-bindings (?t -> ?t), which are no-ops and can
+        // Drop trivial self-bindings (?t -> ?t), which are no-ops and can
         // otherwise participate in substitution cycles.
         self.type_bindings
             .retain(|key, infer_type| !matches!(infer_type, InferType::Var(v) if v == key));
 
-        // Step 4: apply the same normalization pass for row values.
-        // This keeps row substitutions stable after composition and prevents
-        // stale tail chains from surviving in stored bindings.
-        let row_keys: Vec<TypeVarId> = self.row_bindings.keys().copied().collect();
-
-        for key in row_keys {
-            if let Some(row) = self.row_bindings.get(&key).cloned() {
-                let applied = row.apply_row_subst(&self);
-                self.row_bindings.insert(key, applied);
-            }
-        }
         self
     }
 
@@ -220,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_reapplies_to_keep_values_idempotent() {
+    fn compose_resolves_chains_on_lookup() {
         let mut left = TypeSubst::empty();
         left.insert(0, var(1));
 
@@ -229,11 +221,11 @@ mod tests {
 
         let composed = left.compose(&right);
 
-        assert_eq!(composed.get(0), Some(&int()));
+        // Observable: apply_type_subst follows chains to full resolution.
+        assert_eq!(var(0).apply_type_subst(&composed), int());
+        assert_eq!(var(1).apply_type_subst(&composed), int());
+        // Direct get(1) returns Int (from right, applied through self).
         assert_eq!(composed.get(1), Some(&int()));
-        for (_, infer_type) in composed.iter() {
-            assert!(infer_type.free_vars().is_empty());
-        }
     }
 
     #[test]
