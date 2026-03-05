@@ -1,4 +1,7 @@
-use crate::types::unify_error::UnifyError;
+use crate::{
+    diagnostics::{Hint, match_arm_type_mismatch},
+    types::unify_error::UnifyError,
+};
 
 use super::*;
 
@@ -189,9 +192,7 @@ impl<'a> InferCtx<'a> {
             UnifyErrorKind::Mismatch => {
                 let first_ty = self.display_type(&error.expected);
                 let arm_ty = self.display_type(&error.actual);
-                crate::diagnostics::compiler_errors::match_arm_type_mismatch(
-                    file, first_span, arm_span, &first_ty, &arm_ty, arm_index,
-                )
+                match_arm_type_mismatch(file, first_span, arm_span, &first_ty, &arm_ty, arm_index)
             }
             UnifyErrorKind::OccursCheck(v) => {
                 let v_str = format!("t{v}");
@@ -277,9 +278,7 @@ impl<'a> InferCtx<'a> {
                 if let Some(suggestion) = suggest_type_name(name) {
                     diagnostic
                         .hints
-                        .push(crate::diagnostics::types::Hint::help(format!(
-                            "Unknown type `{name}` — {suggestion}"
-                        )));
+                        .push(Hint::help(format!("Unknown type `{name}` — {suggestion}")));
                 }
             }
         }

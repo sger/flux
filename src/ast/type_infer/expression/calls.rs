@@ -122,7 +122,7 @@ impl<'a> InferCtx<'a> {
             .iter()
             .map(|arg| self.infer_expression(arg))
             .collect();
-        let ret_var = self.env.fresh_infer_type();
+        let ret_var = self.env.alloc_infer_type_var();
         let expected_fn_ty = InferType::Fun(
             arg_tys,
             Box::new(ret_var.clone()),
@@ -194,7 +194,7 @@ impl<'a> InferCtx<'a> {
             .map(|arg| self.infer_expression(arg))
             .collect();
 
-        let ret_var = self.env.fresh_infer_type();
+        let ret_var = self.env.alloc_infer_type_var();
         let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), ambient_effect_row);
         self.unify_with_context(
             fn_ty,

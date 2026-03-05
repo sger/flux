@@ -21,7 +21,7 @@ impl<'a> InferCtx<'a> {
                 self.infer_array_literal_expression(elements)
             }
             Expression::EmptyList { .. } => {
-                InferType::App(TypeConstructor::List, vec![self.env.fresh_infer_type()])
+                InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()])
             }
             Expression::Hash { pairs, .. } => self.infer_hash_literal_expression(pairs),
             Expression::Cons { head, tail, span } => self.infer_cons_expression(head, tail, *span),
@@ -39,7 +39,7 @@ impl<'a> InferCtx<'a> {
     /// Infer list literals and unify all elements with the first element type.
     fn infer_list_literal_expression(&mut self, elements: &[Expression], span: Span) -> InferType {
         if elements.is_empty() {
-            return InferType::App(TypeConstructor::List, vec![self.env.fresh_infer_type()]);
+            return InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()]);
         }
         let first = self.infer_expression(&elements[0]);
         for element in elements.iter().skip(1) {
@@ -55,7 +55,7 @@ impl<'a> InferCtx<'a> {
     /// Infer array literals, reducing heterogeneous element sets to `Array<Any>`.
     fn infer_array_literal_expression(&mut self, elements: &[Expression]) -> InferType {
         if elements.is_empty() {
-            return InferType::App(TypeConstructor::Array, vec![self.env.fresh_infer_type()]);
+            return InferType::App(TypeConstructor::Array, vec![self.env.alloc_infer_type_var()]);
         }
         let first = self.infer_expression(&elements[0]);
         let mut homogeneous = true;
@@ -79,8 +79,8 @@ impl<'a> InferCtx<'a> {
     /// Infer hash literals from the first pair shape, evaluating all pairs for constraints.
     fn infer_hash_literal_expression(&mut self, pairs: &[(Expression, Expression)]) -> InferType {
         if pairs.is_empty() {
-            let key = self.env.fresh_infer_type();
-            let value = self.env.fresh_infer_type();
+            let key = self.env.alloc_infer_type_var();
+            let value = self.env.alloc_infer_type_var();
             return InferType::App(TypeConstructor::Map, vec![key, value]);
         }
         let key_ty = self.infer_expression(&pairs[0].0);
