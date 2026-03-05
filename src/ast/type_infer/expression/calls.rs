@@ -8,7 +8,7 @@ struct CallTypedCalleeSpec<'a> {
     fn_effects: &'a InferEffectRow,
     input: CallInferInput<'a>,
     fn_name: Option<String>,
-    fn_dep_span: Option<Span>,
+    fn_def_span: Option<Span>,
     ambient_effect_row: InferEffectRow,
 }
 
@@ -67,7 +67,7 @@ impl<'a> InferCtx<'a> {
                 fn_effects: &fn_effects,
                 input,
                 fn_name,
-                fn_dep_span,
+                fn_def_span,
                 ambient_effect_row,
             });
         }
@@ -128,6 +128,7 @@ impl<'a> InferCtx<'a> {
         ret_var.apply_type_subst(&self.subst)
     }
 
+    /// Infer fixed-arity call arguments and emit per-argument mismatch diagnostics.
     fn infer_call_fixed_arity_path(
         &mut self,
         param_tys: &[InferType],
@@ -139,6 +140,67 @@ impl<'a> InferCtx<'a> {
             arguments.iter().zip(param_tys.iter()).enumerate()
         {
             let arg_ty = self.infer_expression(arg_expr);
+            let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
+            let actual_resolved = arg_ty.apply_type_subst(&self.subst);
+            let should_emit = expected_resolved.is_concrete()
+                && actual_resolved.is_concrete()
+                && !expected_resolved.contains_any()
+                && !actual_resolved.contains_any();
+
+            match unify_with_span_and_row_var_counter(
+                &expected_resolved,
+                &actual_resolved,
+                arg_expr.span(),
+                &mut self.env.counter,
+            ) {
+                Ok(subst) => {
+                    self.subst = std::mem::take(&mut self.subst).compose(&subst);
+                }
+                Err(_) => {
+                    if should_emit {
+                        let exp_str = self.display_type(&expected_resolved);
+                        let act_str = self.display_type(&actual_resolved);
+                        self.errors.push(call_arg_type_mismatch(
+                            self.file_path.clone(),
+                            arg_expr.span(),
+                            fn_name,
+                            index + 1,
+                            fn_def_span,
+                            &exp_str,
+                            &act_str,
+                        ));
+                    }
+                }
+            }
         }
+    }
+
+    /// Fallback inference for dynamic/unknown callees.
+    fn infer_call_dynamic_fallback(
+        &mut self,
+        fn_ty: &InferType,
+        input: CallInferInput<'_>,
+        fn_name: Option<String>,
+        fn_def_span: Option<Span>,
+        ambient_effect_row: InferEffectRow,
+    ) -> InferType {
+        let arg_tys: Vec<InferType> = input
+            .arguments
+            .iter()
+            .map(|arg| self.infer_expression(arg))
+            .collect();
+
+        let ret_var = self.env.fresh_infer_type();
+        let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), ambient_effect_row);
+        self.unify_with_context(
+            fn_ty,
+            &expected_fn_ty,
+            input.span,
+            ReportContext::CallArg {
+                fn_name,
+                fn_def_span,
+            },
+        );
+        ret_var.apply_type_subst(&self.subst)
     }
 }
