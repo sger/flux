@@ -39,7 +39,7 @@ impl<'a> InferCtx<'a> {
         let body_ty = self.with_ambient_effect_row(ambient_effect_row.clone(), |ctx| {
             ctx.infer_block(input.body)
         });
-        let mut ret_ty = self.infern_return_type_with_optional_annotation(
+        let mut ret_ty = self.infer_return_type_with_optional_annotation(
             &tp_map,
             &mut row_var_env,
             input.return_type,
@@ -137,7 +137,7 @@ impl<'a> InferCtx<'a> {
     ///
     /// Annotation mismatches are propagated via substitutions diagnostics are
     /// emitted by compiler boundary checks, not by this HM helper.
-    fn infern_return_type_with_optional_annotation(
+    pub(super) fn infer_return_type_with_optional_annotation(
         &mut self,
         type_params: &HashMap<Identifier, TypeVarId>,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
