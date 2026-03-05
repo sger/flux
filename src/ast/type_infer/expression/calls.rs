@@ -102,7 +102,7 @@ impl<'a> InferCtx<'a> {
             spec.param_tys,
             spec.input.arguments,
             spec.fn_name.as_deref(),
-            spec.fn_dep_span,
+            spec.fn_def_span,
         );
         spec.ret_ty.apply_type_subst(&self.subst)
     }
