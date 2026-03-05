@@ -16,7 +16,7 @@ impl<'a> InferCtx<'a> {
         // variable so that mutually-recursive functions can reference each other.
         for stmt in &program.statements {
             if let Statement::Function { name, span, .. } = stmt {
-                let v = self.env.fresh_infer_type();
+                let v = self.env.alloc_infer_type_var();
                 self.env.bind_with_span(*name, Scheme::mono(v), Some(*span));
             }
         }

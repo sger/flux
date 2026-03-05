@@ -15,7 +15,7 @@ impl<'a> InferCtx<'a> {
         );
 
         let ambient_effect_row = if input.effects.is_empty() {
-            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.fresh())
+            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.alloc_type_var_id())
         } else {
             Self::infer_effect_row(input.effects, &mut row_var_env, &mut self.env.counter)
         };

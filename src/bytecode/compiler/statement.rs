@@ -42,7 +42,7 @@ impl Compiler {
                     .iter()
                     .map(|elem| {
                         self.destructure_pattern_expected_type(elem)
-                            .unwrap_or_else(|| self.type_env.fresh_infer_type())
+                            .unwrap_or_else(|| self.type_env.alloc_infer_type_var())
                     })
                     .collect(),
             )),
@@ -50,39 +50,39 @@ impl Compiler {
                 crate::types::type_constructor::TypeConstructor::Option,
                 vec![
                     self.destructure_pattern_expected_type(pattern)
-                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                        .unwrap_or_else(|| self.type_env.alloc_infer_type_var()),
                 ],
             )),
             Pattern::None { .. } => Some(InferType::App(
                 crate::types::type_constructor::TypeConstructor::Option,
-                vec![self.type_env.fresh_infer_type()],
+                vec![self.type_env.alloc_infer_type_var()],
             )),
             Pattern::Left { pattern, .. } => Some(InferType::App(
                 crate::types::type_constructor::TypeConstructor::Either,
                 vec![
                     self.destructure_pattern_expected_type(pattern)
-                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
-                    self.type_env.fresh_infer_type(),
+                        .unwrap_or_else(|| self.type_env.alloc_infer_type_var()),
+                    self.type_env.alloc_infer_type_var(),
                 ],
             )),
             Pattern::Right { pattern, .. } => Some(InferType::App(
                 crate::types::type_constructor::TypeConstructor::Either,
                 vec![
-                    self.type_env.fresh_infer_type(),
+                    self.type_env.alloc_infer_type_var(),
                     self.destructure_pattern_expected_type(pattern)
-                        .unwrap_or_else(|| self.type_env.fresh_infer_type()),
+                        .unwrap_or_else(|| self.type_env.alloc_infer_type_var()),
                 ],
             )),
             Pattern::EmptyList { .. } => Some(InferType::App(
                 crate::types::type_constructor::TypeConstructor::List,
-                vec![self.type_env.fresh_infer_type()],
+                vec![self.type_env.alloc_infer_type_var()],
             )),
             Pattern::Cons { .. } => Some(InferType::App(
                 crate::types::type_constructor::TypeConstructor::List,
-                vec![self.type_env.fresh_infer_type()],
+                vec![self.type_env.alloc_infer_type_var()],
             )),
             Pattern::Identifier { .. } | Pattern::Wildcard { .. } => {
-                Some(self.type_env.fresh_infer_type())
+                Some(self.type_env.alloc_infer_type_var())
             }
             Pattern::Literal { .. } | Pattern::Constructor { .. } => None,
         }
