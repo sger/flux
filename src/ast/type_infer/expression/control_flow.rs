@@ -34,7 +34,7 @@ impl<'a> InferCtx<'a> {
 
     /// Infer `match` expressions while preserving existing arm-order diagnostics.
     pub(super) fn infer_match_expression(&mut self, input: MatchInferInput<'_>) -> InferType {
-        let scrutinee_ty = self.infer_expression(input.scutinee);
+        let scrutinee_ty = self.infer_expression(input.scrutinee);
         if input.arms.is_empty() {
             return InferType::Con(TypeConstructor::Any);
         }

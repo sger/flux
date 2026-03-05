@@ -117,7 +117,7 @@ struct CallInferInput<'a> {
 /// Immutable inputs required to infer a match expression.
 #[derive(Debug, Clone, Copy)]
 struct MatchInferInput<'a> {
-    scutinee: &'a Expression,
+    scrutinee: &'a Expression,
     arms: &'a [MatchArm],
     span: Span,
 }
