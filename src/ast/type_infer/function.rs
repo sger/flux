@@ -1,10 +1,24 @@
-use serde_json::map;
+use crate::ast::{Visitor, walk_block, walk_expr, walk_stmt};
 
 use super::*;
 
 impl<'a> InferCtx<'a> {
     // ── Function inference ────────────────────────────────────────────────────
 
+    /// Infer a named function declaration and update its predeclared binding.
+    ///
+    /// Behavior:
+    /// - Enters function local scope.
+    /// - Infers parameter, effect, body, and return types.
+    /// - Applies optional self-recursive return refinement for unannotated functions.
+    /// - Finalizes and binds the resulting scheme in outer scope.
+    ///
+    /// Side effects:
+    /// - Mutates environment scopes and substitution state.
+    /// - May emit diagnostics indirectly through delegated inference/unification.
+    ///
+    /// Invariants:
+    /// - Preserves existing function inference ordering and refinement conditions.
     pub(super) fn infer_function_declaration(&mut self, input: FnInferInput<'_>) {
         // Map explicit type parameters (e.g. `T`, `U`) to fresh type variables.
         let tp_map = self.allocate_type_parameter_vars(input.type_params);
@@ -252,114 +266,9 @@ impl<'a> InferCtx<'a> {
 
     /// Return `true` when any statement in `block` contains a self call to `name`.
     pub(super) fn block_contains_self_call(&self, block: &Block, name: Identifier) -> bool {
-        block
-            .statements
-            .iter()
-            .any(|stmt| self.statement_contains_self_call(stmt, name))
-    }
-
-    pub(super) fn statement_contains_self_call(&self, stmt: &Statement, name: Identifier) -> bool {
-        match stmt {
-            Statement::Let { value, .. }
-            | Statement::LetDestructure { value, .. }
-            | Statement::Assign { value, .. } => self.expression_contains_self_call(value, name),
-            Statement::Return {
-                value: Some(expr), ..
-            }
-            | Statement::Expression {
-                expression: expr, ..
-            } => self.expression_contains_self_call(expr, name),
-            Statement::Module { body, .. } => self.block_contains_self_call(body, name),
-            _ => false,
-        }
-    }
-
-    pub(super) fn expression_contains_self_call(
-        &self,
-        expr: &Expression,
-        name: Identifier,
-    ) -> bool {
-        match expr {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
-                if let Expression::Identifier { name: callee, .. } = function.as_ref()
-                    && *callee == name
-                {
-                    return true;
-                }
-                self.expression_contains_self_call(function, name)
-                    || arguments
-                        .iter()
-                        .any(|arg| self.expression_contains_self_call(arg, name))
-            }
-            Expression::Prefix { right, .. } => self.expression_contains_self_call(right, name),
-            Expression::Infix { left, right, .. } => {
-                self.expression_contains_self_call(left, name)
-                    || self.expression_contains_self_call(right, name)
-            }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
-                self.expression_contains_self_call(condition, name)
-                    || self.block_contains_self_call(consequence, name)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| self.block_contains_self_call(b, name))
-            }
-            Expression::DoBlock { block, .. } => self.block_contains_self_call(block, name),
-            Expression::Function { .. } => false,
-            Expression::TupleLiteral { elements, .. }
-            | Expression::ListLiteral { elements, .. }
-            | Expression::ArrayLiteral { elements, .. } => elements
-                .iter()
-                .any(|element| self.expression_contains_self_call(element, name)),
-            Expression::Hash { pairs, .. } => pairs.iter().any(|(k, v)| {
-                self.expression_contains_self_call(k, name)
-                    || self.expression_contains_self_call(v, name)
-            }),
-            Expression::Cons { head, tail, .. } => {
-                self.expression_contains_self_call(head, name)
-                    || self.expression_contains_self_call(tail, name)
-            }
-            Expression::Index { left, index, .. } => {
-                self.expression_contains_self_call(left, name)
-                    || self.expression_contains_self_call(index, name)
-            }
-            Expression::MemberAccess { object, .. }
-            | Expression::TupleFieldAccess { object, .. } => {
-                self.expression_contains_self_call(object, name)
-            }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
-                self.expression_contains_self_call(scrutinee, name)
-                    || arms.iter().any(|arm| {
-                        arm.guard
-                            .as_ref()
-                            .is_some_and(|g| self.expression_contains_self_call(g, name))
-                            || self.expression_contains_self_call(&arm.body, name)
-                    })
-            }
-            Expression::Some { value, .. }
-            | Expression::Left { value, .. }
-            | Expression::Right { value, .. } => self.expression_contains_self_call(value, name),
-            Expression::Perform { args, .. } => args
-                .iter()
-                .any(|arg| self.expression_contains_self_call(arg, name)),
-            Expression::Handle { expr, arms, .. } => {
-                self.expression_contains_self_call(expr, name)
-                    || arms
-                        .iter()
-                        .any(|arm| self.expression_contains_self_call(&arm.body, name))
-            }
-            _ => false,
-        }
+        let mut search = ExpSearch::new(name);
+        search.visit_block(block);
+        search.found
     }
 
     /// Span of the expression that determines a block's value in HM inference.
@@ -386,5 +295,118 @@ impl<'a> InferCtx<'a> {
             }
         }
         value_span
+    }
+}
+
+/// Read-only expression tree search for direct self calls to a named function.
+///
+/// Behavior:
+/// - Traverses statements/blocks/expressions until a direct call target `name(...)` is found.
+/// - Sets `found` and short circuits subsequent traversal.
+/// - Intentionally does not descend into nested function literals.
+///
+/// Side effects:
+/// - Mutates only local `found` state.
+///
+/// Invariants:
+/// - Mirrors prior self call detection semantics used by recursive return refinement.
+struct ExpSearch {
+    target_name: Identifier,
+    found: bool,
+}
+
+impl ExpSearch {
+    /// Create a new self call search instance for `target_name`.
+    fn new(target_name: Identifier) -> Self {
+        Self {
+            target_name,
+            found: false,
+        }
+    }
+}
+
+impl<'ast> Visitor<'ast> for ExpSearch {
+    /// Visit a block and continue searching child statements unless already resolved.
+    ///
+    /// Behavior:
+    /// - Returns early when a self-call has already been found.
+    /// - Delegates recursive traversal to `walk_block`.
+    ///
+    /// Side effects:
+    /// - May set `found` indirectly through nested expression visits.
+    ///
+    /// Diagnostics:
+    /// - Emits no diagnostics.
+    ///
+    /// Invariants:
+    /// - Preserves short-circuit behavior across traversal depth.
+    ///
+    /// Returns:
+    /// - No direct return value; updates `found` state.
+    fn visit_block(&mut self, block: &'ast Block) {
+        if self.found {
+            return;
+        }
+        walk_block(self, block);
+    }
+
+    /// Visit a statement and continue searching expression children when needed.
+    ///
+    /// Behavior:
+    /// - Returns immediately when `found` is already true.
+    /// - Delegates recursion to `walk_stmt`.
+    ///
+    /// Side effects:
+    /// - May set `found` via nested `visit_expr` calls.
+    ///
+    /// Diagnostics:
+    /// - Emits no diagnostics.
+    ///
+    /// Invariants:
+    /// - Statement traversal remains read-only and deterministic.
+    ///
+    /// Returns:
+    /// - No direct return value; updates `found` state.
+    fn visit_stmt(&mut self, stmt: &'ast Statement) {
+        if self.found {
+            return;
+        }
+        walk_stmt(self, stmt);
+    }
+
+    /// Visit an expression and mark search complete when direct self-call is found.
+    ///
+    /// Behavior:
+    /// - Short-circuits when already resolved.
+    /// - Marks `found` on direct callee match `target_name(...)`.
+    /// - Skips recursion into nested function literals intentionally.
+    /// - Delegates all other recursion to `walk_expr`.
+    ///
+    /// Side effects:
+    /// - Mutates `found` when a matching call is encountered.
+    ///
+    /// Diagnostics:
+    /// - Emits no diagnostics.
+    ///
+    /// Invariants:
+    /// - Does not treat nested function bodies as evidence for outer self-recursion.
+    ///
+    /// Returns:
+    /// - No direct return value; updates `found` state.
+    fn visit_expr(&mut self, expr: &'ast Expression) {
+        if self.found {
+            return;
+        }
+        if let Expression::Call { function, .. } = expr
+            && let Expression::Identifier { name, .. } = function.as_ref()
+            && *name == self.target_name
+        {
+            self.found = true;
+            return;
+        }
+        if matches!(expr, Expression::Function { .. }) {
+            return;
+        }
+        walk_expr(self, expr);
     }
 }
