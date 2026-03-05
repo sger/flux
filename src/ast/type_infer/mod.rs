@@ -248,7 +248,7 @@ pub use display::{display_infer_type, suggest_type_name};
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```text
 /// let cfg = InferProgramConfig {
 ///     file_path: Some("examples/app.flx".to_string()),
 ///     preloaded_base_schemes: HashMap::new(),
@@ -278,7 +278,7 @@ pub struct InferProgramConfig {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```text
 /// let result = infer_program(&program, &interner, InferProgramConfig {
 ///     file_path: Some("main.flx".to_string()),
 ///     preloaded_base_schemes: base_schemes,
