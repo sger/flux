@@ -142,6 +142,9 @@ struct InferCtx<'a> {
     known_base_names: HashSet<Identifier>,
     base_module_symbol: Identifier,
     adt_constructor_types: HashMap<Identifier, AdtConstructorTypeInfo>,
+    /// Reverse index: ADT name → type parameters. Avoids linear scan over
+    /// `adt_constructor_types` when only per-ADT metadata is needed.
+    adt_type_params: HashMap<Identifier, Vec<Identifier>>,
     effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ambient_effect_rows: Vec<InferEffectRow>,
     handled_effects: Vec<Identifier>,
@@ -205,13 +208,14 @@ impl<'a> InferCtx<'a> {
             known_base_names,
             base_module_symbol,
             adt_constructor_types: HashMap::new(),
+            adt_type_params: HashMap::new(),
             effect_op_signatures: preloaded_effect_op_signatures,
             ambient_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
         }
     }
 
-    /// Return a stable node if for an expression pointer within this inference run.
+    /// Return a stable node id for an expression pointer within this inference run.
     ///
     /// Allocates a new id on first sight and reuses it for subsequent lookups.
     fn node_id_for_expr(&mut self, expr: &Expression) -> ExprNodeId {

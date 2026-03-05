@@ -7,6 +7,7 @@ mod control_flow;
 mod effects_nodes;
 mod lambda;
 mod literals;
+mod operators;
 mod patterns;
 
 impl<'a> InferCtx<'a> {
@@ -23,7 +24,7 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_expression(&mut self, expr: &Expression) -> InferType {
         let node_id = self.node_id_for_expr(expr);
         let inferred = self
-            .infer_literal_family_expression(expr)
+            .infer_literal_expression(expr)
             .unwrap_or_else(|| {
                 self.infer_structured_family_expression(expr)
                     .or_else(|| self.infer_effect_family_expression(expr))
@@ -33,11 +34,6 @@ impl<'a> InferCtx<'a> {
         let resolved = inferred.apply_type_subst(&self.subst);
         self.expr_types.insert(node_id, resolved.clone());
         resolved
-    }
-
-    /// Infer literal-family expressions (`Integer`, `Identifier`, `Some`, ...).
-    fn infer_literal_family_expression(&mut self, expr: &Expression) -> Option<InferType> {
-        self.infer_literal_expression(expr)
     }
 
     /// Infer structured expressions (control-flow, lambdas, calls, data access).
@@ -131,83 +127,5 @@ impl<'a> InferCtx<'a> {
     /// Fallback type for expression forms not handled by HM inference paths.
     fn infer_unknown_expr_fallback(&self) -> InferType {
         InferType::Con(TypeConstructor::Any)
-    }
-
-    /// Infer infix operators with gradual fallback semantics.
-    pub(super) fn infer_infix_expression(
-        &mut self,
-        left: &Expression,
-        op: &str,
-        right: &Expression,
-        span: Span,
-    ) -> InferType {
-        let left_ty = self.infer_expression(left);
-        let right_ty = self.infer_expression(right);
-        match op {
-            "+" => self.infer_numeric_or_string_infix(&left_ty, &right_ty, span),
-            "-" | "*" | "/" | "%" => self.infer_numeric_infix(&left_ty, &right_ty, span),
-            "==" | "!=" | "<" | "<=" | ">" | ">=" => {
-                self.unify_reporting(&left_ty, &right_ty, span);
-                InferType::Con(TypeConstructor::Bool)
-            }
-            "&&" | "||" => {
-                let bool_ty = InferType::Con(TypeConstructor::Bool);
-                self.unify_reporting(&left_ty, &bool_ty, span);
-                self.unify_reporting(&right_ty, &bool_ty, span);
-                InferType::Con(TypeConstructor::Bool)
-            }
-            "++" => {
-                self.unify_reporting(&left_ty, &right_ty, span);
-                left_ty.apply_type_subst(&self.subst)
-            }
-            "|>" => right_ty,
-            _ => InferType::Con(TypeConstructor::Any),
-        }
-    }
-
-    /// Infer `+` where result may be numeric or string.
-    fn infer_numeric_or_string_infix(
-        &mut self,
-        left_ty: &InferType,
-        right_ty: &InferType,
-        span: Span,
-    ) -> InferType {
-        let resolved = self.unify_reporting(left_ty, right_ty, span);
-        match resolved.apply_type_subst(&self.subst) {
-            InferType::Con(TypeConstructor::Int)
-            | InferType::Con(TypeConstructor::Float)
-            | InferType::Con(TypeConstructor::String) => resolved.apply_type_subst(&self.subst),
-            InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
-                InferType::Con(TypeConstructor::Any)
-            }
-            other => {
-                let expected_numeric = InferType::Con(TypeConstructor::Int);
-                self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
-            }
-        }
-    }
-
-    /// Infer `-`, `*`, `/`, `%` where result must remain numeric.
-    fn infer_numeric_infix(
-        &mut self,
-        left_ty: &InferType,
-        right_ty: &InferType,
-        span: Span,
-    ) -> InferType {
-        let resolved = self.unify_reporting(left_ty, right_ty, span);
-        match resolved.apply_type_subst(&self.subst) {
-            InferType::Con(TypeConstructor::Int) | InferType::Con(TypeConstructor::Float) => {
-                resolved.apply_type_subst(&self.subst)
-            }
-            InferType::Con(TypeConstructor::Any) | InferType::Var(_) => {
-                InferType::Con(TypeConstructor::Any)
-            }
-            other => {
-                let expected_numeric = InferType::Con(TypeConstructor::Int);
-                self.unify_reporting(&other, &expected_numeric, span);
-                InferType::Con(TypeConstructor::Any)
-            }
-        }
     }
 }

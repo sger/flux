@@ -72,7 +72,7 @@ impl<'a> InferCtx<'a> {
             });
         }
 
-        self.infer_call_dynamic_fallback(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)
+        self.infer_call_unresolved_callee(&fn_ty, input, fn_name, fn_def_span, ambient_effect_row)
     }
 
     /// Infer calls where callee type resolves to `Fun`.
@@ -179,8 +179,8 @@ impl<'a> InferCtx<'a> {
         }
     }
 
-    /// Fallback inference for dynamic/unknown callees.
-    fn infer_call_dynamic_fallback(
+    /// Fallback inference when callee type is unresolved.
+    fn infer_call_unresolved_callee(
         &mut self,
         fn_ty: &InferType,
         input: CallInferInput<'_>,

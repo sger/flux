@@ -280,21 +280,21 @@ impl<'a> InferCtx<'a> {
             .collect();
         missing.sort_by_key(|s| s.as_u32());
 
-        if self.try_constrain_when_no_missing_effects(&missing, &callee, &ambient) {
+        if self.link_row_tails_when_compatible(&missing, &callee, &ambient) {
             return;
         }
 
-        if self.try_constrain_with_ambient_open_tail(&missing, &callee, &ambient) {
+        if self.absorb_missing_into_open_ambient(&missing, &callee, &ambient) {
             return;
         }
 
-        self.emit_closed_ambient_effect_mismatch(callee, ambient, span);
+        self.report_effect_mismatch_via_unification(callee, ambient, span);
     }
 
-    /// Apply row-tail linking when no concrete effects are missing.
+    /// Link row tails when no concrete effects are missing.
     ///
     /// Returns `true` when handled and no further checks are required.
-    fn try_constrain_when_no_missing_effects(
+    fn link_row_tails_when_compatible(
         &mut self,
         missing: &[Identifier],
         callee: &InferEffectRow,
@@ -314,10 +314,10 @@ impl<'a> InferCtx<'a> {
         true
     }
 
-    /// Push missing effects into callee tail when ambient row is open.
+    /// Absorb missing effects into callee tail when ambient row is open.
     ///
     /// Returns `true` when handled and no mismatch diagnostic is needed.
-    fn try_constrain_with_ambient_open_tail(
+    fn absorb_missing_into_open_ambient(
         &mut self,
         missing: &[Identifier],
         callee: &InferEffectRow,
@@ -338,11 +338,11 @@ impl<'a> InferCtx<'a> {
         true
     }
 
-    /// Emit mismatch diagnostics when ambient effect rows are closed.
+    /// Report effect mismatch when ambient rows are closed.
     ///
-    /// Models both rows as nullary function effect annotations so existing
-    /// unification diagnostics can report missing/incompatible effects.
-    fn emit_closed_ambient_effect_mismatch(
+    /// Wraps both rows in synthetic `Fun` types so existing unification
+    /// diagnostics can report missing/incompatible effects.
+    fn report_effect_mismatch_via_unification(
         &mut self,
         callee: InferEffectRow,
         ambient: InferEffectRow,
