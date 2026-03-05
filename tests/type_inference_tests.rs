@@ -4,7 +4,7 @@
 // ============================================================================
 use std::collections::{HashMap, HashSet};
 
-use flux::ast::type_infer::infer_program;
+use flux::ast::type_infer::{InferProgramConfig, infer_program};
 use flux::syntax::{expression::Expression, lexer::Lexer, parser::Parser, statement::Statement};
 use flux::types::infer_effect_row::InferEffectRow;
 use flux::types::infer_type::InferType;
@@ -107,12 +107,14 @@ fn infer_program_from_source(
     let result = infer_program(
         &program,
         &interner,
-        Some("<test>".to_string()),
-        HashMap::new(),
-        HashMap::new(),
-        HashSet::new(),
-        base_symbol,
-        effect_op_sigs,
+        InferProgramConfig {
+            file_path: Some("<test>".to_string()),
+            preloaded_base_schemes: HashMap::new(),
+            preloaded_module_member_schemes: HashMap::new(),
+            known_base_names: HashSet::new(),
+            base_module_symbol: base_symbol,
+            preloaded_effect_op_signatures: effect_op_sigs,
+        },
     );
     (result, program)
 }
@@ -1799,12 +1801,14 @@ fn main() -> Unit {
     let result = infer_program(
         &program,
         &interner,
-        Some("<test>".to_string()),
-        HashMap::new(),
-        HashMap::new(),
-        known_base_names,
-        base,
-        HashMap::new(),
+        InferProgramConfig {
+            file_path: Some("<test>".to_string()),
+            preloaded_base_schemes: HashMap::new(),
+            preloaded_module_member_schemes: HashMap::new(),
+            known_base_names,
+            base_module_symbol: base,
+            preloaded_effect_op_signatures: HashMap::new(),
+        },
     );
     assert!(
         has_diagnostic_code(&result, "E426"),
