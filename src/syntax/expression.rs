@@ -7,6 +7,59 @@ use crate::{
     },
 };
 
+/// Stable identifier for one expression node within a parsed program.
+///
+/// Assigned monotonically by the parser during construction. Survives cloning
+/// and AST rewrites, allowing downstream passed (HM inference, PASS 2 codegen)
+/// to share a stable type-map keyed by id instead of fragile pointer addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExprId(pub u32);
+
+impl ExprId {
+    /// Sentinel value for expressions created outside the parser
+    /// (AST transforms, compiler-generated nodes, tests).
+    pub const UNSET: ExprId = ExprId(0);
+}
+
+/// Monotonic counter for allocating fresh [`ExprId`] values.
+///
+/// The parser owns one; after parsing the counter value can be extracted
+/// and handed to AST transforms that create new expressions.
+#[derive(Debug, Clone)]
+pub struct ExprIdGen {
+    next: u32,
+}
+
+impl ExprIdGen {
+    pub fn new() -> Self {
+        // Start at 1 so ExprId(0) remains the UNSET sentinel.
+        Self { next: 1 }
+    }
+
+    /// Resume allocation from a previously-saved counter value.
+    pub fn from_counter(next: u32) -> Self {
+        Self { next }
+    }
+
+    /// Allocate the next unique [`ExprId`].
+    pub fn next_id(&mut self) -> ExprId {
+        let id = ExprId(self.next);
+        self.next = self.next.saturating_add(1);
+        id
+    }
+
+    /// Current counter value - save this to resume allocation later.
+    pub fn counter(&self) -> u32 {
+        self.next
+    }
+}
+
+impl Default for ExprIdGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StringPart {
     Literal(String),
@@ -100,47 +153,57 @@ pub enum Expression {
     Identifier {
         name: Identifier,
         span: Span,
+        id: ExprId,
     },
     Integer {
         value: i64,
         span: Span,
+        id: ExprId,
     },
     Float {
         value: f64,
         span: Span,
+        id: ExprId,
     },
     String {
         value: String,
         span: Span,
+        id: ExprId,
     },
     InterpolatedString {
         parts: Vec<StringPart>,
         span: Span,
+        id: ExprId,
     },
     Boolean {
         value: bool,
         span: Span,
+        id: ExprId,
     },
     Prefix {
         operator: String,
         right: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     Infix {
         left: Box<Expression>,
         operator: String,
         right: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     If {
         condition: Box<Expression>,
         consequence: Block,
         alternative: Option<Block>,
         span: Span,
+        id: ExprId,
     },
     DoBlock {
         block: Block,
         span: Span,
+        id: ExprId,
     },
     Function {
         parameters: Vec<Identifier>,
@@ -149,71 +212,87 @@ pub enum Expression {
         effects: Vec<EffectExpr>,
         body: Block,
         span: Span,
+        id: ExprId,
     },
     Call {
         function: Box<Expression>,
         arguments: Vec<Expression>,
         span: Span,
+        id: ExprId,
     },
     ListLiteral {
         elements: Vec<Expression>,
         span: Span,
+        id: ExprId,
     },
     ArrayLiteral {
         elements: Vec<Expression>,
         span: Span,
+        id: ExprId,
     },
     TupleLiteral {
         elements: Vec<Expression>,
         span: Span,
+        id: ExprId,
     },
     EmptyList {
         span: Span,
+        id: ExprId,
     },
     Index {
         left: Box<Expression>,
         index: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     Hash {
         pairs: Vec<(Expression, Expression)>,
         span: Span,
+        id: ExprId,
     },
     MemberAccess {
         object: Box<Expression>,
         member: Identifier,
         span: Span,
+        id: ExprId,
     },
     TupleFieldAccess {
         object: Box<Expression>,
         index: usize,
         span: Span,
+        id: ExprId,
     },
     Match {
         scrutinee: Box<Expression>,
         arms: Vec<MatchArm>,
         span: Span,
+        id: ExprId,
     },
     None {
         span: Span,
+        id: ExprId,
     },
     Some {
         value: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     // Either type expressions
     Left {
         value: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     Right {
         value: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     Cons {
         head: Box<Expression>,
         tail: Box<Expression>,
         span: Span,
+        id: ExprId,
     },
     /// `perform Effect.operation(args)` — performs a user-declared effect operation.
     Perform {
@@ -221,6 +300,7 @@ pub enum Expression {
         operation: Identifier,
         args: Vec<Expression>,
         span: Span,
+        id: ExprId,
     },
     /// `expr handle Effect { op(resume, args) -> body, ... }` — handles an effect.
     Handle {
@@ -228,6 +308,7 @@ pub enum Expression {
         effect: Identifier,
         arms: Vec<HandleArm>,
         span: Span,
+        id: ExprId,
     },
 }
 
@@ -418,6 +499,40 @@ impl fmt::Display for Expression {
 }
 
 impl Expression {
+    /// Parser-assigned stable identifier for this expression node.
+    pub fn expr_id(&self) -> ExprId {
+        match self {
+            Expression::Identifier { id, .. }
+            | Expression::Integer { id, .. }
+            | Expression::Float { id, .. }
+            | Expression::String { id, .. }
+            | Expression::InterpolatedString { id, .. }
+            | Expression::Boolean { id, .. }
+            | Expression::Prefix { id, .. }
+            | Expression::Infix { id, .. }
+            | Expression::If { id, .. }
+            | Expression::DoBlock { id, .. }
+            | Expression::Function { id, .. }
+            | Expression::Call { id, .. }
+            | Expression::ListLiteral { id, .. }
+            | Expression::ArrayLiteral { id, .. }
+            | Expression::TupleLiteral { id, .. }
+            | Expression::EmptyList { id, .. }
+            | Expression::Index { id, .. }
+            | Expression::Hash { id, .. }
+            | Expression::MemberAccess { id, .. }
+            | Expression::TupleFieldAccess { id, .. }
+            | Expression::Match { id, .. }
+            | Expression::None { id, .. }
+            | Expression::Some { id, .. }
+            | Expression::Left { id, .. }
+            | Expression::Right { id, .. }
+            | Expression::Cons { id, .. }
+            | Expression::Perform { id, .. }
+            | Expression::Handle { id, .. } => *id,
+        }
+    }
+
     pub fn span(&self) -> Span {
         match self {
             Expression::Identifier { span, .. }

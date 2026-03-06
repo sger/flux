@@ -94,8 +94,9 @@ impl Parser {
         }
         Some(patterns)
     }
+
     fn build_match_expression(
-        &self,
+        &mut self,
         start: Position,
         scrutinee: Expression,
         arms: Vec<MatchArm>,
@@ -104,6 +105,7 @@ impl Parser {
             scrutinee: Box::new(scrutinee),
             arms,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         }
     }
 
@@ -250,6 +252,7 @@ impl Parser {
             operator,
             right: Box::new(right),
             span: Span::new(start, end),
+            id: self.next_expr_id(),
         })
     }
 
@@ -271,36 +274,46 @@ impl Parser {
         // Transform based on what we got
         match right {
             // a |> f => f(a)
-            Expression::Identifier { name, span } => Some(Expression::Call {
-                function: Box::new(Expression::Identifier { name, span }),
+            Expression::Identifier { name, span, .. } => Some(Expression::Call {
+                function: Box::new(Expression::Identifier {
+                    name,
+                    span,
+                    id: self.next_expr_id(),
+                }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),
+                id: self.next_expr_id(),
             }),
             // a |> Module.func => Module.func(a)
             Expression::MemberAccess {
                 object,
                 member,
                 span,
+                ..
             } => Some(Expression::Call {
                 function: Box::new(Expression::MemberAccess {
                     object,
                     member,
                     span,
+                    id: self.next_expr_id(),
                 }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),
+                id: self.next_expr_id(),
             }),
             // a |> f(b, c) => f(a, b, c)
             Expression::Call {
                 function,
                 mut arguments,
                 span,
+                ..
             } => {
                 arguments.insert(0, left);
                 Some(Expression::Call {
                     function,
                     arguments,
                     span: Span::new(start, span.end),
+                    id: self.next_expr_id(),
                 })
             }
             _ => {
@@ -319,6 +332,7 @@ impl Parser {
             function: Box::new(function),
             arguments,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -340,6 +354,7 @@ impl Parser {
             left: Box::new(left),
             index: Box::new(index),
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -382,6 +397,7 @@ impl Parser {
                 object: Box::new(object),
                 index,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -411,6 +427,7 @@ impl Parser {
             object: Box::new(object),
             member,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -438,6 +455,7 @@ impl Parser {
             operator,
             right: Box::new(right),
             span: Span::new(start, end),
+            id: self.next_expr_id(),
         })
     }
 
@@ -448,6 +466,7 @@ impl Parser {
             return Some(Expression::TupleLiteral {
                 elements: vec![],
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -463,6 +482,7 @@ impl Parser {
                 return Some(Expression::TupleLiteral {
                     elements,
                     span: Span::new(start, self.current_token.end_position),
+                    id: self.next_expr_id(),
                 });
             }
 
@@ -506,6 +526,7 @@ impl Parser {
             return Some(Expression::TupleLiteral {
                 elements,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -558,6 +579,7 @@ impl Parser {
             return Some(Expression::ArrayLiteral {
                 elements: vec![],
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -568,6 +590,7 @@ impl Parser {
                 return Some(Expression::ArrayLiteral {
                     elements: vec![],
                     span: Span::new(start, self.current_token.end_position),
+                    id: self.next_expr_id(),
                 });
             }
 
@@ -584,6 +607,7 @@ impl Parser {
             return Some(Expression::ArrayLiteral {
                 elements,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -591,6 +615,7 @@ impl Parser {
         if self.consume_if_peek(TokenType::RBracket) {
             return Some(Expression::EmptyList {
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -652,6 +677,7 @@ impl Parser {
                 head: Box::new(first),
                 tail: Box::new(tail),
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -662,6 +688,7 @@ impl Parser {
         Some(Expression::ListLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -808,12 +835,16 @@ impl Parser {
     /// Build an `Expression::Identifier` from a string, interning it.
     fn make_ident(&mut self, name: &str, span: Span) -> Expression {
         let sym = self.lexer.interner_mut().intern(name);
-        Expression::Identifier { name: sym, span }
+        Expression::Identifier {
+            name: sym,
+            span,
+            id: self.next_expr_id(),
+        }
     }
 
     /// Build a single-parameter lambda: `\param -> body`
     fn make_lambda(
-        &self,
+        &mut self,
         param: crate::syntax::Identifier,
         body: Expression,
         span: Span,
@@ -833,6 +864,7 @@ impl Parser {
                 span: body_span,
             },
             span,
+            id: self.next_expr_id(),
         }
     }
 
@@ -842,6 +874,7 @@ impl Parser {
             function: Box::new(self.make_ident(name, span)),
             arguments,
             span,
+            id: self.next_expr_id(),
         }
     }
 
@@ -860,6 +893,7 @@ impl Parser {
             return Some(Expression::ArrayLiteral {
                 elements: vec![],
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -869,6 +903,7 @@ impl Parser {
         Some(Expression::ArrayLiteral {
             elements,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -923,6 +958,7 @@ impl Parser {
         Some(Expression::Hash {
             pairs,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -990,6 +1026,7 @@ impl Parser {
             consequence,
             alternative,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1006,6 +1043,7 @@ impl Parser {
         Some(Expression::DoBlock {
             block,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1067,6 +1105,7 @@ impl Parser {
             operation,
             args,
             span: Span::new(start, end),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1205,6 +1244,7 @@ impl Parser {
             effect,
             arms,
             span: Span::new(start, end),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1577,6 +1617,7 @@ impl Parser {
             effects: vec![],
             body,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1662,14 +1703,16 @@ impl Parser {
             effects: vec![],
             body,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
     // Option/Either expressions
-    pub(super) fn parse_none(&self) -> Option<Expression> {
+    pub(super) fn parse_none(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         Some(Expression::None {
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1681,6 +1724,7 @@ impl Parser {
         Some(Expression::Some {
             value: Box::new(value),
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1693,6 +1737,7 @@ impl Parser {
         Some(Expression::Left {
             value: Box::new(value),
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -1705,6 +1750,7 @@ impl Parser {
         Some(Expression::Right {
             value: Box::new(value),
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 }
