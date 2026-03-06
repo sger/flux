@@ -272,14 +272,19 @@ impl<'a> InferCtx<'a> {
             )),
             PatternFamily::Either => Some(InferType::App(
                 TypeConstructor::Either,
-                vec![self.env.alloc_infer_type_var(), self.env.alloc_infer_type_var()],
+                vec![
+                    self.env.alloc_infer_type_var(),
+                    self.env.alloc_infer_type_var(),
+                ],
             )),
             PatternFamily::List => Some(InferType::App(
                 TypeConstructor::List,
                 vec![self.env.alloc_infer_type_var()],
             )),
             PatternFamily::Tuple(arity) => Some(InferType::Tuple(
-                (0..*arity).map(|_| self.env.alloc_infer_type_var()).collect(),
+                (0..*arity)
+                    .map(|_| self.env.alloc_infer_type_var())
+                    .collect(),
             )),
             PatternFamily::Adt(adt_name) => {
                 let type_params = self.adt_type_params.get(adt_name)?;

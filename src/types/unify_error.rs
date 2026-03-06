@@ -93,7 +93,13 @@ impl UnifyError {
 #[allow(clippy::result_large_err)]
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     let mut next_row_var_id = 0;
-    unify_with_span_and_row_var_counter(t1, t2, Span::default(), &mut next_row_var_id)
+    unify_with_span_and_row_var_counter(
+        t1,
+        t2,
+        &TypeSubst::empty(),
+        Span::default(),
+        &mut next_row_var_id,
+    )
 }
 
 /// Unify with an explicit source span for error reporting.
@@ -104,17 +110,65 @@ pub fn unify_with_span(
     span: Span,
 ) -> Result<TypeSubst, UnifyError> {
     let mut next_row_var_id = 0;
-    unify_with_span_and_row_var_counter(t1, t2, span, &mut next_row_var_id)
+    unify_with_span_and_row_var_counter(t1, t2, &TypeSubst::empty(), span, &mut next_row_var_id)
 }
 
+/// Follow variable chains in a substitution to resolve the head constructor.
+///
+/// Only resolves top-level `Var` nodes — does NOT recurse into `Fun`/`App`/`Tuple`
+/// children. This is O(chain_length), typically O(1), instead of the O(type_size)
+/// full `apply_type_subst` walk.
+fn resolve_head<'a>(ty: &'a InferType, subst: &'a TypeSubst) -> &'a InferType {
+    const MAX_DEPTH: usize = 128;
+    let mut current = ty;
+    for _ in 0..MAX_DEPTH {
+        match current {
+            InferType::Var(v) => match subst.get_type(*v) {
+                Some(bound) => current = bound,
+                None => break,
+            },
+            _ => break,
+        }
+    }
+    current
+}
+
+/// Check whether type variable `v` occurs anywhere in `ty`, resolving variables
+/// through `ctx_subst` lazily at each level (without building a fully-resolved tree).
+fn occurs_in_with_ctx(v: TypeVarId, ty: &InferType, ctx_subst: &TypeSubst) -> bool {
+    match resolve_head(ty, ctx_subst) {
+        InferType::Var(w) => *w == v,
+        InferType::Con(_) => false,
+        InferType::App(_, args) => args.iter().any(|a| occurs_in_with_ctx(v, a, ctx_subst)),
+        InferType::Fun(params, ret, _) => {
+            params.iter().any(|p| occurs_in_with_ctx(v, p, ctx_subst))
+                || occurs_in_with_ctx(v, ret, ctx_subst)
+        }
+        InferType::Tuple(elems) => elems.iter().any(|e| occurs_in_with_ctx(v, e, ctx_subst)),
+    }
+}
+
+/// Core unification with lazy variable resolution through a context substitution.
+///
+/// Instead of requiring callers to pre-resolve types via `apply_type_subst`,
+/// this function resolves variables lazily through `ctx_subst` at each recursion
+/// level using `resolve_head`. This eliminates 2 full type-tree walks per
+/// unification call in `InferCtx::try_unify_and_compose_subst`.
+///
+/// The returned substitution contains only NEW bindings from this unification.
+/// Callers compose it into their context substitution afterward.
 #[allow(clippy::result_large_err)]
 pub fn unify_with_span_and_row_var_counter(
     t1: &InferType,
     t2: &InferType,
+    ctx_subst: &TypeSubst,
     span: Span,
     next_row_var_id: &mut u32,
 ) -> Result<TypeSubst, UnifyError> {
-    match (t1, t2) {
+    let t1_head = resolve_head(t1, ctx_subst);
+    let t2_head = resolve_head(t2, ctx_subst);
+
+    match (t1_head, t2_head) {
         // Any is compatible with everything (gradual typing)
         (InferType::Con(TypeConstructor::Any), _) | (_, InferType::Con(TypeConstructor::Any)) => {
             Ok(TypeSubst::empty())
@@ -124,16 +178,16 @@ pub fn unify_with_span_and_row_var_counter(
         (InferType::Con(c1), InferType::Con(c2)) if c1 == c2 => Ok(TypeSubst::empty()),
 
         // Type variable on the left
-        (InferType::Var(v), t) => bind_var(*v, t, span),
+        (InferType::Var(v), t) => bind_var_with_ctx(*v, t, ctx_subst, span),
 
         // Type variable on the right
-        (t, InferType::Var(v)) => bind_var(*v, t, span),
+        (t, InferType::Var(v)) => bind_var_with_ctx(*v, t, ctx_subst, span),
 
         // Two type applications: same constructor, same arity
         (InferType::App(c1, args1), InferType::App(c2, args2))
             if c1 == c2 && args1.len() == args2.len() =>
         {
-            unify_many(args1, args2, span, next_row_var_id)
+            unify_many(args1, args2, ctx_subst, span, next_row_var_id)
         }
 
         // Function types: same arity and same effect set
@@ -141,12 +195,20 @@ pub fn unify_with_span_and_row_var_counter(
             if params1.len() == params2.len() =>
         {
             let mut subst = TypeSubst::empty();
-            let row_subst = unify_effect_rows(effects1, effects2, span, next_row_var_id, &subst)?;
+            let row_subst =
+                unify_effect_rows(effects1, effects2, span, next_row_var_id, ctx_subst, &subst)?;
             subst = subst.compose(&row_subst);
             for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
                 let p1_sub = p1.apply_type_subst(&subst);
                 let p2_sub = p2.apply_type_subst(&subst);
-                let s = unify_with_span(&p1_sub, &p2_sub, span).map_err(|e| {
+                let s = unify_with_span_and_row_var_counter(
+                    &p1_sub,
+                    &p2_sub,
+                    ctx_subst,
+                    span,
+                    next_row_var_id,
+                )
+                .map_err(|e| {
                     UnifyError::mismatch(
                         e.expected,
                         e.actual,
@@ -159,23 +221,28 @@ pub fn unify_with_span_and_row_var_counter(
 
             let ret1_sub = ret1.apply_type_subst(&subst);
             let ret2_sub = ret2.apply_type_subst(&subst);
-            let s2 =
-                unify_with_span_and_row_var_counter(&ret1_sub, &ret2_sub, span, next_row_var_id)
-                    .map_err(|e| {
-                        UnifyError::mismatch(
-                            e.expected,
-                            e.actual,
-                            e.span,
-                            UnifyErrorDetail::FunReturnMismatch,
-                        )
-                    })?;
+            let s2 = unify_with_span_and_row_var_counter(
+                &ret1_sub,
+                &ret2_sub,
+                ctx_subst,
+                span,
+                next_row_var_id,
+            )
+            .map_err(|e| {
+                UnifyError::mismatch(
+                    e.expected,
+                    e.actual,
+                    e.span,
+                    UnifyErrorDetail::FunReturnMismatch,
+                )
+            })?;
             Ok(subst.compose(&s2))
         }
 
         // Function types with different arity.
         (InferType::Fun(params1, ..), InferType::Fun(params2, ..)) => Err(UnifyError::mismatch(
-            t1.clone(),
-            t2.clone(),
+            t1_head.clone(),
+            t2_head.clone(),
             span,
             UnifyErrorDetail::FunArityMismatch {
                 expected: params1.len(),
@@ -185,13 +252,13 @@ pub fn unify_with_span_and_row_var_counter(
 
         // Tuple types: same length
         (InferType::Tuple(elems1), InferType::Tuple(elems2)) if elems1.len() == elems2.len() => {
-            unify_many(elems1, elems2, span, next_row_var_id)
+            unify_many(elems1, elems2, ctx_subst, span, next_row_var_id)
         }
 
         // Everything else is a mismatch
         _ => Err(UnifyError::mismatch(
-            t1.clone(),
-            t2.clone(),
+            t1_head.clone(),
+            t2_head.clone(),
             span,
             UnifyErrorDetail::None,
         )),
@@ -203,18 +270,41 @@ pub fn unify_with_span_and_row_var_counter(
 fn unify_many(
     ts1: &[InferType],
     ts2: &[InferType],
+    ctx_subst: &TypeSubst,
     span: Span,
     next_row_var_id: &mut u32,
 ) -> Result<TypeSubst, UnifyError> {
     debug_assert_eq!(ts1.len(), ts2.len());
-    let mut subst = TypeSubst::empty();
+    let mut local_subst = TypeSubst::empty();
+
     for (t1, t2) in ts1.iter().zip(ts2.iter()) {
-        let t1_sub = t1.apply_type_subst(&subst);
-        let t2_sub = t2.apply_type_subst(&subst);
-        let s = unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, next_row_var_id)?;
-        subst = subst.compose(&s);
+        // Apply only the small local subst (accumulated from earlier pairs);
+        // ctx_subst is handled lazily via resolve_head in the recursive call.
+        let t1_sub = t1.apply_type_subst(&local_subst);
+        let t2_sub = t2.apply_type_subst(&local_subst);
+        let s = unify_with_span_and_row_var_counter(
+            &t1_sub,
+            &t2_sub,
+            ctx_subst,
+            span,
+            next_row_var_id,
+        )?;
+        local_subst = local_subst.compose(&s);
     }
-    Ok(subst)
+    Ok(local_subst)
+}
+
+/// Resolve an effect row through both local and context substitutions.
+///
+/// Applies local first (small, from current unification), then context
+/// (large, from InferCtx). Each `apply_row_subst` just follows the tail
+/// variable, so this is O(1) per call.
+fn resolve_row(
+    row: &InferEffectRow,
+    ctx_subst: &TypeSubst,
+    local_subst: &TypeSubst,
+) -> InferEffectRow {
+    row.apply_row_subst(local_subst).apply_row_subst(ctx_subst)
 }
 
 #[allow(clippy::result_large_err)]
@@ -223,10 +313,11 @@ fn unify_effect_rows(
     right: &InferEffectRow,
     span: Span,
     next_row_var_id: &mut u32,
-    current_subst: &TypeSubst,
+    ctx_subst: &TypeSubst,
+    local_subst: &TypeSubst,
 ) -> Result<TypeSubst, UnifyError> {
-    let left_resolved = left.apply_row_subst(current_subst);
-    let right_resolved = right.apply_row_subst(current_subst);
+    let left_resolved = resolve_row(left, ctx_subst, local_subst);
+    let right_resolved = resolve_row(right, ctx_subst, local_subst);
     let left_set: HashSet<_> = left_resolved.concrete().iter().copied().collect();
     let right_set: HashSet<_> = right_resolved.concrete().iter().copied().collect();
 
@@ -235,19 +326,10 @@ fn unify_effect_rows(
             if left_set == right_set {
                 Ok(TypeSubst::empty())
             } else {
-                Err(UnifyError::mismatch(
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        left_resolved,
-                    ),
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        right_resolved,
-                    ),
+                Err(UnifyError::effect_row_mismatch(
+                    left_resolved,
+                    right_resolved,
                     span,
-                    UnifyErrorDetail::None,
                 ))
             }
         }
@@ -261,22 +343,14 @@ fn unify_effect_rows(
                     left_tail,
                     InferEffectRow::closed_from_symbols(diff),
                     span,
-                    current_subst,
+                    ctx_subst,
+                    local_subst,
                 )
             } else {
-                Err(UnifyError::mismatch(
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        left_resolved,
-                    ),
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        right_resolved,
-                    ),
+                Err(UnifyError::effect_row_mismatch(
+                    left_resolved,
+                    right_resolved,
                     span,
-                    UnifyErrorDetail::None,
                 ))
             }
         }
@@ -290,22 +364,14 @@ fn unify_effect_rows(
                     right_tail,
                     InferEffectRow::closed_from_symbols(diff),
                     span,
-                    current_subst,
+                    ctx_subst,
+                    local_subst,
                 )
             } else {
-                Err(UnifyError::mismatch(
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        left_resolved,
-                    ),
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        right_resolved,
-                    ),
+                Err(UnifyError::effect_row_mismatch(
+                    left_resolved,
+                    right_resolved,
                     span,
-                    UnifyErrorDetail::None,
                 ))
             }
         }
@@ -313,19 +379,10 @@ fn unify_effect_rows(
             if left_set == right_set {
                 Ok(TypeSubst::empty())
             } else {
-                Err(UnifyError::mismatch(
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        left_resolved,
-                    ),
-                    InferType::Fun(
-                        vec![],
-                        Box::new(InferType::Con(TypeConstructor::Unit)),
-                        right_resolved,
-                    ),
+                Err(UnifyError::effect_row_mismatch(
+                    left_resolved,
+                    right_resolved,
                     span,
-                    UnifyErrorDetail::None,
                 ))
             }
         }
@@ -343,9 +400,10 @@ fn unify_effect_rows(
 
             let left_bind = InferEffectRow::open_from_symbols(right_extra, residual);
             let right_bind = InferEffectRow::open_from_symbols(left_extra, residual);
-            let s1 = unify_row_var(left_tail, left_bind, span, current_subst)?;
-            let merged = current_subst.clone().compose(&s1);
-            let s2 = unify_row_var(right_tail, right_bind, span, &merged)?;
+            let s1 = unify_row_var(left_tail, left_bind, span, ctx_subst, local_subst)?;
+            // For the second binding, merge s1 into local so tail resolution sees it.
+            let merged_local = local_subst.clone().compose(&s1);
+            let s2 = unify_row_var(right_tail, right_bind, span, ctx_subst, &merged_local)?;
             Ok(s1.compose(&s2))
         }
     }
@@ -356,11 +414,12 @@ fn unify_row_var(
     row_var: TypeVarId,
     row: InferEffectRow,
     span: Span,
-    current_subst: &TypeSubst,
+    ctx_subst: &TypeSubst,
+    local_subst: &TypeSubst,
 ) -> Result<TypeSubst, UnifyError> {
-    let resolved = row.apply_row_subst(current_subst);
+    let resolved = resolve_row(&row, ctx_subst, local_subst);
 
-    if row_var_occurs_in_row(row_var, &resolved, current_subst) {
+    if row_var_occurs_in_row(row_var, &resolved, ctx_subst, local_subst) {
         return Err(UnifyError::mismatch(
             InferType::Var(row_var),
             InferType::Fun(
@@ -381,15 +440,21 @@ fn unify_row_var(
 fn row_var_occurs_in_row(
     row_var: TypeVarId,
     row: &InferEffectRow,
-    current_subst: &TypeSubst,
+    ctx_subst: &TypeSubst,
+    local_subst: &TypeSubst,
 ) -> bool {
-    let resolved = row.apply_row_subst(current_subst);
+    let resolved = resolve_row(row, ctx_subst, local_subst);
     resolved.tail().is_some_and(|tail| tail == row_var)
 }
 
 /// Bind a type variable to a type, checking for infinite types.
 #[allow(clippy::result_large_err)]
-fn bind_var(v: TypeVarId, ty: &InferType, span: Span) -> Result<TypeSubst, UnifyError> {
+fn bind_var_with_ctx(
+    v: TypeVarId,
+    ty: &InferType,
+    ctx_subst: &TypeSubst,
+    span: Span,
+) -> Result<TypeSubst, UnifyError> {
     // Trivial: v is already the same variable
     if let InferType::Var(w) = ty
         && *w == v
@@ -397,9 +462,11 @@ fn bind_var(v: TypeVarId, ty: &InferType, span: Span) -> Result<TypeSubst, Unify
         return Ok(TypeSubst::empty());
     }
 
-    // Occurs check: v must not appear free in ty
-    if ty.free_type_vars().contains(&v) {
-        return Err(UnifyError::occurs(v, ty.clone(), span));
+    // Occurs check: v must not appear free in ty (resolving through ctx_subst)
+    if occurs_in_with_ctx(v, ty, ctx_subst) {
+        // Resolve for the error message so the user sees meaningful types
+        let ty_resolved = ty.apply_type_subst(ctx_subst);
+        return Err(UnifyError::occurs(v, ty_resolved, span));
     }
 
     let mut subst = TypeSubst::empty();

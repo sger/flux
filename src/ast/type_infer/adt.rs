@@ -25,8 +25,7 @@ impl<'a> InferCtx<'a> {
         type_params: &[Identifier],
         variants: &[DataVariant],
     ) {
-        self.adt_type_params
-            .insert(adt_name, type_params.to_vec());
+        self.adt_type_params.insert(adt_name, type_params.to_vec());
         for variant in variants {
             self.adt_constructor_types.insert(
                 variant.name,

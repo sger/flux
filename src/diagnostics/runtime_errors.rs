@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::diagnostics::position::Span;
 
 use super::builders::DiagnosticBuilder;
@@ -193,7 +195,7 @@ pub fn invalid_operation(
     op_name: &str,
     left_type: &str,
     right_type: &str,
-    file: String,
+    file: impl Into<Rc<str>>,
     span: Span,
 ) -> Diagnostic {
     diag_enhanced(&INVALID_OPERATION)
