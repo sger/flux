@@ -35,6 +35,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::ast::{rename, rename_expr};
+    use crate::syntax::expression::ExprId;
     use crate::syntax::{expression::Expression, interner::Interner, lexer::Lexer, parser::Parser};
 
     fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
@@ -71,6 +72,7 @@ mod tests {
         let expr = Expression::Identifier {
             name: x,
             span: Default::default(),
+            id: ExprId::UNSET,
         };
         let mut map = HashMap::new();
         map.insert(x, y);

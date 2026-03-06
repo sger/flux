@@ -24,7 +24,10 @@ impl Folder for DesugarPass {
         }
 
         // Destructure owned expression to avoid cloning sub-trees.
-        let Expression::Prefix { right, span, .. } = expr else {
+        let Expression::Prefix {
+            right, span, id, ..
+        } = expr
+        else {
             unreachable!()
         };
 
@@ -42,6 +45,7 @@ impl Folder for DesugarPass {
                 ref operator,
                 right,
                 span: infix_span,
+                id: infix_id,
             } if operator == "==" || operator == "!=" => {
                 let flipped = if operator == "==" { "!=" } else { "==" };
                 Expression::Infix {
@@ -49,6 +53,7 @@ impl Folder for DesugarPass {
                     operator: flipped.to_string(),
                     right,
                     span: infix_span,
+                    id: infix_id,
                 }
             }
 
@@ -57,6 +62,7 @@ impl Folder for DesugarPass {
                 operator: "!".to_string(),
                 right: Box::new(inner),
                 span,
+                id,
             },
         }
     }

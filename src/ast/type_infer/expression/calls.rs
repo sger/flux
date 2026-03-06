@@ -144,16 +144,13 @@ impl<'a> InferCtx<'a> {
             arguments.iter().zip(param_tys.iter()).enumerate()
         {
             let arg_ty = self.infer_expression(arg_expr);
-            let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
-            let actual_resolved = arg_ty.apply_type_subst(&self.subst);
-            let should_emit = expected_resolved.is_concrete()
-                && actual_resolved.is_concrete()
-                && !expected_resolved.contains_any()
-                && !actual_resolved.contains_any();
 
+            // Lazy substitution: pass &self.subst for on-demand variable
+            // resolution instead of pre-resolving both types.
             match unify_with_span_and_row_var_counter(
-                &expected_resolved,
-                &actual_resolved,
+                expected_param_ty,
+                &arg_ty,
+                &self.subst,
                 arg_expr.span(),
                 &mut self.env.counter,
             ) {
@@ -161,7 +158,14 @@ impl<'a> InferCtx<'a> {
                     self.subst = std::mem::take(&mut self.subst).compose(&subst);
                 }
                 Err(_) => {
-                    if should_emit {
+                    // Resolve only in the error path for the diagnostic check.
+                    let expected_resolved = expected_param_ty.apply_type_subst(&self.subst);
+                    let actual_resolved = arg_ty.apply_type_subst(&self.subst);
+                    if expected_resolved.is_concrete()
+                        && actual_resolved.is_concrete()
+                        && !expected_resolved.contains_any()
+                        && !actual_resolved.contains_any()
+                    {
                         let exp_str = self.display_type(&expected_resolved);
                         let act_str = self.display_type(&actual_resolved);
                         self.errors.push(call_arg_type_mismatch(

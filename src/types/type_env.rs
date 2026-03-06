@@ -12,11 +12,26 @@ use crate::{
 
 /// Scoped type environment mapping identifiers to their type schemes.
 ///
-/// Supports nested scopes (function bodies, let bindings) and tracks a fresh
-/// type-variable counter used throughout the inference pass.
+/// Uses a shadow-stack design for O(1) lookup: each name maps to a stack of
+/// bindings, with the top entry being the currently visible one. Scope
+/// markers track which names were bound at each scope level so `leave_scope`
+/// can efficiently restore the previous state.
+///
+/// Tracks a scope level counter shared with level-based generalization:
+/// type variables allocated at a deeper level than the generalization point
+/// are quantified without scanning the environment.
 #[derive(Debug, Clone)]
 pub struct TypeEnv {
-    scopes: Vec<HashMap<Identifier, TypeBindingEntry>>,
+    /// Shadow stack: each name maps to a stack of bindings (top = visible).
+    bindings: HashMap<Identifier, Vec<TypeBindingEntry>>,
+    /// Names bound at each scope level, used for cleanup on `leave_scope`.
+    scope_markers: Vec<Vec<Identifier>>,
+    /// Current scope depth. Incremented on `enter_scope`, decremented on
+    /// `leave_scope`. Used for level-based generalization.
+    level: u32,
+    /// Allocation level for each type variable. Variables with level > the
+    /// generalization point are quantified by `generalization_at_level`.
+    var_levels: HashMap<TypeVarId, u32>,
     pub counter: u32,
 }
 
@@ -29,21 +44,36 @@ struct TypeBindingEntry {
 impl TypeEnv {
     pub fn new() -> Self {
         TypeEnv {
-            scopes: vec![HashMap::new()],
+            bindings: HashMap::new(),
+            scope_markers: vec![Vec::new()],
+            level: 0,
+            var_levels: HashMap::new(),
             counter: 0,
         }
     }
 
-    /// Allocate a fresh type variable id.
+    /// Current scope level.
+    pub fn level(&self) -> u32 {
+        self.level
+    }
+
+    /// Allocate a fresh type variable id and record its allocation level.
     pub fn alloc_type_var_id(&mut self) -> TypeVarId {
-        let v = self.counter;
+        let var = self.counter;
         self.counter += 1;
-        v
+        self.var_levels.insert(var, self.level);
+        var
     }
 
     /// Allocate a fresh `InferType::Var`.
     pub fn alloc_infer_type_var(&mut self) -> InferType {
         InferType::Var(self.alloc_type_var_id())
+    }
+
+    /// Record the allocation level for a type variable that was created
+    /// externally (e.g. by `Scheme::instantiate`).
+    pub fn record_var_level(&mut self, var: TypeVarId) {
+        self.var_levels.insert(var, self.level);
     }
 
     /// Bind a name to a scheme in the current (innermost) scope.
@@ -53,56 +83,74 @@ impl TypeEnv {
 
     /// Bind a name to a scheme and optional definition span in the current scope.
     pub fn bind_with_span(&mut self, name: Identifier, scheme: Scheme, def_span: Option<Span>) {
-        self.scopes
-            .last_mut()
-            .expect("at least one scope")
-            .insert(name, TypeBindingEntry { scheme, def_span });
+        self.bindings
+            .entry(name)
+            .or_default()
+            .push(TypeBindingEntry { scheme, def_span });
+        if let Some(marker) = self.scope_markers.last_mut() {
+            marker.push(name);
+        }
     }
 
-    /// Look up a name, searching from innermost to outermost scope.
+    /// Look up a name — O(1) via shadow stack top.
     pub fn lookup(&self, name: Identifier) -> Option<&Scheme> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(entry) = scope.get(&name) {
-                return Some(&entry.scheme);
-            }
-        }
-        None
+        self.bindings.get(&name)?.last().map(|e| &e.scheme)
     }
 
-    /// Look up a name's definition span, searching from innermost to outermost scope.
+    /// Look up a name's definition span — O(1) via shadow stack top.
     pub fn lookup_span(&self, name: Identifier) -> Option<Span> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(entry) = scope.get(&name) {
-                return entry.def_span;
+        self.bindings.get(&name)?.last().and_then(|e| e.def_span)
+    }
+
+    /// Push a new empty scope and bump the level.
+    pub fn enter_scope(&mut self) {
+        self.level += 1;
+        self.scope_markers.push(Vec::new());
+    }
+
+    /// Pop the innermost scope, restoring shadowed bindings.
+    pub fn leave_scope(&mut self) {
+        if let Some(names) = self.scope_markers.pop() {
+            for name in names {
+                if let Some(stack) = self.bindings.get_mut(&name) {
+                    stack.pop();
+                    if stack.is_empty() {
+                        self.bindings.remove(&name);
+                    }
+                }
             }
         }
-        None
+        self.level = self.level.saturating_sub(1);
     }
 
-    /// Push a new empty scope.
-    pub fn enter_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    /// Pop the innermost scope.
-    pub fn leave_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
-        }
-    }
-
-    /// All free type variables present anywhere in the environment.
-    ///
-    /// Used by `generalize` to avoid quantifying variables that are still
-    /// constrained by the surrounding context.
+    /// All free type variables in currently visible bindings.
     pub fn free_vars(&self) -> HashSet<TypeVarId> {
         let mut set = HashSet::new();
-        for scope in &self.scopes {
-            for scheme in scope.values() {
-                set.extend(scheme.scheme.free_vars());
+        for stack in self.bindings.values() {
+            if let Some(entry) = stack.last() {
+                set.extend(entry.scheme.free_vars());
             }
         }
         set
+    }
+
+    /// Level-based generalization: quantify all free type variables whose
+    /// allocation level is strictly greater than the current environment level.
+    ///
+    /// This replaces `generalize(ty, &env.free_vars())` with an O(type-size)
+    /// operation independent of environment size.
+    pub fn generalize_at_level(&self, ty: &InferType) -> Scheme {
+        let level = self.level;
+        let mut forall: Vec<TypeVarId> = ty
+            .free_vars()
+            .into_iter()
+            .filter(|v| self.var_levels.get(v).copied().unwrap_or(0) > level)
+            .collect();
+        forall.sort_unstable();
+        Scheme {
+            forall,
+            infer_type: ty.clone(),
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -481,6 +529,46 @@ mod tests {
             InferEffectRow::closed_empty(),
         );
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn alloc_records_var_level() {
+        let mut env = TypeEnv::new();
+        let v0 = env.alloc_type_var_id(); // level 0
+        env.enter_scope();
+        let v1 = env.alloc_type_var_id(); // level 1
+        env.enter_scope();
+        let v2 = env.alloc_type_var_id(); // level 2
+
+        assert_eq!(env.level(), 2);
+        assert_eq!(*env.var_levels.get(&v0).unwrap(), 0);
+        assert_eq!(*env.var_levels.get(&v1).unwrap(), 0);
+        assert_eq!(*env.var_levels.get(&v2).unwrap(), 0);
+    }
+
+    #[test]
+    fn generalize_at_level_quantifies_deep_vars_only() {
+        let mut env = TypeEnv::new();
+        let v0 = env.alloc_type_var_id(); // level 0
+        env.enter_scope();
+        let v1 = env.alloc_type_var_id(); // level 1
+
+        // At level 1, generalize a type containing both vars.
+        // Only v0 (level 0) should remain free; v1 (level 1) is at the current
+        // level, not strictly greater, so it should NOT be quantified.
+        let ty = InferType::Fun(
+            vec![infer_var(v0)],
+            Box::new(infer_var(v1)),
+            InferEffectRow::closed_empty(),
+        );
+        let scheme = env.generalize_at_level(&ty);
+        assert!(scheme.forall.is_empty());
+
+        // Leave scope back to level 0 — now v1 (level 1) > 0, so it should
+        // be quantified.
+        env.leave_scope();
+        let scheme2 = env.generalize_at_level(&ty);
+        assert_eq!(scheme2.forall, vec![v1]);
     }
 
     #[test]

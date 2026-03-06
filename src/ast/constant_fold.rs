@@ -1,5 +1,7 @@
 use crate::ast::fold::{self, Folder};
+use crate::diagnostics::position::Span;
 use crate::primop::{PrimEffect, PrimOp, resolve_primop_call};
+use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
 
@@ -28,8 +30,9 @@ impl Folder for ConstantFolder<'_> {
                 ref operator,
                 ref right,
                 span,
+                id,
             } => {
-                if let Some(folded) = try_fold_infix(left, operator, right, span) {
+                if let Some(folded) = try_fold_infix(left, operator, right, span, id) {
                     return folded;
                 }
                 expr
@@ -38,8 +41,9 @@ impl Folder for ConstantFolder<'_> {
                 ref operator,
                 ref right,
                 span,
+                id,
             } => {
-                if let Some(folded) = try_fold_prefix(operator, right, span) {
+                if let Some(folded) = try_fold_prefix(operator, right, span, id) {
                     return folded;
                 }
                 expr
@@ -48,10 +52,11 @@ impl Folder for ConstantFolder<'_> {
                 ref function,
                 ref arguments,
                 span,
+                id,
             } => {
                 if let Some(interner) = self.interner
                     && let Some(folded) =
-                        try_fold_pure_primop_call(interner, function, arguments, span)
+                        try_fold_pure_primop_call(interner, function, arguments, span, id)
                 {
                     return folded;
                 }
@@ -67,34 +72,67 @@ fn try_fold_infix(
     left: &Expression,
     operator: &str,
     right: &Expression,
-    span: crate::diagnostics::position::Span,
+    span: Span,
+    id: ExprId,
 ) -> Option<Expression> {
     match (left, right) {
         (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "+" => Some(Expression::Integer { value: a + b, span }),
-                "-" => Some(Expression::Integer { value: a - b, span }),
-                "*" => Some(Expression::Integer { value: a * b, span }),
-                "/" if b != 0 => Some(Expression::Integer { value: a / b, span }),
-                "%" if b != 0 => Some(Expression::Integer { value: a % b, span }),
+                "+" => Some(Expression::Integer {
+                    value: a + b,
+                    span,
+                    id,
+                }),
+                "-" => Some(Expression::Integer {
+                    value: a - b,
+                    span,
+                    id,
+                }),
+                "*" => Some(Expression::Integer {
+                    value: a * b,
+                    span,
+                    id,
+                }),
+                "/" if b != 0 => Some(Expression::Integer {
+                    value: a / b,
+                    span,
+                    id,
+                }),
+                "%" if b != 0 => Some(Expression::Integer {
+                    value: a % b,
+                    span,
+                    id,
+                }),
                 "==" => Some(Expression::Boolean {
                     value: a == b,
                     span,
+                    id,
                 }),
                 "!=" => Some(Expression::Boolean {
                     value: a != b,
                     span,
+                    id,
                 }),
-                "<" => Some(Expression::Boolean { value: a < b, span }),
-                ">" => Some(Expression::Boolean { value: a > b, span }),
+                "<" => Some(Expression::Boolean {
+                    value: a < b,
+                    span,
+                    id,
+                }),
+                ">" => Some(Expression::Boolean {
+                    value: a > b,
+                    span,
+                    id,
+                }),
                 "<=" => Some(Expression::Boolean {
                     value: a <= b,
                     span,
+                    id,
                 }),
                 ">=" => Some(Expression::Boolean {
                     value: a >= b,
                     span,
+                    id,
                 }),
                 _ => None,
             }
@@ -102,10 +140,26 @@ fn try_fold_infix(
         (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "+" => Some(Expression::Float { value: a + b, span }),
-                "-" => Some(Expression::Float { value: a - b, span }),
-                "*" => Some(Expression::Float { value: a * b, span }),
-                "/" => Some(Expression::Float { value: a / b, span }),
+                "+" => Some(Expression::Float {
+                    value: a + b,
+                    span,
+                    id,
+                }),
+                "-" => Some(Expression::Float {
+                    value: a - b,
+                    span,
+                    id,
+                }),
+                "*" => Some(Expression::Float {
+                    value: a * b,
+                    span,
+                    id,
+                }),
+                "/" => Some(Expression::Float {
+                    value: a / b,
+                    span,
+                    id,
+                }),
                 _ => None,
             }
         }
@@ -116,6 +170,7 @@ fn try_fold_infix(
                 Some(Expression::String {
                     value: result,
                     span,
+                    id,
                 })
             } else {
                 None
@@ -127,10 +182,12 @@ fn try_fold_infix(
                 "&&" => Some(Expression::Boolean {
                     value: a && b,
                     span,
+                    id,
                 }),
                 "||" => Some(Expression::Boolean {
                     value: a || b,
                     span,
+                    id,
                 }),
                 _ => None,
             }
@@ -143,20 +200,24 @@ fn try_fold_infix(
 fn try_fold_prefix(
     operator: &str,
     right: &Expression,
-    span: crate::diagnostics::position::Span,
+    span: Span,
+    id: ExprId,
 ) -> Option<Expression> {
     match (operator, right) {
         ("-", Expression::Integer { value, .. }) => Some(Expression::Integer {
             value: -value,
             span,
+            id,
         }),
         ("-", Expression::Float { value, .. }) => Some(Expression::Float {
             value: -value,
             span,
+            id,
         }),
         ("!", Expression::Boolean { value, .. }) => Some(Expression::Boolean {
             value: !value,
             span,
+            id,
         }),
         _ => None,
     }
@@ -167,7 +228,8 @@ fn try_fold_pure_primop_call(
     interner: &Interner,
     function: &Expression,
     arguments: &[Expression],
-    span: crate::diagnostics::position::Span,
+    span: Span,
+    id: ExprId,
 ) -> Option<Expression> {
     let Expression::Identifier { name, .. } = function else {
         return None;
@@ -183,19 +245,22 @@ fn try_fold_pure_primop_call(
             Expression::Integer { value, .. } => Some(Expression::Integer {
                 value: value.abs(),
                 span,
+                id,
             }),
             Expression::Float { value, .. } => Some(Expression::Float {
                 value: value.abs(),
                 span,
+                id,
             }),
             _ => None,
         },
-        PrimOp::Min => fold_min_max(arguments, span, true),
-        PrimOp::Max => fold_min_max(arguments, span, false),
+        PrimOp::Min => fold_min_max(arguments, span, true, id),
+        PrimOp::Max => fold_min_max(arguments, span, false, id),
         PrimOp::StringLen => match arguments.first()? {
             Expression::String { value, .. } => Some(Expression::Integer {
                 value: value.len() as i64,
                 span,
+                id,
             }),
             _ => None,
         },
@@ -204,6 +269,7 @@ fn try_fold_pure_primop_call(
                 Some(Expression::String {
                     value: format!("{left}{right}"),
                     span,
+                    id,
                 })
             }
             _ => None,
@@ -214,8 +280,9 @@ fn try_fold_pure_primop_call(
 
 fn fold_min_max(
     arguments: &[Expression],
-    span: crate::diagnostics::position::Span,
+    span: Span,
     is_min: bool,
+    id: ExprId,
 ) -> Option<Expression> {
     let a = arguments.first()?;
     let b = arguments.get(1)?;
@@ -224,12 +291,14 @@ fn fold_min_max(
             Some(Expression::Integer {
                 value: if is_min { (*a).min(*b) } else { (*a).max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
             Some(Expression::Float {
                 value: if is_min { (*a).min(*b) } else { (*a).max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Integer { value: a, .. }, Expression::Float { value: b, .. }) => {
@@ -237,6 +306,7 @@ fn fold_min_max(
             Some(Expression::Float {
                 value: if is_min { a.min(*b) } else { a.max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Float { value: a, .. }, Expression::Integer { value: b, .. }) => {
@@ -244,6 +314,7 @@ fn fold_min_max(
             Some(Expression::Float {
                 value: if is_min { (*a).min(b) } else { (*a).max(b) },
                 span,
+                id,
             })
         }
         _ => None,

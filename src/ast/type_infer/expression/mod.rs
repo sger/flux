@@ -13,27 +13,44 @@ mod patterns;
 impl<'a> InferCtx<'a> {
     /// Infer an expression and record its resolved HM type under a stable node id.
     ///
-    /// Behavior:
-    /// - Allocates/looks up expression node id.
-    /// - Routes inference through literal/structured/effect families.
-    /// - Applies current substitution to store a resolved result.
-    ///
-    /// Side effects:
-    /// - May mutate environment/substitution/diagnostics through delegated handlers.
-    /// - Mutates `self.expr_types` with the resolved type for this node.
+    /// Uses a single flat match over all expression variants — each variant is
+    /// dispatched exactly once with no intermediate Option layers.
     pub(super) fn infer_expression(&mut self, expr: &Expression) -> InferType {
-        let node_id = self.node_id_for_expr(expr);
-        let inferred = self
-            .infer_literal_expression(expr)
-            .unwrap_or_else(|| {
-                self.infer_structured_family_expression(expr)
-                    .or_else(|| self.infer_effect_family_expression(expr))
-                    .unwrap_or_else(|| self.infer_unknown_expr_fallback())
-            });
+       let expr_id = expr.expr_id();
 
-        let resolved = inferred.apply_type_subst(&self.subst);
-        self.expr_types.insert(node_id, resolved.clone());
-        resolved
+       let inferred = match expr {
+           // Literals
+           Expression::Integer { .. } => InferType::Con(TypeConstructor::Int),
+           Expression::Float { .. } => InferType::Con(TypeConstructor::Float),
+           Expression::Boolean { .. } => InferType::Con(TypeConstructor::Bool),
+           Expression::String { .. } | Expression::InterpolatedString { .. } => InferType::Con(TypeConstructor::String),
+           Expression::None { .. } => InferType::App(TypeConstructor::Option, vec![self.env.alloc_infer_type_var()]),
+           // Wrappers
+           Expression::Some { value, .. } => {
+               let inner = self.infer_expression(value);
+               InferType::App(TypeConstructor::Option, vec![inner])
+           }
+           Expression::Left { value, .. } => {
+               let inner = self.infer_expression(expr);
+               let right = self.env.alloc_infer_type_var();
+               InferType::App(TypeConstructor::Either, vec![inner, right])
+           }
+           Expression::Right { value, .. } => {
+               let inner = self.infer_expression(expr);
+               let left = self.env.alloc_infer_type_var();
+               InferType::App(TypeConstructor::Either, vec![left, inner])
+           }
+           // Identifiers
+           Expression::Identifier { name, .. } => {
+               if let Some(scheme) = self.env.lookup(*name).cloned()  {
+                   let(ty, mapping) = scheme.instantiate(&mut self.env.counter);
+                   for &fresh in mapping.values()  {
+                       self.env.record_var_level(fresh);
+                   }
+                   ty
+               }
+           }
+       }
     }
 
     /// Infer structured expressions (control-flow, lambdas, calls, data access).
