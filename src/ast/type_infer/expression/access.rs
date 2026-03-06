@@ -1,23 +1,6 @@
 use super::*;
 
 impl<'a> InferCtx<'a> {
-    /// Infer index/member/tuple-field access expressions.
-    ///
-    /// Returns `None` when the expression is not an access node.
-    pub(super) fn infer_access_expression(&mut self, expr: &Expression) -> Option<InferType> {
-        let inferred = match expr {
-            Expression::Index { left, index, .. } => self.infer_index_expression(left, index),
-            Expression::MemberAccess { object, member, .. } => {
-                self.infer_member_access_expression(expr, object, *member)
-            }
-            Expression::TupleFieldAccess { object, index, .. } => {
-                self.infer_tuple_field_access_expression(object, *index)
-            }
-            _ => return None,
-        };
-        Some(inferred)
-    }
-
     /// Infer indexing operations over arrays/lists/maps/tuples.
     fn infer_index_expression(&mut self, left: &Expression, index: &Expression) -> InferType {
         let left_ty = self.infer_expression(left);
@@ -63,7 +46,7 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer module/member access resolution.
-    fn infer_member_access_expression(
+    pub(super) fn infer_member_access_expression(
         &mut self,
         expr: &Expression,
         object: &Expression,
@@ -77,7 +60,10 @@ impl<'a> InferCtx<'a> {
                 .get(&(*module_name, member))
                 .cloned()
         {
-            let (ty, _) = scheme.instantiate(&mut self.env.counter);
+            let (ty, mapping) = scheme.instantiate(&mut self.env.counter);
+            for &fresh in mapping.values() {
+                self.env.record_var_level(fresh);
+            }
             return ty;
         }
 
@@ -94,7 +80,7 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer tuple field projection by static index.
-    fn infer_tuple_field_access_expression(
+    pub(super) fn infer_tuple_field_access_expression(
         &mut self,
         object: &Expression,
         index: usize,

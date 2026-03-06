@@ -1,43 +1,18 @@
 use super::*;
 
 impl<'a> InferCtx<'a> {
-    /// Infer collection constructors and literals.
-    ///
-    /// Behavior:
-    /// - Dispatches to collection-shape specific helpers.
-    ///
-    /// Returns:
-    /// - `Some(type)` when `expr` belongs to the collection family.
-    /// - `None` otherwise.
-    pub(super) fn infer_collection_expression(&mut self, expr: &Expression) -> Option<InferType> {
-        let inferred = match expr {
-            Expression::TupleLiteral { elements, .. } => {
-                self.infer_tuple_literal_expression(elements)
-            }
-            Expression::ListLiteral { elements, span } => {
-                self.infer_list_literal_expression(elements, *span)
-            }
-            Expression::ArrayLiteral { elements, .. } => {
-                self.infer_array_literal_expression(elements)
-            }
-            Expression::EmptyList { .. } => {
-                InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()])
-            }
-            Expression::Hash { pairs, .. } => self.infer_hash_literal_expression(pairs),
-            Expression::Cons { head, tail, span } => self.infer_cons_expression(head, tail, *span),
-            _ => return None,
-        };
-        Some(inferred)
-    }
-
     /// Infer tuple literals by inferring each element in order.
-    fn infer_tuple_literal_expression(&mut self, elements: &[Expression]) -> InferType {
+    pub(super) fn infer_tuple_literal_expression(&mut self, elements: &[Expression]) -> InferType {
         let elem_tys: Vec<InferType> = elements.iter().map(|e| self.infer_expression(e)).collect();
         InferType::Tuple(elem_tys)
     }
 
     /// Infer list literals and unify all elements with the first element type.
-    fn infer_list_literal_expression(&mut self, elements: &[Expression], span: Span) -> InferType {
+    pub(super) fn infer_list_literal_expression(
+        &mut self,
+        elements: &[Expression],
+        span: Span,
+    ) -> InferType {
         if elements.is_empty() {
             return InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()]);
         }
@@ -53,9 +28,12 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer array literals, reducing heterogeneous element sets to `Array<Any>`.
-    fn infer_array_literal_expression(&mut self, elements: &[Expression]) -> InferType {
+    pub(super) fn infer_array_literal_expression(&mut self, elements: &[Expression]) -> InferType {
         if elements.is_empty() {
-            return InferType::App(TypeConstructor::Array, vec![self.env.alloc_infer_type_var()]);
+            return InferType::App(
+                TypeConstructor::Array,
+                vec![self.env.alloc_infer_type_var()],
+            );
         }
         let first = self.infer_expression(&elements[0]);
         let mut homogeneous = true;
@@ -77,7 +55,10 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer hash literals from the first pair shape, evaluating all pairs for constraints.
-    fn infer_hash_literal_expression(&mut self, pairs: &[(Expression, Expression)]) -> InferType {
+    pub(super) fn infer_hash_literal_expression(
+        &mut self,
+        pairs: &[(Expression, Expression)],
+    ) -> InferType {
         if pairs.is_empty() {
             let key = self.env.alloc_infer_type_var();
             let value = self.env.alloc_infer_type_var();
@@ -93,7 +74,7 @@ impl<'a> InferCtx<'a> {
     }
 
     /// Infer cons expressions and constrain the tail to the constructed list type.
-    fn infer_cons_expression(
+    pub(super) fn infer_cons_expression(
         &mut self,
         head: &Expression,
         tail: &Expression,

@@ -36,6 +36,29 @@ pub struct UnifyError {
 }
 
 impl UnifyError {
+    /// Build an effect-row mismatch error by wrapping both rows in synthetic
+    /// `() -> Unit with row` Fun types (compatible with the generic diagnostic path).
+    pub(crate) fn effect_row_mismatch(
+        left: InferEffectRow,
+        right: InferEffectRow,
+        span: Span,
+    ) -> Self {
+        Self::mismatch(
+            InferType::Fun(
+                vec![],
+                Box::new(InferType::Con(TypeConstructor::Unit)),
+                left,
+            ),
+            InferType::Fun(
+                vec![],
+                Box::new(InferType::Con(TypeConstructor::Unit)),
+                right,
+            ),
+            span,
+            UnifyErrorDetail::None,
+        )
+    }
+
     fn mismatch(
         expected: InferType,
         actual: InferType,
@@ -118,8 +141,7 @@ pub fn unify_with_span_and_row_var_counter(
             if params1.len() == params2.len() =>
         {
             let mut subst = TypeSubst::empty();
-            let row_subst =
-                unify_effect_rows(effects1, effects2, span, next_row_var_id, &subst)?;
+            let row_subst = unify_effect_rows(effects1, effects2, span, next_row_var_id, &subst)?;
             subst = subst.compose(&row_subst);
             for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
                 let p1_sub = p1.apply_type_subst(&subst);
@@ -139,14 +161,14 @@ pub fn unify_with_span_and_row_var_counter(
             let ret2_sub = ret2.apply_type_subst(&subst);
             let s2 =
                 unify_with_span_and_row_var_counter(&ret1_sub, &ret2_sub, span, next_row_var_id)
-                .map_err(|e| {
-                    UnifyError::mismatch(
-                        e.expected,
-                        e.actual,
-                        e.span,
-                        UnifyErrorDetail::FunReturnMismatch,
-                    )
-                })?;
+                    .map_err(|e| {
+                        UnifyError::mismatch(
+                            e.expected,
+                            e.actual,
+                            e.span,
+                            UnifyErrorDetail::FunReturnMismatch,
+                        )
+                    })?;
             Ok(subst.compose(&s2))
         }
 
@@ -189,8 +211,7 @@ fn unify_many(
     for (t1, t2) in ts1.iter().zip(ts2.iter()) {
         let t1_sub = t1.apply_type_subst(&subst);
         let t2_sub = t2.apply_type_subst(&subst);
-        let s =
-            unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, next_row_var_id)?;
+        let s = unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, next_row_var_id)?;
         subst = subst.compose(&s);
     }
     Ok(subst)

@@ -94,6 +94,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 function,
                 arguments,
                 span,
+                ..
             } => {
                 if self.in_tail {
                     self.tail_calls.push(TailCall { span: *span });
@@ -111,7 +112,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 condition,
                 consequence,
                 alternative,
-                span: _,
+                ..
             } => {
                 // Condition is NOT in tail position
                 let was_tail = self.in_tail;
@@ -134,9 +135,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 }
             }
             Expression::Match {
-                scrutinee,
-                arms,
-                span: _,
+                scrutinee, arms, ..
             } => {
                 // Scrutinee is NOT in tail position
                 let was_tail = self.in_tail;
@@ -169,7 +168,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 self.visit_block_with_tail(body);
                 self.in_tail = was_tail;
             }
-            Expression::DoBlock { block, span: _ } => {
+            Expression::DoBlock { block, .. } => {
                 if self.in_tail {
                     self.visit_block_with_tail(block);
                 } else {
