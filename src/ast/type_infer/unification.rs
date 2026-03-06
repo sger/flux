@@ -1,4 +1,7 @@
+use std::hash::{Hash, Hasher};
+
 use crate::{
+    ast::type_infer::constraint::Constraint,
     diagnostics::{Hint, match_arm_type_mismatch},
     types::unify_error::UnifyError,
 };
@@ -6,22 +9,18 @@ use crate::{
 use super::*;
 
 impl<'a> InferCtx<'a> {
-    /// Join two types for branch contexts (if/else, match arms).
+    /// Join two types by attempting unification.
     ///
-    /// Unlike `unify_reporting`, this does NOT add substitution constraints —
-    /// it only compares the already-resolved types.  When the resolved types
-    /// agree exactly, the common type is returned.  When they differ, `Any` is
-    /// returned without modifying the substitution.
+    /// When unification succeeds, the substitution is extended and the unified
+    /// type is returned — this propagates constraints through type variables
+    /// (e.g. `?a` joining with `Int` constrains `?a = Int`).
     ///
-    /// This models Flux's gradual type system where different branches may
-    /// legitimately produce values of different types (union falls back to Any).
+    /// On failure, falls back to `Any` without emitting diagnostics. Callers
+    /// that need diagnostics should use `unify_with_context` directly.
     pub(super) fn join_types(&mut self, t1: &InferType, t2: &InferType) -> InferType {
-        let t1_sub = t1.apply_type_subst(&self.subst);
-        let t2_sub = t2.apply_type_subst(&self.subst);
-        if t1_sub == t2_sub {
-            t1_sub
-        } else {
-            InferType::Con(TypeConstructor::Any)
+        match self.try_unify_and_compose_subst(t1, t2, Span::default()) {
+            Ok(unified) => unified,
+            Err(_) => InferType::Con(TypeConstructor::Any),
         }
     }
 
@@ -33,23 +32,24 @@ impl<'a> InferCtx<'a> {
     /// error reporter.  HM still needs the substitution side-effect so that
     /// downstream inference sees the annotation constraint.
     pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
-        let t1_sub = t1.apply_type_subst(&self.subst);
-        let t2_sub = t2.apply_type_subst(&self.subst);
+        // Lazy substitution: pass &self.subst into unification for on-demand
+        // variable resolution instead of pre-resolving both types upfront.
         match unify_with_span_and_row_var_counter(
-            &t1_sub,
-            &t2_sub,
+            t1,
+            t2,
+            &self.subst,
             Span::default(),
             &mut self.env.counter,
         ) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
-                t1_sub.apply_type_subst(&self.subst)
+                t1.apply_type_subst(&self.subst)
             }
             Err(_) => {
                 // Compiler boundary check will report — return the annotation
                 // type so that downstream inference stays consistent with the
                 // programmer's declared intent.
-                t2_sub.apply_type_subst(&self.subst)
+                t2.apply_type_subst(&self.subst)
             }
         }
     }
@@ -57,8 +57,9 @@ impl<'a> InferCtx<'a> {
     /// Try to unify two types and compose the resulting substitution into context state.
     ///
     /// Behavior:
-    /// - Resolves both input types through the current substitution.
-    /// - Calls row-aware unification with the provided `span`.
+    /// - Passes `&self.subst` as a context substitution for lazy variable
+    ///   resolution (R4). Unification resolves variables on-demand via
+    ///   `resolve_head` instead of requiring pre-resolved inputs.
     /// - On success, composes solved bindings into `self.subst`.
     ///
     /// Side effects:
@@ -74,12 +75,10 @@ impl<'a> InferCtx<'a> {
         t2: &InferType,
         span: Span,
     ) -> Result<InferType, UnifyError> {
-        let t1_sub = t1.apply_type_subst(&self.subst);
-        let t2_sub = t2.apply_type_subst(&self.subst);
         let solved =
-            unify_with_span_and_row_var_counter(&t1_sub, &t2_sub, span, &mut self.env.counter)?;
+            unify_with_span_and_row_var_counter(t1, t2, &self.subst, span, &mut self.env.counter)?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
-        Ok(t1_sub.apply_type_subst(&self.subst))
+        Ok(t1.apply_type_subst(&self.subst))
     }
 
     /// Return whether a unification error should be emitted as a diagnostic.
@@ -92,6 +91,28 @@ impl<'a> InferCtx<'a> {
             && error.actual.is_concrete()
             && !error.expected.contains_any()
             && !error.actual.contains_any()
+    }
+
+    /// Return whether a unification error should be emitted as a diagnostic.
+    ///
+    /// Checks concrete-and-non-Any guard, then deduplicates by (expected, actual)
+    /// hash so the same type-pair mismatch is reported at most once per inference run.
+    fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
+        if !error.expected.is_concrete()
+            || !error.actual.is_concrete()
+            || error.expected.contains_any()
+            || error.actual.contains_any()
+        {
+            return false;
+        }
+
+        let key = {
+            let mut hasher = std::hash::DefaultHasher::new();
+            self.display_type(&error.expected).hash(&mut hasher);
+            self.display_type(&error.actual).hash(&mut hasher);
+            hasher.finish()
+        };
+        self.seen_error_keys.insert(key)
     }
 
     /// Build function-detail mismatch diagnostics when available.
@@ -304,6 +325,12 @@ impl<'a> InferCtx<'a> {
         span: Span,
         context: ReportContext,
     ) -> InferType {
+        self.record_constraint(Constraint::Unify {
+            t1: t1.clone(),
+            t2: t2.clone(),
+            span,
+            context: context.clone(),
+        });
         match self.try_unify_and_compose_subst(t1, t2, span) {
             Ok(infer_type) => infer_type,
             Err(error) => {
@@ -313,7 +340,15 @@ impl<'a> InferCtx<'a> {
                     self.append_type_name_suggestions(&mut diagnostic, &error);
                     self.errors.push(diagnostic);
                 }
-                InferType::Con(TypeConstructor::Any)
+                // R13: recover with the expected type (t1) instead of Any when
+                // t1 is concrete, so downstream inference sees useful type info
+                // rather than a black hole. Only use Any as last resort.
+                let t1_resolved = t1.apply_type_subst(&self.subst);
+                if t1_resolved.is_concrete() && !t1_resolved.contains_any() {
+                    t1_resolved
+                } else {
+                    InferType::Con(TypeConstructor::Any)
+                }
             }
         }
     }
