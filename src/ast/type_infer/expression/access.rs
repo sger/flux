@@ -2,7 +2,11 @@ use super::*;
 
 impl<'a> InferCtx<'a> {
     /// Infer indexing operations over arrays/lists/maps/tuples.
-    fn infer_index_expression(&mut self, left: &Expression, index: &Expression) -> InferType {
+    pub(super) fn infer_index_expression(
+        &mut self,
+        left: &Expression,
+        index: &Expression,
+    ) -> InferType {
         let left_ty = self.infer_expression(left);
         let _index_ty = self.infer_expression(index);
         match left_ty.apply_type_subst(&self.subst) {

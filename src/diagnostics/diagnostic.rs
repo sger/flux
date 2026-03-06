@@ -5,6 +5,7 @@ use super::{ErrorCode, ErrorType, format_message};
 use crate::diagnostics::position::{Position, Span};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::{env, fs};
 
 /// The core diagnostic struct representing an error, warning, or note
@@ -15,7 +16,7 @@ pub struct Diagnostic {
     pub(crate) code: Option<String>,
     pub(crate) error_type: Option<ErrorType>,
     pub(crate) message: Option<String>,
-    pub(crate) file: Option<String>,
+    pub(crate) file: Option<Rc<str>>,
     pub(crate) span: Option<Span>,
     pub(crate) labels: Vec<Label>,
     pub(crate) hints: Vec<Hint>,
@@ -136,7 +137,7 @@ impl Diagnostic {
     }
 
     // Setter for file (needed by module_graph)
-    pub fn set_file(&mut self, file: impl Into<String>) {
+    pub fn set_file(&mut self, file: impl Into<Rc<str>>) {
         self.file = Some(file.into());
     }
 }
@@ -159,7 +160,7 @@ impl DiagnosticBuilder for Diagnostic {
         self
     }
 
-    fn with_file(mut self, file: impl Into<String>) -> Self {
+    fn with_file(mut self, file: impl Into<Rc<str>>) -> Self {
         self.file = Some(file.into());
         self
     }
@@ -312,7 +313,7 @@ impl Diagnostic {
     pub fn make_error(
         err_spec: &'static ErrorCode,
         values: &[&str],
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         let message = format_message(err_spec.message, values);
@@ -346,7 +347,7 @@ impl Diagnostic {
     pub fn make_warning_from_code(
         warn_spec: &'static ErrorCode,
         values: &[&str],
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         let message = format_message(warn_spec.message, values);
@@ -374,7 +375,7 @@ impl Diagnostic {
         error_type: ErrorType,
         message: impl Into<String>,
         hint: Option<String>,
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         let hints = if let Some(hint_text) = hint {
@@ -405,7 +406,7 @@ impl Diagnostic {
         code: impl Into<String>,
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         Diagnostic::warning(title)
@@ -419,7 +420,7 @@ impl Diagnostic {
     pub fn make_note(
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         Self {
@@ -443,7 +444,7 @@ impl Diagnostic {
     pub fn make_help(
         title: impl Into<String>,
         message: impl Into<String>,
-        file: impl Into<String>,
+        file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
         Self {

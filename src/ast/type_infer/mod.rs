@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use crate::{
     diagnostics::{
@@ -17,7 +20,7 @@ use crate::{
         block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
-        expression::{Expression, MatchArm},
+        expression::{ExprId, Expression, MatchArm},
         interner::Interner,
         program::Program,
         statement::Statement,
@@ -36,10 +39,12 @@ use crate::{
 };
 
 mod adt;
+mod constraint;
 mod display;
 mod effects;
 mod expression;
 mod function;
+mod solver;
 mod statement;
 mod unification;
 
@@ -130,14 +135,12 @@ struct InferCtx<'a> {
     env: TypeEnv,
     interner: &'a Interner,
     errors: Vec<Diagnostic>,
-    file_path: String,
+    file_path: Rc<str>,
     /// Accumulated global substitution — grows monotonically as constraints
     /// are solved.  Apply this to any `Ty` retrieved from the env to obtain
     /// its most-resolved form.
     subst: TypeSubst,
-    next_expr_id: u32,
-    expr_ptr_to_id: HashMap<usize, ExprNodeId>,
-    expr_types: HashMap<ExprNodeId, InferType>,
+    expr_types: HashMap<ExprId, InferType>,
     module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     known_base_names: HashSet<Identifier>,
     base_module_symbol: Identifier,
@@ -148,6 +151,16 @@ struct InferCtx<'a> {
     effect_op_signatures: HashMap<(Identifier, Identifier), TypeExpr>,
     ambient_effect_rows: Vec<InferEffectRow>,
     handled_effects: Vec<Identifier>,
+    /// Deduplication set for unification diagnostics. Keyed by a hash of
+    /// (expected_type, actual_type) so the same mismatch is reported at most once.
+    seen_error_keys: HashSet<u64>,
+    /// Constraint log records every constraint generated during inference.
+    /// Currently populated alongside eager solving for observability and
+    /// future deferred-solving support.
+    contraint_log: Vec<constraint::Constraint>,
+    /// Deferred constraints awaiting batch solving. Empty under the current
+    /// eager model; used by [`Self::solve_deferred_constraints`].
+    deferred_constraints: Vec<constraint::Constraint>,
 }
 
 impl<'a> InferCtx<'a> {
@@ -183,7 +196,7 @@ impl<'a> InferCtx<'a> {
     ///   keyed by `(effect, operation)`.
     fn new(
         interner: &'a Interner,
-        file_path: String,
+        file_path: Rc<str>,
         preloaded_base_schemes: HashMap<Identifier, Scheme>,
         preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
         known_base_names: HashSet<Identifier>,
@@ -201,8 +214,6 @@ impl<'a> InferCtx<'a> {
             errors: Vec::new(),
             file_path,
             subst: TypeSubst::empty(),
-            next_expr_id: 0,
-            expr_ptr_to_id: HashMap::new(),
             expr_types: HashMap::new(),
             module_member_schemes: preloaded_module_member_schemes,
             known_base_names,
@@ -212,38 +223,24 @@ impl<'a> InferCtx<'a> {
             effect_op_signatures: preloaded_effect_op_signatures,
             ambient_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
+            seen_error_keys: HashSet::new(),
+            contraint_log: Vec::new(),
+            deferred_constraints: Vec::new(),
         }
-    }
-
-    /// Return a stable node id for an expression pointer within this inference run.
-    ///
-    /// Allocates a new id on first sight and reuses it for subsequent lookups.
-    fn node_id_for_expr(&mut self, expr: &Expression) -> ExprNodeId {
-        let key = expr as *const Expression as usize;
-        if let Some(id) = self.expr_ptr_to_id.get(&key) {
-            return *id;
-        }
-        let id = ExprNodeId(self.next_expr_id);
-        self.next_expr_id = self.next_expr_id.saturating_add(1);
-        self.expr_ptr_to_id.insert(key, id);
-        id
     }
 
     /// Return `true` when `ty` is concrete and does not contain gradual `Any`.
     fn is_concrete_non_any(ty: &InferType) -> bool {
         ty.is_concrete() && !ty.contains_any()
     }
+
+    /// Record a constraint in the log for observability and future deferred solving.
+    fn record_constraint(&mut self, constraint: constraint::Constraint) {
+        self.contraint_log.push(constraint);
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Display helpers (public)
-// ─────────────────────────────────────────────────────────────────────────────
-
 pub use display::{display_infer_type, suggest_type_name};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Public API
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Pre-loaded data arguments required by [`infer_program`].
 ///
@@ -254,7 +251,7 @@ pub use display::{display_infer_type, suggest_type_name};
 ///
 /// ```text
 /// let cfg = InferProgramConfig {
-///     file_path: Some("examples/app.flx".to_string()),
+///     file_path: Some("examples/app.flx".into()),
 ///     preloaded_base_schemes: HashMap::new(),
 ///     preloaded_module_member_schemes: HashMap::new(),
 ///     known_base_names: HashSet::new(),
@@ -263,7 +260,7 @@ pub use display::{display_infer_type, suggest_type_name};
 /// };
 /// ```
 pub struct InferProgramConfig {
-    pub file_path: Option<String>,
+    pub file_path: Option<Rc<str>>,
     pub preloaded_base_schemes: HashMap<Identifier, Scheme>,
     pub preloaded_module_member_schemes: HashMap<(Identifier, Identifier), Scheme>,
     pub known_base_names: HashSet<Identifier>,
@@ -284,7 +281,7 @@ pub struct InferProgramConfig {
 ///
 /// ```text
 /// let result = infer_program(&program, &interner, InferProgramConfig {
-///     file_path: Some("main.flx".to_string()),
+///     file_path: Some("main.flx".into()),
 ///     preloaded_base_schemes: base_schemes,
 ///     preloaded_module_member_schemes: module_member_schemes,
 ///     known_base_names,
@@ -301,7 +298,7 @@ pub fn infer_program(
     interner: &Interner,
     config: InferProgramConfig,
 ) -> InferProgramResult {
-    let file = config.file_path.unwrap_or_default();
+    let file: Rc<str> = config.file_path.unwrap_or_else(|| "".into());
     let mut ctx = InferCtx::new(
         interner,
         file,
@@ -312,11 +309,14 @@ pub fn infer_program(
         config.preloaded_effect_op_signatures,
     );
     ctx.infer_program(program);
+    // Solve any deferred constraints (no-op under current eager model).
+    ctx.solve_deferred_constraints();
+    let constraint_count = ctx.contraint_log.len();
     InferProgramResult {
         type_env: ctx.env,
         diagnostics: ctx.errors,
         expr_types: ctx.expr_types,
-        expr_ptr_to_id: ctx.expr_ptr_to_id,
+        constraint_count,
     }
 }
 
@@ -326,10 +326,10 @@ pub struct InferProgramResult {
     pub type_env: TypeEnv,
     /// Non-fatal inference diagnostics collected during the pass.
     pub diagnostics: Vec<Diagnostic>,
-    /// Inferred type for each recorded expression node id.
-    pub expr_types: HashMap<ExprNodeId, InferType>,
-    /// Stable pointer-keyed mapping from syntax nodes to expression ids.
-    pub expr_ptr_to_id: HashMap<usize, ExprNodeId>,
+    /// Inferred type for each recorded expression, keyed by parser-assigned `ExprId`.
+    pub expr_types: HashMap<ExprId, InferType>,
+    /// Total number of type/effect constraints generated during inference.
+    pub constraint_count: usize,
 }
 
 /// Stable identifier for one expression node within a single inference run.

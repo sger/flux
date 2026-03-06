@@ -3,6 +3,8 @@
 //! This trait provides a fluent API for constructing diagnostics. It's implemented
 //! by the Diagnostic struct and can be extended for custom diagnostic types.
 
+use std::rc::Rc;
+
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic};
 
@@ -39,7 +41,7 @@ pub trait DiagnosticBuilder: Sized {
     fn with_message(self, message: impl Into<String>) -> Self;
 
     /// Set the source file path
-    fn with_file(self, file: impl Into<String>) -> Self;
+    fn with_file(self, file: impl Into<Rc<str>>) -> Self;
 
     /// Set the source position (converts to a zero-width span)
     fn with_position(self, position: Position) -> Self;
