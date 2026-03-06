@@ -5,7 +5,12 @@ use crate::{
         unexpected_token,
     },
     syntax::{
-        interner::Interner, lexer::Lexer, program::Program, token::Token, token_type::TokenType,
+        expression::{ExprId, ExprIdGen},
+        interner::Interner,
+        lexer::Lexer,
+        program::Program,
+        token::Token,
+        token_type::TokenType,
     },
 };
 
@@ -23,6 +28,7 @@ pub struct Parser {
     pub warnings: Vec<Diagnostic>,
     pub(super) suppress_unterminated_string_error_at: Option<Position>,
     pub(super) reported_unclosed_brace: bool,
+    expr_id_gen: ExprIdGen,
 }
 
 impl Parser {
@@ -36,6 +42,7 @@ impl Parser {
             warnings: Vec::new(),
             suppress_unterminated_string_error_at: None,
             reported_unclosed_brace: false,
+            expr_id_gen: ExprIdGen::new(),
         };
         parser.prime();
         parser
@@ -69,6 +76,14 @@ impl Parser {
 
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
+    }
+
+    pub(super) fn next_expr_id(&mut self) -> ExprId {
+        self.expr_id_gen.next_id()
+    }
+
+    pub fn expr_id_gen(&self) -> u32 {
+        self.expr_id_gen.counter()
     }
 
     pub fn parse_program(&mut self) -> Program {
