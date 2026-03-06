@@ -47,6 +47,7 @@ impl Parser {
                     .symbol
                     .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -61,6 +62,7 @@ impl Parser {
                     .symbol
                     .expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             });
         }
 
@@ -83,6 +85,7 @@ impl Parser {
         Some(Expression::Identifier {
             name: symbol,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -92,6 +95,7 @@ impl Parser {
             Ok(value) => Some(Expression::Integer {
                 value,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             }),
             Err(_) => {
                 self.errors.push(invalid_integer(
@@ -109,6 +113,7 @@ impl Parser {
             Ok(value) => Some(Expression::Float {
                 value,
                 span: Span::new(start, self.current_token.end_position),
+                id: self.next_expr_id(),
             }),
             Err(_) => {
                 self.errors.push(invalid_float(
@@ -128,6 +133,7 @@ impl Parser {
         Some(Expression::String {
             value: first_part,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
@@ -258,14 +264,16 @@ impl Parser {
         Some(Expression::InterpolatedString {
             parts,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 
-    pub(super) fn parse_boolean(&self) -> Option<Expression> {
+    pub(super) fn parse_boolean(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         Some(Expression::Boolean {
             value: self.current_token.token_type == TokenType::True,
             span: Span::new(start, self.current_token.end_position),
+            id: self.next_expr_id(),
         })
     }
 }
