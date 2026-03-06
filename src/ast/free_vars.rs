@@ -105,7 +105,10 @@ impl FreeVarCollector {
                 Self::collect_pattern_names_into(head, names);
                 Self::collect_pattern_names_into(tail, names);
             }
-            Pattern::Tuple { elements, .. } | Pattern::Constructor { fields: elements, .. } => {
+            Pattern::Tuple { elements, .. }
+            | Pattern::Constructor {
+                fields: elements, ..
+            } => {
                 for element in elements {
                     Self::collect_pattern_names_into(element, names);
                 }
