@@ -1126,11 +1126,12 @@ fn test_map_heterogeneous_array_is_compile_error() {
 
 #[test]
 fn test_filter_error_includes_index() {
-    // Verify error messages include element index
-    let err = run_error(r#"filter(#[1, 2, 3, 4], fn(x) { x + "bad" });"#);
+    // The callback `fn(x) { x + "bad" }` returns String, but filter expects Bool.
+    // HM inference catches this at compile time as an E300 type mismatch.
+    let err = run_any_error(r#"filter(#[1, 2, 3, 4], fn(x) { x + "bad" });"#);
     assert!(
-        err.contains("index"),
-        "Expected error to include index, got: {}",
+        err.contains("E300") || err.contains("Bool"),
+        "Expected compile-time type error (E300 / Bool mismatch), got: {}",
         err
     );
 }
