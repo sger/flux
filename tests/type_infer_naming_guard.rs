@@ -89,6 +89,9 @@ fn type_infer_naming_conventions() {
         }
     }
 
+    // After proposal 0079 R2, the old family dispatchers (infer_literal_expression,
+    // infer_collection_expression, infer_access_expression) are gone — all routing
+    // happens in the flat `infer_expression` match. Per-variant helpers remain.
     let required_expression_entrypoints = [
         "infer_expression",
         "infer_infix_expression",
@@ -97,11 +100,8 @@ fn type_infer_naming_conventions() {
         "infer_if_expression",
         "infer_match_expression",
         "infer_lambda_expression",
-        "infer_collection_expression",
-        "infer_access_expression",
         "infer_perform_expression",
         "infer_handle_expression",
-        "infer_literal_expression",
     ];
     for required in required_expression_entrypoints {
         if !names.contains(required) {
