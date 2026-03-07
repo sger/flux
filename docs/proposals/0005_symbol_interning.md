@@ -1,22 +1,19 @@
 - Feature Name: Symbol Interning
 - Start Date: 2026-02-01
-- Proposal PR: 
-- Flux Issue: 
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0005: Symbol Interning
 
 ## Summary
-[summary]: #summary
 
 Replace string-based identifiers with interned symbols (u32 IDs) throughout the compiler to reduce memory usage by 70-80% and improve performance by 2-3x for identifier operations.
 
 ## Motivation
-[motivation]: #motivation
 
 The proposal addresses correctness, maintainability, and diagnostics consistency for this feature area. It exists to make expected behavior explicit and testable across compiler, runtime, and documentation workflows.
 
 ## Guide-level explanation
-[guide-level-explanation]: #guide-level-explanation
 
 This proposal should be read as a user-facing and contributor-facing guide for the feature.
 
@@ -25,7 +22,6 @@ This proposal should be read as a user-facing and contributor-facing guide for t
 - Diagnostics and policy boundaries remain aligned with current proposal contracts.
 
 ## Reference-level explanation
-[reference-level-explanation]: #reference-level-explanation
 
 The technical details below consolidate implementation, validation, and policy notes from the legacy proposal.
 
@@ -47,20 +43,19 @@ This proposal was already largely template-structured before corpus normalizatio
 - No additional historical metadata was found in the legacy document.
 
 ## Drawbacks
-[drawbacks]: #drawbacks
 
 1. Restructuring legacy material into a strict template can reduce local narrative flow.
 2. Consolidation may temporarily increase document length due to historical preservation.
 3. Additional review effort is required to keep synthesized sections aligned with implementation changes.
 
 ## Rationale and alternatives
-[rationale-and-alternatives]: #rationale-and-alternatives
 
 ### Decision
 
 **Rationale:** Current performance is acceptable. Focus on maintainability (Phase 1) before optimization (Phase 3).
 
 **Next steps:**
+
 1. Complete Phase 1 (module split)
 2. Add performance benchmarks
 3. Profile compiler on large files (>5000 identifiers)
@@ -69,7 +64,6 @@ This proposal was already largely template-structured before corpus normalizatio
 ### Decision
 
 ## Prior art
-[prior-art]: #prior-art
 
 The technical details below consolidate implementation, validation, and policy notes from the legacy proposal.
 
@@ -104,13 +98,11 @@ HashMap<Rc<str>, Object>
 ### References
 
 ## Unresolved questions
-[unresolved-questions]: #unresolved-questions
 
 - No unresolved questions were explicitly listed in the legacy text.
 - Follow-up questions should be tracked in Proposal PR and Flux Issue fields when created.
 
 ## Future possibilities
-[future-possibilities]: #future-possibilities
 
 ### Future (If Needed)
 

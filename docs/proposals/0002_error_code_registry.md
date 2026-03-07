@@ -1,14 +1,14 @@
 - Feature Name: Error Code Registry
 - Start Date: 2026-02-26
-- Proposal PR: 
-- Flux Issue: 
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0002: Error Code Registry
 
 ## Summary
-[summary]: #summary
 
 **Rationale:**
+
 - ✅ Zero runtime overhead (compiled into binary)
 - ✅ No external dependencies (toml/serde)
 - ✅ Compile-time type safety
@@ -16,12 +16,10 @@
 - ✅ Single binary distribution
 
 ## Motivation
-[motivation]: #motivation
 
 The proposal addresses correctness, maintainability, and diagnostics consistency for this feature area. It exists to make expected behavior explicit and testable across compiler, runtime, and documentation workflows.
 
 ## Guide-level explanation
-[guide-level-explanation]: #guide-level-explanation
 
 ### Design
 
@@ -109,7 +107,6 @@ Diagnostic::error(spec.title)
 ### Phase 3: Refactor Usage Sites (2-3 hours)
 
 ## Reference-level explanation
-[reference-level-explanation]: #reference-level-explanation
 
 The technical details below consolidate implementation, validation, and policy notes from the legacy proposal.
 
@@ -131,20 +128,19 @@ This proposal was already largely template-structured before corpus normalizatio
 - No additional historical metadata was found in the legacy document.
 
 ## Drawbacks
-[drawbacks]: #drawbacks
 
 1. Restructuring legacy material into a strict template can reduce local narrative flow.
 2. Consolidation may temporarily increase document length due to historical preservation.
 3. Additional review effort is required to keep synthesized sections aligned with implementation changes.
 
 ## Rationale and alternatives
-[rationale-and-alternatives]: #rationale-and-alternatives
 
 ### Decision Summary
 
 **Chosen Approach:** Enum-Based Catalog (Alternative B)
 
 **Rationale:**
+
 - ✅ Zero runtime overhead (compiled into binary)
 - ✅ No external dependencies (toml/serde)
 - ✅ Compile-time type safety
@@ -152,6 +148,7 @@ This proposal was already largely template-structured before corpus normalizatio
 - ✅ Single binary distribution
 
 **Rejected Approach:** TOML-based catalog (Alternative A)
+
 - ❌ 50-100ms startup overhead (file I/O + parsing)
 - ❌ Requires toml/serde dependencies
 - ❌ Runtime parsing complexity
@@ -168,6 +165,7 @@ This proposal was already largely template-structured before corpus normalizatio
 ```
 
 **Error Code Ranges:**
+
 - **E001-E099:** Parse errors
 - **E100-E199:** Syntax errors
 - **E200-E299:** Type errors (future)
@@ -182,6 +180,7 @@ This proposal was already largely template-structured before corpus normalizatio
 **Examples:**
 
 Compiler error:
+
 ```
 -- COMPILER ERROR: UNDEFINED VARIABLE -- examples/test.flx -- [E007]
 
@@ -194,6 +193,7 @@ Hint: Define it first: let foo = ...;
 ```
 
 Runtime error:
+
 ```
 -- RUNTIME ERROR: WRONG NUMBER OF ARGUMENTS -- examples/test.flx -- [E1001]
 
@@ -211,6 +211,7 @@ Stack trace:
 ```
 
 **Benefits:**
+
 - ✅ Unified format for all errors
 - ✅ Error source explicit in header
 - ✅ Error code indicates category
@@ -219,6 +220,7 @@ Stack trace:
 ### Alternative A: TOML-Based Catalog (Rejected)
 
 **Structure:**
+
 ```toml
 
 ### Alternative B: Enum-Based Catalog (CHOSEN ✅)
@@ -252,8 +254,10 @@ Stack trace:
 **Chosen Format:** Explicit error source prefix
 
 ```
+
 -- COMPILER ERROR: TITLE -- file.flx -- [EXXX]
 -- RUNTIME ERROR: TITLE -- file.flx -- [E1XXX]
+
 ```
 
 **Error Code Ranges:**
@@ -272,6 +276,7 @@ Stack trace:
 
 Compiler error:
 ```
+
 -- COMPILER ERROR: UNDEFINED VARIABLE -- examples/test.flx -- [E007]
 
 I can't find a value named `foo`.
@@ -280,10 +285,12 @@ I can't find a value named `foo`.
    |         ^^^
 
 Hint: Define it first: let foo = ...;
+
 ```
 
 Runtime error:
 ```
+
 -- RUNTIME ERROR: WRONG NUMBER OF ARGUMENTS -- examples/test.flx -- [E1001]
 
 function: substring/3
@@ -297,6 +304,7 @@ Hint: substring(s, start, end)
 
 Stack trace:
   at <main> (examples/test.flx:28:7)
+
 ```
 
 **Benefits:**
@@ -317,6 +325,7 @@ hint = "Define it first: let {} = ...;"
 ```
 
 **Loading:**
+
 ```rust
 use std::sync::OnceLock;
 use serde::Deserialize;
@@ -332,12 +341,14 @@ fn load_catalog() -> &'static CatalogFile {
 ```
 
 **Why Rejected:**
+
 - ❌ **Performance:** 50-100ms startup overhead (file I/O + TOML parsing)
 - ❌ **Dependencies:** Requires `toml` + `serde` crates (~30KB binary)
 - ❌ **Complexity:** More code to maintain (loader, deserializer)
 - ❌ **Distribution:** Must ship .toml file or embed with include_str!
 
 **When This Would Make Sense:**
+
 - Localization (multiple language files)
 - User-customizable error messages
 - Hot-reloading errors without recompiling
@@ -346,13 +357,13 @@ fn load_catalog() -> &'static CatalogFile {
 ### Alternative B: Enum-Based Catalog (CHOSEN ✅)
 
 **Why Chosen:**
+
 - ✅ **Performance:** Zero overhead, instant access
 - ✅ **Simplicity:** Just Rust structs and arrays
 - ✅ **Distribution:** Single binary, no external files
 - ✅ **Type safety:** Compile-time verification
 
 ## Prior art
-[prior-art]: #prior-art
 
 The technical details below consolidate implementation, validation, and policy notes from the legacy proposal.
 
@@ -365,13 +376,11 @@ The technical details below consolidate implementation, validation, and policy n
 ### References
 
 ## Unresolved questions
-[unresolved-questions]: #unresolved-questions
 
 - No unresolved questions were explicitly listed in the legacy text.
 - Follow-up questions should be tracked in Proposal PR and Flux Issue fields when created.
 
 ## Future possibilities
-[future-possibilities]: #future-possibilities
 
 - Future expansion should preserve diagnostics stability and test-backed semantics.
 - Any post-MVP scope should be tracked as explicit follow-up proposals.
