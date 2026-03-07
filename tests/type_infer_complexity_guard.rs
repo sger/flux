@@ -6,6 +6,13 @@ use std::{
 const MAX_FN_LINES: usize = 60;
 const MAX_BRANCH_POINTS: usize = 15;
 
+/// Functions exempt from the default limits because they are intentionally
+/// a single flat dispatch (proposal 0079 R2).
+const EXEMPT_FUNCTIONS: &[(&str, usize, usize)] = &[
+    // infer_expression is a single exhaustive match over all Expression variants.
+    ("infer_expression", 160, 35),
+];
+
 #[derive(Debug)]
 struct FnSpan {
     file: PathBuf,
@@ -151,26 +158,32 @@ fn type_infer_function_complexity_budget() {
     let mut violations = Vec::new();
     for file in files {
         for f in collect_functions(&file) {
+            let (max_lines, max_branches) = EXEMPT_FUNCTIONS
+                .iter()
+                .find(|(name, _, _)| *name == f.name)
+                .map(|(_, ml, mb)| (*ml, *mb))
+                .unwrap_or((MAX_FN_LINES, MAX_BRANCH_POINTS));
+
             let line_count = f.lines.len();
-            if line_count > MAX_FN_LINES {
+            if line_count > max_lines {
                 violations.push(format!(
                     "{}:{} `{}` has {} lines (max {})",
                     f.file.display(),
                     f.start_line,
                     f.name,
                     line_count,
-                    MAX_FN_LINES
+                    max_lines
                 ));
             }
             let branches = count_branch_points(&f.lines);
-            if branches > MAX_BRANCH_POINTS {
+            if branches > max_branches {
                 violations.push(format!(
                     "{}:{} `{}` has {} branch points (max {})",
                     f.file.display(),
                     f.start_line,
                     f.name,
                     branches,
-                    MAX_BRANCH_POINTS
+                    max_branches
                 ));
             }
         }
