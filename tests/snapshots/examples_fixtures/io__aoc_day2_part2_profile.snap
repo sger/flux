@@ -86,17 +86,6 @@ Hint:
 
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify () -> Unit with () -> Unit with Time.
-
-  --> examples/io/aoc_day2_part2_profile.flx:20:10
-   |
-20 | let t1 = now_ms()
-   |          ^^^^^^^^
-   |          -------- expected () -> Unit, found () -> Unit with Time
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
 Cannot unify () -> Unit with () -> Unit with IO.
 
   --> examples/io/aoc_day2_part2_profile.flx:22:1
@@ -104,9 +93,6 @@ Cannot unify () -> Unit with () -> Unit with IO.
 22 | print("iterations:")
    | ^^^^^^^^^^^^^^^^^^^^
    | -------------------- expected () -> Unit, found () -> Unit with IO
-
-Help:
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -137,20 +123,6 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/io/aoc_day2_part2_profile.flx:24:1
-   |
-24 | print("checksum:")
-   | ^^^^^^^^^^^^^^^^^^
-   | ------------------ expected () -> Unit, found () -> Unit with IO
-
-Help:
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
-
-
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -177,20 +149,6 @@ Effectful operation is not allowed at top level (requires: IO).
 
 Hint:
   Move this code into `fn main() with ... { ... }`.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/io/aoc_day2_part2_profile.flx:26:1
-   |
-26 | print("elapsed_ms:")
-   | ^^^^^^^^^^^^^^^^^^^^
-   | -------------------- expected () -> Unit, found () -> Unit with IO
-
-Help:
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
@@ -220,6 +178,6 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 16 errors.
+Found 13 errors.
 == stdout ==
 <not executed>
