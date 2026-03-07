@@ -136,8 +136,26 @@ impl InferType {
     }
 
     /// Returns `true` if this type is fully concrete (no `Var` nodes).
+    ///
+    /// Uses a short-circuit walk that exits on the first `Var` found,
+    /// avoiding the full `HashSet` allocation of `free_vars().is_empty()`.
     pub fn is_concrete(&self) -> bool {
-        self.free_vars().is_empty()
+        !self.contains_var()
+    }
+
+    fn contains_var(&self) -> bool {
+        match self {
+            InferType::Var(_) => true,
+            InferType::Con(_) => false,
+            InferType::App(_, args) | InferType::Tuple(args) => {
+                args.iter().any(InferType::contains_var)
+            }
+            InferType::Fun(params, ret, effects) => {
+                params.iter().any(InferType::contains_var)
+                    || ret.contains_var()
+                    || effects.tail().is_some()
+            }
+        }
     }
 
     /// `Any` is the gradual escape hatch.

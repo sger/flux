@@ -31,7 +31,11 @@ pub enum TypeConstructor {
     Option,
     /// `Either<L, R>` type constructor.
     Either,
-    /// User-defined ADT, keyed by its interned name.
+    /// User-defined ADT, keyed by its interned name symbol ID.
+    ///
+    /// Displays as `$<symbol_id>` (e.g. `$7`) — the `$` prefix comes from
+    /// `Symbol`'s own `Display` impl, which renders the raw interned ID rather
+    /// than the resolved string, since display here is diagnostic/debug only.
     Adt(Symbol),
 }
 

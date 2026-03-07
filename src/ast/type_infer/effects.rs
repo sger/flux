@@ -14,7 +14,7 @@ impl<'a> InferCtx<'a> {
     /// - Resolves symbolic row variables through `row_var_env` so the same
     ///   source-level row variable always maps to the same [`TypeVarId`] within
     ///   this inference context.
-    /// - Allocates fresh row-variable ids using `next_row_var_id` when a symbol
+    /// - Allocates fresh row-variable ids using `row_var_counter` when a symbol
     ///   appears for the first time.
     /// - Produces a closed row when no row-variable is present, otherwise an open
     ///   row whose tail is the last row-variable encountered in `effects`.
@@ -23,7 +23,7 @@ impl<'a> InferCtx<'a> {
     /// - `effects`: parsed effect expressions for the current annotation site.
     /// - `row_var_env`: per-site/per-scope mapping from symbolic row variables
     ///   to canonical row-variable ids.
-    /// - `next_row_var_id`: monotonic allocator for fresh row-variable ids.
+    /// - `row_var_counter`: monotonic allocator for fresh row-variable ids.
     ///
     /// This function intentionally delegates construction details to
     /// [`InferEffectRow::from_effect_exprs`] so row-shape policy stays
@@ -35,8 +35,8 @@ impl<'a> InferCtx<'a> {
     /// // In a function annotation like: fn f() with io, e
     /// // `effects` contains parsed nodes for `io` and row variable `e`.
     /// let mut row_var_env = HashMap::new();
-    /// let mut next_row_var_id = 100;
-    /// let row = InferCtx::infer_effect_row(&effects, &mut row_var_env, &mut next_row_var_id);
+    /// let mut row_var_counter = 100;
+    /// let row = InferCtx::infer_effect_row(&effects, &mut row_var_env, &mut row_var_counter);
     ///
     /// assert!(row.concrete().contains(&io_symbol));
     /// assert!(row.tail().is_some()); // open row due to `e`
@@ -44,9 +44,9 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_effect_row(
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
-        next_row_var_id: &mut u32,
+        row_var_counter: &mut u32,
     ) -> InferEffectRow {
-        InferEffectRow::from_effect_exprs(effects, row_var_env, next_row_var_id)
+        InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
     }
 
     /// Emit diagnostic `E426` when a referenced Base function has no HM metadata.
@@ -176,7 +176,7 @@ impl<'a> InferCtx<'a> {
     /// and return type expressions into [`InferType`] values.
     ///
     /// Lowering details:
-    /// - Uses `TypeEnv::infer_type_from_type_expr_with_row_vars` for each
+    /// - Uses `TypeEnv::convert_type_expr_rec` for each
     ///   parameter and the return type.
     /// - Tracks row-variable symbols through a local `row_var_env` so repeated
     ///   row vars in one signature map to stable row-variable ids.
@@ -223,7 +223,7 @@ impl<'a> InferCtx<'a> {
         let param_tys = params
             .iter()
             .map(|p| {
-                TypeEnv::infer_type_from_type_expr_with_row_vars(
+                TypeEnv::convert_type_expr_rec(
                     p,
                     &tp_map,
                     self.interner,
@@ -232,7 +232,7 @@ impl<'a> InferCtx<'a> {
                 )
             })
             .collect::<Option<Vec<_>>>()?;
-        let ret_ty = TypeEnv::infer_type_from_type_expr_with_row_vars(
+        let ret_ty = TypeEnv::convert_type_expr_rec(
             ret,
             &tp_map,
             self.interner,

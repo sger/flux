@@ -176,7 +176,7 @@ impl<'a> InferCtx<'a> {
         type_params: &HashMap<Identifier, TypeVarId>,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> Option<InferType> {
-        TypeEnv::infer_type_from_type_expr_with_row_vars(
+        TypeEnv::convert_type_expr_rec(
             annotation,
             type_params,
             self.interner,

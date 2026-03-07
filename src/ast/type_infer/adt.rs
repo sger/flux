@@ -75,7 +75,7 @@ impl<'a> InferCtx<'a> {
             .iter()
             .map(|field| {
                 let mut row_var_env = HashMap::new();
-                TypeEnv::infer_type_from_type_expr_with_row_vars(
+                TypeEnv::convert_type_expr_rec(
                     field,
                     &type_param_map,
                     self.interner,

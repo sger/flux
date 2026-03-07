@@ -122,7 +122,7 @@ impl<'a> InferCtx<'a> {
         let final_ty = match annotation {
             Some(ann) => {
                 let mut row_var_env = HashMap::new();
-                match TypeEnv::infer_type_from_type_expr_with_row_vars(
+                match TypeEnv::convert_type_expr_rec(
                     ann,
                     &HashMap::new(),
                     self.interner,
