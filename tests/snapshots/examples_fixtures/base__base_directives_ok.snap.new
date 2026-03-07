@@ -1,0 +1,19 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/base/base_directives_ok.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/base/base_directives_ok.flx:8:1
+  |
+8 | Base.print("len(xs) = " + to_string(len(xs)));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | --------------------------------------------- expected () -> Unit, found () -> Unit with IO
+== stdout ==
+<not executed>

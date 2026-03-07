@@ -1,0 +1,469 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/type_system/15_complete_program.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `map_list`.
+
+  --> examples/type_system/15_complete_program.flx:26:25
+   |
+26 | let scores: List<Int> = C.map_list(students, /(p: (String, Int)) -> p.1)
+   |                         ^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `summarize`.
+
+  --> examples/type_system/15_complete_program.flx:30:22
+   |
+30 | let stats: Summary = Stats.summarize(scores)
+   |                      ^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `score_to_grade`.
+
+  --> examples/type_system/15_complete_program.flx:37:13
+   |
+37 |     let g = Stats.score_to_grade(score)
+   |             ^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `grade_to_string`.
+
+  --> examples/type_system/15_complete_program.flx:39:12
+   |
+39 |     " (" + Stats.grade_to_string(g) + ")" +
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/type_system/15_complete_program.flx:43:1
+   |
+43 | print("=== Grade Report ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- expected () -> Unit, found () -> Unit with IO
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:43:1
+   |
+43 | print("=== Grade Report ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E414]: MISSING MAIN FUNCTION
+
+Effectful program is missing `fn main` root effect handler.
+
+  --> examples/type_system/15_complete_program.flx:43:1
+   |
+43 | print("=== Grade Report ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- effectful top-level execution
+
+Hint:
+  Define `fn main() with ... { ... }` and move execution there.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:44:1
+   |
+44 | print("")
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:45:1
+   |
+45 | print("Scores by student:")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `fold_list`.
+
+  --> examples/type_system/15_complete_program.flx:46:1
+   |
+46 | C.fold_list(students, (), /(_, p: (String, Int)) ->
+   | ^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:52:1
+   |
+52 | print("")
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:53:1
+   |
+53 | print("=== Statistics ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | --------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `summary_print`.
+
+  --> examples/type_system/15_complete_program.flx:54:1
+   |
+54 | Stats.summary_print(stats)
+   | ^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `keep_above`.
+
+  --> examples/type_system/15_complete_program.flx:56:26
+   |
+56 | let passing: List<Int> = Stats.keep_above(scores, 59)
+   |                          ^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `keep_below`.
+
+  --> examples/type_system/15_complete_program.flx:57:26
+   |
+57 | let failing: List<Int> = Stats.keep_below(scores, 60)
+   |                          ^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:58:1
+   |
+58 | print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `list_len`.
+
+  --> examples/type_system/15_complete_program.flx:58:41
+   |
+58 | print("  Passing (>=60) : " + to_string(Stats.list_len(passing)))
+   |                                         ^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:59:1
+   |
+59 | print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `list_len`.
+
+  --> examples/type_system/15_complete_program.flx:59:41
+   |
+59 | print("  Failing (<60)  : " + to_string(Stats.list_len(failing)))
+   |                                         ^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:63:1
+   |
+63 | print("")
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:64:1
+   |
+64 | print("=== Ranking (best to worst) ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `rank`.
+
+  --> examples/type_system/15_complete_program.flx:65:35
+   |
+65 | let ranked: List<(String, Int)> = Stats.rank(students)
+   |                                   ^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `fold_list`.
+
+  --> examples/type_system/15_complete_program.flx:66:1
+   |
+66 | C.fold_list(ranked, 1, /(pos: Int, p: (String, Int)) -> do {
+   | ^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:73:1
+   |
+73 | print("")
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:74:1
+   |
+74 | print("=== Grade Distribution ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `grade_distribution`.
+
+  --> examples/type_system/15_complete_program.flx:75:39
+   |
+75 | let dist: (Int, Int, Int, Int, Int) = Stats.grade_distribution(scores)
+   |                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:76:1
+   |
+76 | print("  A (4pts): " + to_string(dist.0))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:77:1
+   |
+77 | print("  B (3pts): " + to_string(dist.1))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:78:1
+   |
+78 | print("  C (2pts): " + to_string(dist.2))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:79:1
+   |
+79 | print("  D (1pts): " + to_string(dist.3))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:80:1
+   |
+80 | print("  F (0pts): " + to_string(dist.4))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:84:1
+   |
+84 | print("")
+   | ^^^^^^^^^
+   | --------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E413]: TOP-LEVEL EFFECT
+
+Effectful operation is not allowed at top level (requires: IO).
+
+  --> examples/type_system/15_complete_program.flx:85:1
+   |
+85 | print("=== GPA per Student ===")
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | -------------------------------- top-level effectful expression
+
+Hint:
+  Move this code into `fn main() with ... { ... }`.
+
+
+--> compiler error[E011]: PRIVATE MEMBER
+
+Cannot access private member `fold_list`.
+
+  --> examples/type_system/15_complete_program.flx:86:1
+   |
+86 | C.fold_list(students, (), /(_, p: (String, Int)) -> do {
+   | ^^^^^^^^^^^
+
+Hint:
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
+
+Found 34 errors.
+== stdout ==
+<not executed>
