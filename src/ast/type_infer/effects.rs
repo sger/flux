@@ -1,3 +1,5 @@
+use crate::ast::type_infer::constraint::Constraint;
+
 use super::*;
 
 impl<'a> InferCtx<'a> {
@@ -270,6 +272,11 @@ impl<'a> InferCtx<'a> {
         ambient_effects: &InferEffectRow,
         span: Span,
     ) {
+        self.record_constraint(Constraint::EffectSubset {
+            required: callee_effects.clone(),
+            available: ambient_effects.clone(),
+            span,
+        });
         let callee = callee_effects.apply_row_subst(&self.subst);
         let ambient = ambient_effects.apply_row_subst(&self.subst);
         let mut missing: Vec<Identifier> = callee
