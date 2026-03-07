@@ -7,16 +7,16 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with String and Int.
+The value of `y` does not match its type annotation.
 
   --> examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:9:18
   |
 9 |     let y: Int = x + 1
   |                  ^^^^^
-  |                  ----- expected matching '+' operands (Int+Int, Float+Float, or String+String), found String and Int
-  |                  ----- operator operands are known at compile time
+  |                  ----- this is `String`
+  |            --- but `y` was annotated as `Int`
 
 Help:
-  adjust operand types or add explicit conversion
+  Change `y` to a `Int` value or update the annotation to `String`.
 == stdout ==
 <not executed>

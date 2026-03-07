@@ -7,16 +7,33 @@ failed (compile)
 == diagnostics ==
 --> compiler error[E300]: TYPE UNIFICATION ERROR
 
-Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Float.
+Cannot unify Int with Float.
 
   --> examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:2:18
   |
 2 |     let x: Int = 1 + 2.5
   |                  ^^^^^^^
-  |                  ------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Float
-  |                  ------- operator operands are known at compile time
+  |                  ------- expected Int, found Float
+
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The return value of `main` does not match its declared return type.
+
+  --> examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:3:5
+  |
+1 | fn main() -> Unit {
+
+  |              ---- `main` was declared to return `Unit`
+2 |     let x: Int = 1 + 2.5
+
+3 |     x
+  |     ^
+  |     - this expression has type `Int`
 
 Help:
-  adjust operand types or add explicit conversion
+  Return a `Unit` value from `main` or change the declared return type.
+
+Found 2 errors.
 == stdout ==
 <not executed>

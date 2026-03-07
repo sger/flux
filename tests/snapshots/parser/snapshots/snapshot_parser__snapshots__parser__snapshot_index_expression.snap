@@ -20,6 +20,9 @@ Program {
                             column: 3,
                         },
                     },
+                    id: ExprId(
+                        1,
+                    ),
                 },
                 index: Integer {
                     value: 0,
@@ -33,6 +36,9 @@ Program {
                             column: 5,
                         },
                     },
+                    id: ExprId(
+                        2,
+                    ),
                 },
                 span: Span {
                     start: Position {
@@ -44,6 +50,9 @@ Program {
                         column: 6,
                     },
                 },
+                id: ExprId(
+                    3,
+                ),
             },
             has_semicolon: true,
             span: Span {
@@ -73,6 +82,9 @@ Program {
                             column: 11,
                         },
                     },
+                    id: ExprId(
+                        4,
+                    ),
                 },
                 index: Identifier {
                     name: Symbol(
@@ -88,6 +100,9 @@ Program {
                             column: 15,
                         },
                     },
+                    id: ExprId(
+                        5,
+                    ),
                 },
                 span: Span {
                     start: Position {
@@ -99,6 +114,9 @@ Program {
                         column: 16,
                     },
                 },
+                id: ExprId(
+                    6,
+                ),
             },
             has_semicolon: true,
             span: Span {
@@ -129,6 +147,9 @@ Program {
                                 column: 24,
                             },
                         },
+                        id: ExprId(
+                            7,
+                        ),
                     },
                     index: Identifier {
                         name: Symbol(
@@ -144,6 +165,9 @@ Program {
                                 column: 26,
                             },
                         },
+                        id: ExprId(
+                            8,
+                        ),
                     },
                     span: Span {
                         start: Position {
@@ -155,6 +179,9 @@ Program {
                             column: 27,
                         },
                     },
+                    id: ExprId(
+                        9,
+                    ),
                 },
                 index: Identifier {
                     name: Symbol(
@@ -170,6 +197,9 @@ Program {
                             column: 29,
                         },
                     },
+                    id: ExprId(
+                        10,
+                    ),
                 },
                 span: Span {
                     start: Position {
@@ -181,6 +211,9 @@ Program {
                         column: 30,
                     },
                 },
+                id: ExprId(
+                    11,
+                ),
             },
             has_semicolon: true,
             span: Span {

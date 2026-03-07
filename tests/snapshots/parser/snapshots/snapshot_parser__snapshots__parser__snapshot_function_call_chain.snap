@@ -24,6 +24,9 @@ Program {
                                             column: 3,
                                         },
                                     },
+                                    id: ExprId(
+                                        1,
+                                    ),
                                 },
                                 arguments: [],
                                 span: Span {
@@ -36,6 +39,9 @@ Program {
                                         column: 5,
                                     },
                                 },
+                                id: ExprId(
+                                    2,
+                                ),
                             },
                             member: Symbol(
                                 1,
@@ -50,6 +56,9 @@ Program {
                                     column: 9,
                                 },
                             },
+                            id: ExprId(
+                                3,
+                            ),
                         },
                         arguments: [],
                         span: Span {
@@ -62,6 +71,9 @@ Program {
                                 column: 11,
                             },
                         },
+                        id: ExprId(
+                            4,
+                        ),
                     },
                     member: Symbol(
                         2,
@@ -76,6 +88,9 @@ Program {
                             column: 15,
                         },
                     },
+                    id: ExprId(
+                        5,
+                    ),
                 },
                 arguments: [
                     Integer {
@@ -90,6 +105,9 @@ Program {
                                 column: 17,
                             },
                         },
+                        id: ExprId(
+                            6,
+                        ),
                     },
                     Integer {
                         value: 2,
@@ -103,6 +121,9 @@ Program {
                                 column: 20,
                             },
                         },
+                        id: ExprId(
+                            7,
+                        ),
                     },
                 ],
                 span: Span {
@@ -115,6 +136,9 @@ Program {
                         column: 21,
                     },
                 },
+                id: ExprId(
+                    8,
+                ),
             },
             has_semicolon: true,
             span: Span {

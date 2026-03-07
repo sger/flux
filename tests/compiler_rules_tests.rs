@@ -2047,7 +2047,7 @@ fn unknown_effect_in_handle_has_did_you_mean_hint() {
     let rendered = compile_err_rendered(
         r#"
 fn main() -> Unit with IO {
-    1 handle I {
+    None handle I {
         print(resume, _msg) -> resume(())
     }
 }

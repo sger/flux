@@ -26,6 +26,9 @@ Program {
                                     column: 15,
                                 },
                             },
+                            id: ExprId(
+                                1,
+                            ),
                         },
                         String {
                             value: "Alice",
@@ -39,6 +42,9 @@ Program {
                                     column: 24,
                                 },
                             },
+                            id: ExprId(
+                                2,
+                            ),
                         },
                     ),
                     (
@@ -56,6 +62,9 @@ Program {
                                     column: 29,
                                 },
                             },
+                            id: ExprId(
+                                3,
+                            ),
                         },
                         Integer {
                             value: 30,
@@ -69,6 +78,9 @@ Program {
                                     column: 33,
                                 },
                             },
+                            id: ExprId(
+                                4,
+                            ),
                         },
                     ),
                     (
@@ -86,6 +98,9 @@ Program {
                                     column: 41,
                                 },
                             },
+                            id: ExprId(
+                                5,
+                            ),
                         },
                         Hash {
                             pairs: [
@@ -104,6 +119,9 @@ Program {
                                                 column: 45,
                                             },
                                         },
+                                        id: ExprId(
+                                            6,
+                                        ),
                                     },
                                     Integer {
                                         value: 1,
@@ -117,6 +135,9 @@ Program {
                                                 column: 48,
                                             },
                                         },
+                                        id: ExprId(
+                                            7,
+                                        ),
                                     },
                                 ),
                             ],
@@ -130,6 +151,9 @@ Program {
                                     column: 49,
                                 },
                             },
+                            id: ExprId(
+                                8,
+                            ),
                         },
                     ),
                 ],
@@ -143,6 +167,9 @@ Program {
                         column: 50,
                     },
                 },
+                id: ExprId(
+                    9,
+                ),
             },
             span: Span {
                 start: Position {

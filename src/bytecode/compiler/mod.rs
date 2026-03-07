@@ -1,15 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::type_infer::InferProgramConfig;
+use crate::ast::type_informed_fold::type_informed_fold;
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
-    ast::{
-        TailCall, collect_free_vars_in_program, find_tail_calls,
-        type_infer::{ExprNodeId, infer_program},
-    },
+    ast::{TailCall, collect_free_vars_in_program, find_tail_calls, type_infer::infer_program},
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -133,10 +132,12 @@ pub struct Compiler {
     pub(super) effect_op_signatures: HashMap<(Symbol, Symbol), TypeExpr>,
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
-    pub(super) hm_expr_types: HashMap<ExprNodeId, crate::types::infer_type::InferType>,
-    pub(super) expr_ptr_to_id: HashMap<usize, ExprNodeId>,
+    pub(super) hm_expr_types: HashMap<ExprId, InferType>,
     strict_mode: bool,
     strict_require_main: bool,
+    /// When true, run two-phase inference with type-informed optimization
+    /// between Phase 1 and Phase 2 (proposal 0077).
+    type_optimize: bool,
 }
 
 #[cfg(test)]
@@ -195,9 +196,9 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
-            expr_ptr_to_id: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
+            type_optimize: false,
         }
     }
 
@@ -236,7 +237,6 @@ impl Compiler {
         self.effect_alias_scopes.push(HashMap::new());
         self.type_env = TypeEnv::new();
         self.hm_expr_types.clear();
-        self.expr_ptr_to_id.clear();
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
@@ -606,6 +606,29 @@ impl Compiler {
             .names()
             .map(|name| self.interner.intern(name))
             .collect()
+    }
+
+    /// Build the `InferProgramConfig` needed by `infer_program`.
+    ///
+    /// Collects base schemes, module member schemes, and effect signatures.
+    /// Can be called multiple times (e.g. for two-phase inference).
+    fn build_infer_config(&mut self, program: &Program) -> InferProgramConfig {
+        let base_schemes = self.build_preloaded_base_schemes();
+        let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
+        let base_member_schemes = self.build_preload_base_member_schemes();
+        let known_base_names = self.known_base_name_set();
+        let base_module_symbol = self.interner.intern("Base");
+        let mut merged_member_schemes = preloaded_member_schemes;
+        merged_member_schemes.extend(base_member_schemes);
+
+        InferProgramConfig {
+            file_path: Some(self.file_path.as_str().into()),
+            preloaded_base_schemes: base_schemes,
+            preloaded_module_member_schemes: merged_member_schemes,
+            known_base_names,
+            base_module_symbol,
+            preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
+        }
     }
 
     fn collect_function_effect_seeds(&self, program: &Program) -> Vec<FunctionEffectSeed> {
@@ -1934,6 +1957,8 @@ impl Compiler {
                 self.tail_calls.clear();
             }
 
+            // Enable two-phase inference with type-informed optimization (proposal 0077).
+            self.type_optimize = true;
             self.compile(&program_to_compile)
         } else {
             // Borrow the original program directly for non-optimized paths.
@@ -2022,40 +2047,55 @@ impl Compiler {
         // The resulting TypeEnv is used by `runtime_boundary_expr_type` to enrich identifier
         // type lookup for unannotated bindings.
         //
-        // Invariant: `infer_program` and PASS 2 must use the same Program allocation so
-        // pointer-keyed expression IDs remain stable.
+        // Two-phase model (when type_optimize=true, proposal 0077):
+        //   Phase 1: infer on the syntactically-optimized AST → TypeEnv for optimization
+        //   type_informed_fold: rewrite AST using TypeEnv (dead branch, const prop, inlining)
+        //   Phase 2: infer on the type-optimized AST → pointer-stable maps for PASS 2
+        //
+        // Single-phase model (when type_optimize=false):
+        //   Standard single inference pass.
+        //
+        // Invariant: PASS 2 must use the same Program allocation as the final
+        // inference pass so pointer-keyed expression IDs remain stable.
         //
         // Diagnostics from this pass are guarded by a concrete-types-only filter
         // inside `unify_reporting`: only errors where *both* conflicting types are
-        // fully resolved (no free type variables) are emitted. This prevents
-        // spurious failures in partially-typed programs where base-function return
-        // types are not yet registered in the inference environment.
+        // fully resolved (no free type variables) are emitted.
+        // When type_optimize is set, Phase 1 inference produces a TypeEnv used to
+        // guide type-informed AST optimization. Phase 2 then re-infers on the
+        // optimized AST to produce pointer-stable maps for PASS 2.
+        let type_optimized_program: Option<Program>;
         let mut hm_diagnostics = {
-            let base_schemes = self.build_preloaded_base_schemes();
-            let preloaded_member_schemes = self.build_preloaded_hm_member_schemes(program);
-            let base_member_schemes = self.build_preload_base_member_schemes();
-            let known_base_names = self.known_base_name_set();
-            let base_module_symbol = self.interner.intern("Base");
-            let mut merged_member_schemes = preloaded_member_schemes;
-            merged_member_schemes.extend(base_member_schemes);
-            let hm = infer_program(
-                program,
-                &self.interner,
-                InferProgramConfig {
-                    file_path: Some(self.file_path.clone()),
-                    preloaded_base_schemes: base_schemes,
-                    preloaded_module_member_schemes: merged_member_schemes,
-                    known_base_names,
-                    base_module_symbol,
-                    preloaded_effect_op_signatures: self.effect_op_signatures.clone(),
-                },
-            );
-            self.type_env = hm.type_env;
-            self.hm_expr_types = hm.expr_types;
-            self.expr_ptr_to_id = hm.expr_ptr_to_id;
-            hm.diagnostics
+            let hm_config = self.build_infer_config(program);
+            let hm = infer_program(program, &self.interner, hm_config);
+
+            if self.type_optimize {
+                // Phase 1 complete: use TypeEnv for type-informed fold.
+                let optimized = type_informed_fold(program, &hm.type_env, &self.interner);
+
+                // Phase 2: re-infer on the optimized AST for stable expr-id maps.
+                let hm_config2 = self.build_infer_config(&optimized);
+                let hm2 = infer_program(&optimized, &self.interner, hm_config2);
+                self.type_env = hm2.type_env;
+                self.hm_expr_types = hm2.expr_types;
+                type_optimized_program = Some(optimized);
+
+                let mut diags = hm2.diagnostics;
+                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
+                diags
+            } else {
+                self.type_env = hm.type_env;
+                self.hm_expr_types = hm.expr_types;
+                type_optimized_program = None;
+
+                let mut diags = hm.diagnostics;
+                tag_diagnostics(&mut diags, DiagnosticPhase::TypeInference);
+                diags
+            }
         };
-        tag_diagnostics(&mut hm_diagnostics, DiagnosticPhase::TypeInference);
+
+        // PASS 2 must use the same Program allocation as the final inference pass.
+        let program = type_optimized_program.as_ref().unwrap_or(program);
 
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
