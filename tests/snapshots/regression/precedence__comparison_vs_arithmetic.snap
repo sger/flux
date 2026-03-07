@@ -14,9 +14,6 @@ Cannot unify () -> Unit with () -> Unit with IO.
   | ^^^^^^^^^^^^^^^^^
   | ----------------- expected () -> Unit, found () -> Unit with IO
 
-Help:
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
-
 
 --> compiler error[E413]: TOP-LEVEL EFFECT
 
