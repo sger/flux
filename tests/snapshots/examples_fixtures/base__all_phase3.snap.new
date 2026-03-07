@@ -1,0 +1,19 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/base/all_phase3.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify () -> Unit with () -> Unit with IO.
+
+  --> examples/base/all_phase3.flx:5:1
+  |
+5 | Base.print("== Base directives smoke ==");
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+== stdout ==
+<not executed>

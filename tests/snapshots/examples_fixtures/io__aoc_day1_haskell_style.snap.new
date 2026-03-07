@@ -1,0 +1,42 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+assertion_line: 21
+---
+Fixture: examples/io/aoc_day1_haskell_style.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+Cannot unify numeric operands (Int or Float) with Int and Option<Int>.
+
+  --> examples/io/aoc_day1_haskell_style.flx:34:9
+   |
+34 |         0 - distance
+   |         ^^^^^^^^^^^^
+   |         ------------ expected numeric operands (Int or Float), found Int and Option<Int>
+   |         ------------ operator operands are known at compile time
+
+Help:
+  adjust operand types or add explicit conversion
+
+
+--> compiler error[E004]: UNDEFINED VARIABLE
+
+I can't find a value named `parse_rotations`.
+
+  --> examples/io/aoc_day1_haskell_style.flx:43:9
+   |
+43 |         parse_rotations(rest, acc)
+   |         ^^^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let parse_rotations = ...;
+
+
+Help:
+  Did you mean `parse_rotation`?
+
+Found 2 errors.
+== stdout ==
+<not executed>
