@@ -1,5 +1,6 @@
 - Feature Name: Concurrency Model — Async/Await + Actors
 - Start Date: 2026-02-12
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

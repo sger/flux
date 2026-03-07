@@ -1,7 +1,7 @@
 - Feature Name: Effect Rows Completeness and Principal Solving
 - Start Date: 2026-02-26
 - Completion Date: 2026-03-03
-- Status: Completed
+- Status: Implemented
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 

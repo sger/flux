@@ -2,7 +2,7 @@
 - Start Date: 2026-02-26
 - Proposal PR: —
 - Flux Issue: —
-- Status: Completed
+- Status: Implemented
 - Completion Date: 2026-03-03 (Stage 1); Stage 2: 2026-03-03
 
 # Proposal 0051: Any Fallback Reduction and Typed-Path Soundness

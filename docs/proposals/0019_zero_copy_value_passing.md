@@ -1,7 +1,8 @@
 - Feature Name: Zero-Copy Value Passing via Reference Counting
 - Start Date: 2026-02-08
-- Proposal PR: 
-- Flux Issue: 
+- Status: Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0019: Zero-Copy Value Passing via Reference Counting
 

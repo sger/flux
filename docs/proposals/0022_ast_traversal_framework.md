@@ -1,7 +1,8 @@
 - Feature Name: AST Traversal Framework
 - Start Date: 2026-02-11
-- Proposal PR: 
-- Flux Issue: 
+- Status: Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0022: AST Traversal Framework
 

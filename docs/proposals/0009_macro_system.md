@@ -1,5 +1,6 @@
 - Feature Name: Macro System for Flux
 - Start Date: 2026-02-02
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

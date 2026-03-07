@@ -1,7 +1,8 @@
 - Feature Name: `map` / `filter` / `fold` Base Functions
 - Start Date: 2026-02-11
-- Proposal PR: 
-- Flux Issue: 
+- Status: Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0020: `map` / `filter` / `fold` Base Functions
 

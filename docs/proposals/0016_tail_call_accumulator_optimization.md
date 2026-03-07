@@ -1,7 +1,8 @@
 - Feature Name: Tail-Call Accumulator Optimization
 - Start Date: 2026-02-08
-- Proposal PR: 
-- Flux Issue: 
+- Status: Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0016: Tail-Call Accumulator Optimization
 

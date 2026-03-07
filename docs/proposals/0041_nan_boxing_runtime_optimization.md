@@ -1,5 +1,6 @@
 - Feature Name: NaN-boxing Runtime Optimization
 - Start Date: 2026-02-23
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

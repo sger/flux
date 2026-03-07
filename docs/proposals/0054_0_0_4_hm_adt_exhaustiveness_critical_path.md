@@ -1,7 +1,7 @@
 - Feature Name: 0.0.4 HM/ADT/Exhaustiveness Critical Path + Post-0.0.4 Hardening Roadmap
 - Start Date: 2026-02-26
 - Completion Date: 2026-03-01
-- Status: Completed
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

@@ -1,5 +1,6 @@
 - Feature Name: Effect Sealing
 - Start Date: 2026-03-02
+- Status: Not Implemented
 - Proposal PR:
 - Flux Issue:
 

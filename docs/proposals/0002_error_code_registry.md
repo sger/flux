@@ -1,5 +1,6 @@
 - Feature Name: Error Code Registry
 - Start Date: 2026-02-26
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

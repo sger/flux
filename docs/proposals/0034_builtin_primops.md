@@ -1,5 +1,6 @@
 - Feature Name: Base PrimOps — Structured PrimOp Layer
 - Start Date: 2026-02-19
+- Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
 
