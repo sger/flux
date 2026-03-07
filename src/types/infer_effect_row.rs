@@ -118,7 +118,7 @@ impl InferEffectRow {
     pub fn from_effect_exprs(
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
-        next_row_var_id: &mut u32,
+        row_var_counter: &mut u32,
     ) -> Self {
         let mut concrete = HashSet::new();
         let mut tail = None;
@@ -129,8 +129,8 @@ impl InferEffectRow {
                 // Row variables are interned through `row_var_env` to keep a stable
                 // TypeVarId per symbolic row variable in this inference context.
                 let mapped = *row_var_env.entry(row_var).or_insert_with(|| {
-                    let next = *next_row_var_id;
-                    *next_row_var_id += 1;
+                    let next = *row_var_counter;
+                    *row_var_counter += 1;
                     next
                 });
                 // Current behavior keeps the last seen row-var as the tail.

@@ -32,7 +32,7 @@ pub struct TypeEnv {
     /// Allocation level for each type variable. Variables with level > the
     /// generalization point are quantified by `generalization_at_level`.
     var_levels: HashMap<TypeVarId, u32>,
-    pub counter: u32,
+    pub(crate) counter: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -169,22 +169,22 @@ impl TypeEnv {
         interner: &Interner,
     ) -> Option<InferType> {
         let mut row_var_env = HashMap::new();
-        let mut next_row_var_id: u32 = 0;
-        Self::infer_type_from_type_expr_with_row_vars(
+        let mut row_var_counter: u32 = 0;
+        Self::convert_type_expr_rec(
             type_expr,
             type_params,
             interner,
             &mut row_var_env,
-            &mut next_row_var_id,
+            &mut row_var_counter,
         )
     }
 
-    pub fn infer_type_from_type_expr_with_row_vars(
+    pub fn convert_type_expr_rec(
         type_expr: &TypeExpr,
         type_params: &HashMap<Identifier, TypeVarId>,
         interner: &Interner,
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
-        next_row_var_id: &mut u32,
+        row_var_counter: &mut u32,
     ) -> Option<InferType> {
         match type_expr {
             TypeExpr::Named { name, args, .. } => {
@@ -221,12 +221,12 @@ impl TypeEnv {
                 let args_tys: Option<Vec<InferType>> = args
                     .iter()
                     .map(|a| {
-                        Self::infer_type_from_type_expr_with_row_vars(
+                        Self::convert_type_expr_rec(
                             a,
                             type_params,
                             interner,
                             row_var_env,
-                            next_row_var_id,
+                            row_var_counter,
                         )
                     })
                     .collect();
@@ -239,12 +239,12 @@ impl TypeEnv {
                 let elem_tys: Option<Vec<InferType>> = elements
                     .iter()
                     .map(|e| {
-                        Self::infer_type_from_type_expr_with_row_vars(
+                        Self::convert_type_expr_rec(
                             e,
                             type_params,
                             interner,
                             row_var_env,
-                            next_row_var_id,
+                            row_var_counter,
                         )
                     })
                     .collect();
@@ -259,24 +259,24 @@ impl TypeEnv {
                 let param_tys: Option<Vec<InferType>> = params
                     .iter()
                     .map(|p| {
-                        Self::infer_type_from_type_expr_with_row_vars(
+                        Self::convert_type_expr_rec(
                             p,
                             type_params,
                             interner,
                             row_var_env,
-                            next_row_var_id,
+                            row_var_counter,
                         )
                     })
                     .collect();
-                let ret_ty = Self::infer_type_from_type_expr_with_row_vars(
+                let ret_ty = Self::convert_type_expr_rec(
                     ret,
                     type_params,
                     interner,
                     row_var_env,
-                    next_row_var_id,
+                    row_var_counter,
                 )?;
                 let effect_row =
-                    InferEffectRow::from_effect_exprs(effects, row_var_env, next_row_var_id);
+                    InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter);
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }
         }

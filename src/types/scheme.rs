@@ -69,14 +69,23 @@ impl Scheme {
             mapping.insert(v, fresh);
         }
 
+        // Determine which quantified vars appear only as row-tail variables.
+        // Row vars are in free_vars() but not in free_type_vars() — we only
+        // insert row bindings for those, avoiding spurious row substitutions
+        // for plain type variables.
+        let type_vars = self.infer_type.free_type_vars();
+
         let type_subst: TypeSubst = {
             let mut s = TypeSubst::empty();
             for (&old, &new) in &mapping {
-                s.insert_type(old, InferType::Var(new));
-                s.insert_row(
-                    old,
-                    InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), new),
-                );
+                s.insert(old, InferType::Var(new));
+                if !type_vars.contains(&old) {
+                    // `old` appears only as a row-tail variable in the body.
+                    s.insert_row(
+                        old,
+                        InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), new),
+                    );
+                }
             }
             s
         };

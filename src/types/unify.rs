@@ -47,7 +47,7 @@ fn resolve_head<'a>(ty: &'a InferType, subst: &'a TypeSubst) -> &'a InferType {
     let mut current = ty;
     for _ in 0..MAX_DEPTH {
         match current {
-            InferType::Var(v) => match subst.get_type(*v) {
+            InferType::Var(v) => match subst.get(*v) {
                 Some(bound) => current = bound,
                 None => break,
             },

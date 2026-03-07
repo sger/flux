@@ -459,7 +459,7 @@ impl Compiler {
         let mut param_tys = Vec::with_capacity(contract.params.len());
         for param in &contract.params {
             let ty_expr = param.as_ref()?;
-            let inferred = TypeEnv::infer_type_from_type_expr_with_row_vars(
+            let inferred = TypeEnv::convert_type_expr_rec(
                 ty_expr,
                 &tp_map,
                 interner,
@@ -470,7 +470,7 @@ impl Compiler {
         }
 
         let ret_expr = contract.ret.as_ref()?;
-        let ret_ty = TypeEnv::infer_type_from_type_expr_with_row_vars(
+        let ret_ty = TypeEnv::convert_type_expr_rec(
             ret_expr,
             &tp_map,
             interner,
