@@ -22,6 +22,9 @@ Program {
                             column: 15,
                         },
                     },
+                    id: ExprId(
+                        1,
+                    ),
                 },
                 operator: "+",
                 right: Infix {
@@ -37,6 +40,9 @@ Program {
                                 column: 20,
                             },
                         },
+                        id: ExprId(
+                            2,
+                        ),
                     },
                     operator: "*",
                     right: Integer {
@@ -51,6 +57,9 @@ Program {
                                 column: 24,
                             },
                         },
+                        id: ExprId(
+                            3,
+                        ),
                     },
                     span: Span {
                         start: Position {
@@ -62,6 +71,9 @@ Program {
                             column: 24,
                         },
                     },
+                    id: ExprId(
+                        4,
+                    ),
                 },
                 span: Span {
                     start: Position {
@@ -73,6 +85,9 @@ Program {
                         column: 24,
                     },
                 },
+                id: ExprId(
+                    5,
+                ),
             },
             span: Span {
                 start: Position {

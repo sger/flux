@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use flux::diagnostics::position::Span;
+    use flux::syntax::expression::ExprId;
     use flux::syntax::{
         expression::Expression, interner::Interner, program::Program, statement::Statement,
     };
@@ -16,6 +17,7 @@ mod tests {
                 value: Expression::Integer {
                     value: 5,
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
                 span: Span::default(),
             }],
@@ -32,13 +34,16 @@ mod tests {
             left: Box::new(Expression::Integer {
                 value: 1,
                 span: Span::default(),
+                id: ExprId::UNSET,
             }),
             operator: "+".to_string(),
             right: Box::new(Expression::Integer {
                 value: 2,
                 span: Span::default(),
+                id: ExprId::UNSET,
             }),
             span: Span::default(),
+            id: ExprId::UNSET,
         };
         assert_eq!(expr.display_with(&interner), "(1 + 2)");
     }
@@ -51,17 +56,21 @@ mod tests {
                 Expression::Integer {
                     value: 1,
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
                 Expression::Integer {
                     value: 2,
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
                 Expression::Integer {
                     value: 3,
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
             ],
             span: Span::default(),
+            id: ExprId::UNSET,
         };
         assert_eq!(expr.display_with(&interner), "[1, 2, 3]");
     }
@@ -74,13 +83,16 @@ mod tests {
                 Expression::String {
                     value: "a".to_string(),
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
                 Expression::Integer {
                     value: 1,
                     span: Span::default(),
+                    id: ExprId::UNSET,
                 },
             )],
             span: Span::default(),
+            id: ExprId::UNSET,
         };
         assert_eq!(expr.display_with(&interner), "{\"a\": 1}");
     }

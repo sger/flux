@@ -18,6 +18,7 @@ use crate::ast::free_vars::collect_free_vars;
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
 use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
+use crate::syntax::expression::ExprId;
 use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement, type_expr::TypeExpr,
@@ -1478,6 +1479,7 @@ fn compile_statement(
                 effects: effects.clone(),
                 body: body.clone(),
                 span: *span,
+                id: ExprId::UNSET,
             };
             let fn_val = compile_function_literal(
                 module, helpers, builder, scope, ctx_val, &expr, interner,
@@ -1953,6 +1955,7 @@ fn compile_expression(
             function,
             arguments,
             span,
+            ..
         } => {
             if let Some(primop) = resolve_call_primop(scope, function, arguments, interner) {
                 return compile_primop_call(
@@ -2364,6 +2367,7 @@ fn compile_expression(
             operation,
             args,
             span,
+            ..
         } => compile_jit_perform(
             module,
             helpers,
@@ -2520,6 +2524,7 @@ fn compile_jit_handle(
                 span: arm_span,
             },
             span: arm.span,
+            id: ExprId::UNSET,
         };
         let cv = compile_function_literal(
             module,
@@ -4105,6 +4110,7 @@ impl LiteralCollector {
                     effects: effects.clone(),
                     body: body.clone(),
                     span: stmt.span(),
+                    id: ExprId::UNSET,
                 };
                 let key = LiteralKey::from_expr(&expr);
                 if !self.seen.contains(&key) {
@@ -4338,6 +4344,7 @@ impl LiteralCollector {
                             span: arm.body.span(),
                         },
                         span: arm.span,
+                        id: ExprId::UNSET,
                     };
                     self.collect_expr(&arm_fn_expr);
                 }

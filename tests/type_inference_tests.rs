@@ -108,7 +108,7 @@ fn infer_program_from_source(
         &program,
         &interner,
         InferProgramConfig {
-            file_path: Some("<test>".to_string()),
+            file_path: Some("<test>".into()),
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_base_names: HashSet::new(),
@@ -739,14 +739,9 @@ fn main() -> Unit {
 "#;
     let (result, program) = infer_program_from_source(source);
     let match_expr = first_match_expr(&program).expect("expected match expression");
-    let key = match_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for match");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&match_expr.expr_id())
         .expect("expected inferred type for match expression");
     assert_eq!(
         *ty,
@@ -855,14 +850,9 @@ fn main() -> Unit {
         },
         other => panic!("unexpected program statement shape: {other:?}"),
     };
-    let key = call_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for recursive call in main");
     let inferred_call_ty = result
         .expr_types
-        .get(node_id)
+        .get(&call_expr.expr_id())
         .cloned()
         .expect("expected inferred type for recursive call in main");
     assert_eq!(
@@ -934,14 +924,9 @@ fn main() -> Unit {
         },
         other => panic!("unexpected program statement shape: {other:?}"),
     };
-    let key = call_expr as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for recursive call in main");
     let inferred_call_ty = result
         .expr_types
-        .get(node_id)
+        .get(&call_expr.expr_id())
         .cloned()
         .expect("expected inferred type for recursive call in main");
     assert_eq!(
@@ -1182,14 +1167,9 @@ fn main() -> Unit with Console {
 "#,
     );
     let perform = first_perform_expr(&program).expect("expected perform expression");
-    let key = perform as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for perform");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&perform.expr_id())
         .expect("expected inferred type for perform expression");
     assert_eq!(*ty, int());
 }
@@ -1352,14 +1332,9 @@ fn main() -> Unit with Console {
 "#,
     );
     let handle = first_handle_expr(&program).expect("expected handle expression");
-    let key = handle as *const Expression as usize;
-    let node_id = result
-        .expr_ptr_to_id
-        .get(&key)
-        .expect("expected expr node id for handle");
     let ty = result
         .expr_types
-        .get(node_id)
+        .get(&handle.expr_id())
         .expect("expected inferred type for handle expression");
     assert_eq!(*ty, int());
 }
@@ -1802,7 +1777,7 @@ fn main() -> Unit {
         &program,
         &interner,
         InferProgramConfig {
-            file_path: Some("<test>".to_string()),
+            file_path: Some("<test>".into()),
             preloaded_base_schemes: HashMap::new(),
             preloaded_module_member_schemes: HashMap::new(),
             known_base_names,

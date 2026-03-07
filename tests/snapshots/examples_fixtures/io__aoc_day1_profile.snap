@@ -20,6 +20,25 @@ Help:
   adjust operand types or add explicit conversion
 
 
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The branches of this `if` expression produce different types.
+
+  --> examples/io/aoc_day1_profile.flx:20:5
+   |
+18 |         0 - distance
+
+   |         ------------ `then` branch returns `Int`
+19 |     } else {
+
+20 |     distance
+   |     ^^^^^^^^
+   |     -------- `else` branch returns `Option<Int>`
+
+Help:
+  Both branches must return the same type. Change one branch to match `Int` or `Option<Int>`.
+
+
 --> compiler error[E004]: UNDEFINED VARIABLE
 
 I can't find a value named `parse_rotations`.
@@ -49,6 +68,6 @@ I can't find a value named `solve_steps`.
 Hint:
   Define it first: let solve_steps = ...;
 
-Found 3 errors.
+Found 4 errors.
 == stdout ==
 <not executed>
