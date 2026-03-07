@@ -1,5 +1,6 @@
 - Feature Name: Base + Flow — Auto-Imported Prelude and Standard Library
 - Start Date: 2026-02-12
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 

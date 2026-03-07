@@ -1,5 +1,6 @@
 - Feature Name: Rich Diagnostics with Inferred Types — Elm-style Errors & Generic Parser
 - Start Date: 2026-02-27
+- Status: Partially Implemented
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 

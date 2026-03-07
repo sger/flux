@@ -2,7 +2,7 @@
 - Start Date: 2026-01-30
 - Proposal PR: —
 - Flux Issue: —
-- Status: Completed
+- Status: Implemented
 - Completion Date: 2026-03-03
 
 # Proposal 0001: Module Constants

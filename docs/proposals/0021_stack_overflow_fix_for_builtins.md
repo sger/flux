@@ -1,7 +1,8 @@
 - Feature Name: Stack Overflow Fix for Higher-Order Base Functions
 - Start Date: 2026-02-11
-- Proposal PR: 
-- Flux Issue: 
+- Status: Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0021: Stack Overflow Fix for Higher-Order Base Functions
 

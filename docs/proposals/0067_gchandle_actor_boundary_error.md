@@ -1,5 +1,6 @@
 - Feature Name: GcHandle Cross-Actor Boundary Error
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

@@ -1,7 +1,7 @@
 - Feature Name: Base Function HM Signature Tightening
 - Start Date: 2026-03-01
 - Completion Date: 2026-03-03
-- Status: Completed
+- Status: Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

@@ -1,5 +1,6 @@
 - Feature Name: Perceus Uniqueness Analysis in the Compiler
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

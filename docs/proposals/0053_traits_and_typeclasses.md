@@ -1,5 +1,6 @@
 - Feature Name: Traits and Typeclasses (Eq/Ord/Show/Functor)
 - Start Date: 2026-02-26
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

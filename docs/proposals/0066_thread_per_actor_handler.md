@@ -1,5 +1,6 @@
 - Feature Name: Thread-per-Actor Runtime Handler (MVP)
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

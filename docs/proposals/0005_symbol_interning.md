@@ -1,5 +1,6 @@
 - Feature Name: Symbol Interning
 - Start Date: 2026-02-01
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 
