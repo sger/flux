@@ -1,5 +1,6 @@
 - Feature Name: Deterministic Effect Replay
 - Start Date: 2026-02-20
+- Status: Not Implemented
 - Proposal PR: 
 - Flux Issue: 
 

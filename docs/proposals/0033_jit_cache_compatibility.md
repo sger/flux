@@ -1,5 +1,6 @@
 - Feature Name: JIT and Cache Compatibility
 - Start Date: 2026-02-18
+- Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
 

@@ -1,5 +1,6 @@
 - Feature Name: Flux Grammar Improvements
 - Start Date: 2026-02-26
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 

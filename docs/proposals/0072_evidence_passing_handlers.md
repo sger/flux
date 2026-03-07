@@ -1,5 +1,6 @@
 - Feature Name: Evidence Passing for Tail-Resumptive Effect Handlers
 - Start Date: 2026-03-01
+- Status: Not Implemented
 - Proposal PR: pending
 - Flux Issue: pending
 

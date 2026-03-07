@@ -1,5 +1,6 @@
 - Feature Name: Flux Debug Toolkit
 - Start Date: 2026-03-02
+- Status: Not Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0032 (type system), 0042 (effect rows), 0064 (row variables)

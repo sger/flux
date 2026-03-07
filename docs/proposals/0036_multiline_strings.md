@@ -1,5 +1,6 @@
 - Feature Name: Multi-line String Literals
 - Start Date: 2026-02-20
+- Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
 

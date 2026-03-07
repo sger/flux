@@ -1,5 +1,6 @@
 - Feature Name: Typed Module Contracts (Boundary-First Typing)
 - Start Date: 2026-02-20
+- Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
 

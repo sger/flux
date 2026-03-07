@@ -1,5 +1,6 @@
 - Feature Name: 003_stdlib_proposal
 - Start Date: 2026-02-26
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 

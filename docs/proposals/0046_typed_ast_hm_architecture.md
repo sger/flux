@@ -1,5 +1,6 @@
 - Feature Name: Typed AST + TypeEnv Architecture (Post-0.0.4 HM Evolution)
 - Start Date: 2026-02-26
+- Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
 

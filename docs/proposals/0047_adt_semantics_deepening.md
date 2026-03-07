@@ -1,7 +1,7 @@
 - Feature Name: ADT Semantics Deepening (Post-Sugar Hardening)
 - Start Date: 2026-02-26
 - Completion Date: 2026-03-03
-- Status: Completed
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 

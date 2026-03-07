@@ -1,5 +1,6 @@
 - Feature Name: Advanced Linter (Post v0.1.0)
 - Start Date: 2026-02-02
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 
