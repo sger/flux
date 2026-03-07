@@ -83,18 +83,6 @@ impl<'a> InferCtx<'a> {
 
     /// Return whether a unification error should be emitted as a diagnostic.
     ///
-    /// Behavior:
-    /// - Emits only when both expected/actual are fully concrete and neither
-    ///   side contains gradual `Any`.
-    fn should_emit_unification_diagnostic(&self, error: &UnifyError) -> bool {
-        error.expected.is_concrete()
-            && error.actual.is_concrete()
-            && !error.expected.contains_any()
-            && !error.actual.contains_any()
-    }
-
-    /// Return whether a unification error should be emitted as a diagnostic.
-    ///
     /// Checks concrete-and-non-Any guard, then deduplicates by (expected, actual)
     /// hash so the same type-pair mismatch is reported at most once per inference run.
     fn should_emit_unitfication_diagnostic(&mut self, error: &UnifyError) -> bool {
@@ -334,7 +322,7 @@ impl<'a> InferCtx<'a> {
         match self.try_unify_and_compose_subst(t1, t2, span) {
             Ok(infer_type) => infer_type,
             Err(error) => {
-                if self.should_emit_unification_diagnostic(&error) {
+                if self.should_emit_unitfication_diagnostic(&error) {
                     let mut diagnostic =
                         self.build_diagnostic_for_report_context(&context, &error, span);
                     self.append_type_name_suggestions(&mut diagnostic, &error);
