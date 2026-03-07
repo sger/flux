@@ -147,7 +147,7 @@ impl<'a> InferCtx<'a> {
 
             // Lazy substitution: pass &self.subst for on-demand variable
             // resolution instead of pre-resolving both types.
-            match unify_with_span_and_row_var_counter(
+            match unify_core(
                 expected_param_ty,
                 &arg_ty,
                 &self.subst,

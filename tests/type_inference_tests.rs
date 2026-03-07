@@ -12,7 +12,8 @@ use flux::types::scheme::{Scheme, generalize};
 use flux::types::type_constructor::TypeConstructor;
 use flux::types::type_env::TypeEnv;
 use flux::types::type_subst::TypeSubst;
-use flux::types::unify_error::{UnifyErrorKind, unify};
+use flux::types::unify::unify;
+use flux::types::unify_error::UnifyErrorKind;
 
 fn int() -> InferType {
     InferType::Con(TypeConstructor::Int)
