@@ -5,7 +5,7 @@ use crate::{
         types::LabelStyle,
     },
     syntax::expression::Expression,
-    types::{infer_type::InferType, unify_error::unify},
+    types::{infer_type::InferType, unify::unify},
 };
 
 use crate::ast::type_infer::{display_infer_type, suggest_type_name};

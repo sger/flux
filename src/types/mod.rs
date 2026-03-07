@@ -10,6 +10,7 @@ pub mod scheme;
 pub mod type_constructor;
 pub mod type_env;
 pub mod type_subst;
+pub mod unify;
 pub mod unify_error;
 
 /// A fresh identifier for unification variables during inference.

@@ -27,7 +27,7 @@ use crate::{
         symbol::Symbol,
         type_expr::TypeExpr,
     },
-    types::{infer_type::InferType, type_env::TypeEnv, unify_error::unify},
+    types::{infer_type::InferType, type_env::TypeEnv, unify::unify},
 };
 
 use super::hm_expr_typer::HmExprTypeResult;

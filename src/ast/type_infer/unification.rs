@@ -34,7 +34,7 @@ impl<'a> InferCtx<'a> {
     pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         // Lazy substitution: pass &self.subst into unification for on-demand
         // variable resolution instead of pre-resolving both types upfront.
-        match unify_with_span_and_row_var_counter(
+        match unify_core(
             t1,
             t2,
             &self.subst,
@@ -76,7 +76,7 @@ impl<'a> InferCtx<'a> {
         span: Span,
     ) -> Result<InferType, UnifyError> {
         let solved =
-            unify_with_span_and_row_var_counter(t1, t2, &self.subst, span, &mut self.env.counter)?;
+            unify_core(t1, t2, &self.subst, span, &mut self.env.counter)?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
         Ok(t1.apply_type_subst(&self.subst))
     }

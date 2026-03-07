@@ -34,7 +34,8 @@ use crate::{
         type_constructor::TypeConstructor,
         type_env::TypeEnv,
         type_subst::TypeSubst,
-        unify_error::{UnifyErrorDetail, UnifyErrorKind, unify_with_span_and_row_var_counter},
+        unify::unify_core,
+        unify_error::{UnifyErrorDetail, UnifyErrorKind},
     },
 };
 
