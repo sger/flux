@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     diagnostics::position::Span,
+    syntax::Identifier,
     types::{
         TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType,
         type_constructor::TypeConstructor, type_subst::TypeSubst,
@@ -420,15 +421,10 @@ fn unify_row_var(
     let resolved = resolve_row(&row, ctx_subst, local_subst);
 
     if row_var_occurs_in_row(row_var, &resolved, ctx_subst, local_subst) {
-        return Err(UnifyError::mismatch(
-            InferType::Var(row_var),
-            InferType::Fun(
-                vec![],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                resolved,
-            ),
+        return Err(UnifyError::effect_row_mismatch(
+            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), row_var),
+            resolved,
             span,
-            UnifyErrorDetail::None,
         ));
     }
 
