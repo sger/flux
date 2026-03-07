@@ -27,7 +27,7 @@ impl TypeSubst {
     }
 
     /// Look up a type variable.
-    pub fn get_type(&self, type_var_id: TypeVarId) -> Option<&InferType> {
+    pub fn get(&self, type_var_id: TypeVarId) -> Option<&InferType> {
         self.type_bindings.get(&type_var_id)
     }
 
@@ -39,8 +39,8 @@ impl TypeSubst {
     /// Panics in debug builds if `infer_type` directly references `type_var_id`
     /// (self-reference would create an infinite chain). The full occurs check
     /// (preventing `?a → Foo<?a>`) is enforced by `unify_with_span` before
-    /// any `insert_type` call.
-    pub fn insert_type(&mut self, type_var_id: TypeVarId, infer_type: InferType) {
+    /// any `insert` call.
+    pub fn insert(&mut self, type_var_id: TypeVarId, infer_type: InferType) {
         debug_assert!(
             !matches!(&infer_type, InferType::Var(v) if *v == type_var_id),
             "occurs check: inserting {type_var_id} -> {infer_type} would create a self-referential chain"
@@ -59,16 +59,6 @@ impl TypeSubst {
     /// `InferEffectRow::apply_row_subst` when composing substitutions.
     pub fn insert_row(&mut self, row_var_id: TypeVarId, row: InferEffectRow) {
         self.row_bindings.insert(row_var_id, row);
-    }
-
-    /// Backwards-compatible alias for [`Self::get_type`].
-    pub fn get(&self, type_var_id: TypeVarId) -> Option<&InferType> {
-        self.get_type(type_var_id)
-    }
-
-    /// Backwards-compatible alias for [`Self::insert_type`].
-    pub fn insert(&mut self, type_var_id: TypeVarId, infer_type: InferType) {
-        self.insert_type(type_var_id, infer_type);
     }
 
     /// Compose this substitution with `other`.
