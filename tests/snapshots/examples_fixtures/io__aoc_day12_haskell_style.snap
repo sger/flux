@@ -28,6 +28,74 @@ Cannot unify Int with Array<Option<Int>>.
    |                                                       ^^^^^^
    |                                                       ------ expected Int, found Array<Option<Int>>
 
-Found 2 errors.
+
+--> compiler error[E300]: TYPE UNIFICATION ERROR
+
+The 2nd argument to `weighted_sum` has the wrong type.
+
+  --> examples/io/aoc_day12_haskell_style.flx:127:41
+    |
+100 | fn weighted_sum(block_sizes, counts, idx, acc) {
+
+101 |     if idx >= len(block_sizes) || idx >= len(counts) {
+
+102 |         acc
+
+103 |     } else {
+
+104 |     weighted_sum(block_sizes, counts, idx + 1, acc + (int_at(block_sizes, idx) * int_at(counts, idx)))
+
+105 | }
+
+106 | }
+
+107 | 
+
+108 | fn area_at(arr, idx) {
+
+109 |     match arr[idx] {
+
+110 |         Some(v) -> v,
+
+111 |         _ -> [||]
+
+112 |     }
+
+113 | }
+
+114 | 
+
+115 | fn count_valid_areas(block_sizes, areas, idx, acc) {
+
+116 |     if idx >= len(areas) {
+
+117 |         acc
+
+118 |     } else {
+
+119 |     let area = area_at(areas, idx)
+
+120 |     let w = int_at(area, 0)
+
+121 |     let h = int_at(area, 1)
+
+122 |     let counts = match area[2] {
+
+123 |         Some(v) -> v,
+
+124 |         _ -> [||]
+
+125 |     }
+
+126 |     let lhs = w * h
+
+127 |     let rhs = weighted_sum(block_sizes, counts, 0, 0)
+    |                                         ^^^^^^
+    |                                         ------ this argument is `Int`
+
+Help:
+  Expected `Array<Int>` as the 2nd argument.
+
+Found 3 errors.
 == stdout ==
 <not executed>

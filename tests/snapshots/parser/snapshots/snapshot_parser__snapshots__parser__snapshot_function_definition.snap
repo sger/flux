@@ -43,6 +43,9 @@ Program {
                                             column: 12,
                                         },
                                     },
+                                    id: ExprId(
+                                        1,
+                                    ),
                                 },
                                 operator: "+",
                                 right: Identifier {
@@ -59,6 +62,9 @@ Program {
                                             column: 16,
                                         },
                                     },
+                                    id: ExprId(
+                                        2,
+                                    ),
                                 },
                                 span: Span {
                                     start: Position {
@@ -70,6 +76,9 @@ Program {
                                         column: 16,
                                     },
                                 },
+                                id: ExprId(
+                                    3,
+                                ),
                             },
                         ),
                         span: Span {

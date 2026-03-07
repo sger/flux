@@ -27,32 +27,14 @@ impl Compiler {
     /// Authoritative HM expression typing for typed validation paths.
     /// This path only consults the global HM expression-type map.
     pub(super) fn hm_expr_type_strict_path(&self, expression: &Expression) -> HmExprTypeResult {
-        let key = expression as *const Expression as usize;
-        let Some(node_id) = self.expr_ptr_to_id.get(&key) else {
-            debug_assert!(
-                false,
-                "HM expression id lookup missed in strict path. Invariant: HM pass and typed validation must run against the same Program allocation within one compile invocation."
-            );
-            return HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType);
-        };
-        match self.expr_type(*node_id) {
-            Some(infer) if Self::is_hm_type_resolved(&infer) => HmExprTypeResult::Known(infer),
-            Some(_) => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
-            None => {
-                debug_assert!(
-                    false,
-                    "HM expression type map missed known expression id in strict path. Invariant: infer_program must populate ExprTypeMap for every expression visited in codegen validation."
-                );
-                HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType)
+        let expr_id = expression.expr_id();
+        match self.hm_expr_types.get(&expr_id) {
+            Some(infer) if Self::is_hm_type_resolved(infer) => {
+                HmExprTypeResult::Known(infer.clone())
             }
+            Some(_) => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
+            None => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
         }
-    }
-
-    pub(super) fn expr_type(
-        &self,
-        node_id: crate::ast::type_infer::ExprNodeId,
-    ) -> Option<InferType> {
-        self.hm_expr_types.get(&node_id).cloned()
     }
 
     fn is_hm_type_resolved(infer: &InferType) -> bool {

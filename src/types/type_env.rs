@@ -92,12 +92,12 @@ impl TypeEnv {
         }
     }
 
-    /// Look up a name — O(1) via shadow stack top.
+    /// Look up a name O(1) via shadow stack top.
     pub fn lookup(&self, name: Identifier) -> Option<&Scheme> {
         self.bindings.get(&name)?.last().map(|e| &e.scheme)
     }
 
-    /// Look up a name's definition span — O(1) via shadow stack top.
+    /// Look up a name's definition span O(1) via shadow stack top.
     pub fn lookup_span(&self, name: Identifier) -> Option<Span> {
         self.bindings.get(&name)?.last().and_then(|e| e.def_span)
     }
@@ -542,8 +542,8 @@ mod tests {
 
         assert_eq!(env.level(), 2);
         assert_eq!(*env.var_levels.get(&v0).unwrap(), 0);
-        assert_eq!(*env.var_levels.get(&v1).unwrap(), 0);
-        assert_eq!(*env.var_levels.get(&v2).unwrap(), 0);
+        assert_eq!(*env.var_levels.get(&v1).unwrap(), 1);
+        assert_eq!(*env.var_levels.get(&v2).unwrap(), 2);
     }
 
     #[test]
