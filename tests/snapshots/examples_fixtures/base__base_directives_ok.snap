@@ -14,8 +14,5 @@ Cannot unify () -> Unit with () -> Unit with IO.
 8 | Base.print("len(xs) = " + to_string(len(xs)));
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   | --------------------------------------------- expected () -> Unit, found () -> Unit with IO
-
-Help:
-  Suppressed 1 nearby duplicate E300 diagnostic(s).
 == stdout ==
 <not executed>
