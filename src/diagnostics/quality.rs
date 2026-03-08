@@ -3,8 +3,7 @@ use std::rc::Rc;
 use crate::diagnostics::position::Span;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
-    ErrorCode, ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR,
-    diag_enhanced,
+    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, diag_enhanced,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -47,30 +46,12 @@ pub fn type_pair_hint(expected: &str, actual: &str) -> Option<String> {
     }
 }
 
-pub fn missing_syntax_token_diagnostic_with_origin(
-    code: &'static ErrorCode,
-    file: impl Into<Rc<str>>,
-    span: Span,
-    display_title: &str,
-    message: impl Into<String>,
-    origin_label: impl Into<String>,
-    help: impl Into<String>,
-) -> Diagnostic {
-    diag_enhanced(code)
-        .with_display_title(display_title)
-        .with_category(parser_category_for_display_title(display_title))
-        .with_file(file)
-        .with_span(span)
-        .with_message(message.into())
-        .with_primary_label(span, origin_label.into())
-        .with_help(help.into())
-}
-
 // Diagnostic tone guide:
 // - display_title: short noun phrase naming the real problem
 // - message: human-first explanation of what likely went wrong
 // - labels: what this code looks like to the compiler
 // - help: one short concrete next step
+
 pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCategory {
     match display_title {
         "Missing Function Body"
@@ -112,43 +93,8 @@ pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCateg
     }
 }
 
-pub fn downstream_errors_suppressed_note(
-    file: impl Into<Rc<str>>,
-    suppressed_type_count: usize,
-    suppressed_effect_count: usize,
-) -> Diagnostic {
-    let suppressed_total = suppressed_type_count + suppressed_effect_count;
-    let mut details = Vec::new();
-    if suppressed_type_count > 0 {
-        details.push(format!("{} type", suppressed_type_count));
-    }
-    if suppressed_effect_count > 0 {
-        details.push(format!("{} effect", suppressed_effect_count));
-    }
-    let breakdown = if details.is_empty() {
-        "later-stage".to_string()
-    } else {
-        details.join(", ")
-    };
-
-    Diagnostic::make_note(
-        "DOWNSTREAM ERRORS SUPPRESSED",
-        format!(
-            "I hid {} later-stage diagnostic{} ({}) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.",
-            suppressed_total,
-            if suppressed_total == 1 { "" } else { "s" },
-            breakdown,
-        ),
-        file,
-        Span::default(),
-    )
-    .with_display_title("Downstream Errors Suppressed")
-    .with_category(DiagnosticCategory::Orchestration)
-    .with_phase(DiagnosticPhase::Validation)
-}
-
 pub fn missing_construct_opener_diagnostic(
-    code: &'static ErrorCode,
+    code: &'static crate::diagnostics::types::ErrorCode,
     file: impl Into<Rc<str>>,
     span: Span,
     display_title: &str,
@@ -167,7 +113,7 @@ pub fn missing_construct_opener_diagnostic(
 }
 
 pub fn missing_syntax_token_diagnostic(
-    code: &'static ErrorCode,
+    code: &'static crate::diagnostics::types::ErrorCode,
     file: impl Into<Rc<str>>,
     span: Span,
     display_title: &str,
@@ -180,6 +126,25 @@ pub fn missing_syntax_token_diagnostic(
         .with_file(file)
         .with_span(span)
         .with_message(message.into())
+        .with_help(help.into())
+}
+
+pub fn missing_syntax_token_diagnostic_with_origin(
+    code: &'static crate::diagnostics::types::ErrorCode,
+    file: impl Into<Rc<str>>,
+    span: Span,
+    display_title: &str,
+    message: impl Into<String>,
+    origin_label: impl Into<String>,
+    help: impl Into<String>,
+) -> Diagnostic {
+    diag_enhanced(code)
+        .with_display_title(display_title)
+        .with_category(parser_category_for_display_title(display_title))
+        .with_file(file)
+        .with_span(span)
+        .with_message(message.into())
+        .with_primary_label(span, origin_label.into())
         .with_help(help.into())
 }
 
@@ -331,6 +296,41 @@ pub fn module_skipped_note(
         Span::default(),
     )
     .with_display_title("Module Skipped")
+    .with_category(DiagnosticCategory::Orchestration)
+    .with_phase(DiagnosticPhase::Validation)
+}
+
+pub fn downstream_errors_suppressed_note(
+    file: impl Into<Rc<str>>,
+    suppressed_type_count: usize,
+    suppressed_effect_count: usize,
+) -> Diagnostic {
+    let suppressed_total = suppressed_type_count + suppressed_effect_count;
+    let mut details = Vec::new();
+    if suppressed_type_count > 0 {
+        details.push(format!("{} type", suppressed_type_count));
+    }
+    if suppressed_effect_count > 0 {
+        details.push(format!("{} effect", suppressed_effect_count));
+    }
+    let breakdown = if details.is_empty() {
+        "later-stage".to_string()
+    } else {
+        details.join(", ")
+    };
+
+    Diagnostic::make_note(
+        "DOWNSTREAM ERRORS SUPPRESSED",
+        format!(
+            "I hid {} later-stage diagnostic{} ({}) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.",
+            suppressed_total,
+            if suppressed_total == 1 { "" } else { "s" },
+            breakdown,
+        ),
+        file,
+        Span::default(),
+    )
+    .with_display_title("Downstream Errors Suppressed")
     .with_category(DiagnosticCategory::Orchestration)
     .with_phase(DiagnosticPhase::Validation)
 }

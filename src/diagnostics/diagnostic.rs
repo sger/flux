@@ -3,7 +3,6 @@ use super::rendering;
 use super::types::*;
 use super::{ErrorCode, ErrorType, format_message};
 use crate::diagnostics::position::{Position, Span};
-use crate::diagnostics::registry::default_diagnostic_category;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -390,7 +389,6 @@ impl Diagnostic {
             .with_file(file)
             .with_span(span)
             .with_message(message);
-
         if diag.category == Some(DiagnosticCategory::Internal)
             && super::registry::default_diagnostic_category(warn_spec.code).is_none()
         {
@@ -428,10 +426,10 @@ impl Diagnostic {
 
         Self {
             severity: Severity::Error,
-            title: title.into(),
+            title,
             display_title: None,
-            category: default_diagnostic_category(&code),
-            code: Some(code.into()),
+            category: super::registry::default_diagnostic_category(&code),
+            code: Some(code),
             error_type: Some(error_type),
             message: Some(message),
             file: Some(file),

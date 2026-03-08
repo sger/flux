@@ -278,7 +278,6 @@ pub fn render_source_snippet(
                     if use_color {
                         out.push_str(colors.reset);
                     }
-
                     out.push('\n');
                     has_rendered_annotation_line = true;
                 }
