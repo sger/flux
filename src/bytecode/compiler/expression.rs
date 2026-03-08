@@ -34,6 +34,7 @@ use crate::{
         },
         diagnostic_for, dynamic_explained_diagnostic,
         position::{Position, Span},
+        quality::{EffectConstraintOrigin, with_effect_constraint_origin},
         types::ErrorType,
     },
     primop::{PrimEffect, resolve_primop_call},
@@ -70,6 +71,23 @@ enum GeneralCoverageDomain {
 }
 
 impl Compiler {
+    fn effect_constraint_origin(
+        &self,
+        function: &Expression,
+        expected_row: Option<String>,
+    ) -> EffectConstraintOrigin {
+        let call_name = self.call_function_name(function);
+        let mut origin = EffectConstraintOrigin::new(
+            function.span(),
+            format!("this call to `{call_name}` creates the effect obligation"),
+            format!("constraint source: effect-row checking for `{call_name}`"),
+        );
+        if let Some(expected_row) = expected_row {
+            origin = origin.with_expected_row(expected_row);
+        }
+        origin
+    }
+
     fn effect_operation_function_parts<'a>(
         &'a self,
         effect: Symbol,
@@ -701,9 +719,12 @@ impl Compiler {
                 .collect();
 
             if !unresolved.is_empty() {
-                return Err(Self::boxed(
-                    self.unresolved_effect_vars_diagnostic(&unresolved, function.span()),
-                ));
+                let origin = self.effect_constraint_origin(function, None);
+                return Err(Self::boxed(self.unresolved_effect_vars_diagnostic(
+                    &unresolved,
+                    function.span(),
+                    &origin,
+                )));
             }
 
             let mut required_effects: Vec<Symbol> = required_row
@@ -947,24 +968,28 @@ impl Compiler {
         Some((member.to_string(), qualifier.to_string()))
     }
 
-    fn unresolved_effect_vars_diagnostic(&self, vars: &[Symbol], span: Span) -> Diagnostic {
+    fn unresolved_effect_vars_diagnostic(
+        &self,
+        vars: &[Symbol],
+        span: Span,
+        origin: &EffectConstraintOrigin,
+    ) -> Diagnostic {
         if vars.len() == 1 {
             let effect_name = self.sym(vars[0]).to_string();
-            dynamic_explained_diagnostic(
+            with_effect_constraint_origin(dynamic_explained_diagnostic(
                 "E419",
                 "UNRESOLVED EFFECT VARIABLE",
-                format!("I cannot resolve the effect variable `{effect_name}` for this call."),
+                format!(
+                    "I cannot resolve the effect variable `{effect_name}` introduced by this call."
+                ),
                 self.file_path.clone(),
                 span,
                 "this call leaves an effect variable unconstrained",
-                [
-                    format!("unresolved effect variable: {effect_name}"),
-                    "constraint source: effect inference at this call".to_string(),
-                ],
+                [format!("unresolved effect variable: {effect_name}")],
                 format!(
                     "Add an explicit effect annotation such as `with {effect_name}` or pass a callback with concrete effects."
                 ),
-            )
+            ), origin)
             .with_display_title("Unresolved Effect Row")
             .with_category(DiagnosticCategory::Effects)
             .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
@@ -974,22 +999,19 @@ impl Compiler {
                 .map(|symbol| self.sym(*symbol).to_string())
                 .collect();
             names.sort();
-            dynamic_explained_diagnostic(
+            with_effect_constraint_origin(dynamic_explained_diagnostic(
                 "E420",
                 "AMBIGUOUS EFFECT VARIABLES",
                 format!(
-                    "I cannot determine which effects this call should carry: {}.",
+                    "I cannot determine which effects this call should carry because these effect variables stay ambiguous: {}.",
                     names.join(", ")
                 ),
                 self.file_path.clone(),
                 span,
                 "this call leaves multiple effect variables ambiguous",
-                [
-                    format!("ambiguous effect variables: {}", names.join(", ")),
-                    "constraint source: effect inference at this call".to_string(),
-                ],
+                [format!("ambiguous effect variables: {}", names.join(", "))],
                 "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.",
-            )
+            ), origin)
             .with_display_title("Unresolved Effect Row")
             .with_category(DiagnosticCategory::Effects)
             .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
@@ -1001,29 +1023,29 @@ impl Compiler {
         function: &Expression,
         violation: &RowConstraintViolation,
     ) -> Diagnostic {
+        let origin = self.effect_constraint_origin(function, None);
         match violation {
             RowConstraintViolation::InvalidSubtract { atom } => {
                 let effect_name = self.sym(*atom).to_string();
-                dynamic_explained_diagnostic(
-                    "E421",
-                    "INVALID EFFECT SUBTRACTION",
-                    format!("I cannot subtract effect `{effect_name}` from this effect row."),
-                    self.file_path.clone(),
-                    function.span(),
-                    "this call violates an effect-row subtraction constraint",
-                    [
-                        format!("requested subtraction: {effect_name}"),
-                        "constraint source: effect-row subtraction during call checking"
-                            .to_string(),
-                    ],
-                    "Handle or include this effect before subtracting it from an effect row.",
+                with_effect_constraint_origin(
+                    dynamic_explained_diagnostic(
+                        "E421",
+                        "INVALID EFFECT SUBTRACTION",
+                        format!("I cannot subtract effect `{effect_name}` from this effect row."),
+                        self.file_path.clone(),
+                        function.span(),
+                        "this call violates an effect-row subtraction constraint",
+                        [format!("requested subtraction: {effect_name}")],
+                        "Handle or include this effect before subtracting it from an effect row.",
+                    ),
+                    &origin,
                 )
                 .with_display_title("Effect Requirement Mismatch")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             }
             RowConstraintViolation::UnresolvedVars { vars } => {
-                self.unresolved_effect_vars_diagnostic(vars, function.span())
+                self.unresolved_effect_vars_diagnostic(vars, function.span(), &origin)
             }
             RowConstraintViolation::UnsatisfiedSubset { missing } => {
                 let mut names: Vec<String> = missing
@@ -1031,7 +1053,7 @@ impl Compiler {
                     .map(|effect| self.sym(*effect).to_string())
                     .collect();
                 names.sort();
-                dynamic_explained_diagnostic(
+                with_effect_constraint_origin(dynamic_explained_diagnostic(
                     "E422",
                     "UNSATISFIED EFFECT SUBSET",
                     format!(
@@ -1041,12 +1063,9 @@ impl Compiler {
                     self.file_path.clone(),
                     function.span(),
                     "this call needs effects that are not currently available",
-                    [
-                        format!("missing required effects: {}", names.join(", ")),
-                        "constraint source: effect subset checking at this call".to_string(),
-                    ],
+                    [format!("missing required effects: {}", names.join(", "))],
                     "Add the missing effects to the enclosing function or handle them before this call.",
-                )
+                ), &origin)
                 .with_display_title("Effect Requirement Mismatch")
                 .with_category(DiagnosticCategory::Effects)
                 .with_phase(crate::diagnostics::DiagnosticPhase::Effect)

@@ -16,5 +16,8 @@ This module body needs to start with `{`.
 
 Hint:
   Module declarations use `module Name { ... }`.
+
+Note:
+  while parsing module `Math`
 == stdout ==
 <not executed>

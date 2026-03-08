@@ -16,5 +16,8 @@ This hash entry needs `:` between the key and value.
 
 Hint:
   Hash literals use `{key: value, ...}`.
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

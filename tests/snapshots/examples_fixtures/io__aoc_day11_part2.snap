@@ -15,9 +15,12 @@ I found a type mismatch.
    |             ^^^^
    |             ---- this expression has type `Array<String>`
 
+   |             ---- this type mismatch is reported here
+
 Note:
   expected type: String
   found type: Array<String>
+  the conflicting types meet at this expression
 
 Help:
   These two types are not compatible.

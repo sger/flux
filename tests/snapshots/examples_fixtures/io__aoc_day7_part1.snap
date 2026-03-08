@@ -35,6 +35,8 @@ I found the wrong type in the 5th argument to `simulate`.
 Note:
   expected argument type: Array<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<Int>` value as the 5th argument.

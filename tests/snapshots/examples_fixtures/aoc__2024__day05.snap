@@ -69,6 +69,8 @@ I found the wrong type in the 1st argument to `reverse_list`.
 Note:
   expected argument type: List<(Option<Int>, Option<Int>)>
   found argument type: List<Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<(Option<Int>, Option<Int>)>` value as the 1st argument.
@@ -230,6 +232,8 @@ I found the wrong type in the 2nd argument to `update_is_valid`.
 Note:
   expected argument type: List<(Int, Int)>
   found argument type: List<(Option<Int>, Option<Int>)>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<(Int, Int)>` value as the 2nd argument.
@@ -406,6 +410,8 @@ I found the wrong type in the 2nd argument to `update_is_valid`.
 Note:
   expected argument type: List<(Int, Int)>
   found argument type: List<(Option<Int>, Option<Int>)>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<(Int, Int)>` value as the 2nd argument.
@@ -497,6 +503,8 @@ I found the wrong type in the 2nd argument to `sort_update_by_rules`.
 Note:
   expected argument type: List<(Int, Int)>
   found argument type: List<(Option<Int>, Option<Int>)>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<(Int, Int)>` value as the 2nd argument.

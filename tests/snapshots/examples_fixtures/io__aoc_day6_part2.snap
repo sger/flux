@@ -32,6 +32,8 @@ I found the wrong type in the 4th argument to `col_value`.
 Note:
   expected argument type: Option<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Wrap this value in `Some(...)` or return `None`.
@@ -67,6 +69,8 @@ I found the wrong type in the 4th argument to `col_value`.
 Note:
   expected argument type: Option<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Wrap this value in `Some(...)` or return `None`.

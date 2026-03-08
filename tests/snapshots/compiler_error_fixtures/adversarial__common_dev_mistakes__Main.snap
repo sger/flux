@@ -24,6 +24,8 @@ I found the wrong type in the 1st argument to `sum`.
 Note:
   expected argument type: List<Int>
   found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `List<Int>` value as the 1st argument.

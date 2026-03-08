@@ -53,6 +53,8 @@ I found the wrong type in the 2nd argument to `max2`.
 Note:
   expected argument type: Int
   found argument type: Option<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   This value might be `None`. Use `match` to unwrap it before using it here.

@@ -62,6 +62,8 @@ I found the wrong type in the 7th argument to `build_row_after_round`.
 Note:
   expected argument type: String
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
@@ -113,6 +115,8 @@ I found the wrong type in the 6th argument to `step_round`.
 Note:
   expected argument type: Array<Option<String>>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<Option<String>>` value as the 6th argument.
@@ -203,6 +207,8 @@ I found the wrong type in the 1st argument to `first2`.
 Note:
   expected argument type: Array<String>
   found argument type: Array<Array<Option<String>>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<String>` value as the 1st argument.
@@ -290,6 +296,8 @@ I found the wrong type in the 1st argument to `second2`.
 Note:
   expected argument type: Array<String>
   found argument type: Array<Array<Option<String>>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<String>` value as the 1st argument.
@@ -305,9 +313,12 @@ I found a type mismatch.
    |        ^^^^^^^^^^^^^^^^
    |        ---------------- this expression has type `Int`
 
+   |        ---------------- this type mismatch is reported here
+
 Note:
   expected type: Option<String>
   found type: Int
+  the conflicting types meet at this expression
 
 Help:
   Wrap this value in `Some(...)` or return `None`.
@@ -362,6 +373,8 @@ I found the wrong type in the 4th argument to `remove_until_stable`.
 Note:
   expected argument type: Option<String>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Wrap this value in `Some(...)` or return `None`.

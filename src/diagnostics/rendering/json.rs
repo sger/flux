@@ -3,8 +3,7 @@ use serde::Serialize;
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
     Diagnostic, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind,
-    InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
-    StackTraceFrame,
+    InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity, StackTraceFrame,
 };
 
 #[derive(Serialize)]

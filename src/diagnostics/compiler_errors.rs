@@ -1314,7 +1314,8 @@ pub fn call_arg_type_mismatch(
         format!("Pass a `{expected}` value as the {ord} argument."),
     )
     .with_display_title("Argument Type Mismatch")
-    .with_category(DiagnosticCategory::TypeInference);
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_note("the actual argument type is inferred from this expression");
 
     if let Some(def_span) = fn_def_span {
         if let Some(name) = fn_name {
@@ -1326,6 +1327,7 @@ pub fn call_arg_type_mismatch(
             diag =
                 diag.with_secondary_label(def_span, format!("this function expects `{expected}`"));
         }
+        diag = diag.with_note("the expected argument type comes from the function signature");
     }
 
     diag

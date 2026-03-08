@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 Error[E420]: Unresolved Effect Row
 
-I cannot determine which effects this call should carry: e, t.
+I cannot determine which effects this call should carry because these effect variables stay ambiguous: e, t.
 
   examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx:8:5
   |
@@ -15,9 +15,11 @@ I cannot determine which effects this call should carry: e, t.
   |     ^^^^^^^^^^^^^^^
   |     --------------- this call leaves multiple effect variables ambiguous
 
+  |     --------------- this call to `unresolved_many` creates the effect obligation
+
 Note:
   ambiguous effect variables: e, t
-  constraint source: effect inference at this call
+  constraint source: effect-row checking for `unresolved_many`
 
 Help:
   Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.

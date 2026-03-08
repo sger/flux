@@ -13,5 +13,8 @@ Expected expression, found `)`.
   |
 6 |     let x = 1 + 2)
   |                  ^
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

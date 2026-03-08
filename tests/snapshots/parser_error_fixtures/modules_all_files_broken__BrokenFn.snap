@@ -17,6 +17,9 @@ This function body needs to start with `{`.
   |         ^^^^^^^^^
   |         --------- This looks like the function body
 
+Note:
+  while parsing function `greet`
+
 Help:
   Try adding `{` after the function signature.
 == stdout ==

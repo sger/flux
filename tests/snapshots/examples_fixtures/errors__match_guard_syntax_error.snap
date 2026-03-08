@@ -14,6 +14,9 @@ Expected expression, found `->`.
 5 |     Some(v) if -> v,
   |                ^^
 
+Note:
+  while parsing `match` expression
+
 
 Error[E031]: Expected Expression
 
@@ -23,6 +26,9 @@ Expected expression, found `;`.
   |
 7 | };
   |  ^
+
+Note:
+  while parsing `match` expression
 
 Found 2 errors.
 == stdout ==

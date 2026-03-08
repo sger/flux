@@ -15,9 +15,12 @@ I found a type mismatch.
   |                               ^^^^^
   |                               ----- this expression has type `String`
 
+  |                               ----- this type mismatch is reported here
+
 Note:
   expected type: Int
   found type: String
+  the conflicting types meet at this expression
 
 Help:
   These two types are not compatible.

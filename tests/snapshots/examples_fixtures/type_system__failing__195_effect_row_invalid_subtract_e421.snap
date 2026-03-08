@@ -15,9 +15,12 @@ Parameter 1 has the wrong type.
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ----------------------------- parameter 1 has type `() -> Unit with Console, IO`
 
+   |     ----------------------------- this type mismatch is reported here
+
 Note:
   expected parameter type: () -> Unit with IO
   found parameter type: () -> Unit with Console, IO
+  the conflicting types meet at this expression
 
 Help:
   Change parameter 1 to use `() -> Unit with IO` consistently.

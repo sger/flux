@@ -18,6 +18,7 @@ I found the wrong type in the 1st argument to `upper`.
 Note:
   expected argument type: String
   found argument type: Option<String>
+  the actual argument type is inferred from this expression
 
 Help:
   This value might be `None`. Use `match` to unwrap it before using it here.
@@ -36,6 +37,7 @@ I found the wrong type in the 1st argument to `upper`.
 Note:
   expected argument type: String
   found argument type: Option<String>
+  the actual argument type is inferred from this expression
 
 Help:
   This value might be `None`. Use `match` to unwrap it before using it here.

@@ -6,8 +6,11 @@ use crate::{
     diagnostics::position::Span,
     syntax::Identifier,
     types::{
-        TypeVarId, infer_effect_row::InferEffectRow, infer_type::InferType,
-        type_constructor::TypeConstructor, type_subst::TypeSubst,
+        TypeVarId,
+        infer_effect_row::InferEffectRow,
+        infer_type::InferType,
+        type_constructor::TypeConstructor,
+        type_subst::TypeSubst,
         unify_error::{UnifyError, UnifyErrorDetail},
     },
 };
@@ -117,7 +120,14 @@ pub fn unify_core(
             if params1.len() == params2.len() =>
         {
             unify_fun_types(
-                params1, ret1, effects1, params2, ret2, effects2, ctx_subst, span,
+                params1,
+                ret1,
+                effects1,
+                params2,
+                ret2,
+                effects2,
+                ctx_subst,
+                span,
                 fresh_row_var,
             )
         }
@@ -164,13 +174,7 @@ fn unify_many(
         // ctx_subst is handled lazily via resolve_head in the recursive call.
         let t1_sub = t1.apply_type_subst(&local_subst);
         let t2_sub = t2.apply_type_subst(&local_subst);
-        let s = unify_core(
-            &t1_sub,
-            &t2_sub,
-            ctx_subst,
-            span,
-            fresh_row_var,
-        )?;
+        let s = unify_core(&t1_sub, &t2_sub, ctx_subst, span, fresh_row_var)?;
         local_subst = local_subst.compose(&s);
     }
     Ok(local_subst)
@@ -192,8 +196,7 @@ fn unify_fun_types(
     fresh_row_var: &mut u32,
 ) -> Result<TypeSubst, UnifyError> {
     let mut subst = TypeSubst::empty();
-    let row_subst =
-        unify_effect_rows(effects1, effects2, span, fresh_row_var, ctx_subst, &subst)?;
+    let row_subst = unify_effect_rows(effects1, effects2, span, fresh_row_var, ctx_subst, &subst)?;
     subst = subst.compose(&row_subst);
 
     for (index, (p1, p2)) in params1.iter().zip(params2.iter()).enumerate() {
@@ -325,7 +328,10 @@ fn unify_open_with_closed(
             span,
         ));
     }
-    let diff = closed_set.difference(open_set).copied().collect::<HashSet<_>>();
+    let diff = closed_set
+        .difference(open_set)
+        .copied()
+        .collect::<HashSet<_>>();
     unify_row_var(
         open_tail,
         InferEffectRow::closed_from_symbols(diff),
@@ -352,8 +358,14 @@ fn unify_both_open_rows(
     let residual = *fresh_row_var;
     *fresh_row_var += 1;
 
-    let left_extra = left_set.difference(right_set).copied().collect::<HashSet<_>>();
-    let right_extra = right_set.difference(left_set).copied().collect::<HashSet<_>>();
+    let left_extra = left_set
+        .difference(right_set)
+        .copied()
+        .collect::<HashSet<_>>();
+    let right_extra = right_set
+        .difference(left_set)
+        .copied()
+        .collect::<HashSet<_>>();
 
     let left_bind = InferEffectRow::open_from_symbols(right_extra, residual);
     let right_bind = InferEffectRow::open_from_symbols(left_extra, residual);
@@ -536,19 +548,15 @@ mod tests {
 
     // --- Effect row unification tests ---
 
+    use super::unify_effect_rows;
     use crate::syntax::symbol::Symbol;
     use crate::types::type_subst::TypeSubst;
-    use super::unify_effect_rows;
 
     fn sym(i: u32) -> Symbol {
         Symbol::new(i)
     }
 
-    fn effectful_fun(
-        params: Vec<InferType>,
-        ret: InferType,
-        effects: InferEffectRow,
-    ) -> InferType {
+    fn effectful_fun(params: Vec<InferType>, ret: InferType, effects: InferEffectRow) -> InferType {
         InferType::Fun(params, Box::new(ret), effects)
     }
 
@@ -556,8 +564,14 @@ mod tests {
     fn effect_rows_both_closed_identical_unify() {
         let row = InferEffectRow::closed_from_symbols([sym(1), sym(2)]);
         let mut fresh = 0;
-        let result =
-            unify_effect_rows(&row, &row, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty());
+        let result = unify_effect_rows(
+            &row,
+            &row,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        );
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
@@ -567,8 +581,14 @@ mod tests {
         let left = InferEffectRow::closed_from_symbols([sym(1)]);
         let right = InferEffectRow::closed_from_symbols([sym(2)]);
         let mut fresh = 0;
-        let result =
-            unify_effect_rows(&left, &right, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty());
+        let result = unify_effect_rows(
+            &left,
+            &right,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        );
         assert!(result.is_err());
     }
 
@@ -577,9 +597,15 @@ mod tests {
         let open = InferEffectRow::open_from_symbols([sym(1)], 10);
         let closed = InferEffectRow::closed_from_symbols([sym(1), sym(2)]);
         let mut fresh = 0;
-        let subst =
-            unify_effect_rows(&open, &closed, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty())
-                .expect("open subset of closed should unify");
+        let subst = unify_effect_rows(
+            &open,
+            &closed,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        )
+        .expect("open subset of closed should unify");
         let bound = subst.get_row(10).expect("tail 10 should be bound");
         assert!(bound.concrete().contains(&sym(2)));
         assert!(!bound.concrete().contains(&sym(1)));
@@ -591,8 +617,14 @@ mod tests {
         let open = InferEffectRow::open_from_symbols([sym(3)], 10);
         let closed = InferEffectRow::closed_from_symbols([sym(1)]);
         let mut fresh = 0;
-        let result =
-            unify_effect_rows(&open, &closed, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty());
+        let result = unify_effect_rows(
+            &open,
+            &closed,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        );
         assert!(result.is_err());
     }
 
@@ -600,8 +632,14 @@ mod tests {
     fn effect_rows_both_open_same_tail_identical_unify() {
         let row = InferEffectRow::open_from_symbols([sym(1)], 10);
         let mut fresh = 0;
-        let result =
-            unify_effect_rows(&row, &row, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty());
+        let result = unify_effect_rows(
+            &row,
+            &row,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        );
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
@@ -611,9 +649,15 @@ mod tests {
         let left = InferEffectRow::open_from_symbols([sym(1)], 10);
         let right = InferEffectRow::open_from_symbols([sym(2)], 11);
         let mut fresh = 100;
-        let subst =
-            unify_effect_rows(&left, &right, Span::default(), &mut fresh, &TypeSubst::empty(), &TypeSubst::empty())
-                .expect("both open with different tails should unify");
+        let subst = unify_effect_rows(
+            &left,
+            &right,
+            Span::default(),
+            &mut fresh,
+            &TypeSubst::empty(),
+            &TypeSubst::empty(),
+        )
+        .expect("both open with different tails should unify");
 
         // fresh should have been incremented for the residual variable
         assert_eq!(fresh, 101);
