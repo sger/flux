@@ -276,7 +276,8 @@ impl TypeEnv {
                     row_var_counter,
                 )?;
                 let effect_row =
-                    InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter);
+                    InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
+                        .ok()?;
                 Some(InferType::Fun(param_tys?, Box::new(ret_ty), effect_row))
             }
         }

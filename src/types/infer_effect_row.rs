@@ -5,6 +5,17 @@ use crate::{
     types::{TypeVarId, type_subst::TypeSubst},
 };
 
+/// Error returned when `InferEffectRow::from_effect_exprs` encounters more than
+/// one distinct row variable in a single effect expression list.
+///
+/// The parser prevents this for well-formed surface syntax, so `Err` is
+/// unreachable in practice — the guard makes the invariant explicit and testable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MultipleRowVarError {
+    pub first: Identifier,
+    pub second: Identifier,
+}
+
 /// Effect row used during type inference.
 ///
 /// An effect row is represented as:
@@ -114,18 +125,31 @@ impl InferEffectRow {
     ///
     /// Concrete effect names are normalized and accumulated from all entries.
     /// If any row-variable expression appears, the resulting row is open with
-    /// the last row-variable tail encountered.
+    /// that row-variable as the tail. Returns `Err` when more than one *distinct*
+    /// row variable is encountered the parser prevents this for well-formed
+    /// surface syntax, so `Err` is unreachable in practice.
     pub fn from_effect_exprs(
         effects: &[EffectExpr],
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
         row_var_counter: &mut u32,
-    ) -> Self {
+    ) -> Result<Self, MultipleRowVarError> {
         let mut concrete = HashSet::new();
-        let mut tail = None;
+        let mut tail: Option<TypeVarId> = None;
+        let mut tail_name: Option<Identifier> = None;
+
         for effect in effects {
             // Concrete names are normalized at parse/syntax layer before insertion.
             concrete.extend(effect.normalized_concrete_names());
             if let Some(row_var) = effect.row_var() {
+                if let Some(existing_name) = tail_name {
+                    if existing_name != row_var {
+                        return Err(MultipleRowVarError {
+                            first: existing_name,
+                            second: row_var,
+                        });
+                    }
+                }
+                tail_name = Some(row_var);
                 // Row variables are interned through `row_var_env` to keep a stable
                 // TypeVarId per symbolic row variable in this inference context.
                 let mapped = *row_var_env.entry(row_var).or_insert_with(|| {
@@ -133,24 +157,26 @@ impl InferEffectRow {
                     *row_var_counter += 1;
                     next
                 });
-                // Current behavior keeps the last seen row-var as the tail.
-                // Multiple row-vars in one list are not merged here; they are
-                // represented by this single open tail plus concrete effects.
                 tail = Some(mapped);
             }
         }
 
-        match tail {
+        Ok(match tail {
             Some(row_var) => Self::open_from_symbols(concrete, row_var),
             None => Self::closed_from_symbols(concrete),
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::InferEffectRow;
-    use crate::{syntax::symbol::Symbol, types::type_subst::TypeSubst};
+    use std::collections::HashMap;
+
+    use super::{InferEffectRow, MultipleRowVarError};
+    use crate::{
+        syntax::{effect_expr::EffectExpr, symbol::Symbol},
+        types::type_subst::TypeSubst,
+    };
 
     fn sym(i: u32) -> Symbol {
         Symbol::new(i)
@@ -169,6 +195,67 @@ mod tests {
         assert!(applied.concrete().contains(&sym(20)));
         assert!(applied.concrete().contains(&sym(30)));
         assert_eq!(applied.tail(), None);
+    }
+
+    fn named(sym: Symbol) -> EffectExpr {
+        EffectExpr::Named {
+            name: sym,
+            span: Default::default(),
+        }
+    }
+
+    fn row_var(sym: Symbol) -> EffectExpr {
+        EffectExpr::RowVar {
+            name: sym,
+            span: Default::default(),
+        }
+    }
+
+    #[test]
+    fn from_effect_exprs_closed_row_collects_concrete_names() {
+        let effects = vec![named(sym(10)), named(sym(20))];
+        let mut env = HashMap::new();
+        let mut counter = 0u32;
+        let row = InferEffectRow::from_effect_exprs(&effects, &mut env, &mut counter).unwrap();
+        assert!(row.concrete().contains(&sym(10)));
+        assert!(row.concrete().contains(&sym(20)));
+        assert_eq!(row.tail(), None);
+    }
+
+    #[test]
+    fn from_effect_exprs_open_row_sets_tail() {
+        let effects = vec![named(sym(10)), row_var(sym(99))];
+        let mut env = HashMap::new();
+        let mut counter = 5u32;
+        let row = InferEffectRow::from_effect_exprs(&effects, &mut env, &mut counter).unwrap();
+        assert!(row.concrete().contains(&sym(10)));
+        assert_eq!(row.tail(), Some(5));
+        assert_eq!(counter, 6);
+    }
+
+    #[test]
+    fn from_effect_exprs_same_var_name_reuses_id() {
+        let effects = vec![row_var(sym(99)), row_var(sym(99))];
+        let mut env = HashMap::new();
+        let mut counter = 0u32;
+        let row = InferEffectRow::from_effect_exprs(&effects, &mut env, &mut counter).unwrap();
+        assert_eq!(row.tail(), Some(0));
+        assert_eq!(counter, 1); // only one fresh id allocated
+    }
+
+    #[test]
+    fn from_effect_exprs_two_distinct_row_vars_returns_err() {
+        let effects = vec![row_var(sym(1)), row_var(sym(2))];
+        let mut env = HashMap::new();
+        let mut counter = 0u32;
+        let result = InferEffectRow::from_effect_exprs(&effects, &mut env, &mut counter);
+        assert_eq!(
+            result,
+            Err(MultipleRowVarError {
+                first: sym(1),
+                second: sym(2),
+            })
+        );
     }
 
     #[test]
