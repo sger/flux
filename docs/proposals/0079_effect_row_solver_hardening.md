@@ -1,6 +1,6 @@
 - Feature Name: Effect Row Solver Hardening
 - Start Date: 2026-03-07
-- Status: Not Implemented
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0042 (effect rows), 0049 (row completeness), 0064 (row variables)
