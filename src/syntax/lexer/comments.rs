@@ -154,12 +154,14 @@ impl Lexer {
         }
 
         // Reached EOF without closing the comment
-        Token::new_static_with_end(
+        let token = Token::new_static_with_end(
             TokenType::UnterminatedBlockComment,
             "",
             line,
             column,
             self.cursor_position(),
-        )
+        );
+        self.emit_unterminated_block_comment_diagnostic(token.span());
+        token
     }
 }

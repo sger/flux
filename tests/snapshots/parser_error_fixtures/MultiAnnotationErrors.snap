@@ -25,7 +25,7 @@ Missing `->` before function return type. Write it as `fn name(...) -> Type { ..
   |                           ^^^^^^
 
 Note:
-  while parsing function `bad_return`
+  while parsing module `MultiAnnotationErrors` > function `bad_return`
 
 
 Error[E034]: Unexpected Token

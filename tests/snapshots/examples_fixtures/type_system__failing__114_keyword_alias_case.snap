@@ -16,5 +16,8 @@ Unknown keyword `case`. Flux uses `match` for pattern matching.
 
 Hint:
   Did you mean `match`?
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

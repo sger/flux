@@ -249,7 +249,7 @@ fn test_mode_primops_fixture_passes_on_vm() {
 
 #[test]
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
-    let file = example_path("type_system/failing/153_stage_all_errors_flag.flx");
+    let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
     let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
     let default_text = combined_output(&default_output);

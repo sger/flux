@@ -565,7 +565,7 @@ fn nested_tuple_mixed_shape_reports_non_exhaustive() {
 fn nested_tuple_with_catchall_compiles() {
     compile_ok_in(
         "test.flx",
-        include_str!("../examples/type_system/160_match_nested_tuple_with_catchall_ok.flx"),
+        include_str!("../examples/type_system/98_match_nested_tuple_with_catchall_ok.flx"),
     );
 }
 
@@ -1765,9 +1765,9 @@ fn main() -> Unit with IO {
 
 #[test]
 fn effect_row_order_equivalence_fixture_compiles() {
-    let source = include_str!("../examples/type_system/162_effect_row_order_equivalence_ok.flx");
+    let source = include_str!("../examples/type_system/100_effect_row_order_equivalence_ok.flx");
     compile_ok_in(
-        "examples/type_system/162_effect_row_order_equivalence_ok.flx",
+        "examples/type_system/100_effect_row_order_equivalence_ok.flx",
         source,
     );
 }
@@ -1792,9 +1792,9 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
 
 #[test]
 fn effect_row_subtract_concrete_fixture_compiles() {
-    let source = include_str!("../examples/type_system/163_effect_row_subtract_concrete_ok.flx");
+    let source = include_str!("../examples/type_system/101_effect_row_subtract_concrete_ok.flx");
     compile_ok_in(
-        "examples/type_system/163_effect_row_subtract_concrete_ok.flx",
+        "examples/type_system/101_effect_row_subtract_concrete_ok.flx",
         source,
     );
 }
@@ -1802,9 +1802,9 @@ fn effect_row_subtract_concrete_fixture_compiles() {
 #[test]
 fn effect_row_subtract_var_satisfied_fixture_compiles() {
     let source =
-        include_str!("../examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx");
+        include_str!("../examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx");
     compile_ok_in(
-        "examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx",
+        "examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx",
         source,
     );
 }
@@ -1812,9 +1812,9 @@ fn effect_row_subtract_var_satisfied_fixture_compiles() {
 #[test]
 fn effect_row_multivar_disambiguated_fixture_compiles() {
     let source =
-        include_str!("../examples/type_system/165_effect_row_multivar_disambiguated_ok.flx");
+        include_str!("../examples/type_system/103_effect_row_multivar_disambiguated_ok.flx");
     compile_ok_in(
-        "examples/type_system/165_effect_row_multivar_disambiguated_ok.flx",
+        "examples/type_system/103_effect_row_multivar_disambiguated_ok.flx",
         source,
     );
 }
@@ -1822,9 +1822,9 @@ fn effect_row_multivar_disambiguated_fixture_compiles() {
 #[test]
 fn effect_row_absent_ordering_linked_ok_fixture_compiles() {
     let source =
-        include_str!("../examples/type_system/166_effect_row_absent_ordering_linked_ok.flx");
+        include_str!("../examples/type_system/104_effect_row_absent_ordering_linked_ok.flx");
     compile_ok_in(
-        "examples/type_system/166_effect_row_absent_ordering_linked_ok.flx",
+        "examples/type_system/104_effect_row_absent_ordering_linked_ok.flx",
         source,
     );
 }

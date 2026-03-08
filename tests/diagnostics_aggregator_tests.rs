@@ -36,12 +36,8 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let b_idx = output.find("b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
-    let err_idx = output
-        .find("Warning: Err")
-        .expect("missing err warning");
-    let warn_idx = output
-        .find("Warning: Warn")
-        .expect("missing warn warning");
+    let err_idx = output.find("Warning: Err").expect("missing err warning");
+    let warn_idx = output.find("Warning: Warn").expect("missing warn warning");
     assert!(err_idx < warn_idx);
 }
 
@@ -185,9 +181,7 @@ fn aggregator_renders_related_diagnostics_in_order() {
 
     let output = render_diagnostics_multi(&[primary], Some(50));
 
-    let primary_idx = output
-        .find("Warning: Primary")
-        .expect("missing primary");
+    let primary_idx = output.find("Warning: Primary").expect("missing primary");
     let note_idx = output.find("note: first note").expect("missing note");
     let help_idx = output.find("help: second help").expect("missing help");
     assert!(primary_idx < note_idx);

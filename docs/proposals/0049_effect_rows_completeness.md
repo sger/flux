@@ -54,7 +54,7 @@ This proposal is the row-completeness hardening companion to `0042` and governs 
 
 | Row Form / Behavior | State | Expected Diagnostics | Evidence |
 |---|---|---|---|
-| Concrete atom equivalence (`with IO, Time` == `with Time, IO`) | complete | no diagnostic | `examples/type_system/162_effect_row_order_equivalence_ok.flx`, `tests/type_inference_tests.rs` |
+| Concrete atom equivalence (`with IO, Time` == `with Time, IO`) | complete | no diagnostic | `examples/type_system/100_effect_row_order_equivalence_ok.flx`, `tests/type_inference_tests.rs` |
 | Higher-order propagation via row vars (`with e`) | complete | `E400` for missing ambient effects; `E419`/`E420` unresolved-variable paths | `examples/type_system/30_effect_poly_hof_nested_ok.flx`, `examples/type_system/failing/19_effect_polymorphism_missing_effect.flx`, compiler/tests |
 | Deterministic first-failure effect selection for multi-missing obligations | complete | `E400` deterministic first missing effect | `examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx`, `tests/compiler_rules_tests.rs` |
 | Strict unresolved boundary safeguards | complete (strict path) | `E425` | `examples/type_system/failing/61_strict_generic_unresolved_boundary.flx`, `examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx` |
@@ -88,7 +88,7 @@ This proposal is the row-completeness hardening companion to `0042` and governs 
   - fail: `194`, `195`, `196`, `197`, `198`, `199`, `200`
 - Multi-argument `Absent` ordering closure:
   - `solve_row_constraints` now evaluates `Absent` constraints after row binding/link stabilization.
-  - shared-row-var edge case is locked by `166_effect_row_absent_ordering_linked_ok.flx` and `200_effect_row_absent_ordering_linked_violation_e421.flx`.
+  - shared-row-var edge case is locked by `104_effect_row_absent_ordering_linked_ok.flx` and `200_effect_row_absent_ordering_linked_violation_e421.flx`.
 - Parity snapshot coverage:
   - `tests/support/purity_parity.rs` curated suite includes `162..166` and `194..200` (category `C`) so `cargo test --all --all-features purity_vm_jit_parity_snapshots` records VM/JIT tuple parity snapshots for these paths.
 - Verification commands:

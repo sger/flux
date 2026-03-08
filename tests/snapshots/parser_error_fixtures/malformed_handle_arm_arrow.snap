@@ -18,7 +18,7 @@ Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
 
 Note:
-  while parsing `handle` expression
+  while parsing function `main` > `handle` expression
 
 
 Error[E034]: Unexpected Closing Delimiter

@@ -18,15 +18,4 @@ Hint:
 
 Note:
   while parsing `handle` expression
-
-
-Error[E031]: Expected Expression
-
-Expected expression, found `->`.
-
-  tests/fixtures/recovery/t16_handle_missing_lbrace_contextual.flx:1:40
-  |
-1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
-  |                                        ^^
-
-Found 2 errors.
+  Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.

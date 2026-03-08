@@ -15,7 +15,7 @@ This match arm needs `->`, not `=>`.
   |                         ^
 
 Note:
-  while parsing `match` expression
+  while parsing function `main` > `match` expression
 
 Help:
   Replace `=>` with `->`.
@@ -31,7 +31,7 @@ This match arm needs `->`, not `=>`.
   |                                 ^
 
 Note:
-  while parsing `match` expression
+  while parsing function `main` > `match` expression
 
 Help:
   Replace `=>` with `->`.

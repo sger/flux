@@ -98,7 +98,7 @@ This proposal remains the canonical row-constraint policy for current `with e` b
 | Criterion | Fixture Evidence | Test Evidence | Parity / Snapshot Evidence |
 |---|---|---|---|
 | Deterministic `with e` propagation | `examples/type_system/30_effect_poly_hof_nested_ok.flx`, `examples/type_system/failing/19_effect_polymorphism_missing_effect.flx` | `tests/type_inference_tests.rs`, `tests/compiler_rules_tests.rs` | VM/JIT fixture runs for `30` and `19` agree on behavior |
-| Row normalization/equivalence | `examples/type_system/33_effect_row_subtract_surface_syntax.flx`, `examples/type_system/162_effect_row_order_equivalence_ok.flx` | `tests/type_inference_tests.rs` (`infer_effect_row_order_equivalence_for_function_params`) | VM/JIT fixture run for `30` and type-level ordering invariants |
+| Row normalization/equivalence | `examples/type_system/33_effect_row_subtract_surface_syntax.flx`, `examples/type_system/100_effect_row_order_equivalence_ok.flx` | `tests/type_inference_tests.rs` (`infer_effect_row_order_equivalence_for_function_params`) | VM/JIT fixture run for `30` and type-level ordering invariants |
 | Supported subtraction behavior | `examples/type_system/failing/45_effect_row_subtract_missing_io.flx` | `tests/compiler_rules_tests.rs` (effect-row call contract checks) | VM/JIT fixture runs for `45` both emit `E400` |
 | Stable diagnostics contract | `examples/type_system/failing/61_strict_generic_unresolved_boundary.flx` | `tests/compiler_rules_tests.rs` (`strict_unresolved_generic_boundary_has_stable_diagnostic_shape`) | `cargo test --all --all-features purity_vm_jit_parity_snapshots` |
 

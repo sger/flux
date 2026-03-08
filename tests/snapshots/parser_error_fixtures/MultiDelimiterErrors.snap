@@ -18,7 +18,7 @@ Hint:
   Add `)` after the last tuple element.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E076]: Missing Closing Delimiter
@@ -31,7 +31,7 @@ Expected a closing `]` to match this opening `[`.
   |                  ^
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 note: Expected `]` before this token.
   examples/parser_errors/MultiDelimiterErrors.flx:5:9
@@ -53,7 +53,7 @@ Hint:
   Hash literals use `{key: value, ...}`.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E073]: Missing Comma
@@ -69,7 +69,7 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E034]: Missing Closing Delimiter
@@ -85,7 +85,7 @@ Hint:
   Add `)` after the expression.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 Found 5 errors.
 == stdout ==

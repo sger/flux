@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx
+Fixture: examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
 == compile ==
 failed (module)
 == diagnostics ==
@@ -9,13 +9,13 @@ Error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.HmGenericModule` to import.
 
-  examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx:8:1
+  examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:8:1
   |
 8 | import TypeSystem.HmGenericModule as M
   | ^
 
 Hint:
   Check that: 1) The module file exists (e.g., `TypeSystem.HmGenericModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src (imported from examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx).
+  Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src (imported from examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx).
 == stdout ==
 <not executed>
