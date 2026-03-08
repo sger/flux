@@ -9,7 +9,7 @@ use flux::diagnostics::{
     missing_comprehension_close_bracket, missing_do_block_brace, missing_else_body_brace,
     missing_fn_param_list, missing_hash_close_brace, missing_if_body_brace,
     missing_lambda_close_paren, missing_let_assign, missing_string_interpolation_close,
-    orphan_constructor_pattern,
+    orphan_constructor_pattern, unexpected_token, unexpected_token_with_details,
     quality::{downstream_errors_suppressed_note, module_skipped_note},
     runtime_type_error, unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
 };
@@ -507,4 +507,30 @@ fn runtime_and_orchestration_diagnostics_have_explicit_categories() {
             .message()
             .is_some_and(|m| m.contains("use `--all-errors` to see everything"))
     );
+}
+
+#[test]
+fn unexpected_token_metadata_is_explicit_and_stable() {
+    let generic = unexpected_token(span(1, 1, 2), "This wording can change.");
+    assert_eq!(generic.code(), Some("E034"));
+    assert_eq!(generic.display_title(), None);
+    assert_eq!(generic.category(), Some(DiagnosticCategory::ParserExpression));
+
+    let detailed = unexpected_token_with_details(
+        span(1, 1, 2),
+        "Missing Module Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This module body needs to start with `{`.",
+    );
+    assert_eq!(detailed.display_title(), Some("Missing Module Body"));
+    assert_eq!(
+        detailed.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
+}
+
+#[test]
+fn diagnostics_normalize_empty_file_to_none() {
+    let runtime = runtime_type_error("Int", "String", Some("\"oops\""), "", span(5, 3, 4));
+    assert_eq!(runtime.file(), None);
 }

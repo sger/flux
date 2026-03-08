@@ -431,13 +431,21 @@ fn adversarial_compiler_fixture_reports_multiple_independent_errors() {
     );
     assert!(
         errors.iter().any(|d| d.code() == Some("E400")),
-        "expected an E400 effect diagnostic, got {:?}",
+        "expected an E400 effect diagnostic before rendering-stage filtering, got {:?}",
         errors.iter().map(|d| d.code()).collect::<Vec<_>>()
     );
     assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
     assert!(rendered.contains("Error[E056]: Wrong Number Of Arguments"));
-    assert!(!rendered.contains("Error[E400]: Missing Ambient Effect"));
-    assert!(rendered.contains("Downstream Errors Suppressed"));
+    assert!(
+        !rendered.contains("Error[E400]: Missing Ambient Effect"),
+        "expected same-module effect diagnostic to stay suppressed in rendered output:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Downstream Errors Suppressed"),
+        "expected same-module suppression note in rendered output:\n{}",
+        rendered
+    );
 }
 
 #[test]
@@ -466,8 +474,12 @@ fn stage_filtering_suppresses_effects_but_all_errors_preserves_them() {
         "expected downstream effect error in raw diagnostics"
     );
     assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
-    assert!(!rendered.contains("Error[E400]: Missing Ambient Effect"));
-    assert!(rendered.contains("Downstream Errors Suppressed"));
+    assert!(rendered.contains("Error[E400]: Missing Ambient Effect"));
+    assert!(
+        !rendered.contains("Downstream Errors Suppressed"),
+        "did not expect cross-module suppression in rendered output:\n{}",
+        rendered
+    );
 }
 
 #[test]
@@ -592,8 +604,8 @@ fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
         rendered
     );
     assert!(
-        rendered.contains("Downstream Errors Suppressed"),
-        "expected stage-filter suppression note for later effect diagnostics, got:\n{}",
+        !rendered.contains("Downstream Errors Suppressed"),
+        "did not expect cross-module suppression note in rendered output, got:\n{}",
         rendered
     );
 }
