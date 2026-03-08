@@ -118,6 +118,9 @@ Feature state is evidence-driven:
 | 0045 | [0045_gc.md](0045_gc.md) | Draft | gap | proposal-only (renamed from `0010_gc.md`) | continue as canonical GC proposal |
 | 0048 | [0048_typed_record_types.md](0048_typed_record_types.md) | Draft | gap | proposal-only | typed immutable records with compile-time field checking and spread update |
 | 0074 | [0074_base_signature_tightening.md](0074_base_signature_tightening.md) | Draft | gap | proposal-only | tighten BaseHmSignature types from Any to precise polymorphic types for compile-time error detection on builtin calls |
+| 0081 | [0081_diagnostic_taxonomy.md](0081_diagnostic_taxonomy.md) | Draft | gap | proposal-only | add an explicit semantic category layer for diagnostics on top of codes, severity, phase, and error-type metadata |
+| 0082 | [0082_effect_directed_pipelines.md](0082_effect_directed_pipelines.md) | Draft | gap | proposal-only | make typed effect handling compose as a first-class pipeline stage via `expr |> handle Effect { ... }` |
+| 0083 | [0083_typed_holes.md](0083_typed_holes.md) | Draft | gap | proposal-only | add expression-level typed holes like `?name` so the compiler can report expected types and candidate fits while code is incomplete |
 
 ### Superseded Historical Docs
 
