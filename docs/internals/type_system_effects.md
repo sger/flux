@@ -186,7 +186,7 @@ See:
 - `examples/type_system/21_effect_polymorphism_with_e.flx`
 - `examples/type_system/30_effect_poly_hof_nested_ok.flx`
 - `examples/type_system/33_effect_row_subtract_surface_syntax.flx`
-- `examples/type_system/162_effect_row_order_equivalence_ok.flx`
+- `examples/type_system/100_effect_row_order_equivalence_ok.flx`
 
 Row-variable fixtures: `examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx` through `200_*`.
 

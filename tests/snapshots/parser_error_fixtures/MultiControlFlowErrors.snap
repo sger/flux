@@ -16,7 +16,7 @@ This `if` branch needs to start with `{`.
   |                    ---- this `if` branch starts here
 
 Note:
-  while parsing `if` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
 
 Help:
   Try adding `{` after the `if` condition.
@@ -33,7 +33,7 @@ This `else` branch needs to start with `{`.
   |                                ---- `else` starts here
 
 Note:
-  while parsing `if` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
 
 Help:
   Try adding `{` after `else`.
@@ -49,7 +49,7 @@ I was expecting `->` in this match arm, but I found a string literal.
   |                             ^^^^^^
 
 Note:
-  while parsing `match` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `match` expression
 
 Help:
   Write match arms as `match x { pattern -> body, ... }`.
@@ -68,7 +68,7 @@ Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
 
 Note:
-  while parsing `handle` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `handle` expression
 
 
 Error[E034]: Missing Lambda Arrow
@@ -82,7 +82,7 @@ I was expecting `->` after the lambda parameters, but I found an identifier.
   |                  - this lambda parameter list ends here
 
 Note:
-  while parsing lambda expression
+  while parsing module `MultiControlFlowErrors` > lambda expression
 
 Help:
   Use `/x -> expr` or `/(x, y) -> expr`.

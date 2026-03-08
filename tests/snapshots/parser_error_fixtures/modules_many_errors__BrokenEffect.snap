@@ -15,7 +15,7 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
   |               ^^^^^^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `BrokenEffect` > effect `Console`
 
 
 Error[E034]: Invalid Effect Operation
@@ -28,7 +28,7 @@ I was expecting an operation name in this `effect` declaration, but I found `,`.
   |                              ^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `BrokenEffect` > effect `Console`
 
 Found 2 errors.
 == stdout ==

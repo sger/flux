@@ -37,6 +37,9 @@ Empty interpolation `#{}` — provide an expression between the braces.
 11 |     "Point(#{}, #{y})"
    |              ^
 
+Note:
+  while parsing function `distance_tag`
+
 
 Error[E076]: Missing Closing Delimiter
 

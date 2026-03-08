@@ -18,7 +18,7 @@ This function body needs to start with `{`.
   |         --------- This looks like the function body
 
 Note:
-  while parsing function `greet`
+  while parsing module `BrokenFn` > function `greet`
 
 Help:
   Try adding `{` after the function signature.
@@ -37,7 +37,7 @@ This function body needs to start with `{`.
   |         ----------- This looks like the function body
 
 Note:
-  while parsing function `parting`
+  while parsing module `BrokenFn` > function `parting`
 
 Help:
   Try adding `{` after the function signature.

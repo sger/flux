@@ -16,19 +16,6 @@ I was expecting a type here, but I found `=`.
 
 Error[E034]: Unexpected Token
 
-I was expecting a type here, but I found `,`.
-
-  tests/fixtures/recovery/type_annotation_recovery.flx:4:9
-  |
-4 | fn f(a: , b: Int) {
-  |         ^
-
-Note:
-  while parsing function `f`
-
-
-Error[E034]: Unexpected Token
-
 I was expecting a type here, but I found `{`.
 
   tests/fixtures/recovery/type_annotation_recovery.flx:9:11
@@ -51,5 +38,6 @@ I was expecting a type here, but I found `->`.
 
 Note:
   while parsing lambda expression
+  Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 
-Found 4 errors.
+Found 3 errors.

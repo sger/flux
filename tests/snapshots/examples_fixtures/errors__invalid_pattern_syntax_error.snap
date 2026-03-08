@@ -14,6 +14,9 @@ Expected a pattern, found `+`.
 3 |     + -> 1,
   |     ^
 
+Note:
+  while parsing `match` expression
+
 
 Error[E031]: Expected Expression
 

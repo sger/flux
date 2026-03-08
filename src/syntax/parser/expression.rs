@@ -164,17 +164,19 @@ impl Parser {
             TokenType::Float => self.parse_float(),
             TokenType::String => self.parse_string(),
             TokenType::UnterminatedString => {
-                let should_suppress = self
+                let _should_suppress = self
                     .suppress_unterminated_string_error_at
                     .take()
                     .is_some_and(|pos| pos == self.current_token.position);
-                if !should_suppress {
-                    self.unterminated_string_error();
-                }
+                self.synchronize_after_error();
                 None
             }
             TokenType::UnterminatedBlockComment => {
-                self.unterminated_block_comment_error();
+                self.synchronize_after_error();
+                None
+            }
+            TokenType::Illegal => {
+                self.synchronize_after_error();
                 None
             }
             TokenType::InterpolationStart => self.parse_interpolation_start(),
@@ -564,12 +566,12 @@ impl Parser {
             if !self.has_structural_error_since(construct_checkpoint) {
                 if self.peek_token.position.line > self.current_token.end_position.line {
                     let open_span = Span::new(start, start);
-                        self.emit_parser_diagnostic(unclosed_delimiter(
-                            open_span,
-                            "(",
-                            ")",
-                            Some(self.peek_token.span()),
-                        ));
+                    self.emit_parser_diagnostic(unclosed_delimiter(
+                        open_span,
+                        "(",
+                        ")",
+                        Some(self.peek_token.span()),
+                    ));
                 } else {
                     self.emit_expected_token_with_details(
                         TokenType::RParen,
@@ -701,7 +703,7 @@ impl Parser {
                         "]",
                         Some(self.peek_token.span()),
                     ));
-                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 } else {
                     self.emit_expected_token_with_details(
                         TokenType::RBracket,
@@ -1032,7 +1034,7 @@ impl Parser {
                 "this `if` branch starts here",
                 "Try adding `{` after the `if` condition.",
             ));
-            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+            self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token();
@@ -1082,7 +1084,7 @@ impl Parser {
                         "`else` starts here",
                         "Try adding `{` after `else`.",
                     ));
-                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                     return None;
                 }
                 self.next_token();
@@ -1109,7 +1111,7 @@ impl Parser {
         if !self.is_peek_token(TokenType::LBrace) {
             self.errors
                 .push(missing_do_block_brace(self.peek_token.span()));
-            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+            self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token();
@@ -1784,7 +1786,7 @@ impl Parser {
                 )
                 .with_primary_label(arrow_anchor, "this lambda parameter list ends here"),
             );
-            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+            self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token(); // move to lambda body

@@ -100,7 +100,7 @@ When a function is incorrectly rejected for having a mismatched effect row, the
 developer runs:
 
 ```
-$ flux analyze 167_base_hof_callback_effect_row_ok.flx
+$ flux analyze 105_base_hof_callback_effect_row_ok.flx
 
 FUNCTION SIGNATURES
   fn add_one         : (Int) -> Int
@@ -122,7 +122,7 @@ visible directly.
 **3. JIT IR verification**
 
 ```
-$ flux analyze --jit 167_base_hof_callback_effect_row_ok.flx
+$ flux analyze --jit 105_base_hof_callback_effect_row_ok.flx
 
 CRANELIFT IR: add_one
 ──────────────────────────────────────

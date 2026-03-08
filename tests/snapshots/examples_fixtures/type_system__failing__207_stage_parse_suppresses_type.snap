@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/150_stage_parse_suppresses_type.flx
+Fixture: examples/type_system/failing/207_stage_parse_suppresses_type.flx
 == compile ==
 failed (parse)
 == diagnostics ==
@@ -9,15 +9,12 @@ Error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  examples/type_system/failing/150_stage_parse_suppresses_type.flx:8:18
+  examples/type_system/failing/207_stage_parse_suppresses_type.flx:8:18
   |
 8 |     let broken = "unterminated
   |                  ^^^^^^^^^^^^^
 
 Hint:
   Add a closing " at the end of the string.
-
-Note:
-  while parsing function `main`
 == stdout ==
 <not executed>

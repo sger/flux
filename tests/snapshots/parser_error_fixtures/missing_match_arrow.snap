@@ -15,7 +15,7 @@ I was expecting `->` in this match arm, but I found a string literal.
   |           ^^^^^
 
 Note:
-  while parsing `match` expression
+  while parsing function `main` > `match` expression
 
 Help:
   Write match arms as `match x { pattern -> body, ... }`.

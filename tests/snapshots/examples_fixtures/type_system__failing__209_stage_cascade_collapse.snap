@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/152_stage_cascade_collapse.flx
+Fixture: examples/type_system/failing/209_stage_cascade_collapse.flx
 == compile ==
 failed (parse)
 == diagnostics ==
@@ -9,7 +9,7 @@ Error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  examples/type_system/failing/152_stage_cascade_collapse.flx:4:15
+  examples/type_system/failing/209_stage_cascade_collapse.flx:4:15
   |
 4 |     let msg = "hello
   |               ^^^^^^
@@ -17,15 +17,12 @@ String literal is missing closing quote.
 Hint:
   Add a closing " at the end of the string.
 
-Note:
-  while parsing function `main`
-
 
 Error[E034]: Unexpected Closing Delimiter
 
 Unexpected `}` outside of a block.
 
-  examples/type_system/failing/152_stage_cascade_collapse.flx:7:1
+  examples/type_system/failing/209_stage_cascade_collapse.flx:7:1
   |
 7 | }
   | ^

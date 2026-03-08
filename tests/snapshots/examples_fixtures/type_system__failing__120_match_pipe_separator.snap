@@ -16,5 +16,8 @@ Match arms are separated by `,` in Flux, not `|`.
 
 Hint:
   Replace `|` with `,`.
+
+Note:
+  while parsing function `main` > `match` expression
 == stdout ==
 <not executed>

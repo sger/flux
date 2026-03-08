@@ -147,11 +147,11 @@ See `docs/internals/base_hm_signatures.md` for the full signature reference.
 ## 8. Fixture Evidence
 
 **Passing (constraint correctness):**
-- `162_effect_row_order_equivalence_ok.flx` — concrete ordering is non-semantic
+- `100_effect_row_order_equivalence_ok.flx` — concrete ordering is non-semantic
 - `163_effect_row_multi_atom_closure_ok.flx` — multi-atom row solving
 - `164_effect_row_subtract_resolved_ok.flx` — subtraction with resolved var
 - `165_effect_row_subset_ok.flx` — subset constraint satisfied
-- `166_effect_row_absent_ordering_linked_ok.flx` — deferred absent with shared var
+- `104_effect_row_absent_ordering_linked_ok.flx` — deferred absent with shared var
 
 **Failing (diagnostic correctness):**
 - `194_effect_row_multi_missing_deterministic_e400.flx` — E400 deterministic first-missing

@@ -15,7 +15,7 @@ I was expecting `,` or `)` between constructor fields, but I found an identifier
   |                  ^^^^^^
 
 Note:
-  while parsing data declaration `Pair`
+  while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
 Error[E034]: Invalid Data Constructor
@@ -28,7 +28,7 @@ I was expecting a constructor name in this `data` declaration, but I found an in
   |         ^^^
 
 Note:
-  while parsing data declaration `Pair`
+  while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
 Error[E034]: Missing Effect Operation Colon
@@ -41,7 +41,7 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
   |               ^^^^^^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
 Error[E034]: Unexpected Token
@@ -57,7 +57,7 @@ Hint:
   Effect operation signatures use `op: Type -> Return`.
 
 Note:
-  while parsing effect `Console`
+  while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
 Error[E034]: Missing Constructor Field Separator

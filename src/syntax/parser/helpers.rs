@@ -1,7 +1,7 @@
 use crate::{
     diagnostics::{
-        Diagnostic, DiagnosticBuilder, DiagnosticCategory, EXPECTED_EXPRESSION,
-        UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
+        Diagnostic, DiagnosticBuilder, DiagnosticCategory, EXPECTED_EXPRESSION, missing_comma,
+        missing_lambda_close_paren,
         position::{Position, Span},
         text_similarity::levenshtein_distance,
         unclosed_delimiter, unexpected_token, unexpected_token_with_details,
@@ -15,6 +15,8 @@ use crate::{
 use super::{Parser, RecoveryBoundary};
 
 const LIST_ERROR_LIMIT: usize = 50;
+// Cap delimiter scanning so malformed generated/adversarial input does not
+// turn a single recovery step into an unbounded linear walk.
 const DELIMITER_RECOVERY_BUDGET: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,9 +94,11 @@ impl Parser {
     /// Advances the 3-token parser window, skipping over doc comment tokens.
     pub(super) fn next_token(&mut self) {
         let mut next = self.lexer.next_token();
+        self.absorb_lexer_diagnostics();
         // Skip doc comments - they're lexed but not parsed
         while next.token_type == TokenType::DocComment {
             next = self.lexer.next_token();
+            self.absorb_lexer_diagnostics();
         }
         self.current_token = std::mem::replace(
             &mut self.peek_token,
@@ -211,7 +215,7 @@ impl Parser {
         match parse(self) {
             Some(value) => Some(value),
             None => {
-                if let Some(boundary) = self.take_recovery_boundary() {
+                if let Some(boundary) = self.take_requested_recovery_boundary() {
                     self.synchronize_recovery_boundary(boundary);
                 } else {
                     self.synchronize(sync_mode);
@@ -431,16 +435,8 @@ impl Parser {
         }
     }
 
-    pub(super) fn set_recovery_boundary(&mut self, boundary: RecoveryBoundary) {
-        self.pending_recovery_boundary = Some(boundary);
-    }
-
-    pub(super) fn take_recovery_boundary(&mut self) -> Option<RecoveryBoundary> {
-        self.pending_recovery_boundary.take()
-    }
-
     pub(super) fn synchronize_recovery_boundary(&mut self, boundary: RecoveryBoundary) {
-        self.used_custom_recovery = true;
+        self.recovery_state.mark_custom_recovery_used();
         match boundary {
             RecoveryBoundary::Statement => self.synchronize(SyncMode::Stmt),
             RecoveryBoundary::NextLineOrBlock => {
@@ -1487,7 +1483,7 @@ impl Parser {
             // unexpected token (Rust-style).
             if self.likely_missing_closing_delimiter(end) {
                 if self.has_structural_error_since(construct_checkpoint) {
-                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
@@ -1497,7 +1493,7 @@ impl Parser {
                     close,
                     Some(self.peek_token.span()),
                 ));
-                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return Some(list);
             }
 
@@ -1568,7 +1564,7 @@ impl Parser {
                     | TokenType::Module
             ) {
                 if self.has_structural_error_since(construct_checkpoint) {
-                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
@@ -1578,13 +1574,13 @@ impl Parser {
                     close,
                     Some(self.peek_token.span()),
                 ));
-                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return Some(list);
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {
                 if self.has_structural_error_since(construct_checkpoint) {
-                    self.set_recovery_boundary(RecoveryBoundary::Statement);
+                    self.request_recovery_boundary(RecoveryBoundary::Statement);
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
@@ -1594,7 +1590,7 @@ impl Parser {
                     close,
                     None,
                 ));
-                self.set_recovery_boundary(RecoveryBoundary::Statement);
+                self.request_recovery_boundary(RecoveryBoundary::Statement);
                 return None;
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
@@ -1736,6 +1732,10 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             return;
         }
 
+        if self.current_token.token_type == TokenType::Illegal {
+            return;
+        }
+
         let error_spec = &EXPECTED_EXPRESSION;
         let mut diag = Diagnostic::make_error(
             error_spec,
@@ -1750,37 +1750,6 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             }
         }
         self.emit_parser_diagnostic(diag);
-    }
-
-    /// Emits the lexer-driven unterminated-string diagnostic and synchronizes.
-    pub(super) fn unterminated_string_error(&mut self) {
-        // Unterminated strings are a lexical error; use the lexer-provided end position
-        // where the closing quote should have appeared.
-        let token_span = self.current_token.span();
-
-        let error_spec = &UNTERMINATED_STRING;
-        let diag = Diagnostic::make_error(
-            error_spec,
-            &[],           // No message formatting args needed
-            String::new(), // No file context in parser
-            token_span,
-        );
-        self.emit_parser_diagnostic(diag);
-        self.synchronize_after_error();
-    }
-
-    /// Emits the lexer-driven unterminated-block-comment diagnostic and synchronizes.
-    pub(super) fn unterminated_block_comment_error(&mut self) {
-        let token_span = self.current_token.span();
-        let error_spec = &UNTERMINATED_BLOCK_COMMENT;
-        let diag = Diagnostic::make_error(
-            error_spec,
-            &[],           // No message formatting args needed
-            String::new(), // No file context in parser
-            token_span,
-        );
-        self.emit_parser_diagnostic(diag);
-        self.synchronize_after_error();
     }
 
     /// Statement-level synchronization entry point used after parse errors.

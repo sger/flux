@@ -2712,6 +2712,26 @@ let w = match x { Some(n) -> n, None -> 0 };
     }
 
     #[test]
+    fn nested_parser_diagnostics_include_breadcrumb_chain() {
+        let lexer = Lexer::new("fn outer() { let f = \\x -> match x { 0 \"zero\" } }");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|d| d.code() == Some("E034"))
+            .expect("expected nested parser diagnostic");
+        assert!(
+            diag.hints().iter().any(|hint| hint.text.contains(
+                "while parsing function `outer` > lambda expression > `match` expression"
+            )),
+            "expected breadcrumb chain on nested diagnostic, got: {:?}",
+            diag.hints()
+        );
+    }
+
+    #[test]
     fn function_breadcrumb_does_not_leak_to_following_top_level_error() {
         let lexer = Lexer::new("fn greet(name: String) -> String return name\nimport");
         let mut parser = Parser::new(lexer);
@@ -2792,7 +2812,9 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             diag.hints()
                 .iter()
-                .any(|hint| hint.text.contains("while parsing `match` expression")),
+                .any(|hint| hint
+                    .text
+                    .contains("while parsing function `greet` > `match` expression")),
             "expected contextual breadcrumb on helper-emitted diagnostic, got: {:?}",
             diag.hints()
         );
