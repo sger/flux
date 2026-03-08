@@ -274,7 +274,7 @@ pub fn type_unification_error(
     expected: &str,
     actual: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         .with_file(file)
         .with_span(span)
         .with_message("I found a type mismatch.")
@@ -290,7 +290,7 @@ pub fn type_unification_error(
 
 ```rust
 pub fn fun_return_type_mismatch(...) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         ...
         .with_message("The body of this function does not match its return type.")
         .with_primary_label(span, format!("this expression has type `{actual_ret}`"))
@@ -307,7 +307,7 @@ pub fn fun_return_type_mismatch(...) -> Diagnostic {
 
 ```rust
 pub fn fun_param_type_mismatch(...) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         ...
         .with_message(format!("Parameter {index} has the wrong type."))
         .with_primary_label(span, format!("this argument has type `{actual}`"))
@@ -327,7 +327,7 @@ pub fn fun_arity_mismatch(...) -> Diagnostic {
     } else {
         ("too few", format!("Add {} missing argument(s).", expected - actual))
     };
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         ...
         .with_message(format!(
             "I am applying a function to {} arguments.", direction
@@ -343,7 +343,7 @@ pub fn fun_arity_mismatch(...) -> Diagnostic {
 
 ```rust
 pub fn occurs_check_failure(...) -> Diagnostic {
-    diag_enhanced(&OCCURS_CHECK_FAILURE)
+    diagnostic_for(&OCCURS_CHECK_FAILURE)
         ...
         .with_message("I found a type that would be infinitely recursive.")
         .with_primary_label(span, "this expression causes an infinite type")

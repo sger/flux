@@ -11,7 +11,7 @@ use crate::{
             fun_return_type_mismatch, if_branch_type_mismatch, occurs_check_failure,
             type_unification_error,
         },
-        diag_enhanced,
+        diagnostic_for,
         position::Span,
         text_similarity::levenshtein_distance,
     },

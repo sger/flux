@@ -809,7 +809,7 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
 // error codes. Use these instead of Diagnostic::error() in production code.
 
 use super::diagnostic::Diagnostic;
-use super::registry::diag_enhanced;
+use super::registry::diagnostic_for;
 use super::types::{Label, RelatedDiagnostic};
 use crate::diagnostics::position::Span;
 
@@ -817,7 +817,7 @@ use crate::diagnostics::position::Span;
 
 /// Create an "unknown keyword" error for unrecognized keywords
 pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str)>) -> Diagnostic {
-    let mut diag = diag_enhanced(&UNKNOWN_KEYWORD)
+    let mut diag = diagnostic_for(&UNKNOWN_KEYWORD)
         .with_category(DiagnosticCategory::ParserKeyword)
         .with_span(span)
         .with_message(format!("Unknown keyword: `{}`.", keyword));
@@ -846,7 +846,7 @@ pub fn unknown_keyword_alias(
 /// Create an "unexpected token" error
 pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
     let message = message.into();
-    let mut diag = diag_enhanced(&UNEXPECTED_TOKEN)
+    let mut diag = diagnostic_for(&UNEXPECTED_TOKEN)
         .with_span(span)
         .with_message(message.as_str());
 
@@ -1245,7 +1245,7 @@ pub fn cross_module_constructor_access_warning(span: Span, ctor: &str, module: &
 
 /// Create a guarded-wildcard non-exhaustive match diagnostic (E015).
 pub fn guarded_wildcard_non_exhaustive(span: Span) -> Diagnostic {
-    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
         .with_span(span)
         .with_message(
             "A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.",
@@ -1255,7 +1255,7 @@ pub fn guarded_wildcard_non_exhaustive(span: Span) -> Diagnostic {
 
 /// Create an "invalid integer" error
 pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_INTEGER)
+    diagnostic_for(&INVALID_INTEGER)
         .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(format!("Could not parse `{}` as an integer.", literal))
@@ -1263,7 +1263,7 @@ pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
 
 /// Create an "invalid float" error
 pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_FLOAT)
+    diagnostic_for(&INVALID_FLOAT)
         .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(format!("Could not parse `{}` as a float.", literal))
@@ -1271,7 +1271,7 @@ pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
 
 /// Create a "pipe target error"
 pub fn pipe_target_error(span: Span) -> Diagnostic {
-    diag_enhanced(&PIPE_TARGET_ERROR)
+    diagnostic_for(&PIPE_TARGET_ERROR)
         .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message("Pipe operator expects a function or function call.")
@@ -1280,7 +1280,7 @@ pub fn pipe_target_error(span: Span) -> Diagnostic {
 
 /// Create an "invalid pattern" error
 pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_PATTERN)
+    diagnostic_for(&INVALID_PATTERN)
         .with_category(DiagnosticCategory::ParserPattern)
         .with_span(span)
         .with_message(format!("Expected a pattern, found `{}`.", found))
@@ -1288,7 +1288,7 @@ pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
 
 /// Create a "lambda syntax error"
 pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic {
-    diag_enhanced(&LAMBDA_SYNTAX_ERROR)
+    diagnostic_for(&LAMBDA_SYNTAX_ERROR)
         .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(message.into())
@@ -1297,7 +1297,7 @@ pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic
 
 /// Create an "unterminated interpolation" error
 pub fn unterminated_interpolation(span: Span) -> Diagnostic {
-    diag_enhanced(&UNTERMINATED_INTERPOLATION)
+    diagnostic_for(&UNTERMINATED_INTERPOLATION)
         .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message("Expected string continuation or end after interpolation.")
@@ -1305,7 +1305,7 @@ pub fn unterminated_interpolation(span: Span) -> Diagnostic {
 
 /// Create an "unterminated block comment" error
 pub fn unterminated_block_comment(span: Span) -> Diagnostic {
-    diag_enhanced(&UNTERMINATED_BLOCK_COMMENT)
+    diagnostic_for(&UNTERMINATED_BLOCK_COMMENT)
         .with_category(DiagnosticCategory::ParserDelimiter)
         .with_span(span)
         .with_message("Block comment is missing closing */.")
@@ -1313,7 +1313,7 @@ pub fn unterminated_block_comment(span: Span) -> Diagnostic {
 
 /// Create a "missing comma" error for adjacent list items/arguments
 pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
-    diag_enhanced(&MISSING_COMMA)
+    diagnostic_for(&MISSING_COMMA)
         .with_category(DiagnosticCategory::ParserSeparator)
         .with_span(span)
         .with_message(format!("Missing comma between {}.", context))
@@ -1331,7 +1331,7 @@ pub fn unclosed_delimiter(
     close: &str,
     found_span: Option<Span>,
 ) -> Diagnostic {
-    let mut diag = diag_enhanced(&UNCLOSED_DELIMITER)
+    let mut diag = diagnostic_for(&UNCLOSED_DELIMITER)
         .with_display_title("Missing Closing Delimiter")
         .with_category(DiagnosticCategory::ParserDelimiter)
         .with_span(open_span)
@@ -1408,7 +1408,7 @@ pub fn wrong_argument_count(
     actual: usize,
     def_span: Option<Span>,
 ) -> Diagnostic {
-    let mut diag = diag_enhanced(&TYPE_ERROR)
+    let mut diag = diagnostic_for(&TYPE_ERROR)
         .with_display_title("Wrong Number Of Arguments")
         .with_category(DiagnosticCategory::TypeInference)
         .with_phase(super::types::DiagnosticPhase::TypeInference)
@@ -1668,7 +1668,7 @@ pub fn fun_arity_mismatch(
     } else {
         "the wrong number of"
     };
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         .with_display_title("Wrong Number Of Arguments")
         .with_category(DiagnosticCategory::TypeInference)
         .with_phase(super::types::DiagnosticPhase::TypeInference)

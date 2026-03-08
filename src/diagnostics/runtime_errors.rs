@@ -189,7 +189,7 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
 // proper error codes. Use these instead of Diagnostic::error() in production code.
 
 use super::diagnostic::Diagnostic;
-use super::registry::diag_enhanced;
+use super::registry::diagnostic_for;
 
 /// Create an "invalid operation" runtime error
 pub fn invalid_operation(
@@ -199,7 +199,7 @@ pub fn invalid_operation(
     file: impl Into<Rc<str>>,
     span: Span,
 ) -> Diagnostic {
-    diag_enhanced(&INVALID_OPERATION)
+    diagnostic_for(&INVALID_OPERATION)
         .with_message(format!(
             "Cannot {} {} and {} values.",
             op_name, left_type, right_type
@@ -208,6 +208,7 @@ pub fn invalid_operation(
         .with_span(span)
 }
 
+/// Create a runtime type error diagnostic for a value that failed a dynamic type check.
 pub fn runtime_type_error(
     expected: &str,
     actual: &str,

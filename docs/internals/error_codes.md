@@ -190,12 +190,12 @@ These indicate a bug in the compiler, not user code:
 
 2. Register it in `registry.rs` with a description and hint template.
 
-3. Use `diag_enhanced(&MY_ERROR)` to create the diagnostic, then chain `with_*` builder methods:
+3. Use `diagnostic_for(&MY_ERROR)` to create the diagnostic, then chain `with_*` builder methods:
    ```rust
    use crate::diagnostics::{Diagnostic, DiagnosticBuilder};
    use crate::diagnostics::compiler_errors::MY_ERROR;
 
-   diag_enhanced(&MY_ERROR)
+   diagnostic_for(&MY_ERROR)
        .with_span(span)
        .with_message("what went wrong")
        .with_hint("how to fix it")

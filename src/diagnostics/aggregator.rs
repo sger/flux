@@ -13,6 +13,7 @@ use crate::diagnostics::position::Span;
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;
 
+/// Counts of rendered diagnostics grouped by severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DiagnosticCounts {
     pub errors: usize,
@@ -22,15 +23,18 @@ pub struct DiagnosticCounts {
 }
 
 impl DiagnosticCounts {
+    /// Return the total number of diagnostics across all severities.
     pub fn total(&self) -> usize {
         self.errors + self.warnings + self.notes + self.helps
     }
 
+    /// Format a human-readable summary line when summary output is useful.
     pub fn summary_line(&self) -> Option<String> {
         format_summary(self, 1)
     }
 }
 
+/// Rendered diagnostics output together with aggregate severity counts.
 #[derive(Debug, Clone)]
 pub struct DiagnosticsReport {
     pub counts: DiagnosticCounts,
@@ -177,6 +181,7 @@ struct IndexedDiagnostic<'a> {
     diag: &'a Diagnostic,
 }
 
+/// Deduplicates, filters, and renders diagnostics in deterministic order.
 pub struct DiagnosticsAggregator<'a> {
     diagnostics: &'a [Diagnostic],
     max_errors: Option<usize>,
@@ -193,6 +198,7 @@ struct StageFilterStats {
 }
 
 impl<'a> DiagnosticsAggregator<'a> {
+    /// Create an aggregator for the provided diagnostics slice.
     pub fn new(diagnostics: &'a [Diagnostic]) -> Self {
         Self {
             diagnostics,
@@ -204,11 +210,13 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
     }
 
+    /// Limit the number of error-severity diagnostics shown in rendered output.
     pub fn with_max_errors(mut self, max_errors: Option<usize>) -> Self {
         self.max_errors = max_errors;
         self
     }
 
+    /// Set the default file used when diagnostics omit an explicit file path.
     pub fn with_default_file(mut self, file: impl Into<String>) -> Self {
         self.default_file = Some(file.into());
         self
@@ -221,16 +229,19 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
+    /// Enable or disable stage-based suppression of downstream diagnostics.
     pub fn with_stage_filtering(mut self, enabled: bool) -> Self {
         self.disable_stage_filtering = !enabled;
         self
     }
 
+    /// Register source text for a specific file so rendering can show snippets.
     pub fn with_source(mut self, file: impl Into<String>, source: impl Into<String>) -> Self {
         self.sources.insert(file.into(), source.into());
         self
     }
 
+    /// Set both the default file and its source text in one call.
     pub fn with_default_source(
         mut self,
         file: impl Into<String>,
@@ -434,6 +445,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         shown
     }
 
+    /// Produce the fully rendered report and aggregate counts for this diagnostics set.
     pub fn report(&self) -> DiagnosticsReport {
         if self.diagnostics.is_empty() {
             return DiagnosticsReport {
@@ -552,11 +564,13 @@ impl<'a> DiagnosticsAggregator<'a> {
         DiagnosticsReport { counts, rendered }
     }
 
+    /// Render diagnostics to text using the current aggregator configuration.
     pub fn render(&self) -> String {
         self.report().rendered
     }
 }
 
+/// Render multiple diagnostics with the default text pipeline and optional error cap.
 pub fn render_diagnostics_multi(diagnostics: &[Diagnostic], max_errors: Option<usize>) -> String {
     DiagnosticsAggregator::new(diagnostics)
         .with_max_errors(max_errors)
