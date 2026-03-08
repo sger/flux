@@ -22,8 +22,8 @@ use crate::{
         symbol_table::SymbolTable,
     },
     diagnostics::{
-        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticPhase, ErrorType,
-        UNKNOWN_BASE_MEMBER, lookup_error_code,
+        CIRCULAR_DEPENDENCY, Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase,
+        ErrorType, UNKNOWN_BASE_MEMBER, lookup_error_code,
         position::{Position, Span},
     },
     runtime::{
@@ -551,6 +551,8 @@ impl Compiler {
                             self.file_path.clone(),
                             span,
                         )
+                        .with_display_title("Missing Base HM Signature")
+                        .with_category(DiagnosticCategory::Internal)
                         .with_primary_label(span, "invalid Base HM metadata"),
                     );
                 }
@@ -594,6 +596,8 @@ impl Compiler {
                             self.file_path.clone(),
                             span,
                         )
+                        .with_display_title("Missing Base HM Signature")
+                        .with_category(DiagnosticCategory::Internal)
                         .with_primary_label(span, "invalid Base HM metadata"),
                     );
                 }
@@ -1341,6 +1345,7 @@ impl Compiler {
                         self.file_path.clone(),
                         *span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(*span, "duplicate `main` declaration")
                     .with_note_label(first_span, "first `main` declared here"),
                 );
@@ -1361,6 +1366,7 @@ impl Compiler {
                         self.file_path.clone(),
                         *main_span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(*main_span, "`main` declared with parameters"),
                 );
             }
@@ -1379,6 +1385,7 @@ impl Compiler {
                         self.file_path.clone(),
                         ret.span(),
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(ret.span(), "invalid `main` return type"),
                 );
             }
@@ -1465,6 +1472,7 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_category(DiagnosticCategory::ModuleSystem)
                 .with_primary_label(span, "top-level effectful expression"),
             );
 
@@ -1482,6 +1490,7 @@ impl Compiler {
                         self.file_path.clone(),
                         span,
                     )
+                    .with_category(DiagnosticCategory::ModuleSystem)
                     .with_primary_label(span, "effectful top-level execution"),
                 );
                 missing_root_reported = true;
@@ -1544,6 +1553,7 @@ impl Compiler {
                 self.file_path.clone(),
                 main_body.span,
             )
+            .with_category(DiagnosticCategory::Effects)
             .with_primary_label(main_body.span, "undischarged effects at root boundary"),
         );
     }
@@ -1564,6 +1574,7 @@ impl Compiler {
                     self.file_path.clone(),
                     program.span,
                 )
+                .with_category(DiagnosticCategory::ModuleSystem)
                 .with_primary_label(program.span, "no `main` entrypoint found"),
             );
         }
@@ -1604,6 +1615,7 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing parameter type annotations"),
                         );
                     }
@@ -1622,6 +1634,7 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing return type annotation"),
                         );
                     }
@@ -1643,6 +1656,7 @@ impl Compiler {
                                 self.file_path.clone(),
                                 *span,
                             )
+                            .with_category(DiagnosticCategory::ModuleSystem)
                             .with_primary_label(*span, "missing explicit effect annotation"),
                         );
                     }
@@ -1680,6 +1694,8 @@ impl Compiler {
                 self.file_path.clone(),
                 span,
             )
+            .with_display_title("Strict Any Type")
+            .with_category(DiagnosticCategory::TypeInference)
             .with_primary_label(span, "`Any` used here"),
         );
     }

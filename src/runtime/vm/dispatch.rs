@@ -2,9 +2,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     bytecode::op_code::OpCode,
-    diagnostics::RUNTIME_TYPE_ERROR,
     runtime::{
         base::get_base_function_by_index,
+        base::list_ops::format_value,
         closure::Closure,
         continuation::Continuation,
         gc::HeapObject,
@@ -147,9 +147,12 @@ impl VM {
                     && !expected.matches_value(&return_value, self)
                 {
                     let expected_name = expected.type_name();
-                    return Err(self.runtime_error_enhanced(
-                        &RUNTIME_TYPE_ERROR,
-                        &[&expected_name, return_value.type_name()],
+                    let actual_type = return_value.type_name();
+                    let value_preview = format_value(self, &return_value);
+                    return Err(self.runtime_type_error_enhanced(
+                        &expected_name,
+                        actual_type,
+                        Some(&value_preview),
                     ));
                 }
                 let bp = self.pop_frame_bp();
@@ -163,9 +166,11 @@ impl VM {
                     && !expected.matches_value(&Value::None, self)
                 {
                     let expected_name = expected.type_name();
-                    return Err(self.runtime_error_enhanced(
-                        &RUNTIME_TYPE_ERROR,
-                        &[&expected_name, Value::None.type_name()],
+                    let value_preview = format_value(self, &Value::None);
+                    return Err(self.runtime_type_error_enhanced(
+                        &expected_name,
+                        Value::None.type_name(),
+                        Some(&value_preview),
                     ));
                 }
                 let bp = self.pop_frame_bp();

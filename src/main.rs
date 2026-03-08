@@ -17,8 +17,8 @@ use flux::{
         op_code::disassemble,
     },
     diagnostics::{
-        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator, position::Span,
-        render_diagnostics_json,
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
+        quality::module_skipped_note, render_diagnostics_json,
     },
     runtime::{
         gc::GcHeap,
@@ -520,16 +520,10 @@ fn run_file(
                     .find(|e| failed.contains(&e.target_path));
                 if let Some(dep) = failed_dep {
                     failed.insert(node.path.clone());
-                    // GHC-style skip note
-                    all_diagnostics.push(Diagnostic::make_note(
-                        "MODULE SKIPPED",
-                        format!(
-                            "Module `{}` was skipped because its dependency `{}` has errors.",
-                            node.path.to_string_lossy(),
-                            dep.name,
-                        ),
+                    all_diagnostics.push(module_skipped_note(
                         node.path.to_string_lossy().to_string(),
-                        Span::default(),
+                        node.path.to_string_lossy().to_string(),
+                        dep.name.clone(),
                     ));
                     continue;
                 }

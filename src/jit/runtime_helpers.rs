@@ -586,9 +586,11 @@ pub extern "C" fn rt_check_jit_contract_call(
         }
         let arg = unsafe { &*arg_ptr };
         if let Err((expected, actual)) = ctx.check_contract_arg(function_index as usize, i, arg) {
+            let preview = arg.to_string();
             ctx.error = Some(ctx.render_runtime_type_error_at(
                 &expected,
                 &actual,
+                Some(&preview),
                 line as usize,
                 column as usize,
             ));
@@ -612,9 +614,11 @@ pub extern "C" fn rt_check_jit_contract_return(
     }
     let value_ref = unsafe { &*value };
     if let Err((expected, actual)) = ctx.check_contract_return(function_index as usize, value_ref) {
+        let preview = value_ref.to_string();
         ctx.error = Some(ctx.render_runtime_type_error_at(
             &expected,
             &actual,
+            Some(&preview),
             line as usize,
             column as usize,
         ));

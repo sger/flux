@@ -1,9 +1,9 @@
 use crate::{
     bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16, read_u32},
     diagnostics::{
-        Diagnostic, DiagnosticsAggregator, ErrorCode, ErrorType,
+        Diagnostic, ErrorCode, ErrorType, RUNTIME_TYPE_ERROR,
         position::{Position, Span},
-        render_display_path,
+        render_display_path, render_runtime_diagnostic, runtime_type_error,
     },
     runtime::frame::Frame,
 };
@@ -45,46 +45,7 @@ impl VM {
             file.clone(),
             span,
         );
-
-        // Read source for the diagnostic render
-        let source = self
-            .current_location()
-            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
-
-        let mut rendered = if let Some(src) = source {
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
-                .with_file_headers(false)
-                .with_source(file.clone(), src)
-                .report()
-                .rendered
-        } else {
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
-                .with_file_headers(false)
-                .report()
-                .rendered
-        };
-
-        // Add stack trace if available
-        if !self.frames.is_empty() {
-            if rendered.ends_with('\n') {
-                rendered.push('\n');
-            } else {
-                rendered.push_str("\n\n");
-            }
-            rendered.push_str("Stack trace:");
-            for frame in self.frames[..=self.frame_index].iter().rev() {
-                rendered.push_str("\n  at ");
-                let (name, location) = self.format_frame(frame);
-                rendered.push_str(&name);
-                if let Some(loc) = location {
-                    rendered.push_str(" (");
-                    rendered.push_str(&loc);
-                    rendered.push(')');
-                }
-            }
-        }
-
-        rendered
+        self.render_runtime_diagnostic(&diag, &file)
     }
 
     pub(super) fn runtime_error_enhanced(
@@ -99,47 +60,31 @@ impl VM {
             )
         });
 
-        let diag = Diagnostic::make_error(error_code, values, file.clone(), span);
-
-        // Read source for the diagnostic render
-        let source = self
-            .current_location()
-            .and_then(|(file, _)| std::fs::read_to_string(&file).ok());
-
-        let mut rendered = if let Some(src) = source {
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
-                .with_file_headers(false)
-                .with_source(file.clone(), src)
-                .report()
-                .rendered
+        let diag = if error_code.code == RUNTIME_TYPE_ERROR.code && values.len() >= 2 {
+            runtime_type_error(
+                values[0],
+                values[1],
+                values.get(2).copied(),
+                file.clone(),
+                span,
+            )
         } else {
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag))
-                .with_file_headers(false)
-                .report()
-                .rendered
+            Diagnostic::make_error(error_code, values, file.clone(), span)
         };
+        self.render_runtime_diagnostic(&diag, &file)
+    }
 
-        // Add stack trace if available
-        if !self.frames.is_empty() {
-            if rendered.ends_with('\n') {
-                rendered.push('\n');
-            } else {
-                rendered.push_str("\n\n");
-            }
-            rendered.push_str("Stack trace:");
-            for frame in self.frames[..=self.frame_index].iter().rev() {
-                rendered.push_str("\n  at ");
-                let (name, location) = self.format_frame(frame);
-                rendered.push_str(&name);
-                if let Some(loc) = location {
-                    rendered.push_str(" (");
-                    rendered.push_str(&loc);
-                    rendered.push(')');
-                }
-            }
+    pub(super) fn runtime_type_error_enhanced(
+        &self,
+        expected: &str,
+        actual: &str,
+        value_preview: Option<&str>,
+    ) -> String {
+        let mut values = vec![expected, actual];
+        if let Some(value_preview) = value_preview {
+            values.push(value_preview);
         }
-
-        rendered
+        self.runtime_error_enhanced(&RUNTIME_TYPE_ERROR, &values)
     }
 
     pub(super) fn current_location(&self) -> Option<(String, Span)> {
@@ -167,6 +112,22 @@ impl VM {
             })
         });
         (name, location)
+    }
+
+    fn render_runtime_diagnostic(&self, diag: &Diagnostic, file: &str) -> String {
+        let source = std::fs::read_to_string(file).ok();
+        let stack_frames = self.frames[..=self.frame_index]
+            .iter()
+            .rev()
+            .map(|frame| {
+                let (name, location) = self.format_frame(frame);
+                match location {
+                    Some(loc) => format!("{name} ({loc})"),
+                    None => name,
+                }
+            })
+            .collect::<Vec<_>>();
+        render_runtime_diagnostic(diag, file, source.as_deref(), &stack_frames)
     }
 
     pub(super) fn trace_instruction(&self, ip: usize, op: OpCode) {

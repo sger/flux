@@ -258,10 +258,112 @@ pub(crate) fn solve_row_constraints(constraints: &[RowConstraint]) -> RowSolutio
     state.resolve_links();
     apply_absent_constraints(&mut state, &deferred_absent);
 
+    // Deduplicate violations: sort by (discriminant, first payload key) then
+    // collapse adjacent entries with the same discriminant so callers always
+    // receive a clean list without repeated identical violation kinds.
+    state.violations.sort_by_key(|v| match v {
+        RowConstraintViolation::InvalidSubtract { atom } => (0u8, atom.as_u32()),
+        RowConstraintViolation::UnresolvedVars { vars } => {
+            (1u8, vars.first().map_or(0, |s| s.as_u32()))
+        }
+        RowConstraintViolation::UnsatisfiedSubset { missing } => {
+            (2u8, missing.first().map_or(0, |s| s.as_u32()))
+        }
+    });
+    state
+        .violations
+        .dedup_by(|a, b| std::mem::discriminant(a) == std::mem::discriminant(b));
+
     RowSolution {
         bindings: state.bindings,
         constrained_vars: state.constrained_vars,
         violations: state.violations,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sym(n: u32) -> Symbol {
+        Symbol::new(n)
+    }
+
+    fn row(atoms: &[u32], vars: &[u32]) -> EffectRow {
+        EffectRow {
+            atoms: atoms.iter().copied().map(sym).collect(),
+            vars: vars.iter().copied().map(sym).collect(),
+        }
+    }
+
+    #[test]
+    fn eq_binds_atoms_to_both_var_sets() {
+        let constraints = vec![RowConstraint::Eq(row(&[10], &[1]), row(&[20], &[2]))];
+        let sol = solve_row_constraints(&constraints);
+        assert!(sol.bindings[&sym(1)].contains(&sym(10)));
+        assert!(sol.bindings[&sym(1)].contains(&sym(20)));
+        assert!(sol.bindings[&sym(2)].contains(&sym(10)));
+        assert!(sol.bindings[&sym(2)].contains(&sym(20)));
+    }
+
+    #[test]
+    fn contains_emits_violation_for_closed_row_missing_atom() {
+        let constraints = vec![RowConstraint::Contains(row(&[10], &[]), sym(20))];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
+        assert!(matches!(
+            sol.violations[0],
+            RowConstraintViolation::UnsatisfiedSubset { .. }
+        ));
+    }
+
+    #[test]
+    fn absent_deferred_fires_after_resolve_links() {
+        // var 1 is bound to atom 10 by Eq; Absent(row with var 1, 10) should fail.
+        let constraints = vec![
+            RowConstraint::Eq(row(&[10], &[1]), row(&[], &[])),
+            RowConstraint::Absent(row(&[], &[1]), sym(10)),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert!(!sol.violations.is_empty());
+    }
+
+    #[test]
+    fn subset_emits_violation_for_missing_atoms() {
+        let constraints = vec![RowConstraint::Subset(row(&[10, 20], &[]), row(&[10], &[]))];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
+        assert!(matches!(
+            sol.violations[0],
+            RowConstraintViolation::UnsatisfiedSubset { ref missing } if missing.contains(&sym(20))
+        ));
+    }
+
+    #[test]
+    fn resolve_links_propagates_transitively() {
+        // var 1 linked to var 2 via Eq; var 2 bound to atom 30 via Contains.
+        let constraints = vec![
+            RowConstraint::Eq(row(&[], &[1]), row(&[], &[2])),
+            RowConstraint::Contains(row(&[], &[2]), sym(30)),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert!(
+            sol.bindings
+                .get(&sym(1))
+                .is_some_and(|b| b.contains(&sym(30)))
+        );
+    }
+
+    #[test]
+    fn violations_are_deduplicated() {
+        // Three identical Subset failures for the same missing atom.
+        let constraints = vec![
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+            RowConstraint::Subset(row(&[10], &[]), row(&[], &[])),
+        ];
+        let sol = solve_row_constraints(&constraints);
+        assert_eq!(sol.violations.len(), 1);
     }
 }
 
