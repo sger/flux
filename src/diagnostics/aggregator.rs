@@ -5,7 +5,8 @@ use std::path::Path;
 
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
-    RelatedKind, Severity, render_display_path, types::DiagnosticPhase,
+    RelatedKind, Severity, quality::downstream_errors_suppressed_note, render_display_path,
+    types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
 
@@ -462,31 +463,11 @@ impl<'a> DiagnosticsAggregator<'a> {
         let suppressed_effect_count = stage_stats.suppressed_effect_count;
         let suppressed_total = suppressed_type_count + suppressed_effect_count;
         if suppressed_total > 0 {
-            let mut details = Vec::new();
-            if suppressed_type_count > 0 {
-                details.push(format!("{} type", suppressed_type_count));
-            }
-            if suppressed_effect_count > 0 {
-                details.push(format!("{} effect", suppressed_effect_count));
-            }
-            let breakdown = if details.is_empty() {
-                "downstream".to_string()
-            } else {
-                details.join(", ")
-            };
-            let mut suppression_note = Diagnostic::make_note(
-                "DOWNSTREAM ERRORS SUPPRESSED",
-                format!(
-                    "{} downstream diagnostic{} ({}) {} suppressed by stage filtering. Fix earlier-stage errors first.",
-                    suppressed_total,
-                    if suppressed_total == 1 { "" } else { "s" },
-                    breakdown,
-                    if suppressed_total == 1 { "was" } else { "were" }
-                ),
+            let mut suppression_note = downstream_errors_suppressed_note(
                 default_file.unwrap_or("<unknown>"),
-                Span::default(),
-            )
-            .with_phase(DiagnosticPhase::Validation);
+                suppressed_type_count,
+                suppressed_effect_count,
+            );
             suppression_note.span = None;
             shown.push(suppression_note);
         }
@@ -524,7 +505,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                     current_file_key = Some(file_key.unwrap_or(""));
                     first_in_group = true;
                     let display = file_display(file_key);
-                    current_group.push_str(&format!("--> {}\n", display));
+                    current_group.push_str(&format!("{}\n", display));
                 }
 
                 if !first_in_group {

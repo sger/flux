@@ -3,6 +3,7 @@ use super::rendering;
 use super::types::*;
 use super::{ErrorCode, ErrorType, format_message};
 use crate::diagnostics::position::{Position, Span};
+use crate::diagnostics::registry::default_diagnostic_category;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -13,6 +14,8 @@ use std::{env, fs};
 pub struct Diagnostic {
     pub(crate) severity: Severity,
     pub(crate) title: String,
+    pub(crate) display_title: Option<String>,
+    pub(crate) category: Option<DiagnosticCategory>,
     pub(crate) code: Option<String>,
     pub(crate) error_type: Option<ErrorType>,
     pub(crate) message: Option<String>,
@@ -33,6 +36,8 @@ macro_rules! ice {
         $crate::diagnostics::Diagnostic {
             severity: $crate::diagnostics::Severity::Error,
             title: "INTERNAL COMPILER ERROR".to_string(),
+            display_title: None,
+            category: None,
             code: None,
             error_type: Some($crate::diagnostics::ErrorType::Compiler),
             message: Some($msg.to_string()),
@@ -59,6 +64,8 @@ impl Diagnostic {
         Self {
             severity: Severity::Warning,
             title: title.into(),
+            display_title: None,
+            category: None,
             code: None,
             error_type: None,
             message: None,
@@ -85,6 +92,14 @@ impl Diagnostic {
 
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn display_title(&self) -> Option<&str> {
+        self.display_title.as_deref()
+    }
+
+    pub fn category(&self) -> Option<DiagnosticCategory> {
+        self.category
     }
 
     pub fn code(&self) -> Option<&str> {
@@ -147,6 +162,16 @@ impl Diagnostic {
 impl DiagnosticBuilder for Diagnostic {
     fn with_code(mut self, code: impl Into<String>) -> Self {
         self.code = Some(code.into());
+        self
+    }
+
+    fn with_display_title(mut self, title: impl Into<String>) -> Self {
+        self.display_title = Some(title.into());
+        self
+    }
+
+    fn with_category(mut self, category: DiagnosticCategory) -> Self {
+        self.category = Some(category);
         self
     }
 
@@ -328,6 +353,8 @@ impl Diagnostic {
         Self {
             severity: Severity::Error,
             title: err_spec.title.to_string(),
+            display_title: None,
+            category: super::registry::default_diagnostic_category(err_spec.code),
             code: Some(err_spec.code.to_string()),
             error_type: Some(err_spec.error_type),
             message: Some(message),
@@ -355,10 +382,20 @@ impl Diagnostic {
 
         let mut diag = Diagnostic::warning(warn_spec.title)
             .with_code(warn_spec.code)
+            .with_category(
+                super::registry::default_diagnostic_category(warn_spec.code)
+                    .unwrap_or(DiagnosticCategory::Internal),
+            )
             .with_error_type(warn_spec.error_type)
             .with_file(file)
             .with_span(span)
             .with_message(message);
+
+        if diag.category == Some(DiagnosticCategory::Internal)
+            && super::registry::default_diagnostic_category(warn_spec.code).is_none()
+        {
+            diag.category = None;
+        }
 
         if let Some(hint_text) = hint {
             diag = diag.with_hint_text(hint_text);
@@ -378,6 +415,11 @@ impl Diagnostic {
         file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
+        let code = code.into();
+        let title = title.into();
+        let message = message.into();
+        let file = file.into();
+
         let hints = if let Some(hint_text) = hint {
             vec![Hint::text(hint_text)]
         } else {
@@ -387,10 +429,12 @@ impl Diagnostic {
         Self {
             severity: Severity::Error,
             title: title.into(),
+            display_title: None,
+            category: default_diagnostic_category(&code),
             code: Some(code.into()),
             error_type: Some(error_type),
-            message: Some(message.into()),
-            file: Some(file.into()),
+            message: Some(message),
+            file: Some(file),
             span: Some(span),
             labels: Vec::new(),
             hints,
@@ -426,6 +470,8 @@ impl Diagnostic {
         Self {
             severity: Severity::Note,
             title: title.into(),
+            display_title: None,
+            category: None,
             code: None,
             error_type: None,
             message: Some(message.into()),
@@ -450,6 +496,8 @@ impl Diagnostic {
         Self {
             severity: Severity::Help,
             title: title.into(),
+            display_title: None,
+            category: None,
             code: None,
             error_type: None,
             message: Some(message.into()),
@@ -518,9 +566,10 @@ impl Diagnostic {
         rendering::render_header(
             &mut out,
             self.severity,
-            self.error_type,
             &self.title,
+            self.display_title.as_deref(),
             code,
+            self.message.as_deref(),
             use_color,
         );
 
