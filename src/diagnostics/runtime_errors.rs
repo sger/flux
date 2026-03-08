@@ -189,6 +189,7 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
 // proper error codes. Use these instead of Diagnostic::error() in production code.
 
 use super::diagnostic::Diagnostic;
+use super::types::DiagnosticPhase;
 use super::registry::diagnostic_for;
 
 /// Create an "invalid operation" runtime error
@@ -200,6 +201,7 @@ pub fn invalid_operation(
     span: Span,
 ) -> Diagnostic {
     diagnostic_for(&INVALID_OPERATION)
+        .with_phase(DiagnosticPhase::Runtime)
         .with_message(format!(
             "Cannot {} {} and {} values.",
             op_name, left_type, right_type

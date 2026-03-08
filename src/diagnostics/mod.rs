@@ -30,6 +30,7 @@ pub use rendering::{render_diagnostics, render_display_path};
 pub use types::{
     DiagnosticCategory, DiagnosticPhase, ErrorCode, ErrorType, Hint, HintChain, HintKind,
     InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
+    StackTraceFrame,
 };
 
 pub use compiler_errors::*;

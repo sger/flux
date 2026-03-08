@@ -3,7 +3,8 @@ use std::rc::Rc;
 use crate::diagnostics::position::Span;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
-    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, diagnostic_for,
+    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, StackTraceFrame,
+    diagnostic_for,
 };
 
 /// Labels used when presenting expected-versus-actual type notes.
@@ -100,17 +101,16 @@ pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCateg
 /// Build a parser diagnostic for constructs that are missing their opening token.
 pub fn missing_construct_opener_diagnostic(
     code: &'static crate::diagnostics::types::ErrorCode,
-    file: impl Into<Rc<str>>,
     span: Span,
     display_title: &str,
+    category: DiagnosticCategory,
     message: impl Into<String>,
     primary_label: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
     diagnostic_for(code)
         .with_display_title(display_title)
-        .with_category(parser_category_for_display_title(display_title))
-        .with_file(file)
+        .with_category(category)
         .with_span(span)
         .with_message(message.into())
         .with_primary_label(span, primary_label.into())
@@ -120,16 +120,15 @@ pub fn missing_construct_opener_diagnostic(
 /// Build a parser diagnostic for a missing syntax token without an origin label.
 pub fn missing_syntax_token_diagnostic(
     code: &'static crate::diagnostics::types::ErrorCode,
-    file: impl Into<Rc<str>>,
     span: Span,
     display_title: &str,
+    category: DiagnosticCategory,
     message: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
     diagnostic_for(code)
         .with_display_title(display_title)
-        .with_category(parser_category_for_display_title(display_title))
-        .with_file(file)
+        .with_category(category)
         .with_span(span)
         .with_message(message.into())
         .with_help(help.into())
@@ -138,17 +137,16 @@ pub fn missing_syntax_token_diagnostic(
 /// Build a parser diagnostic for a missing syntax token and attach its origin label.
 pub fn missing_syntax_token_diagnostic_with_origin(
     code: &'static crate::diagnostics::types::ErrorCode,
-    file: impl Into<Rc<str>>,
     span: Span,
     display_title: &str,
+    category: DiagnosticCategory,
     message: impl Into<String>,
     origin_label: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
     diagnostic_for(code)
         .with_display_title(display_title)
-        .with_category(parser_category_for_display_title(display_title))
-        .with_file(file)
+        .with_category(category)
         .with_span(span)
         .with_message(message.into())
         .with_primary_label(span, origin_label.into())
@@ -215,6 +213,7 @@ pub fn runtime_type_error_diagnostic(
     let mut diag = diagnostic_for(&RUNTIME_TYPE_ERROR)
         .with_display_title("Type Error")
         .with_category(DiagnosticCategory::RuntimeType)
+        .with_phase(DiagnosticPhase::Runtime)
         .with_file(file)
         .with_span(span)
         .with_message("I found a value with the wrong runtime type.")
@@ -241,27 +240,25 @@ pub fn render_runtime_diagnostic(
     source_text: Option<&str>,
     stack_frames: &[String],
 ) -> String {
-    let mut agg = DiagnosticsAggregator::new(std::slice::from_ref(diag)).with_file_headers(false);
+    let diag = if stack_frames.is_empty() {
+        diag.clone()
+    } else {
+        diag.clone().with_stack_trace(
+            stack_frames
+                .iter()
+                .cloned()
+                .map(StackTraceFrame::new)
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    let mut agg =
+        DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
     if let Some(src) = source_text {
         agg = agg.with_source(source_file.to_string(), src.to_string());
     }
 
-    let mut rendered = agg.report().rendered;
-
-    if !stack_frames.is_empty() {
-        if rendered.ends_with('\n') {
-            rendered.push('\n');
-        } else {
-            rendered.push_str("\n\n");
-        }
-        rendered.push_str("Stack trace:");
-        for frame in stack_frames {
-            rendered.push_str("\n  at ");
-            rendered.push_str(frame);
-        }
-    }
-
-    rendered
+    agg.report().rendered
 }
 
 /// Attach a short explanation that a runtime diagnostic came from a dynamic boundary.

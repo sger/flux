@@ -11,6 +11,7 @@ mod hint;
 mod label;
 mod related;
 mod severity;
+mod stack_trace;
 mod suggestion;
 
 pub use diagnostic_category::DiagnosticCategory;
@@ -20,4 +21,5 @@ pub use hint::{Hint, HintChain, HintKind};
 pub use label::{Label, LabelStyle};
 pub use related::{RelatedDiagnostic, RelatedKind};
 pub use severity::Severity;
+pub use stack_trace::StackTraceFrame;
 pub use suggestion::InlineSuggestion;

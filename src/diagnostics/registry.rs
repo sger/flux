@@ -188,6 +188,7 @@ pub fn diagnostic_for(code: &'static ErrorCode) -> Diagnostic {
         suggestions: Vec::new(),
         hint_chains: Vec::new(),
         related: Vec::new(),
+        stack_trace: Vec::new(),
         phase: None,
     }
 }
