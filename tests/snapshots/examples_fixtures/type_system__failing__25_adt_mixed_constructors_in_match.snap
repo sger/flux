@@ -23,6 +23,7 @@ I found a type mismatch.
 Note:
   expected type: A
   found type: B
+  the conflicting types meet at this expression
 
 Help:
   These two types are not compatible.

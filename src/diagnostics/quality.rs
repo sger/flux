@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::diagnostics::position::Span;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
-    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, StackTraceFrame,
+    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, StackTraceFrame, TYPE_UNIFICATION_ERROR,
     diagnostic_for,
 };
 
@@ -21,6 +21,58 @@ impl<'a> TypeMismatchNotes<'a> {
             expected_label,
             actual_label,
         }
+    }
+}
+
+/// Short provenance note for a type diagnostic.
+#[derive(Debug, Clone)]
+pub struct TypeOriginNote {
+    pub span: Span,
+    pub label: String,
+    pub note: Option<String>,
+}
+
+impl TypeOriginNote {
+    /// Create a new type-origin note anchored at the given source span.
+    pub fn new(span: Span, label: impl Into<String>) -> Self {
+        Self {
+            span,
+            label: label.into(),
+            note: None,
+        }
+    }
+
+    /// Attach an additional explanatory note for this origin entry.
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.note = Some(note.into());
+        self
+    }
+}
+
+/// Lightweight provenance for effect-row diagnostics.
+#[derive(Debug, Clone)]
+pub struct EffectConstraintOrigin {
+    pub call_span: Span,
+    pub call_label: String,
+    pub note: String,
+    pub expected_row: Option<String>,
+}
+
+impl EffectConstraintOrigin {
+    /// Create a new effect-constraint origin anchored at a call site.
+    pub fn new(call_span: Span, call_label: impl Into<String>, note: impl Into<String>) -> Self {
+        Self {
+            call_span,
+            call_label: call_label.into(),
+            note: note.into(),
+            expected_row: None,
+        }
+    }
+
+    /// Attach a rendered expected-row summary for the originating call.
+    pub fn with_expected_row(mut self, expected_row: impl Into<String>) -> Self {
+        self.expected_row = Some(expected_row.into());
+        self
     }
 }
 
@@ -153,6 +205,15 @@ pub fn missing_syntax_token_diagnostic_with_origin(
         .with_help(help.into())
 }
 
+/// Attach an optional parser breadcrumb note to a parser diagnostic.
+pub fn with_parser_breadcrumb(diag: Diagnostic, breadcrumb: Option<&str>) -> Diagnostic {
+    if let Some(breadcrumb) = breadcrumb {
+        diag.with_note(format!("while parsing {breadcrumb}"))
+    } else {
+        diag
+    }
+}
+
 /// Build a type mismatch diagnostic with expected/actual notes and a best-effort help hint.
 pub fn type_mismatch_diagnostic(
     file: impl Into<Rc<str>>,
@@ -176,6 +237,20 @@ pub fn type_mismatch_diagnostic(
         .with_help(type_pair_hint(expected, actual).unwrap_or_else(|| fallback_hint.into()))
 }
 
+/// Attach explanatory origin labels and notes to a type diagnostic.
+pub fn with_type_origin_notes(
+    mut diag: Diagnostic,
+    origins: impl IntoIterator<Item = TypeOriginNote>,
+) -> Diagnostic {
+    for origin in origins {
+        diag = diag.with_secondary_label(origin.span, origin.label);
+        if let Some(note) = origin.note {
+            diag = diag.with_note(note);
+        }
+    }
+    diag
+}
+
 /// Build an occurs-check diagnostic for an inferred infinite type.
 pub fn occurs_check_diagnostic(file: impl Into<Rc<str>>, span: Span, ty: &str) -> Diagnostic {
     diagnostic_for(&OCCURS_CHECK_FAILURE)
@@ -189,6 +264,19 @@ pub fn occurs_check_diagnostic(file: impl Into<Rc<str>>, span: Span, ty: &str) -
         .with_help(
             "A value cannot contain itself directly. If you need recursive data, define an ADT wrapper first.",
         )
+}
+
+/// Attach call-site provenance to an effect-row diagnostic.
+pub fn with_effect_constraint_origin(
+    mut diag: Diagnostic,
+    origin: &EffectConstraintOrigin,
+) -> Diagnostic {
+    diag = diag.with_secondary_label(origin.call_span, origin.call_label.clone());
+    diag = diag.with_note(origin.note.clone());
+    if let Some(expected_row) = &origin.expected_row {
+        diag = diag.with_note(format!("expected effect row: {expected_row}"));
+    }
+    diag
 }
 
 /// Truncate and normalize a runtime value preview for note output.
@@ -252,8 +340,7 @@ pub fn render_runtime_diagnostic(
         )
     };
 
-    let mut agg =
-        DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
+    let mut agg = DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
     if let Some(src) = source_text {
         agg = agg.with_source(source_file.to_string(), src.to_string());
     }

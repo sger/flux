@@ -2,13 +2,70 @@ use std::hash::{Hash, Hasher};
 
 use crate::{
     ast::type_infer::constraint::Constraint,
-    diagnostics::{Hint, match_arm_type_mismatch},
+    diagnostics::{
+        Hint, match_arm_type_mismatch,
+        quality::{TypeOriginNote, with_type_origin_notes},
+    },
     types::unify_error::UnifyError,
 };
 
 use super::*;
 
 impl<'a> InferCtx<'a> {
+    /// Build source labels and explanatory notes for the type origins involved
+    /// in a unification failure under the given reporting context.
+    fn type_origin_notes_for_context(
+        &self,
+        context: &ReportContext,
+        span: Span,
+    ) -> Vec<TypeOriginNote> {
+        match context {
+            ReportContext::Plain => vec![
+                TypeOriginNote::new(span, "this type mismatch is reported here")
+                    .with_note("the conflicting types meet at this expression"),
+            ],
+            ReportContext::IfBranch {
+                then_span,
+                else_span,
+            } => vec![
+                TypeOriginNote::new(*then_span, "this branch established the expected type")
+                    .with_note("the `then` branch fixes the type expected from the whole `if`"),
+                TypeOriginNote::new(*else_span, "this branch conflicts with that type")
+                    .with_note("the `else` branch produces the competing type"),
+            ],
+            ReportContext::MatchArm {
+                first_span,
+                arm_span,
+                arm_index,
+            } => vec![
+                TypeOriginNote::new(*first_span, "this arm established the expected type")
+                    .with_note("the first arm fixes the type expected from the whole `match`"),
+                TypeOriginNote::new(
+                    *arm_span,
+                    format!("arm {arm_index} conflicts with that type"),
+                )
+                .with_note("this arm produces the competing type"),
+            ],
+            ReportContext::CallArg { fn_def_span, .. } => {
+                let mut notes = Vec::new();
+                if let Some(fn_def_span) = fn_def_span {
+                    notes.push(
+                        TypeOriginNote::new(
+                            *fn_def_span,
+                            "this function signature established the expected type",
+                        )
+                        .with_note("the call argument is checked against this parameter type"),
+                    );
+                }
+                notes.push(
+                    TypeOriginNote::new(span, "this call argument produces the conflicting type")
+                        .with_note("the actual argument type is inferred from this expression"),
+                );
+                notes
+            }
+        }
+    }
+
     /// Join two types by attempting unification.
     ///
     /// When unification succeeds, the substitution is extended and the unified
@@ -34,13 +91,7 @@ impl<'a> InferCtx<'a> {
     pub(super) fn unify_silent(&mut self, t1: &InferType, t2: &InferType) -> InferType {
         // Lazy substitution: pass &self.subst into unification for on-demand
         // variable resolution instead of pre-resolving both types upfront.
-        match unify_core(
-            t1,
-            t2,
-            &self.subst,
-            Span::default(),
-            &mut self.env.counter,
-        ) {
+        match unify_core(t1, t2, &self.subst, Span::default(), &mut self.env.counter) {
             Ok(s) => {
                 self.subst = std::mem::take(&mut self.subst).compose(&s);
                 t1.apply_type_subst(&self.subst)
@@ -75,8 +126,7 @@ impl<'a> InferCtx<'a> {
         t2: &InferType,
         span: Span,
     ) -> Result<InferType, UnifyError> {
-        let solved =
-            unify_core(t1, t2, &self.subst, span, &mut self.env.counter)?;
+        let solved = unify_core(t1, t2, &self.subst, span, &mut self.env.counter)?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
         Ok(t1.apply_type_subst(&self.subst))
     }
@@ -252,7 +302,7 @@ impl<'a> InferCtx<'a> {
         error: &UnifyError,
         span: Span,
     ) -> Diagnostic {
-        match context {
+        let diag = match context {
             ReportContext::Plain => self.build_plain_context_diagnostic(error, span),
             ReportContext::IfBranch {
                 then_span,
@@ -273,7 +323,8 @@ impl<'a> InferCtx<'a> {
                 fn_name,
                 fn_def_span,
             } => self.build_call_arg_context_diagnostic(fn_name, *fn_def_span, error, span),
-        }
+        };
+        with_type_origin_notes(diag, self.type_origin_notes_for_context(context, span))
     }
 
     /// Append type-name typo suggestion hints onto an existing diagnostic.

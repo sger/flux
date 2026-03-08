@@ -15,9 +15,12 @@ Parameter 2 has the wrong type.
    |               ^^^^^^^^^^^^^^^^^^^^^^^^
    |               ------------------------ parameter 2 has type `Int`
 
+   |               ------------------------ this type mismatch is reported here
+
 Note:
   expected parameter type: Option<Int>
   found parameter type: Int
+  the conflicting types meet at this expression
 
 Help:
   Wrap this value in `Some(...)` or return `None`.

@@ -18,6 +18,7 @@ I found the wrong type in the 5th argument to `simulate_a`.
 Note:
   expected argument type: Array<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
 
 Help:
   Pass a `Array<Int>` value as the 5th argument.
@@ -70,6 +71,8 @@ I found the wrong type in the 1st argument to `step_a_split`.
 Note:
   expected argument type: Map<String, Int>
   found argument type: Map<String, Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Map<String, Int>` value as the 1st argument.
@@ -140,6 +143,8 @@ I found the wrong type in the 6th argument to `process_cols_b`.
 Note:
   expected argument type: Array<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<Int>` value as the 6th argument.
@@ -197,6 +202,8 @@ I found the wrong type in the 1st argument to `step_b_done`.
 Note:
   expected argument type: Map<String, Int>
   found argument type: Map<String, Array<Int>>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Map<String, Int>` value as the 1st argument.
@@ -287,6 +294,8 @@ I found the wrong type in the 5th argument to `simulate_a`.
 Note:
   expected argument type: Array<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<Int>` value as the 5th argument.

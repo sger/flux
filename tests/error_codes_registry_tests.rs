@@ -9,9 +9,10 @@ use flux::diagnostics::{
     missing_comprehension_close_bracket, missing_do_block_brace, missing_else_body_brace,
     missing_fn_param_list, missing_hash_close_brace, missing_if_body_brace,
     missing_lambda_close_paren, missing_let_assign, missing_string_interpolation_close,
-    orphan_constructor_pattern, unexpected_token, unexpected_token_with_details,
+    orphan_constructor_pattern,
     quality::{downstream_errors_suppressed_note, module_skipped_note},
-    runtime_type_error, unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
+    runtime_type_error, unexpected_end_keyword, unexpected_token, unexpected_token_with_details,
+    unknown_keyword_alias, wrong_argument_count,
 };
 
 fn span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -514,7 +515,10 @@ fn unexpected_token_metadata_is_explicit_and_stable() {
     let generic = unexpected_token(span(1, 1, 2), "This wording can change.");
     assert_eq!(generic.code(), Some("E034"));
     assert_eq!(generic.display_title(), None);
-    assert_eq!(generic.category(), Some(DiagnosticCategory::ParserExpression));
+    assert_eq!(
+        generic.category(),
+        Some(DiagnosticCategory::ParserExpression)
+    );
 
     let detailed = unexpected_token_with_details(
         span(1, 1, 2),

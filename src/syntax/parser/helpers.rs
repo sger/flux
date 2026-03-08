@@ -1,8 +1,10 @@
 use crate::{
     diagnostics::{
-        Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
-        UNTERMINATED_STRING, DiagnosticCategory, missing_comma, missing_lambda_close_paren,
+        Diagnostic, DiagnosticBuilder, DiagnosticCategory, EXPECTED_EXPRESSION,
+        UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
         position::{Position, Span},
+        quality::with_parser_breadcrumb,
+        text_similarity::levenshtein_distance,
         unclosed_delimiter, unexpected_token, unexpected_token_with_details,
     },
     syntax::{
@@ -33,6 +35,46 @@ pub(super) enum SyncMode {
 }
 
 impl Parser {
+    fn parser_identifier_typo_hint(&self, name: &str) -> Option<String> {
+        const KEYWORDS: &[&str] = &[
+            "let", "fn", "if", "else", "match", "handle", "perform", "return", "module", "import",
+            "effect", "data", "type", "with", "do",
+        ];
+        const BUILTINS: &[&str] = &[
+            "print",
+            "println",
+            "read_file",
+            "read_lines",
+            "read_stdin",
+            "to_string",
+            "to_int",
+            "to_float",
+            "len",
+            "map",
+            "filter",
+            "fold",
+            "range",
+        ];
+
+        if name.len() < 3 {
+            return None;
+        }
+
+        let mut best: Option<(&str, usize)> = None;
+        for candidate in KEYWORDS.iter().chain(BUILTINS.iter()) {
+            let distance = levenshtein_distance(&name.to_lowercase(), &candidate.to_lowercase());
+            if distance > 2 {
+                continue;
+            }
+            match best {
+                Some((_, best_distance)) if distance >= best_distance => {}
+                _ => best = Some((candidate, distance)),
+            }
+        }
+
+        best.map(|(candidate, _)| format!("did you mean `{candidate}`?"))
+    }
+
     pub(super) fn describe_token_type_for_diagnostic(&self, token_type: TokenType) -> String {
         match token_type {
             TokenType::Ident => "an identifier".to_string(),
@@ -83,10 +125,13 @@ impl Parser {
             self.next_token();
             true
         } else {
-            self.errors.push(
+            let breadcrumb = self.current_parser_breadcrumb();
+            let diag = with_parser_breadcrumb(
                 unexpected_token(self.peek_token.span(), message.into())
                     .with_hint_text(hint.into()),
+                breadcrumb.as_deref(),
             );
+            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -105,7 +150,8 @@ impl Parser {
             self.next_token();
             true
         } else {
-            self.errors.push(
+            let breadcrumb = self.current_parser_breadcrumb();
+            let diag = with_parser_breadcrumb(
                 unexpected_token_with_details(
                     self.peek_token.span(),
                     display_title.into(),
@@ -113,7 +159,9 @@ impl Parser {
                     message.into(),
                 )
                 .with_hint_text(hint.into()),
+                breadcrumb.as_deref(),
             );
+            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -134,10 +182,13 @@ impl Parser {
             self.next_token();
             true
         } else {
-            self.errors.push(
+            let breadcrumb = self.current_parser_breadcrumb();
+            let diag = with_parser_breadcrumb(
                 unexpected_token(self.peek_token.span(), message_fn(self))
                     .with_hint_text(hint_fn(self)),
+                breadcrumb.as_deref(),
             );
+            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -461,6 +512,7 @@ impl Parser {
                 }
             }
         }
+        self.clear_structural_suppression();
     }
 
     // Complex parsing helpers
@@ -1675,6 +1727,7 @@ impl Parser {
         }
 
         if self.current_token.token_type == TokenType::Let {
+            let breadcrumb = self.current_parser_breadcrumb();
             let diag = Diagnostic::make_error(
                 &EXPECTED_EXPRESSION,
                 &[&self.current_token.token_type.to_string()],
@@ -1687,18 +1740,25 @@ impl Parser {
 For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression; extract the `let` before `match` \
 (or use a block only if match arms support it).",
             );
-            self.errors.push(diag);
+            self.push_parser_diagnostic(with_parser_breadcrumb(diag, breadcrumb.as_deref()));
             return;
         }
 
         let error_spec = &EXPECTED_EXPRESSION;
-        let diag = Diagnostic::make_error(
+        let mut diag = Diagnostic::make_error(
             error_spec,
             &[&self.describe_token_type_for_diagnostic(self.current_token.token_type)],
             String::new(), // No file context in parser
             self.current_token.span(),
         );
-        self.errors.push(diag);
+        if self.current_token.token_type == TokenType::Ident {
+            if let Some(suggestion) = self.parser_identifier_typo_hint(&self.current_token.literal)
+            {
+                diag = diag.with_help(suggestion);
+            }
+        }
+        let breadcrumb = self.current_parser_breadcrumb();
+        self.push_parser_diagnostic(with_parser_breadcrumb(diag, breadcrumb.as_deref()));
     }
 
     /// Emits the lexer-driven unterminated-string diagnostic and synchronizes.

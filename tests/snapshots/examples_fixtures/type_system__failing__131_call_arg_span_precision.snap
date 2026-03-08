@@ -22,6 +22,8 @@ I found the wrong type in the 2nd argument to `pair`.
 Note:
   expected argument type: Int
   found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Int` value as the 2nd argument.

@@ -16,5 +16,8 @@ Expected `{` to begin match arms.
 
 Hint:
   Match expressions use `match value { pattern -> body, ... }`.
+
+Note:
+  while parsing `match` expression
 == stdout ==
 <not executed>

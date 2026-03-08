@@ -1872,6 +1872,11 @@ fn effect_row_unresolved_single_subtract_reports_e419() {
         "expected unresolved variable `e` message, got:\n{}",
         rendered
     );
+    assert!(
+        rendered.contains("constraint source: effect-row checking for"),
+        "expected call-site provenance in E419, got:\n{}",
+        rendered
+    );
 }
 
 #[test]
@@ -1895,6 +1900,11 @@ fn effect_row_unresolved_multi_subtract_reports_e420() {
         "expected sorted unresolved variable list (`e, t`), got:\n{}",
         rendered
     );
+    assert!(
+        rendered.contains("constraint source: effect-row checking for"),
+        "expected call-site provenance in E420, got:\n{}",
+        rendered
+    );
 }
 
 #[test]
@@ -1915,6 +1925,11 @@ fn effect_row_subset_unsatisfied_reports_e422() {
     assert!(
         rendered.contains("missing required effects: Time"),
         "expected missing `Time` subset message, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("constraint source: effect-row checking for"),
+        "expected call-site provenance in E422, got:\n{}",
         rendered
     );
 }

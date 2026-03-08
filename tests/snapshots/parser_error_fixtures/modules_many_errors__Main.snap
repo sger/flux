@@ -37,6 +37,9 @@ This function body needs to start with `{`.
   |         ^^^^^^^^^
   |         --------- This looks like the function body
 
+Note:
+  while parsing function `greet`
+
 Help:
   Try adding `{` after the function signature.
 
@@ -52,6 +55,9 @@ This function body needs to start with `{`.
 6 |         "Goodbye, " + name
   |         ^^^^^^^^^^^
   |         ----------- This looks like the function body
+
+Note:
+  while parsing function `parting`
 
 Help:
   Try adding `{` after the function signature.

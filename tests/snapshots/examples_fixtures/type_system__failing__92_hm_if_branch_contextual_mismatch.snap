@@ -13,14 +13,20 @@ The branches of this `if` expression do not agree on a type.
   |
 4 |         42
   |         -- `then` branch returns `Int`
+
+  |         -- this branch established the expected type
 5 |     } else {
 6 |         "nope"
   |         ^^^^^^
   |         ------ the `else` branch has type `String`
 
+  |         ------ this branch conflicts with that type
+
 Note:
   then branch type: Int
   else branch type: String
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
 
 Help:
   Both branches of an `if` must produce the same type.
