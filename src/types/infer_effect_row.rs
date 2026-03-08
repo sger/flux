@@ -126,7 +126,7 @@ impl InferEffectRow {
     /// Concrete effect names are normalized and accumulated from all entries.
     /// If any row-variable expression appears, the resulting row is open with
     /// that row-variable as the tail. Returns `Err` when more than one *distinct*
-    /// row variable is encountered the parser prevents this for well-formed
+    /// row variable is encountered — the parser prevents this for well-formed
     /// surface syntax, so `Err` is unreachable in practice.
     pub fn from_effect_exprs(
         effects: &[EffectExpr],
