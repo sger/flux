@@ -67,7 +67,7 @@ fn visit_function(&mut self, func: &FunctionDecl) {
     let param_count = func.params.len();
     if param_count > MAX_FUNCTION_PARAMS {
         self.warnings.push(
-            diag_enhanced(&compiler_errors::SOME_WARNING)
+            diagnostic_for(&compiler_errors::SOME_WARNING)
                 .with_span(func.span)
                 .with_message(format!(
                     "function has {} parameters (max {})",

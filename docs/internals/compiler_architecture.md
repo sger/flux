@@ -175,7 +175,7 @@ To use `with_*` methods on `Diagnostic`, the `DiagnosticBuilder` trait must be i
 use crate::diagnostics::{Diagnostic, DiagnosticBuilder};
 ```
 
-Error codes are defined in `compiler_errors.rs` / `runtime_errors.rs` and registered in `registry.rs`. Use `diag_enhanced(ERROR_CODE)` to create structured diagnostics.
+Error codes are defined in `compiler_errors.rs` / `runtime_errors.rs` and registered in `registry.rs`. Use `diagnostic_for(ERROR_CODE)` to create structured diagnostics.
 
 ### GC Heap
 

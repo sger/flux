@@ -65,6 +65,7 @@ struct JsonRelated {
     span: Option<JsonSpan>,
 }
 
+/// Render diagnostics as JSON after applying the standard aggregation pipeline.
 pub fn render_diagnostics_json(
     diagnostics: &[Diagnostic],
     default_file: Option<&str>,

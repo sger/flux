@@ -18,11 +18,11 @@ use crate::diagnostics::{
 ///
 /// # Example
 /// ```
-/// use flux::diagnostics::{diag_enhanced, UNEXPECTED_TOKEN, DiagnosticBuilder};
+/// use flux::diagnostics::{diagnostic_for, UNEXPECTED_TOKEN, DiagnosticBuilder};
 /// # use flux::diagnostics::position::{Position, Span};
 /// # let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 ///
-/// let diag = diag_enhanced(&UNEXPECTED_TOKEN)
+/// let diag = diagnostic_for(&UNEXPECTED_TOKEN)
 ///     .with_span(span)
 ///     .with_message("Expected ';' after statement")
 ///     .with_hint_text("Add a semicolon here");
