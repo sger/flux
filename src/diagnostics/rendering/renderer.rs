@@ -18,6 +18,7 @@ use super::source::{get_source_line, render_hint_snippet as render_hint_snippet_
 /// Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
+/// Render the header line containing severity, code, and title.
 pub fn render_header(
     out: &mut String,
     severity: Severity,
@@ -70,6 +71,7 @@ pub fn render_message(out: &mut String, message: Option<&str>) {
     out.push('\n');
 }
 
+/// Render the source location line for a diagnostic when a span is available.
 pub fn render_location(
     out: &mut String,
     source: Option<&str>,

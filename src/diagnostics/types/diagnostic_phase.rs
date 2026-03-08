@@ -1,3 +1,4 @@
+/// Compiler pipeline phase associated with a diagnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticPhase {
     /// Lexer and parser errors

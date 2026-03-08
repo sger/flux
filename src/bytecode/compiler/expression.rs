@@ -32,7 +32,7 @@ use crate::{
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
             guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
         },
-        diag_enhanced, dynamic_explained_diagnostic,
+        diagnostic_for, dynamic_explained_diagnostic,
         position::{Position, Span},
         types::ErrorType,
     },
@@ -168,7 +168,7 @@ impl Compiler {
                         if info.arity != 0 {
                             let name_str = self.interner.resolve(name).to_string();
                             return Err(Self::boxed(
-                                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                                     .with_span(*span)
                                     .with_message(format!(
                                         "Constructor `{}` expects {} argument(s) but got 0.",
@@ -214,7 +214,7 @@ impl Compiler {
                     if info.arity != 0 {
                         let name_str = self.interner.resolve(name).to_string();
                         return Err(Self::boxed(
-                            diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                            diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                                 .with_span(*span)
                                 .with_message(format!(
                                     "Constructor `{}` expects {} argument(s) but got 0.",
@@ -1963,7 +1963,7 @@ impl Compiler {
                     }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
                             .with_span(*span)
                             .with_message(format!("Unknown constructor `{}`.", name_str)),
                     ));
@@ -2225,7 +2225,7 @@ impl Compiler {
                     }
                     let name_str = self.interner.resolve(*name).to_string();
                     return Err(Self::boxed(
-                        diag_enhanced(&UNKNOWN_CONSTRUCTOR)
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
                             .with_span(*span)
                             .with_message(format!("Unknown constructor `{}`.", name_str)),
                     ));
@@ -3055,7 +3055,7 @@ impl Compiler {
         if actual_arity != expected_arity {
             let name_str = self.interner.resolve(name).to_string();
             return Err(Self::boxed(
-                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Constructor `{}` expects {} argument(s) but got {}.",
@@ -3149,7 +3149,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Bool case(s): {}.",
@@ -3183,7 +3183,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Option case(s): {}.",
@@ -3217,7 +3217,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing Either case(s): {}.",
@@ -3251,7 +3251,7 @@ impl Compiler {
                 }
                 let missing_text = missing.join(", ");
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: missing list case(s): {}.",
@@ -3268,7 +3268,7 @@ impl Compiler {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(
                             "Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm."
@@ -3284,7 +3284,7 @@ impl Compiler {
                     return Err(Self::boxed(guarded_wildcard_non_exhaustive(span)));
                 }
                 Err(Self::boxed(
-                    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(
                             "Match is non-exhaustive without an unguarded catch-all arm."
@@ -3459,7 +3459,7 @@ impl Compiler {
                 let first_adt = self.interner.resolve(adt_name).to_string();
                 let mixed_adt = self.interner.resolve(info.adt_name).to_string();
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match arms mix constructors from different ADTs: `{}` and `{}`.",
@@ -3496,7 +3496,7 @@ impl Compiler {
                 .collect::<Vec<_>>()
                 .join(", ");
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match on `{}` is non-exhaustive because all constructor arms are guarded.",
@@ -3522,7 +3522,7 @@ impl Compiler {
             let adt_name_str = self.interner.resolve(adt_name).to_string();
             let missing_list = missing.join(", ");
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match on `{}` is missing constructors: {}.",
@@ -3635,7 +3635,7 @@ impl Compiler {
                 };
                 if info.adt_name != nested_adt_name {
                     return Err(Self::boxed(
-                        diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                        diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                             .with_span(span)
                             .with_message(format!(
                                 "Nested constructor patterns {} mix ADTs.",
@@ -3661,7 +3661,7 @@ impl Compiler {
                 let nested_adt = self.interner.resolve(nested_adt_name);
                 let missing_list = missing.join(", ");
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested `{}` patterns {} miss constructors: {}.",
@@ -3744,7 +3744,7 @@ impl Compiler {
             }
         } else if patterns.iter().any(|p| matches!(p, Pattern::Tuple { .. })) {
             return Err(Self::boxed(
-                diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Match is non-exhaustive: nested tuple patterns {} are mixed-shape and cannot be proven exhaustive conservatively.",
@@ -3770,7 +3770,7 @@ impl Compiler {
         if has_empty || has_cons {
             if !has_empty {
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested list patterns {} miss the empty list case.",
@@ -3783,7 +3783,7 @@ impl Compiler {
             }
             if !has_cons {
                 return Err(Self::boxed(
-                    diag_enhanced(&ADT_NON_EXHAUSTIVE_MATCH)
+                    diagnostic_for(&ADT_NON_EXHAUSTIVE_MATCH)
                         .with_span(span)
                         .with_message(format!(
                             "Match is non-exhaustive: nested list patterns {} miss non-empty list cases.",

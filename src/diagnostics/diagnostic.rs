@@ -84,73 +84,88 @@ impl Diagnostic {
         self.span.map(|s| s.start)
     }
 
-    // Getters for read access
+    /// Return the severity of this diagnostic.
     pub fn severity(&self) -> Severity {
         self.severity
     }
 
+    /// Return the internal title for this diagnostic.
     pub fn title(&self) -> &str {
         &self.title
     }
 
+    /// Return the optional display title shown instead of the internal title.
     pub fn display_title(&self) -> Option<&str> {
         self.display_title.as_deref()
     }
 
+    /// Return the optional diagnostic category.
     pub fn category(&self) -> Option<DiagnosticCategory> {
         self.category
     }
 
+    /// Return the optional stable diagnostic code.
     pub fn code(&self) -> Option<&str> {
         self.code.as_deref()
     }
 
+    /// Return whether this diagnostic is classified as a compiler or runtime error.
     pub fn error_type(&self) -> Option<ErrorType> {
         self.error_type
     }
 
+    /// Return the optional human-facing message body.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
     }
 
+    /// Return the optional file path attached to this diagnostic.
     pub fn file(&self) -> Option<&str> {
         self.file.as_deref()
     }
 
+    /// Return the primary span attached to this diagnostic, if any.
     pub fn span(&self) -> Option<Span> {
         self.span
     }
 
+    /// Return all attached hints.
     pub fn hints(&self) -> &[Hint] {
         &self.hints
     }
 
+    /// Return all attached source labels.
     pub fn labels(&self) -> &[Label] {
         &self.labels
     }
 
+    /// Return all attached inline suggestions.
     pub fn suggestions(&self) -> &[InlineSuggestion] {
         &self.suggestions
     }
 
+    /// Return all attached hint chains.
     pub fn hint_chains(&self) -> &[HintChain] {
         &self.hint_chains
     }
 
+    /// Return all attached related diagnostics.
     pub fn related(&self) -> &[RelatedDiagnostic] {
         &self.related
     }
 
+    /// Return the compiler pipeline phase associated with this diagnostic, if known.
     pub fn phase(&self) -> Option<DiagnosticPhase> {
         self.phase
     }
 
+    /// Attach a compiler pipeline phase to this diagnostic.
     pub fn with_phase(mut self, phase: DiagnosticPhase) -> Self {
         self.phase = Some(phase);
         self
     }
 
-    // Setter for file (needed by module_graph)
+    /// Mutate the diagnostic in place to set its file path.
     pub fn set_file(&mut self, file: impl Into<Rc<str>>) {
         self.file = Some(file.into());
     }
@@ -333,7 +348,7 @@ impl DiagnosticBuilder for Diagnostic {
 
 // ===== Factory Methods and Rendering =====
 impl Diagnostic {
-    /// Generic error builder using ErrorCode specification
+    /// Build an error diagnostic from a registered [`ErrorCode`] and replacement values.
     pub fn make_error(
         err_spec: &'static ErrorCode,
         values: &[&str],
@@ -368,8 +383,7 @@ impl Diagnostic {
         }
     }
 
-    /// Generic warning builder using ErrorCode specification
-    /// Similar to make_error but creates warnings for non-fatal issues
+    /// Build a warning diagnostic from a registered [`ErrorCode`].
     pub fn make_warning_from_code(
         warn_spec: &'static ErrorCode,
         values: &[&str],
@@ -402,8 +416,7 @@ impl Diagnostic {
         diag
     }
 
-    /// Dynamic error builder for runtime-generated error information
-    /// Use this when error details come from runtime values rather than static ErrorCode
+    /// Build an error diagnostic from runtime-provided values instead of a static registry entry.
     pub fn make_error_dynamic(
         code: impl Into<String>,
         title: impl Into<String>,
@@ -510,10 +523,12 @@ impl Diagnostic {
         }
     }
 
+    /// Render this diagnostic using an optional source buffer and default file path.
     pub fn render(&self, source: Option<&str>, default_file: Option<&str>) -> String {
         self.render_with_context(source, default_file, None)
     }
 
+    /// Render this diagnostic using a file-to-source map for cross-file context.
     pub fn render_with_sources(
         &self,
         default_file: Option<&str>,

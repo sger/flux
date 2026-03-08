@@ -115,7 +115,7 @@ impl<'a> InferCtx<'a> {
         if arg_tys.len() != param_tys.len() {
             let name_str = self.interner.resolve(constructor).to_string();
             self.errors.push(
-                diag_enhanced(&CONSTRUCTOR_ARITY_MISMATCH)
+                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
                     .with_span(span)
                     .with_message(format!(
                         "Constructor `{}` expects {} argument(s) but got {}.",

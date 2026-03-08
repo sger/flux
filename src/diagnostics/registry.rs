@@ -136,6 +136,7 @@ fn error_code_map() -> &'static HashMap<&'static str, &'static ErrorCode> {
     })
 }
 
+/// Return the default category associated with a stable diagnostic code.
 pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
     match code {
         "E001" | "E002" | "E003" | "E004" | "E005" | "E006" | "E007" | "E012" | "E080" | "E085" => {
@@ -171,7 +172,7 @@ pub fn lookup_error_code(code: &str) -> Option<&'static ErrorCode> {
 }
 
 /// Create a diagnostic from an error code (without message formatting)
-pub fn diag_enhanced(code: &'static ErrorCode) -> Diagnostic {
+pub fn diagnostic_for(code: &'static ErrorCode) -> Diagnostic {
     Diagnostic {
         severity: Severity::Error,
         title: code.title.to_string(),

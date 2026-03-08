@@ -1,3 +1,4 @@
+/// High-level category used to group diagnostics for rendering and filtering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DiagnosticCategory {
     ParserDeclaration,
@@ -17,6 +18,7 @@ pub enum DiagnosticCategory {
 }
 
 impl DiagnosticCategory {
+    /// Return the stable machine-readable category name used in JSON output.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ParserDeclaration => "parser_declaration",

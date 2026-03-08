@@ -3,9 +3,10 @@ use std::rc::Rc;
 use crate::diagnostics::position::Span;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
-    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, diag_enhanced,
+    ErrorType, OCCURS_CHECK_FAILURE, RUNTIME_TYPE_ERROR, TYPE_UNIFICATION_ERROR, diagnostic_for,
 };
 
+/// Labels used when presenting expected-versus-actual type notes.
 #[derive(Debug, Clone, Copy)]
 pub struct TypeMismatchNotes<'a> {
     pub expected_label: &'a str,
@@ -13,6 +14,7 @@ pub struct TypeMismatchNotes<'a> {
 }
 
 impl<'a> TypeMismatchNotes<'a> {
+    /// Create a pair of note labels for expected and actual type lines.
     pub const fn new(expected_label: &'a str, actual_label: &'a str) -> Self {
         Self {
             expected_label,
@@ -21,6 +23,7 @@ impl<'a> TypeMismatchNotes<'a> {
     }
 }
 
+/// Return a targeted help hint for common expected-versus-actual type pairs.
 pub fn type_pair_hint(expected: &str, actual: &str) -> Option<String> {
     match (expected, actual) {
         ("String", "Int") | ("String", "Float") => Some(format!(
@@ -52,6 +55,7 @@ pub fn type_pair_hint(expected: &str, actual: &str) -> Option<String> {
 // - labels: what this code looks like to the compiler
 // - help: one short concrete next step
 
+/// Map a parser-facing display title to the category used for rendering and filtering.
 pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCategory {
     match display_title {
         "Missing Function Body"
@@ -93,6 +97,7 @@ pub fn parser_category_for_display_title(display_title: &str) -> DiagnosticCateg
     }
 }
 
+/// Build a parser diagnostic for constructs that are missing their opening token.
 pub fn missing_construct_opener_diagnostic(
     code: &'static crate::diagnostics::types::ErrorCode,
     file: impl Into<Rc<str>>,
@@ -102,7 +107,7 @@ pub fn missing_construct_opener_diagnostic(
     primary_label: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
-    diag_enhanced(code)
+    diagnostic_for(code)
         .with_display_title(display_title)
         .with_category(parser_category_for_display_title(display_title))
         .with_file(file)
@@ -112,6 +117,7 @@ pub fn missing_construct_opener_diagnostic(
         .with_help(help.into())
 }
 
+/// Build a parser diagnostic for a missing syntax token without an origin label.
 pub fn missing_syntax_token_diagnostic(
     code: &'static crate::diagnostics::types::ErrorCode,
     file: impl Into<Rc<str>>,
@@ -120,7 +126,7 @@ pub fn missing_syntax_token_diagnostic(
     message: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
-    diag_enhanced(code)
+    diagnostic_for(code)
         .with_display_title(display_title)
         .with_category(parser_category_for_display_title(display_title))
         .with_file(file)
@@ -129,6 +135,7 @@ pub fn missing_syntax_token_diagnostic(
         .with_help(help.into())
 }
 
+/// Build a parser diagnostic for a missing syntax token and attach its origin label.
 pub fn missing_syntax_token_diagnostic_with_origin(
     code: &'static crate::diagnostics::types::ErrorCode,
     file: impl Into<Rc<str>>,
@@ -138,7 +145,7 @@ pub fn missing_syntax_token_diagnostic_with_origin(
     origin_label: impl Into<String>,
     help: impl Into<String>,
 ) -> Diagnostic {
-    diag_enhanced(code)
+    diagnostic_for(code)
         .with_display_title(display_title)
         .with_category(parser_category_for_display_title(display_title))
         .with_file(file)
@@ -148,6 +155,7 @@ pub fn missing_syntax_token_diagnostic_with_origin(
         .with_help(help.into())
 }
 
+/// Build a type mismatch diagnostic with expected/actual notes and a best-effort help hint.
 pub fn type_mismatch_diagnostic(
     file: impl Into<Rc<str>>,
     span: Span,
@@ -158,7 +166,7 @@ pub fn type_mismatch_diagnostic(
     notes: TypeMismatchNotes<'_>,
     fallback_hint: impl Into<String>,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
         .with_category(DiagnosticCategory::TypeInference)
         .with_phase(DiagnosticPhase::TypeInference)
         .with_file(file)
@@ -170,8 +178,9 @@ pub fn type_mismatch_diagnostic(
         .with_help(type_pair_hint(expected, actual).unwrap_or_else(|| fallback_hint.into()))
 }
 
+/// Build an occurs-check diagnostic for an inferred infinite type.
 pub fn occurs_check_diagnostic(file: impl Into<Rc<str>>, span: Span, ty: &str) -> Diagnostic {
-    diag_enhanced(&OCCURS_CHECK_FAILURE)
+    diagnostic_for(&OCCURS_CHECK_FAILURE)
         .with_display_title("Infinite Type")
         .with_category(DiagnosticCategory::TypeInference)
         .with_phase(DiagnosticPhase::TypeInference)
@@ -184,6 +193,7 @@ pub fn occurs_check_diagnostic(file: impl Into<Rc<str>>, span: Span, ty: &str) -
         )
 }
 
+/// Truncate and normalize a runtime value preview for note output.
 pub fn runtime_value_preview(value: &str) -> String {
     const LIMIT: usize = 48;
     let mut preview = value.trim().replace('\n', "\\n");
@@ -194,6 +204,7 @@ pub fn runtime_value_preview(value: &str) -> String {
     preview
 }
 
+/// Build a runtime type error diagnostic with optional value preview context.
 pub fn runtime_type_error_diagnostic(
     file: impl Into<Rc<str>>,
     span: Span,
@@ -201,7 +212,7 @@ pub fn runtime_type_error_diagnostic(
     actual: &str,
     value_preview: Option<&str>,
 ) -> Diagnostic {
-    let mut diag = diag_enhanced(&RUNTIME_TYPE_ERROR)
+    let mut diag = diagnostic_for(&RUNTIME_TYPE_ERROR)
         .with_display_title("Type Error")
         .with_category(DiagnosticCategory::RuntimeType)
         .with_file(file)
@@ -223,6 +234,7 @@ pub fn runtime_type_error_diagnostic(
     )
 }
 
+/// Render a runtime diagnostic with optional source text and appended stack frames.
 pub fn render_runtime_diagnostic(
     diag: &Diagnostic,
     source_file: &str,
@@ -252,6 +264,7 @@ pub fn render_runtime_diagnostic(
     rendered
 }
 
+/// Attach a short explanation that a runtime diagnostic came from a dynamic boundary.
 pub fn dynamic_explained_diagnostic(
     code: &str,
     title: &str,
@@ -280,6 +293,7 @@ pub fn dynamic_explained_diagnostic(
     diag.with_help(help.into())
 }
 
+/// Build a note explaining that a module was skipped after earlier failures.
 pub fn module_skipped_note(
     file: impl Into<Rc<str>>,
     skipped_module: impl Into<String>,
@@ -300,6 +314,7 @@ pub fn module_skipped_note(
     .with_phase(DiagnosticPhase::Validation)
 }
 
+/// Build a note summarizing diagnostics suppressed by stage filtering.
 pub fn downstream_errors_suppressed_note(
     file: impl Into<Rc<str>>,
     suppressed_type_count: usize,
