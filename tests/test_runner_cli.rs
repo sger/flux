@@ -259,13 +259,13 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         default_text
     );
     assert!(
-        default_text.contains("Downstream Errors Suppressed"),
-        "expected suppression note in default mode, output:\n{}",
+        default_text.contains("Error[E300]"),
+        "expected type diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
     assert!(
-        !default_text.contains("Error[E300]"),
-        "expected type diagnostic suppressed in default mode, output:\n{}",
+        !default_text.contains("Downstream Errors Suppressed"),
+        "did not expect a cross-module suppression note in default mode, output:\n{}",
         default_text
     );
 
@@ -336,13 +336,13 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         default_text
     );
     assert!(
-        !default_text.contains("Error[E400]: Missing Ambient Effect"),
-        "expected effect diagnostic suppressed in default mode, output:\n{}",
+        default_text.contains("Error[E400]: Missing Ambient Effect"),
+        "expected effect diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
     assert!(
-        default_text.contains("Downstream Errors Suppressed"),
-        "expected suppression note in default mode, output:\n{}",
+        !default_text.contains("Downstream Errors Suppressed"),
+        "did not expect a cross-module suppression note in default mode, output:\n{}",
         default_text
     );
 
