@@ -46,7 +46,10 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
         row_var_counter: &mut u32,
     ) -> InferEffectRow {
+        // The parser prevents two distinct row variables in one `with` clause, so
+        // `Err` is unreachable for well-formed AST; fall back to a closed empty row.
         InferEffectRow::from_effect_exprs(effects, row_var_env, row_var_counter)
+            .unwrap_or_else(|_| InferEffectRow::closed_empty())
     }
 
     /// Emit diagnostic `E426` when a referenced Base function has no HM metadata.
@@ -295,7 +298,7 @@ impl<'a> InferCtx<'a> {
             return;
         }
 
-        self.report_effect_mismatch_via_unification(callee, ambient, span);
+        self.report_effect_mismatch(&callee, &ambient, span);
     }
 
     /// Link row tails when no concrete effects are missing.
@@ -345,31 +348,50 @@ impl<'a> InferCtx<'a> {
         true
     }
 
-    /// Report effect mismatch when ambient rows are closed.
+    /// Report a dedicated E400 diagnostic naming the first missing effect.
     ///
-    /// Wraps both rows in synthetic `Fun` types so existing unification
-    /// diagnostics can report missing/incompatible effects.
-    fn report_effect_mismatch_via_unification(
+    /// Computes the concrete effects required by the callee but absent from
+    /// the ambient row, picks the first one (sorted for determinism), and emits
+    /// a focused "MISSING EFFECT" diagnostic rather than routing through the
+    /// generic unification path.
+    fn report_effect_mismatch(
         &mut self,
-        callee: InferEffectRow,
-        ambient: InferEffectRow,
+        callee: &InferEffectRow,
+        ambient: &InferEffectRow,
         span: Span,
     ) {
-        let actual_effect_ty = InferType::Fun(
-            vec![],
-            Box::new(InferType::Con(TypeConstructor::Unit)),
-            callee,
-        );
-        let expected_effect_ty = InferType::Fun(
-            vec![],
-            Box::new(InferType::Con(TypeConstructor::Unit)),
-            ambient,
-        );
-        let _ = self.unify_with_context(
-            &expected_effect_ty,
-            &actual_effect_ty,
+        let mut missing: Vec<Identifier> = callee
+            .concrete()
+            .iter()
+            .filter(|e| !ambient.concrete().contains(e))
+            .copied()
+            .collect();
+        missing.sort_by_key(|s| s.as_u32());
+
+        let first_missing = match missing.first() {
+            Some(e) => self.interner.resolve(*e).to_string(),
+            // No concrete effects missing — only a row-tail mismatch; nothing to report here.
+            None => return,
+        };
+
+        let hint = if ambient.tail().is_none() {
+            format!("annotate the enclosing function with `with {first_missing}`")
+        } else {
+            format!("the row variable in the ambient context must include `{first_missing}`")
+        };
+
+        self.errors.push(Diagnostic::make_error_dynamic(
+            "E400",
+            "MISSING EFFECT",
+            crate::diagnostics::ErrorType::Compiler,
+            format!(
+                "requires effect `{first_missing}` but the enclosing context does not provide it"
+            ),
+            Some(hint),
+            self.file_path.clone(),
             span,
-            ReportContext::Plain,
+        )
+        .with_primary_label(span, format!("requires `{first_missing}`")),
         );
     }
 }

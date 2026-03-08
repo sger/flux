@@ -478,7 +478,8 @@ impl Compiler {
             &mut next_var,
         )?;
         let effects =
-            InferEffectRow::from_effect_exprs(&contract.effects, &mut row_var_env, &mut next_var);
+            InferEffectRow::from_effect_exprs(&contract.effects, &mut row_var_env, &mut next_var)
+                .ok()?;
 
         let infer_type = InferType::Fun(param_tys, Box::new(ret_ty), effects);
         let mut forall = infer_type.free_vars().into_iter().collect::<Vec<_>>();
