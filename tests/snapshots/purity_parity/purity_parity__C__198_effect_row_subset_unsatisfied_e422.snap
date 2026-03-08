@@ -15,12 +15,12 @@ $ flux --no-cache examples/type_system/failing/198_effect_row_subset_unsatisfied
 exit_code: 1
 
 == vm tuples ==
-- E422 | UNSATISFIED EFFECT SUBSET | effect row constraint failed
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO, Time`, found `() -> Unit with IO`
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with IO`
+- E000 | Downstream Errors Suppressed | 
 
 == jit tuples ==
-- E422 | UNSATISFIED EFFECT SUBSET | effect row constraint failed
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO, Time`, found `() -> Unit with IO`
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with IO`
+- E000 | Downstream Errors Suppressed | 
 
 == parity ==
 match

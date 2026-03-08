@@ -1,0 +1,23 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E004]: Undefined Variable
+
+I can't find a value named `prnit`.
+
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:3:9
+  |
+3 |         prnit("x")
+  |         ^^^^^
+
+Hint:
+  Define it first: let prnit = ...;
+
+Help:
+  Did you mean `print`?
+== stdout ==
+<not executed>

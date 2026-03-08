@@ -5,11 +5,11 @@ Fixture: examples/imports/import_semicolon_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
+Error[E031]: Expected Expression
 
-Expected expression, found ;.
+Expected expression, found `;`.
 
-  --> examples/imports/import_semicolon_error.flx:1:20
+  examples/imports/import_semicolon_error.flx:1:20
   |
 1 | import Modules.Math;
   |                    ^

@@ -5,11 +5,11 @@ Fixture: examples/errors/module_invalid_content_import_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Errors.ModuleInvalidContentError` to import.
 
-  --> examples/errors/module_invalid_content_import_error.flx:3:1
+  examples/errors/module_invalid_content_import_error.flx:3:1
   |
 3 | import Errors.ModuleInvalidContentError
   | ^

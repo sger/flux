@@ -1,0 +1,7 @@
+effect Console {
+    print: String -> Unit
+}
+
+fn bad() -> Unit with Console {
+    perform Console.prnit("x")
+}

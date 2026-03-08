@@ -5,17 +5,17 @@ Fixture: examples/errors/multiple_errors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E076]: UNCLOSED DELIMITER
+Error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.
 
-  --> examples/errors/multiple_errors.flx:9:6
+  examples/errors/multiple_errors.flx:9:6
   |
 9 | print("test"
   |      ^
 
 note: Expected `)` before this token.
-  --> examples/errors/multiple_errors.flx:10:1
+  examples/errors/multiple_errors.flx:10:1
    |
 == stdout ==
 <not executed>

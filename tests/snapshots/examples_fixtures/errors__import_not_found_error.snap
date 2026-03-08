@@ -5,11 +5,11 @@ Fixture: examples/errors/import_not_found_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Missing.Module` to import.
 
-  --> examples/errors/import_not_found_error.flx:2:1
+  examples/errors/import_not_found_error.flx:2:1
   |
 2 | import Missing.Module
   | ^

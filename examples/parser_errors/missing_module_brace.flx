@@ -1,0 +1,11 @@
+// Missing `{` in module declaration.
+//
+// Expected: contextual error about module body.
+
+module Math
+    pub fn add(a: Int, b: Int) -> Int { a + b }
+}
+
+fn main() -> Unit {
+    let _r = Math.add(1, 2)
+}

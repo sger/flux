@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify A with B.
+I found a type mismatch.
 
-  --> examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
    |
 14 |     match x {
    |     ^^^^^^^^^
@@ -20,12 +20,19 @@ Cannot unify A with B.
 17 |     }
    | ^^^^^
 
+Note:
+  expected type: A
+  found type: B
 
---> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+Help:
+  These two types are not compatible.
+
+
+Error[E083]: Non-Exhaustive ADT Match
 
 Match arms mix constructors from different ADTs: `A` and `B`.
 
-  --> examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
+  examples/type_system/failing/25_adt_mixed_constructors_in_match.flx:14:5
    |
 14 |     match x {
    |     ^^^^^^^^^

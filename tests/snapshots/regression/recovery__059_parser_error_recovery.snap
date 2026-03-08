@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/059_parser_error_recovery.flx
 exit_code: 1
 
---> compiler error[E030]: UNKNOWN KEYWORD
+Error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
-  --> tests/fixtures/recovery/059_parser_error_recovery.flx:1:1
+  tests/fixtures/recovery/059_parser_error_recovery.flx:1:1
   |
 1 | def foo() { 1 }
   | ^^^
@@ -17,11 +17,24 @@ Hint:
   Did you mean `fn`?
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Hash Colon
+
+This hash entry needs `:` between the key and value.
+
+  tests/fixtures/recovery/059_parser_error_recovery.flx:1:15
+  |
+1 | def foo() { 1 }
+  |               ^
+
+Hint:
+  Hash literals use `{key: value, ...}`.
+
+
+Error[E034]: Invalid Match Arm Separator
 
 Match arms are separated by `,` in Flux, not `|`.
 
-  --> tests/fixtures/recovery/059_parser_error_recovery.flx:2:18
+  tests/fixtures/recovery/059_parser_error_recovery.flx:2:18
   |
 2 | match x { 0 -> 1 | 1 -> 2 }
   |                  ^
@@ -30,16 +43,16 @@ Hint:
   Replace `|` with `,`.
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Match Arm Arrow
 
-Expected `->` in match arm, found `=>`. Flux uses `->` not `=>`.
+This match arm needs `->`, not `=>`.
 
-  --> tests/fixtures/recovery/059_parser_error_recovery.flx:3:13
+  tests/fixtures/recovery/059_parser_error_recovery.flx:3:13
   |
 3 | match y { 0 => 0, _ -> 1 }
   |             ^
 
-Hint:
-  Replace `=>` with `->`: `match x { pattern -> body, ... }`
+Help:
+  Replace `=>` with `->`.
 
-Found 3 errors.
+Found 4 errors.

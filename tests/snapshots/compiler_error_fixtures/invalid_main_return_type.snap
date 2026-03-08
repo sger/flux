@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/invalid_main_return_type.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E412]: Invalid Main Return Type
+
+`fn main` must return `Unit` (or omit return type).
+
+  examples/compiler_errors/invalid_main_return_type.flx:1:14
+  |
+1 | fn main() -> Int {
+  |              ^^^
+  |              --- invalid `main` return type
+
+Hint:
+  Change signature to `fn main() { ... }` or `-> Unit`.
+== stdout ==
+<not executed>

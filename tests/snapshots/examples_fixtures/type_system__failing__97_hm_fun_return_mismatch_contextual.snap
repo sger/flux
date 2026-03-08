@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Return Type Mismatch
 
-Function return types do not match: expected `Int`, found `String`.
+The body of this function does not match its return type.
 
-  --> examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:11:14
+  examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:11:14
    |
 11 |     let _f = if true {
    |              ^^^^^^^^^
@@ -21,5 +21,12 @@ Function return types do not match: expected `Int`, found `String`.
    | ^^^^^^^^^^^^^^^^^^
 15 |     }
    | ^^^^^
+
+Note:
+  declared return type: Int
+  body type: String
+
+Help:
+  Change the return annotation to `-> String` or change the body.
 == stdout ==
 <not executed>

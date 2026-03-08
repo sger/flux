@@ -1,0 +1,5 @@
+module BrokenEffect {
+    effect Console {
+        print String -> Unit,,
+    }
+}

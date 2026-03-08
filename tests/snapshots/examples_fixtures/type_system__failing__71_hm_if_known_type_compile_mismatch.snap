@@ -5,37 +5,31 @@ Fixture: examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `expect_int` has the wrong type.
+I found the wrong type in the 1st argument to `expect_int`.
 
-  --> examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:11:32
+  examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:11:32
    |
  1 | fn expect_int(x: Int) -> Int {
-
  2 |     x
-
  3 | }
-
  4 | 
-
  5 | fn main() -> Unit with IO {
-
  6 |     let picked = if true {
-
  7 |         "left"
-
  8 |     } else {
-
  9 |         "right"
-
 10 |     }
-
 11 |     print(to_string(expect_int(picked)))
    |                                ^^^^^^
-   |                                ------ this argument is `String`
+   |                                ------ this argument has type `String`
+
+Note:
+  expected argument type: Int
+  found argument type: String
 
 Help:
-  Expected `Int` as the 1st argument.
+  Pass a `Int` value as the 1st argument.
 == stdout ==
 <not executed>

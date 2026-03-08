@@ -5,32 +5,40 @@ Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `upper` has the wrong type.
+I found the wrong type in the 1st argument to `upper`.
 
-  --> examples/advanced/functional_pipeline.flx:93:17
+  examples/advanced/functional_pipeline.flx:93:17
    |
 93 |     let name1 = first(names) |> upper;
    |                 ^^^^^^^^^^^^
-   |                 ------------ this argument is `Option<String>`
+   |                 ------------ this argument has type `Option<String>`
+
+Note:
+  expected argument type: String
+  found argument type: Option<String>
 
 Help:
-  Expected `String` as the 1st argument.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `upper` has the wrong type.
+I found the wrong type in the 1st argument to `upper`.
 
-  --> examples/advanced/functional_pipeline.flx:96:17
+  examples/advanced/functional_pipeline.flx:96:17
    |
 96 |     let name2 = first(rest(names)) |> upper;
    |                 ^^^^^^^^^^^^^^^^^^
-   |                 ------------------ this argument is `Option<String>`
+   |                 ------------------ this argument has type `Option<String>`
+
+Note:
+  expected argument type: String
+  found argument type: Option<String>
 
 Help:
-  Expected `String` as the 1st argument.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 Found 2 errors.
 == stdout ==

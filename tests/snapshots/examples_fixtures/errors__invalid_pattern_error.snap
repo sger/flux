@@ -5,11 +5,11 @@ Fixture: examples/errors/invalid_pattern_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E016]: INVALID PATTERN
+Error[E016]: Invalid Pattern
 
 Catch-all patterns must be the final match arm.
 
-  --> examples/errors/invalid_pattern_error.flx:3:5
+  examples/errors/invalid_pattern_error.flx:3:5
   |
 3 |     _ -> 1,
   |     ^
@@ -18,22 +18,11 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/errors/invalid_pattern_error.flx:6:1
-  |
-6 | print(x);
-  | ^^^^^^^^
-  | -------- expected () -> Unit, found () -> Unit with IO
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/invalid_pattern_error.flx:6:1
+  examples/errors/invalid_pattern_error.flx:6:1
   |
 6 | print(x);
   | ^^^^^^^^^
@@ -43,11 +32,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/errors/invalid_pattern_error.flx:6:1
+  examples/errors/invalid_pattern_error.flx:6:1
   |
 6 | print(x);
   | ^^^^^^^^^
@@ -55,6 +44,20 @@ Effectful program is missing `fn main` root effect handler.
 
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
+
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/invalid_pattern_error.flx:6:1
+  |
+6 | print(x);
+  | ^^^^^^^^
+  | -------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 Found 4 errors.
 == stdout ==

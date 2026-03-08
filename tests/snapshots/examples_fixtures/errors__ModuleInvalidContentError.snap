@@ -5,11 +5,11 @@ Fixture: examples/errors/ModuleInvalidContentError.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `Errors.ModuleInvalidContentError` doesn't match file path `examples/errors/ModuleInvalidContentError.flx`.
 
-  --> examples/errors/ModuleInvalidContentError.flx:2:1
+  examples/errors/ModuleInvalidContentError.flx:2:1
   |
 2 | module Errors.ModuleInvalidContentError {
   | ^

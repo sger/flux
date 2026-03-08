@@ -5,26 +5,32 @@ Fixture: examples/io/aoc_day1_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify numeric operands (Int or Float) with Int and Option<Int>.
+I found a type mismatch.
 
-  --> examples/io/aoc_day1_profile.flx:18:9
+  examples/io/aoc_day1_profile.flx:18:9
    |
 18 |         0 - distance
    |         ^^^^^^^^^^^^
-   |         ------------ expected numeric operands (Int or Float), found Int and Option<Int>
+   |         ------------ this expression has type `Int and Option<Int>`
+
    |         ------------ operator operands are known at compile time
 
+Note:
+  expected type: numeric operands (Int or Float)
+  found type: Int and Option<Int>
+
 Help:
+  These two types are not compatible.
   adjust operand types or add explicit conversion
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
 
-  --> examples/io/aoc_day1_profile.flx:27:9
+  examples/io/aoc_day1_profile.flx:27:9
    |
 27 |         parse_rotations(rest, acc)
    |         ^^^^^^^^^^^^^^^
@@ -32,16 +38,15 @@ I can't find a value named `parse_rotations`.
 Hint:
   Define it first: let parse_rotations = ...;
 
-
 Help:
   Did you mean `parse_rotation`?
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `solve_steps`.
 
-  --> examples/io/aoc_day1_profile.flx:43:9
+  examples/io/aoc_day1_profile.flx:43:9
    |
 43 |         solve_steps(rest, next_pos, hits + 1)
    |         ^^^^^^^^^^^

@@ -5,17 +5,21 @@ Fixture: examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E420]: AMBIGUOUS EFFECT VARIABLES
+Error[E420]: Unresolved Effect Row
 
-Call leaves multiple effect variables unresolved: e, t.
+I cannot determine which effects this call should carry: e, t.
 
-  --> examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx:8:5
+  examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx:8:5
   |
 8 |     unresolved_many(1)
   |     ^^^^^^^^^^^^^^^
-  |     --------------- effect variables are ambiguous
+  |     --------------- this call leaves multiple effect variables ambiguous
 
-Hint:
+Note:
+  ambiguous effect variables: e, t
+  constraint source: effect inference at this call
+
+Help:
   Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.
 == stdout ==
 <not executed>

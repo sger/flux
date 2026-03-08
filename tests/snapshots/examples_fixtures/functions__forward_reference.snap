@@ -5,11 +5,11 @@ Fixture: examples/functions/forward_reference.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E001]: DUPLICATE NAME
+Error[E001]: Duplicate Name
 
 Duplicate binding: `main` is already defined.
 
-  --> examples/functions/forward_reference.flx:9:5
+  examples/functions/forward_reference.flx:9:5
    |
  9 |     fn main() {
    |     ^^^^^^^^^^^
@@ -39,17 +39,17 @@ Hint:
   Use a different name or remove the previous definition
 
    = note: first defined here
-  --> examples/functions/forward_reference.flx:8:1
+  examples/functions/forward_reference.flx:8:1
   |
 8 | fn main() with IO, Time {
   | ^
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `isOdd`.
 
-  --> examples/functions/forward_reference.flx:31:9
+  examples/functions/forward_reference.flx:31:9
    |
 31 |         isOdd(n - 1);
    |         ^^^^^

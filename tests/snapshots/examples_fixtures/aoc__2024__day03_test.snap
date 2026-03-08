@@ -5,14 +5,21 @@ Fixture: examples/aoc/2024/day03_test.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Option<Int> with Int.
+I found a type mismatch.
 
-  --> examples/aoc/2024/Day03Solver.flx:59:27
+  examples/aoc/2024/Day03Solver.flx:59:27
    |
 59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                           ------------------------------------------------ expected Option<Int>, found Int
+   |                           ------------------------------------------------ this expression has type `Int`
+
+Note:
+  expected type: Option<Int>
+  found type: Int
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 == stdout ==
 <not executed>

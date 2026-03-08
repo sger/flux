@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/151_stage_type_suppresses_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E406]: UNHANDLED ROOT EFFECT
+Error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Mystery.
 
-  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:13:19
+  examples/type_system/failing/151_stage_type_suppresses_effect.flx:13:19
    |
 13 | fn main() with IO {
    |                   ^
@@ -24,67 +24,37 @@ Hint:
   Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `greet` has the wrong type.
+I found the wrong type in the 1st argument to `greet`.
 
-  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:14:17
+  examples/type_system/failing/151_stage_type_suppresses_effect.flx:14:17
    |
  5 | fn greet(name: String) -> String {
-
  6 |     "Hello, #{name}!"
-
  7 | }
-
  8 | 
-
  9 | fn bad() with Mystery {
-
 10 |     1
-
 11 | }
-
 12 | 
-
 13 | fn main() with IO {
-
 14 |     print(greet(42))
    |                 ^^
-   |                 -- this argument is `Int`
+   |                 -- this argument has type `Int`
+
+Note:
+  expected argument type: String
+  found argument type: Int
 
 Help:
-  Expected `String` as the 1st argument.
+  Try `to_string(...)` to convert a `Int` into a `String`.
 
 
---> compiler error[E400]: MISSING EFFECT
+Note[E000]: Downstream Errors Suppressed
 
-Call to `bad` requires effect `Mystery` in this function signature.
+I hid 2 later-stage diagnostics (2 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
-  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:15:5
-   |
-15 |     bad()
-   |     ^^^
-   |     --- effectful call occurs here
-
-Hint:
-  Add `with Mystery` to the enclosing function.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with IO with () -> Unit with Mystery.
-
-  --> examples/type_system/failing/151_stage_type_suppresses_effect.flx:15:5
-   |
-15 |     bad()
-   |     ^^^^^
-   |     ----- expected () -> Unit with IO, found () -> Unit with Mystery
-
-
---> note[E000]: DOWNSTREAM ERRORS SUPPRESSED
-
-1 downstream diagnostic (1 effect) was suppressed by stage filtering. Fix earlier-stage errors first.
-
-Found 4 errors.
+Found 2 errors.
 == stdout ==
 <not executed>

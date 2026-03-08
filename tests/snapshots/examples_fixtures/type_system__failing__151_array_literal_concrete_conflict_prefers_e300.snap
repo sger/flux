@@ -5,14 +5,21 @@ Fixture: examples/type_system/failing/151_array_literal_concrete_conflict_prefer
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Int with String.
+I found a type mismatch.
 
-  --> examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx:2:31
+  examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx:2:31
   |
 2 |     let xs: Array<Int> = [|1, "two"|]
   |                               ^^^^^
-  |                               ----- expected Int, found String
+  |                               ----- this expression has type `String`
+
+Note:
+  expected type: Int
+  found type: String
+
+Help:
+  These two types are not compatible.
 == stdout ==
 <not executed>

@@ -1,6 +1,5 @@
 ---
 source: tests/purity_vm_jit_parity_snapshots.rs
-assertion_line: 53
 ---
 Fixture: examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx
 Category: H
@@ -16,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/87_hm_pattern_binding_constrained
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | `main` was declared to return `Unit`
+- E300 | Return Type Mismatch | `main` was declared to return `Unit`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | `main` was declared to return `Unit`
+- E300 | Return Type Mismatch | `main` was declared to return `Unit`
 
 == parity ==
 match

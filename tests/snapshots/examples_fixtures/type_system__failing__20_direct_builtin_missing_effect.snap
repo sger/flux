@@ -5,47 +5,11 @@ Fixture: examples/type_system/failing/20_direct_builtin_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
-
-Call to `print` requires effect `IO` in this function signature.
-
-  --> examples/type_system/failing/20_direct_builtin_missing_effect.flx:6:5
-  |
-6 |     print("tick")
-  |     ^^^^^
-  |     ----- effectful call occurs here
-
-Hint:
-  Add `with IO` to the enclosing function.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with Time with () -> Unit with IO.
-
-  --> examples/type_system/failing/20_direct_builtin_missing_effect.flx:6:5
-  |
-6 |     print("tick")
-  |     ^^^^^^^^^^^^^
-  |     ------------- expected () -> Unit with Time, found () -> Unit with IO
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with Time.
-
-  --> examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
-   |
-10 | tick()
-   | ^^^^^^
-   | ------ expected () -> Unit, found () -> Unit with Time
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
-  --> examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
    |
 10 | tick()
    | ^^^^^^
@@ -55,11 +19,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
    |
 10 | tick()
    | ^^^^^^
@@ -68,6 +32,25 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 5 errors.
+
+Error[E400]: Missing Effect
+
+requires effect `Time` but the enclosing context does not provide it
+
+  examples/type_system/failing/20_direct_builtin_missing_effect.flx:10:1
+   |
+10 | tick()
+   | ^^^^^^
+   | ------ requires `Time`
+
+Hint:
+  annotate the enclosing function with `with Time`
+
+
+Note[E000]: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+
+Found 3 errors.
 == stdout ==
 <not executed>

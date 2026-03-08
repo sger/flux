@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/47_main_with_parameters.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E411]: INVALID MAIN SIGNATURE
+Error[E411]: Invalid Main Signature
 
 `fn main` cannot take parameters.
 
-  --> examples/type_system/failing/47_main_with_parameters.flx:3:1
+  examples/type_system/failing/47_main_with_parameters.flx:3:1
   |
 3 | fn main(x: Int) {
   | ^^^^^^^^^^^^^^^^^

@@ -5,11 +5,11 @@ Fixture: examples/roots/root_a/Dup/Mod.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `Dup.Mod` doesn't match file path `examples/roots/root_a/Dup/Mod.flx`.
 
-  --> examples/roots/root_a/Dup/Mod.flx:1:1
+  examples/roots/root_a/Dup/Mod.flx:1:1
   |
 1 | module Dup.Mod {
   | ^

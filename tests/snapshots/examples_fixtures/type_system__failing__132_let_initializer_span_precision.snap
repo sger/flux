@@ -1,23 +1,27 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/132_let_initializer_span_precision.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  --> examples/type_system/failing/132_let_initializer_span_precision.flx:2:18
+  examples/type_system/failing/132_let_initializer_span_precision.flx:2:18
   |
 2 |     let x: Int = if true { "hello" } else { "world" }
   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |                  ------------------------------------ this is `String`
+  |                  ------------------------------------ this value has type `String`
+
   |            --- but `x` was annotated as `Int`
 
+Note:
+  annotated type: Int
+  value type: String
+
 Help:
-  Change `x` to a `Int` value or update the annotation to `String`.
+  Change `x` to a `Int` value or update the annotation.
 == stdout ==
 <not executed>

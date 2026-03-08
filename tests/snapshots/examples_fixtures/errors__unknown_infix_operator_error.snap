@@ -5,11 +5,11 @@ Fixture: examples/errors/unknown_infix_operator_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E031]: EXPECTED EXPRESSION
+Error[E031]: Expected Expression
 
-Expected expression, found %.
+Expected expression, found `%`.
 
-  --> examples/errors/unknown_infix_operator_error.flx:3:4
+  examples/errors/unknown_infix_operator_error.flx:3:4
   |
 3 | 1 %% 2;
   |    ^

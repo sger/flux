@@ -5,11 +5,11 @@ Fixture: examples/io/aoc_day12_haskell_style_using_modules.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Modules.Day12Solver` to import.
 
-  --> examples/io/aoc_day12_haskell_style_using_modules.flx:1:1
+  examples/io/aoc_day12_haskell_style_using_modules.flx:1:1
   |
 1 | import Modules.Day12Solver as Day12
   | ^

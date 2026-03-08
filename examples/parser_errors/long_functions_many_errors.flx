@@ -1,0 +1,32 @@
+fn first_long_function() -> Unit {
+    import
+
+    let pair = (1, "hello"
+    let xs = [1, 2, 3
+    let hash = { "a" 1 }
+    let f = \x x + 1
+    let _r = add(1 2)
+    let _label = if true { "ok" } else "bad"
+    let _m = match 1 {
+        0 "zero",
+        1 -> "one",
+    }
+    let _handled = 1 handle IO { print(resume, msg) print(msg) }
+    )
+}
+
+fn second_long_function() -> Unit
+    let broken_do = do
+        print("x")
+
+    let tuple = (1, 2
+    let ys = [4, 5, 6
+    let info = { "b" 2 }
+    let g = \(x, y y + 1
+    let _s = greet("Alice" "Bob")
+    let _branch = if false { "left" } else "right"
+    let _n = match 2 {
+        0 -> "zero",
+        2 "two",
+    }
+    let _handled = 2 handle Console { read(resume) resume() }

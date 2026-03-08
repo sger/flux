@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/77_hm_logical_non_bool_compile_mi
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Bool operands, found Int and Bool
+- E300 | Type Mismatch | this expression has type `Int and Bool`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Bool operands, found Int and Bool
+- E300 | Type Mismatch | this expression has type `Int and Bool`
 
 == parity ==
 match

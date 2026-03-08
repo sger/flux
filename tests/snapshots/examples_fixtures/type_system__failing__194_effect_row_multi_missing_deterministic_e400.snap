@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/194_effect_row_multi_missing_deterministic
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+Error[E400]: Missing Ambient Effect
 
 Call to `call_requires_io_time` requires effect `IO` in this function signature.
 
-  --> examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:14:5
+  examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx:14:5
    |
 14 |     call_requires_io_time(worker)
    |     ^^^^^^^^^^^^^^^^^^^^^

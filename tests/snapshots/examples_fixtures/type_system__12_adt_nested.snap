@@ -5,11 +5,11 @@ Fixture: examples/type_system/12_adt_nested.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/12_adt_nested.flx:8:9
+  examples/type_system/12_adt_nested.flx:8:9
    |
  8 |         match t {
    |         ^^^^^^^^^
@@ -38,11 +38,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/12_adt_nested.flx:22:5
+  examples/type_system/12_adt_nested.flx:22:5
    |
 22 |     match t {
    |     ^^^^^^^^^
@@ -63,11 +63,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/12_adt_nested.flx:32:5
+  examples/type_system/12_adt_nested.flx:32:5
    |
 32 |     match t {
    |     ^^^^^^^^^
@@ -84,18 +84,17 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `Leaf`.
 
-  --> examples/type_system/12_adt_nested.flx:39:37
+  examples/type_system/12_adt_nested.flx:39:37
    |
 39 | let t = insert(insert(insert(insert(Leaf, 5), 3), 7), 1)
    |                                     ^^^^
 
 Hint:
   Define it first: let Leaf = ...;
-
 
 Help:
   Did you mean `len`?

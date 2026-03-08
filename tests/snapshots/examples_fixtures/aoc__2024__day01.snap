@@ -5,11 +5,11 @@ Fixture: examples/aoc/2024/day01.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+Error[E011]: Private Member
 
 Cannot access private member `int_at`.
 
-  --> examples/aoc/2024/day01.flx:14:6
+  examples/aoc/2024/day01.flx:14:6
    |
 14 |     (Shared.int_at(nums, 0), Shared.int_at(nums, 1))
    |      ^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/aoc/2024/day01.flx:60:1
+  examples/aoc/2024/day01.flx:60:1
    |
 60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -32,11 +32,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/aoc/2024/day01.flx:60:1
+  examples/aoc/2024/day01.flx:60:1
    |
 60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -46,22 +46,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E400]: Missing Effect
 
-Cannot unify () -> Unit with () -> Unit with IO.
+requires effect `IO` but the enclosing context does not provide it
 
-  --> examples/aoc/2024/day01.flx:60:22
+  examples/aoc/2024/day01.flx:60:22
    |
 60 | let all_pairs_data = read_lines("examples/aoc/2024/day01.txt") |> parse_pairs
    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                      ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+   |                      ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/aoc/2024/day01.flx:61:1
+  examples/aoc/2024/day01.flx:61:1
    |
 61 | print(day01a(all_pairs_data))
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -71,11 +74,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/aoc/2024/day01.flx:61:1
+   |
+61 | print(day01a(all_pairs_data))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/aoc/2024/day01.flx:62:1
+  examples/aoc/2024/day01.flx:62:1
    |
 62 | print(day01b(all_pairs_data))
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -84,6 +101,20 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 6 errors.
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/aoc/2024/day01.flx:62:1
+   |
+62 | print(day01b(all_pairs_data))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 8 errors.
 == stdout ==
 <not executed>

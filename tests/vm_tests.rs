@@ -184,8 +184,9 @@ typed_add(x, 1)
     assert!(
         err.contains("Expected Int, got String.")
             || err.contains("Cannot unify Int with String.")
-            || err.contains("The 1st argument to `typed_add` has the wrong type.")
-            || (err.contains("this argument is `String`") && err.contains("Expected `Int`")),
+            || err.contains("I found the wrong type in the 1st argument to `typed_add`.")
+            || (err.contains("this argument has type `String`")
+                && err.contains("expected argument type: Int")),
         "expected contract mismatch details, got:\n{}",
         err
     );
@@ -362,13 +363,17 @@ fn test_modulo_operator() {
     // Mixed modulo is now rejected statically by HM validation.
     let err = run_any_error("10 % 3.0;");
     assert!(
-        err.contains("[E300]") && err.contains("Cannot unify Int with Float."),
+        err.contains("[E300]")
+            && err.contains("expected type: Int")
+            && err.contains("found type: Float"),
         "Expected compile-time type mismatch for mixed modulo, got: {}",
         err
     );
     let err = run_any_error("10.5 % 3;");
     assert!(
-        err.contains("[E300]") && err.contains("Cannot unify Float with Int."),
+        err.contains("[E300]")
+            && err.contains("expected type: Float")
+            && err.contains("found type: Int"),
         "Expected compile-time type mismatch for mixed modulo, got: {}",
         err
     );

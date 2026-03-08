@@ -5,450 +5,249 @@ Fixture: examples/io/aoc_day8_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `dsu_state` has the wrong type.
+I found the wrong type in the 1st argument to `dsu_state`.
 
-  --> examples/io/aoc_day8_haskell_style.flx:172:28
+  examples/io/aoc_day8_haskell_style.flx:172:28
     |
  78 | fn dsu_state(parents, sizes, comps, last_a, last_b) {
-
  79 |     let s1 = put({}, "p", parents)
-
  80 |     let s2 = put(s1, "sz", sizes)
-
  81 |     let s3 = put(s2, "c", comps)
-
  82 |     let s4 = put(s3, "a", last_a)
-
  83 |     put(s4, "b", last_b)
-
  84 | }
-
  85 | 
-
  86 | fn dsu_parents(state) {
-
  87 |     match get(state, "p") {
-
  88 |         Some(v) -> v,
-
  89 |         _ -> [||]
-
  90 |     }
-
  91 | }
-
  92 | 
-
  93 | fn dsu_sizes(state) {
-
  94 |     match get(state, "sz") {
-
  95 |         Some(v) -> v,
-
  96 |         _ -> [||]
-
  97 |     }
-
  98 | }
-
  99 | 
-
 100 | fn dsu_comps(state) {
-
 101 |     match get(state, "c") {
-
 102 |         Some(v) -> v,
-
 103 |         _ -> 0
-
 104 |     }
-
 105 | }
-
 106 | 
-
 107 | fn dsu_last_a(state) {
-
 108 |     match get(state, "a") {
-
 109 |         Some(v) -> v,
-
 110 |         _ -> -1
-
 111 |     }
-
 112 | }
-
 113 | 
-
 114 | fn dsu_last_b(state) {
-
 115 |     match get(state, "b") {
-
 116 |         Some(v) -> v,
-
 117 |         _ -> -1
-
 118 |     }
-
 119 | }
-
 120 | 
-
 121 | fn union_key(state, key) {
-
 122 |     let parents = dsu_parents(state)
-
 123 |     let sizes = dsu_sizes(state)
-
 124 |     let comps = dsu_comps(state)
-
 125 |     let code = key % 1000000
-
 126 |     let i = code / 1000
-
 127 |     let j = code % 1000
-
 128 |     let ri = root(parents, i)
-
 129 |     let rj = root(parents, j)
-
 130 | 
-
 131 |     if ri == rj {
-
 132 |         state
-
 133 |     } else {
-
 134 |     let si = int_at(sizes, ri)
-
 135 |     let sj = int_at(sizes, rj)
-
 136 |     if si >= sj {
-
 137 |         let p_left = set_at(parents, rj, ri)
-
 138 |         let s_left = set_at(sizes, ri, si + sj)
-
 139 |         dsu_state(p_left, s_left, comps - 1, i, j)
-
 140 |     } else {
-
 141 |     let p_right = set_at(parents, ri, rj)
-
 142 |     let s_right = set_at(sizes, rj, si + sj)
-
 143 |     dsu_state(p_right, s_right, comps - 1, i, j)
-
 144 | }
-
 145 | }
-
 146 | }
-
 147 | 
-
 148 | fn root_sizes(parents, sizes, i, acc) {
-
 149 |     if i >= len(parents) {
-
 150 |         acc
-
 151 |     } else {
-
 152 |     if int_at(parents, i) == i {
-
 153 |         root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
-
 154 |     } else {
-
 155 |     root_sizes(parents, sizes, i + 1, acc)
-
 156 | }
-
 157 | }
-
 158 | }
-
 159 | 
-
 160 | fn run_limit(points, limit) {
-
 161 |     let n = len(points)
-
 162 |     let idxs = range(0, n)
-
 163 |     let keys =
-
 164 |     fold(idxs, [||], /(acc, i) -> {
-
 165 |         let js = range(i + 1, n)
-
 166 |         fold(js, acc, /(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
-
 167 |     })
-
 168 | 
-
 169 |     let sorted_keys = sort(keys)
-
 170 |     let parents0 = range(0, n)
-
 171 |     let sizes0 = map(range(0, n), /_ -> 1)
-
 172 |     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     |                            ^^^^^^^^
-    |                            -------- this argument is `Array<Int>`
+    |                            -------- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Array<Int>
 
 Help:
-  Expected `Int` as the 1st argument.
+  Pass a `Int` value as the 1st argument.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `dsu_state` has the wrong type.
+I found the wrong type in the 1st argument to `dsu_state`.
 
-  --> examples/io/aoc_day8_haskell_style.flx:193:28
+  examples/io/aoc_day8_haskell_style.flx:193:28
     |
  78 | fn dsu_state(parents, sizes, comps, last_a, last_b) {
-
  79 |     let s1 = put({}, "p", parents)
-
  80 |     let s2 = put(s1, "sz", sizes)
-
  81 |     let s3 = put(s2, "c", comps)
-
  82 |     let s4 = put(s3, "a", last_a)
-
  83 |     put(s4, "b", last_b)
-
  84 | }
-
  85 | 
-
  86 | fn dsu_parents(state) {
-
  87 |     match get(state, "p") {
-
  88 |         Some(v) -> v,
-
  89 |         _ -> [||]
-
  90 |     }
-
  91 | }
-
  92 | 
-
  93 | fn dsu_sizes(state) {
-
  94 |     match get(state, "sz") {
-
  95 |         Some(v) -> v,
-
  96 |         _ -> [||]
-
  97 |     }
-
  98 | }
-
  99 | 
-
 100 | fn dsu_comps(state) {
-
 101 |     match get(state, "c") {
-
 102 |         Some(v) -> v,
-
 103 |         _ -> 0
-
 104 |     }
-
 105 | }
-
 106 | 
-
 107 | fn dsu_last_a(state) {
-
 108 |     match get(state, "a") {
-
 109 |         Some(v) -> v,
-
 110 |         _ -> -1
-
 111 |     }
-
 112 | }
-
 113 | 
-
 114 | fn dsu_last_b(state) {
-
 115 |     match get(state, "b") {
-
 116 |         Some(v) -> v,
-
 117 |         _ -> -1
-
 118 |     }
-
 119 | }
-
 120 | 
-
 121 | fn union_key(state, key) {
-
 122 |     let parents = dsu_parents(state)
-
 123 |     let sizes = dsu_sizes(state)
-
 124 |     let comps = dsu_comps(state)
-
 125 |     let code = key % 1000000
-
 126 |     let i = code / 1000
-
 127 |     let j = code % 1000
-
 128 |     let ri = root(parents, i)
-
 129 |     let rj = root(parents, j)
-
 130 | 
-
 131 |     if ri == rj {
-
 132 |         state
-
 133 |     } else {
-
 134 |     let si = int_at(sizes, ri)
-
 135 |     let sj = int_at(sizes, rj)
-
 136 |     if si >= sj {
-
 137 |         let p_left = set_at(parents, rj, ri)
-
 138 |         let s_left = set_at(sizes, ri, si + sj)
-
 139 |         dsu_state(p_left, s_left, comps - 1, i, j)
-
 140 |     } else {
-
 141 |     let p_right = set_at(parents, ri, rj)
-
 142 |     let s_right = set_at(sizes, rj, si + sj)
-
 143 |     dsu_state(p_right, s_right, comps - 1, i, j)
-
 144 | }
-
 145 | }
-
 146 | }
-
 147 | 
-
 148 | fn root_sizes(parents, sizes, i, acc) {
-
 149 |     if i >= len(parents) {
-
 150 |         acc
-
 151 |     } else {
-
 152 |     if int_at(parents, i) == i {
-
 153 |         root_sizes(parents, sizes, i + 1, push(acc, int_at(sizes, i)))
-
 154 |     } else {
-
 155 |     root_sizes(parents, sizes, i + 1, acc)
-
 156 | }
-
 157 | }
-
 158 | }
-
 159 | 
-
 160 | fn run_limit(points, limit) {
-
 161 |     let n = len(points)
-
 162 |     let idxs = range(0, n)
-
 163 |     let keys =
-
 164 |     fold(idxs, [||], /(acc, i) -> {
-
 165 |         let js = range(i + 1, n)
-
 166 |         fold(js, acc, /(acc2, j) -> maybe_push_edge(points, i, j, limit, acc2))
-
 167 |     })
-
 168 | 
-
 169 |     let sorted_keys = sort(keys)
-
 170 |     let parents0 = range(0, n)
-
 171 |     let sizes0 = map(range(0, n), /_ -> 1)
-
 172 |     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
-
 173 |     let state1 = fold(sorted_keys, state0, /(st, k) -> union_key(st, k))
-
 174 | 
-
 175 |     let out = put({}, "state", state1)
-
 176 |     put(out, "keys", sorted_keys)
-
 177 | }
-
 178 | 
-
 179 | fn run_day08a(points, max_dist) {
-
 180 |     let n = len(points)
-
 181 |     let idxs = range(0, n)
-
 182 |     let keys =
-
 183 |     fold(idxs, [||], /(acc, i) -> {
-
 184 |         let js = range(i + 1, n)
-
 185 |         fold(js, acc, /(acc2, j) -> maybe_push_edge(points, i, j, max_dist, acc2))
-
 186 |     })
-
 187 | 
-
 188 |     let sorted_keys = sort(keys)
-
 189 |     let top_keys = slice(sorted_keys, 0, 1000)
-
 190 | 
-
 191 |     let parents0 = range(0, n)
-
 192 |     let sizes0 = map(range(0, n), /_ -> 1)
-
 193 |     let state0 = dsu_state(parents0, sizes0, n, -1, -1)
     |                            ^^^^^^^^
-    |                            -------- this argument is `Array<Int>`
+    |                            -------- this argument has type `Array<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Array<Int>
 
 Help:
-  Expected `Int` as the 1st argument.
+  Pass a `Int` value as the 1st argument.
 
 Found 2 errors.
 == stdout ==

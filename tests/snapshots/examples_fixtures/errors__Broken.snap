@@ -5,11 +5,11 @@ Fixture: examples/errors/Broken.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `Errors.Broken` doesn't match file path `examples/errors/Broken.flx`.
 
-  --> examples/errors/Broken.flx:1:1
+  examples/errors/Broken.flx:1:1
   |
 1 | module Errors.Broken {
   | ^

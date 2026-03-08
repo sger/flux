@@ -1,0 +1,6 @@
+import TypeBroken
+import EffectBroken
+
+fn main() -> Unit {
+    let entry = 1
+}

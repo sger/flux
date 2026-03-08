@@ -5,17 +5,21 @@ Fixture: examples/type_system/failing/196_effect_row_subtract_unresolved_single_
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E419]: UNRESOLVED EFFECT VARIABLE
+Error[E419]: Unresolved Effect Row
 
-Cannot resolve effect variable `e` for this call.
+I cannot resolve the effect variable `e` for this call.
 
-  --> examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:8:5
+  examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:8:5
   |
 8 |     unresolved(1)
   |     ^^^^^^^^^^
-  |     ---------- effect variable is unconstrained
+  |     ---------- this call leaves an effect variable unconstrained
 
-Hint:
-  Add an explicit effect annotation (for example `with e`) or pass a callback with concrete effects.
+Note:
+  unresolved effect variable: e
+  constraint source: effect inference at this call
+
+Help:
+  Add an explicit effect annotation such as `with e` or pass a callback with concrete effects.
 == stdout ==
 <not executed>

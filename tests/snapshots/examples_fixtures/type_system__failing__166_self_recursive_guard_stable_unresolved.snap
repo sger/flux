@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/166_self_recursive_guard_stable_unresolved
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  --> examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:3:9
+  examples/type_system/failing/166_self_recursive_guard_stable_unresolved.flx:3:9
   |
 3 |         mystery_value
   |         ^^^^^^^^^^^^^

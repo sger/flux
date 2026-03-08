@@ -10,7 +10,8 @@ use std::{
 use flux::{
     bytecode::compiler::Compiler,
     diagnostics::{
-        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, Severity, position::Span,
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticsAggregator, Severity,
+        quality::module_skipped_note,
     },
     syntax::{lexer::Lexer, module_graph::ModuleGraph, parser::Parser},
 };
@@ -86,15 +87,10 @@ fn run_unified_pipeline(
             .find(|e| failed.contains(&e.target_path));
         if let Some(dep) = failed_dep {
             failed.insert(node.path.clone());
-            all_diagnostics.push(Diagnostic::make_note(
-                "MODULE SKIPPED",
-                format!(
-                    "Module `{}` was skipped because its dependency `{}` has errors.",
-                    node.path.to_string_lossy(),
-                    dep.name,
-                ),
+            all_diagnostics.push(module_skipped_note(
                 node.path.to_string_lossy().to_string(),
-                Span::default(),
+                node.path.to_string_lossy().to_string(),
+                dep.name.clone(),
             ));
             continue;
         }
@@ -291,6 +287,80 @@ fn diagnostic_cap_enforcement() {
     );
 }
 
+#[test]
+fn parser_example_max_error_cap_enforcement() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("parser_example_cap");
+    let entry = root.join("Main.flx");
+    let source =
+        include_str!("../examples/parser_errors/max_errors_many_functions_missing_brace.flx");
+    write_file(&entry, source);
+
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+
+    let error_count = diags
+        .iter()
+        .filter(|d| d.severity() == Severity::Error)
+        .count();
+    assert!(
+        error_count > DEFAULT_MAX_ERRORS,
+        "expected >50 parser errors, got {}",
+        error_count
+    );
+    assert!(
+        rendered.contains("not shown"),
+        "expected truncation note in parser output, got:\n{}",
+        rendered
+    );
+    assert_eq!(
+        rendered.matches("Error[E034]").count(),
+        DEFAULT_MAX_ERRORS,
+        "expected exactly {} rendered parser errors before truncation, got:\n{}",
+        DEFAULT_MAX_ERRORS,
+        rendered
+    );
+}
+
+#[test]
+fn effect_example_max_error_cap_enforcement() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("effect_example_cap");
+    let entry = root.join("Main.flx");
+    let source =
+        include_str!("../examples/type_system/failing/205_effect_max_errors_many_missing_io.flx");
+    write_file(&entry, source);
+
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+
+    let e400_count = diags
+        .iter()
+        .filter(|d| d.severity() == Severity::Error && d.code() == Some("E400"))
+        .count();
+    assert!(
+        e400_count > DEFAULT_MAX_ERRORS,
+        "expected >50 independent E400 diagnostics, got {}: {:?}",
+        e400_count,
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        rendered.contains("not shown"),
+        "expected truncation note in effect output, got:\n{}",
+        rendered
+    );
+    assert!(
+        !rendered.contains("suppressed by stage filtering"),
+        "did not expect stage filtering suppression for pure effect corpus, got:\n{}",
+        rendered
+    );
+    assert_eq!(
+        rendered.matches("Error[E400]").count(),
+        DEFAULT_MAX_ERRORS,
+        "expected exactly {} rendered E400 diagnostics before truncation, got:\n{}",
+        DEFAULT_MAX_ERRORS,
+        rendered
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Test 6: PASS 2 multi-error continuation keeps independent compiler errors
 // in deterministic source order within one module file.
@@ -322,14 +392,208 @@ fn pass2_multi_error_continuation_ordering() {
     );
 
     let e002_idx = rendered
-        .find("error[E002]")
+        .find("Error[E002]")
         .expect("expected rendered E002 in unified output");
     let e300_idx = rendered
-        .find("error[E300]")
+        .find("Error[E300]")
         .expect("expected rendered E300 in unified output");
     assert!(
         e002_idx < e300_idx,
         "expected deterministic source-order diagnostics (E002 before E300), got:\n{}",
+        rendered
+    );
+}
+
+#[test]
+fn adversarial_compiler_fixture_reports_multiple_independent_errors() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("adversarial_compiler_multi");
+    let entry = root.join("Main.flx");
+    let source =
+        include_str!("../examples/compiler_errors/adversarial/multi_independent_errors.flx");
+    write_file(&entry, source);
+
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.severity() == Severity::Error)
+        .collect();
+
+    assert!(
+        errors.iter().any(|d| d.code() == Some("E300")),
+        "expected an E300 type mismatch, got {:?}",
+        errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        errors.iter().any(|d| d.code() == Some("E056")),
+        "expected an E056 arity mismatch, got {:?}",
+        errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        errors.iter().any(|d| d.code() == Some("E400")),
+        "expected an E400 effect diagnostic, got {:?}",
+        errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
+    assert!(rendered.contains("Error[E056]: Wrong Number Of Arguments"));
+    assert!(!rendered.contains("Error[E400]: Missing Ambient Effect"));
+    assert!(rendered.contains("Downstream Errors Suppressed"));
+}
+
+#[test]
+fn stage_filtering_suppresses_effects_but_all_errors_preserves_them() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("adversarial_compiler_stage_filter");
+    write_file(
+        &root.join("TypeBroken.flx"),
+        include_str!("../examples/compiler_errors/adversarial/stage_all_errors/TypeBroken.flx"),
+    );
+    write_file(
+        &root.join("EffectBroken.flx"),
+        include_str!("../examples/compiler_errors/adversarial/stage_all_errors/EffectBroken.flx"),
+    );
+    let entry = root.join("Main.flx");
+    let source = include_str!("../examples/compiler_errors/adversarial/stage_all_errors/Main.flx");
+    write_file(&entry, source);
+
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E300")),
+        "expected upstream type error in raw diagnostics"
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E400")),
+        "expected downstream effect error in raw diagnostics"
+    );
+    assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
+    assert!(!rendered.contains("Error[E400]: Missing Ambient Effect"));
+    assert!(rendered.contains("Downstream Errors Suppressed"));
+}
+
+#[test]
+fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let root = temp_root("common_dev_mistakes");
+    write_file(
+        &root.join("Main.flx"),
+        include_str!("../examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx"),
+    );
+    write_file(
+        &root.join("HiddenApi.flx"),
+        include_str!("../examples/compiler_errors/adversarial/common_dev_mistakes/HiddenApi.flx"),
+    );
+    write_file(
+        &root.join("MissingPublicAccess.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/MissingPublicAccess.flx"
+        ),
+    );
+    write_file(
+        &root.join("PrivateMemberAccess.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx"
+        ),
+    );
+    write_file(
+        &root.join("CollectionsConfusion.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx"
+        ),
+    );
+    write_file(
+        &root.join("UnknownEffectTypo.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx"
+        ),
+    );
+    write_file(
+        &root.join("UnknownEffectOpTypo.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx"
+        ),
+    );
+    write_file(
+        &root.join("UnknownBaseMemberTypo.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMemberTypo.flx"
+        ),
+    );
+    write_file(
+        &root.join("UnknownIdentifierTypo.flx"),
+        include_str!(
+            "../examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx"
+        ),
+    );
+    write_file(
+        &root.join("WrongArity.flx"),
+        include_str!("../examples/compiler_errors/adversarial/common_dev_mistakes/WrongArity.flx"),
+    );
+
+    let entry = root.join("Main.flx");
+    let source =
+        include_str!("../examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx");
+    let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
+
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E011")),
+        "expected a non-public/private member access diagnostic, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E300")),
+        "expected a list/array confusion type mismatch, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E407")),
+        "expected an unknown effect typo diagnostic, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        diags
+            .iter()
+            .any(|d| matches!(d.code(), Some("E404") | Some("E080"))),
+        "expected an unknown operation/member typo diagnostic, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E004")),
+        "expected an undefined-identifier typo diagnostic, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        diags.iter().any(|d| d.code() == Some("E056")),
+        "expected a wrong-arity diagnostic, got {:?}",
+        diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
+    );
+    assert!(
+        rendered.contains("Private Member"),
+        "expected contextual E011 title in rendered output, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Argument Type Mismatch"),
+        "expected contextual E300 title in rendered output, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Wrong Number Of Arguments"),
+        "expected wrong-arity title in rendered output, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Undefined Variable"),
+        "expected undefined-variable typo title in rendered output, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Did you mean `print`?"),
+        "expected typo suggestion for `print`, got:\n{}",
+        rendered
+    );
+    assert!(
+        rendered.contains("Downstream Errors Suppressed"),
+        "expected stage-filter suppression note for later effect diagnostics, got:\n{}",
         rendered
     );
 }

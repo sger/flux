@@ -5,11 +5,11 @@ Fixture: examples/namespaces/namespace_unqualified_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.MyFile` to import.
 
-  --> examples/namespaces/namespace_unqualified_error.flx:1:1
+  examples/namespaces/namespace_unqualified_error.flx:1:1
   |
 1 | import Modules.Data.MyFile
   | ^

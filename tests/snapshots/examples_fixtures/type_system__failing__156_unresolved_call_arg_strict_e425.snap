@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  --> examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx:4:32
+  examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx:4:32
   |
 4 |     let value: Int = takes_int(mystery_value)
   |                                ^^^^^^^^^^^^^

@@ -5,11 +5,11 @@ Fixture: examples/type_system/11_adt_basic.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/11_adt_basic.flx:9:9
+  examples/type_system/11_adt_basic.flx:9:9
    |
  9 |         match s {
    |         ^^^^^^^^^
@@ -26,11 +26,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/11_adt_basic.flx:17:9
+  examples/type_system/11_adt_basic.flx:17:9
    |
 17 |         match s {
    |         ^^^^^^^^^
@@ -47,11 +47,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `Circle`.
 
-  --> examples/type_system/11_adt_basic.flx:24:13
+  examples/type_system/11_adt_basic.flx:24:13
    |
 24 |     let c = Circle(5.0)
    |             ^^^^^^
@@ -59,16 +59,15 @@ I can't find a value named `Circle`.
 Hint:
   Define it first: let Circle = ...;
 
-
 Help:
   Did you mean `c`?
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `Rectangle`.
 
-  --> examples/type_system/11_adt_basic.flx:25:13
+  examples/type_system/11_adt_basic.flx:25:13
    |
 25 |     let r = Rectangle(3.0, 4.0)
    |             ^^^^^^^^^
@@ -76,23 +75,21 @@ I can't find a value named `Rectangle`.
 Hint:
   Define it first: let Rectangle = ...;
 
-
 Help:
   Did you mean `r`?
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `Point`.
 
-  --> examples/type_system/11_adt_basic.flx:26:13
+  examples/type_system/11_adt_basic.flx:26:13
    |
 26 |     let p = Point
    |             ^^^^^
 
 Hint:
   Define it first: let Point = ...;
-
 
 Help:
   Did you mean one of: `p`, `print`, `count`?

@@ -5,31 +5,17 @@ Fixture: examples/type_system/failing/117_if_missing_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E076]: UNCLOSED DELIMITER
+Error[E034]: Missing If Body
 
-Expected a closing `}` to match this opening `{` in function `main`.
+This `if` branch needs to start with `{`.
 
-  --> examples/type_system/failing/117_if_missing_brace.flx:1:19
-  |
-1 | fn main() -> Unit {
-  |                   ^
-
-Help:
-  Add `}` to close the body of function `main`.
-
-
---> compiler error[E034]: UNEXPECTED TOKEN
-
-Expected `{` to begin the `if` body.
-
-  --> examples/type_system/failing/117_if_missing_brace.flx:2:13
+  examples/type_system/failing/117_if_missing_brace.flx:2:8
   |
 2 |     if true 1 else 2
-  |             ^
+  |        ^^^^
+  |        ---- this `if` branch starts here
 
-Hint:
-  Flux requires braces: `if condition { ... } else { ... }`
-
-Found 2 errors.
+Help:
+  Try adding `{` after the `if` condition.
 == stdout ==
 <not executed>

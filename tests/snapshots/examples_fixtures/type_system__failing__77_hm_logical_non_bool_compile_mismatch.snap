@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.fl
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Bool operands with Int and Bool.
+I found a type mismatch.
 
-  --> examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:2:5
+  examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:2:5
   |
 2 |     a && b
   |     ^^^^^^
-  |     ------ expected Bool operands, found Int and Bool
+  |     ------ this expression has type `Int and Bool`
+
   |     ------ operator operands are known at compile time
 
+Note:
+  expected type: Bool operands
+  found type: Int and Bool
+
 Help:
+  These two types are not compatible.
   adjust operand types or add explicit conversion
 == stdout ==
 <not executed>

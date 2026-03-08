@@ -5,22 +5,17 @@ Fixture: examples/type_system/failing/94_wrong_argument_count_too_many.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E056]: WRONG NUMBER OF ARGUMENTS
+Error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 3 were provided.
 
-  --> examples/type_system/failing/94_wrong_argument_count_too_many.flx:7:14
+  examples/type_system/failing/94_wrong_argument_count_too_many.flx:7:14
   |
 2 | fn add(a: Int, b: Int) -> Int {
-
 3 |     a + b
-
 4 | }
-
 5 | 
-
 6 | fn main() -> Unit {
-
 7 |     let _x = add(1, 2, 3)
   |              ^^^^^^^^^^^^
   |              ------------ 3 arguments provided here, expected 2

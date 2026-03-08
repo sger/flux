@@ -1,0 +1,305 @@
+// More than 50 independent effect diagnostics in one file.
+//
+// Each function is explicitly pure by annotation and calls `print`, producing
+// one stable E400 missing-effect diagnostic. This fixture is intended for
+// targeted max-error-cap tests rather than ordinary snapshots.
+
+fn bad00() -> Int {
+    print(0)
+    0
+}
+
+fn bad01() -> Int {
+    print(1)
+    1
+}
+
+fn bad02() -> Int {
+    print(2)
+    2
+}
+
+fn bad03() -> Int {
+    print(3)
+    3
+}
+
+fn bad04() -> Int {
+    print(4)
+    4
+}
+
+fn bad05() -> Int {
+    print(5)
+    5
+}
+
+fn bad06() -> Int {
+    print(6)
+    6
+}
+
+fn bad07() -> Int {
+    print(7)
+    7
+}
+
+fn bad08() -> Int {
+    print(8)
+    8
+}
+
+fn bad09() -> Int {
+    print(9)
+    9
+}
+
+fn bad10() -> Int {
+    print(10)
+    10
+}
+
+fn bad11() -> Int {
+    print(11)
+    11
+}
+
+fn bad12() -> Int {
+    print(12)
+    12
+}
+
+fn bad13() -> Int {
+    print(13)
+    13
+}
+
+fn bad14() -> Int {
+    print(14)
+    14
+}
+
+fn bad15() -> Int {
+    print(15)
+    15
+}
+
+fn bad16() -> Int {
+    print(16)
+    16
+}
+
+fn bad17() -> Int {
+    print(17)
+    17
+}
+
+fn bad18() -> Int {
+    print(18)
+    18
+}
+
+fn bad19() -> Int {
+    print(19)
+    19
+}
+
+fn bad20() -> Int {
+    print(20)
+    20
+}
+
+fn bad21() -> Int {
+    print(21)
+    21
+}
+
+fn bad22() -> Int {
+    print(22)
+    22
+}
+
+fn bad23() -> Int {
+    print(23)
+    23
+}
+
+fn bad24() -> Int {
+    print(24)
+    24
+}
+
+fn bad25() -> Int {
+    print(25)
+    25
+}
+
+fn bad26() -> Int {
+    print(26)
+    26
+}
+
+fn bad27() -> Int {
+    print(27)
+    27
+}
+
+fn bad28() -> Int {
+    print(28)
+    28
+}
+
+fn bad29() -> Int {
+    print(29)
+    29
+}
+
+fn bad30() -> Int {
+    print(30)
+    30
+}
+
+fn bad31() -> Int {
+    print(31)
+    31
+}
+
+fn bad32() -> Int {
+    print(32)
+    32
+}
+
+fn bad33() -> Int {
+    print(33)
+    33
+}
+
+fn bad34() -> Int {
+    print(34)
+    34
+}
+
+fn bad35() -> Int {
+    print(35)
+    35
+}
+
+fn bad36() -> Int {
+    print(36)
+    36
+}
+
+fn bad37() -> Int {
+    print(37)
+    37
+}
+
+fn bad38() -> Int {
+    print(38)
+    38
+}
+
+fn bad39() -> Int {
+    print(39)
+    39
+}
+
+fn bad40() -> Int {
+    print(40)
+    40
+}
+
+fn bad41() -> Int {
+    print(41)
+    41
+}
+
+fn bad42() -> Int {
+    print(42)
+    42
+}
+
+fn bad43() -> Int {
+    print(43)
+    43
+}
+
+fn bad44() -> Int {
+    print(44)
+    44
+}
+
+fn bad45() -> Int {
+    print(45)
+    45
+}
+
+fn bad46() -> Int {
+    print(46)
+    46
+}
+
+fn bad47() -> Int {
+    print(47)
+    47
+}
+
+fn bad48() -> Int {
+    print(48)
+    48
+}
+
+fn bad49() -> Int {
+    print(49)
+    49
+}
+
+fn bad50() -> Int {
+    print(50)
+    50
+}
+
+fn bad51() -> Int {
+    print(51)
+    51
+}
+
+fn bad52() -> Int {
+    print(52)
+    52
+}
+
+fn bad53() -> Int {
+    print(53)
+    53
+}
+
+fn bad54() -> Int {
+    print(54)
+    54
+}
+
+fn bad55() -> Int {
+    print(55)
+    55
+}
+
+fn bad56() -> Int {
+    print(56)
+    56
+}
+
+fn bad57() -> Int {
+    print(57)
+    57
+}
+
+fn bad58() -> Int {
+    print(58)
+    58
+}
+
+fn bad59() -> Int {
+    print(59)
+    59
+}

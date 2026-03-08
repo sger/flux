@@ -1,0 +1,9 @@
+module CollectionsConfusion {
+    fn sum(xs: List<Int>) -> Int {
+        len(xs)
+    }
+
+    fn bad() -> Int {
+        sum([|1, 2, 3|])
+    }
+}
