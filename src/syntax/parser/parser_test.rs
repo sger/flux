@@ -581,7 +581,7 @@ fn missing_open_brace_reports_contextual_error() {
     );
     let msg = parser.errors[0].message.as_deref().unwrap_or("");
     assert!(
-        msg.contains("Expected `{` to begin function body"),
+        msg.contains("This function body needs to start with `{`."),
         "expected contextual brace error, got: {msg}"
     );
 }

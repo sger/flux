@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::{
-    Parser,
+    Parser, RecoveryBoundary,
     helpers::{ParameterListContext, SyncMode},
 };
 
@@ -50,6 +50,7 @@ impl Parser {
     }
 
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
+        self.used_custom_recovery = false;
         let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Import => self.parse_import_statement(),
@@ -130,7 +131,9 @@ impl Parser {
             _ => self.parse_expression_statement(),
         };
 
-        if statement.is_none() {
+        if let Some(boundary) = self.take_recovery_boundary() {
+            self.synchronize_recovery_boundary(boundary);
+        } else if statement.is_none() && !self.used_custom_recovery {
             self.synchronize(SyncMode::Stmt);
         }
 
@@ -387,6 +390,8 @@ impl Parser {
                 self.peek_token.span(),
                 &found_desc,
             ));
+            self.suppress_top_level_rbrace_once = true;
+            self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
             return None;
         }
         if self.is_peek_token(TokenType::LBrace) {
@@ -572,9 +577,11 @@ impl Parser {
 
         if !self.expect_peek_context(
             TokenType::LBrace,
-            "Expected `{` to begin module body.".to_string(),
+            "This module body needs to start with `{`.".to_string(),
             "Module declarations use `module Name { ... }`.".to_string(),
         ) {
+            self.suppress_top_level_rbrace_once = true;
+            self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
             return None;
         }
 
@@ -592,9 +599,22 @@ impl Parser {
 
         if !self.expect_peek_context(
             TokenType::Ident,
-            "Expected module path after `import`.".to_string(),
+            "This import needs a module path after `import`.".to_string(),
             "Import statements use `import Module.Name`.".to_string(),
         ) {
+            if self.peek_token.position.line > self.current_token.end_position.line
+                || self.peek_token.token_type == TokenType::Eof
+            {
+                self.errors.pop();
+                self.errors.push(
+                    unexpected_token(
+                        self.current_token.span(),
+                        "This import needs a module path after `import`.",
+                    )
+                    .with_hint_text("Import statements use `import Module.Name`."),
+                );
+                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+            }
             return None;
         }
 
@@ -604,13 +624,23 @@ impl Parser {
 
         if self.is_peek_token(TokenType::As) {
             self.next_token(); // consume 'as'
-            if !self.expect_peek_context(
-                TokenType::Ident,
-                "Expected alias name after `as`.".to_string(),
-                "Import aliases use `import Module as Alias`.".to_string(),
-            ) {
+            if !self.is_peek_token(TokenType::Ident) {
+                let alias_span = if self.peek_token.position.line
+                    > self.current_token.end_position.line
+                    || self.peek_token.token_type == TokenType::Eof
+                {
+                    self.current_token.span()
+                } else {
+                    self.peek_token.span()
+                };
+                self.errors.push(
+                    unexpected_token(alias_span, "This import alias needs a name after `as`.")
+                        .with_hint_text("Import aliases use `import Module as Alias`."),
+                );
+                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return None;
             }
+            self.next_token();
             alias = Some(
                 self.current_token
                     .symbol
@@ -678,8 +708,8 @@ impl Parser {
                 unexpected_token(
                     self.peek_token.span(),
                     format!(
-                        "Expected `,` or `]` in import except list, got {}.",
-                        self.peek_token.token_type
+                        "I was expecting `,` or `]` in the import except list, but I found {}.",
+                        self.describe_token_type_for_diagnostic(self.peek_token.token_type)
                     ),
                 ),
             ) {
@@ -762,8 +792,8 @@ impl Parser {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
                     format!(
-                        "Expected constructor name in `data` declaration, got {}",
-                        self.current_token.token_type
+                        "I was expecting a constructor name in this `data` declaration, but I found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
                     ),
                 ));
                 return None;
@@ -804,14 +834,20 @@ impl Parser {
                                     unexpected_token(
                                         self.current_token.span(),
                                         format!(
-                                            "Expected `,` or `)` in constructor fields, got {}.",
-                                            self.current_token.token_type
+                                            "I was expecting `,` or `)` between constructor fields, but I found {}.",
+                                            self.describe_token_type_for_diagnostic(
+                                                self.current_token.token_type
+                                            )
                                         ),
                                     ),
                                 ) {
                                     break;
                                 }
-                                return None;
+                                let _ = self.recover_to_matching_delimiter(
+                                    TokenType::RParen,
+                                    &[TokenType::Comma, TokenType::RBrace],
+                                );
+                                break;
                             }
                         }
                     }
@@ -912,8 +948,8 @@ impl Parser {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
                     format!(
-                        "Expected constructor name in `type` declaration, got {}",
-                        self.current_token.token_type
+                        "I was expecting a constructor name in this `type` declaration, but I found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
                     ),
                 ));
                 return None;
@@ -947,14 +983,20 @@ impl Parser {
                                     unexpected_token(
                                         self.current_token.span(),
                                         format!(
-                                            "Expected `,` or `)` in constructor fields, got {}.",
-                                            self.current_token.token_type
+                                            "I was expecting `,` or `)` between constructor fields, but I found {}.",
+                                            self.describe_token_type_for_diagnostic(
+                                                self.current_token.token_type
+                                            )
                                         ),
                                     ),
                                 ) {
                                     break;
                                 }
-                                return None;
+                                let _ = self.recover_to_matching_delimiter(
+                                    TokenType::RParen,
+                                    &[TokenType::Bar, TokenType::Semicolon],
+                                );
+                                break;
                             }
                         }
                     }
@@ -1027,8 +1069,8 @@ impl Parser {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
                     format!(
-                        "Expected operation name in `effect` declaration, got {}.",
-                        self.current_token.token_type
+                        "I was expecting an operation name in this `effect` declaration, but I found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
                     ),
                 ));
                 return None;
