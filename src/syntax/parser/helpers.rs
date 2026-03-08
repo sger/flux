@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-use super::Parser;
+use super::{Parser, RecoveryBoundary};
 
 const LIST_ERROR_LIMIT: usize = 50;
 const DELIMITER_RECOVERY_BUDGET: usize = 256;
@@ -33,6 +33,20 @@ pub(super) enum SyncMode {
 }
 
 impl Parser {
+    pub(super) fn describe_token_type_for_diagnostic(&self, token_type: TokenType) -> String {
+        match token_type {
+            TokenType::Ident => "an identifier".to_string(),
+            TokenType::Int => "an integer literal".to_string(),
+            TokenType::Float => "a float literal".to_string(),
+            TokenType::String => "a string literal".to_string(),
+            TokenType::Eof => "the end of the file".to_string(),
+            TokenType::Illegal => "an invalid token".to_string(),
+            TokenType::UnterminatedString => "an unterminated string literal".to_string(),
+            TokenType::UnterminatedBlockComment => "an unterminated block comment".to_string(),
+            other => format!("`{other}`"),
+        }
+    }
+
     // Token navigation
     /// Advances the 3-token parser window, skipping over doc comment tokens.
     pub(super) fn next_token(&mut self) {
@@ -55,17 +69,6 @@ impl Parser {
     /// Returns `true` when `peek_token` matches `token_type`.
     pub(super) fn is_peek_token(&self, token_type: TokenType) -> bool {
         self.peek_token.token_type == token_type
-    }
-
-    /// Consumes `peek_token` when it matches `token_type`, otherwise emits a peek error.
-    pub(super) fn expect_peek(&mut self, token_type: TokenType) -> bool {
-        if self.is_peek_token(token_type) {
-            self.next_token();
-            true
-        } else {
-            self.peek_error(token_type);
-            false
-        }
     }
 
     /// Consumes `peek_token` when it matches `token_type`, otherwise emits a
@@ -122,6 +125,16 @@ impl Parser {
         }
     }
 
+    pub(super) fn eof_anchor_span(&self, preferred: Span) -> Span {
+        if self.peek_token.token_type == TokenType::Eof {
+            preferred
+        } else if self.current_token.token_type != TokenType::Eof {
+            self.current_token.span()
+        } else {
+            self.peek_token.span()
+        }
+    }
+
     /// Runs a required parser step and synchronizes on failure.
     pub(super) fn parse_required<T, F>(&mut self, parse: F, sync_mode: SyncMode) -> Option<T>
     where
@@ -130,7 +143,11 @@ impl Parser {
         match parse(self) {
             Some(value) => Some(value),
             None => {
-                self.synchronize(sync_mode);
+                if let Some(boundary) = self.take_recovery_boundary() {
+                    self.synchronize_recovery_boundary(boundary);
+                } else {
+                    self.synchronize(sync_mode);
+                }
                 None
             }
         }
@@ -328,7 +345,11 @@ impl Parser {
                 SyncMode::Stmt => {
                     matches!(
                         token_type,
-                        TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+                        TokenType::Semicolon
+                            | TokenType::RParen
+                            | TokenType::RBracket
+                            | TokenType::RBrace
+                            | TokenType::Eof
                     ) || self.token_starts_statement(self.peek_token.token_type)
                 }
                 SyncMode::Block => matches!(token_type, TokenType::RBrace | TokenType::Eof),
@@ -339,6 +360,79 @@ impl Parser {
             }
 
             self.next_token();
+        }
+    }
+
+    pub(super) fn set_recovery_boundary(&mut self, boundary: RecoveryBoundary) {
+        self.pending_recovery_boundary = Some(boundary);
+    }
+
+    pub(super) fn take_recovery_boundary(&mut self) -> Option<RecoveryBoundary> {
+        self.pending_recovery_boundary.take()
+    }
+
+    pub(super) fn synchronize_recovery_boundary(&mut self, boundary: RecoveryBoundary) {
+        self.used_custom_recovery = true;
+        match boundary {
+            RecoveryBoundary::Statement => self.synchronize(SyncMode::Stmt),
+            RecoveryBoundary::NextLineOrBlock => {
+                while !self.is_current_token(TokenType::Eof) {
+                    if matches!(
+                        self.current_token.token_type,
+                        TokenType::Semicolon | TokenType::RBrace | TokenType::Eof
+                    ) {
+                        break;
+                    }
+
+                    if self.peek_token.position.line > self.current_token.end_position.line
+                        && (self.peek_token.token_type == TokenType::RBrace
+                            || self.token_starts_statement(self.peek_token.token_type)
+                            || self.token_starts_expression(self.peek_token.token_type))
+                    {
+                        break;
+                    }
+
+                    self.next_token();
+                }
+            }
+            RecoveryBoundary::MissingBlockOpener => {
+                let mut paren_depth = 0usize;
+                let mut bracket_depth = 0usize;
+                let mut brace_depth = 0usize;
+
+                while !self.is_current_token(TokenType::Eof) {
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                        if self.current_token.token_type == TokenType::RBrace {
+                            self.suppress_top_level_rbrace_once = true;
+                            break;
+                        }
+
+                        if self.peek_token.position.line > self.current_token.end_position.line
+                            && (self.peek_token.token_type == TokenType::RBrace
+                                || self.token_starts_statement(self.peek_token.token_type)
+                                || self.token_starts_expression(self.peek_token.token_type))
+                        {
+                            if self.peek_token.token_type == TokenType::RBrace {
+                                self.suppress_top_level_rbrace_once = true;
+                                self.next_token();
+                            }
+                            break;
+                        }
+                    }
+
+                    match self.current_token.token_type {
+                        TokenType::LParen => paren_depth += 1,
+                        TokenType::LBracket => bracket_depth += 1,
+                        TokenType::LBrace => brace_depth += 1,
+                        TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+                        TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+                        TokenType::RBrace => brace_depth = brace_depth.saturating_sub(1),
+                        _ => {}
+                    }
+
+                    self.next_token();
+                }
+            }
         }
     }
 
@@ -935,8 +1029,8 @@ impl Parser {
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
                     format!(
-                        "Expected a type expression, got {}.",
-                        self.current_token.token_type
+                        "I was expecting a type here, but I found {}.",
+                        self.describe_token_type_for_diagnostic(self.current_token.token_type)
                     ),
                 ));
                 // For annotation contexts, callers may already anchor recovery on
@@ -1070,6 +1164,7 @@ impl Parser {
     pub(super) fn parse_block_with_context(&mut self, context: Option<&str>) -> Block {
         let start = self.current_token.position;
         let mut statements = Vec::new();
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
         self.next_token();
 
         while !self.is_current_token(TokenType::RBrace)
@@ -1100,7 +1195,10 @@ impl Parser {
         }
 
         // Detect unclosed block: reached EOF without finding closing `}`
-        if self.is_current_token(TokenType::Eof) && !self.reported_unclosed_brace {
+        if self.is_current_token(TokenType::Eof)
+            && !self.reported_unclosed_brace
+            && !self.has_error_since(construct_checkpoint)
+        {
             self.reported_unclosed_brace = true;
             let open_span = Span::new(start, start);
             let msg = if let Some(name) = context {
@@ -1312,6 +1410,10 @@ impl Parser {
             // Point the error at the opening delimiter instead of the
             // unexpected token (Rust-style).
             if self.likely_missing_closing_delimiter(end) {
+                if self.has_structural_error_since(construct_checkpoint) {
+                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    return Some(list);
+                }
                 let (open, close) = Self::delimiter_chars(end);
                 self.errors.push(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
@@ -1319,7 +1421,24 @@ impl Parser {
                     close,
                     Some(self.peek_token.span()),
                 ));
+                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return Some(list);
+            }
+
+            if self.has_structural_error_since(construct_checkpoint) {
+                while matches!(
+                    self.peek_token.token_type,
+                    TokenType::RParen | TokenType::RBracket | TokenType::RBrace
+                ) && self.peek_token.token_type != end
+                {
+                    self.next_token();
+                }
+
+                if self.recover_to_matching_delimiter(end, &[TokenType::Comma])
+                    || self.consume_if_peek(end)
+                {
+                    return Some(list);
+                }
             }
 
             let context = match end {
@@ -1330,8 +1449,10 @@ impl Parser {
             let followup = unexpected_token(
                 self.peek_token.span(),
                 format!(
-                    "Expected `,` or `{}` after {}, got {}.",
-                    end, context, self.peek_token.token_type
+                    "I was expecting `,` or `{}` after this {}, but I found {}.",
+                    end,
+                    context,
+                    self.describe_token_type_for_diagnostic(self.peek_token.token_type)
                 ),
             );
             if !self.push_followup_unless_structural_root(construct_checkpoint, followup) {
@@ -1370,6 +1491,10 @@ impl Parser {
                     | TokenType::Import
                     | TokenType::Module
             ) {
+                if self.has_structural_error_since(construct_checkpoint) {
+                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                    return Some(list);
+                }
                 let (open, close) = Self::delimiter_chars(end);
                 self.errors.push(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
@@ -1377,10 +1502,15 @@ impl Parser {
                     close,
                     Some(self.peek_token.span()),
                 ));
+                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return Some(list);
             }
 
             let message = if self.peek_token.token_type == TokenType::Eof {
+                if self.has_structural_error_since(construct_checkpoint) {
+                    self.set_recovery_boundary(RecoveryBoundary::Statement);
+                    return Some(list);
+                }
                 let (open, close) = Self::delimiter_chars(end);
                 self.errors.push(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
@@ -1388,6 +1518,7 @@ impl Parser {
                     close,
                     None,
                 ));
+                self.set_recovery_boundary(RecoveryBoundary::Statement);
                 return None;
             } else {
                 format!("Expected `,` or `{}` in expression list.", end)
@@ -1448,6 +1579,13 @@ impl Parser {
             return true;
         }
 
+        if matches!(end, TokenType::RParen | TokenType::RBracket)
+            && self.peek_token.position.line > self.current_token.end_position.line
+            && self.token_starts_expression(self.peek_token.token_type)
+        {
+            return true;
+        }
+
         matches!(
             self.peek_token.token_type,
             TokenType::Semicolon
@@ -1493,6 +1631,18 @@ impl Parser {
     // Error handling
     /// Emits an "expected expression" diagnostic for the current token.
     pub(super) fn no_prefix_parse_error(&mut self) {
+        if matches!(
+            self.current_token.token_type,
+            TokenType::RParen | TokenType::RBracket | TokenType::RBrace
+        ) && self.errors.last().is_some_and(|diag| {
+            matches!(diag.code(), Some("E034") | Some("E076"))
+                && diag
+                    .span()
+                    .is_some_and(|span| span.start.line == self.current_token.position.line)
+        }) {
+            return;
+        }
+
         if self.current_token.token_type == TokenType::Let {
             let diag = Diagnostic::make_error(
                 &EXPECTED_EXPRESSION,
@@ -1513,7 +1663,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         let error_spec = &EXPECTED_EXPRESSION;
         let diag = Diagnostic::make_error(
             error_spec,
-            &[&self.current_token.token_type.to_string()],
+            &[&self.describe_token_type_for_diagnostic(self.current_token.token_type)],
             String::new(), // No file context in parser
             self.current_token.span(),
         );
@@ -1556,17 +1706,15 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         self.synchronize(SyncMode::Stmt);
     }
 
-    /// Emits a diagnostic for an unexpected `peek_token`.
-    pub(super) fn peek_error(&mut self, expected: TokenType) {
-        let found = match self.peek_token.token_type {
-            TokenType::Ident => format!("`{}`", self.peek_token.literal),
-            TokenType::Eof => "end of file".to_string(),
-            tt => format!("`{}`", tt),
-        };
-        self.errors.push(unexpected_token(
-            self.peek_token.span(),
-            format!("Expected `{}`, got {}.", expected, found),
-        ));
+    pub(super) fn emit_expected_token(
+        &mut self,
+        _expected: TokenType,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) {
+        self.errors.push(
+            unexpected_token(self.peek_token.span(), message.into()).with_hint_text(hint.into()),
+        );
     }
 
     /// Validates that `current_token` is an identifier parameter and returns its symbol.
@@ -1581,8 +1729,8 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             self.errors.push(unexpected_token(
                 self.current_token.span(),
                 format!(
-                    "Expected identifier as parameter, got {}.",
-                    self.current_token.token_type
+                    "I was expecting a parameter name here, but I found {}.",
+                    self.describe_token_type_for_diagnostic(self.current_token.token_type)
                 ),
             ));
             None

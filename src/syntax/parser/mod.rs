@@ -19,6 +19,13 @@ mod helpers;
 mod literal;
 mod statement;
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum RecoveryBoundary {
+    Statement,
+    NextLineOrBlock,
+    MissingBlockOpener,
+}
+
 pub struct Parser {
     pub(super) lexer: Lexer,
     pub(super) current_token: Token,
@@ -28,6 +35,9 @@ pub struct Parser {
     pub warnings: Vec<Diagnostic>,
     pub(super) suppress_unterminated_string_error_at: Option<Position>,
     pub(super) reported_unclosed_brace: bool,
+    pub(super) pending_recovery_boundary: Option<RecoveryBoundary>,
+    pub(super) used_custom_recovery: bool,
+    pub(super) suppress_top_level_rbrace_once: bool,
     expr_id_gen: ExprIdGen,
 }
 
@@ -42,6 +52,9 @@ impl Parser {
             warnings: Vec::new(),
             suppress_unterminated_string_error_at: None,
             reported_unclosed_brace: false,
+            pending_recovery_boundary: None,
+            used_custom_recovery: false,
+            suppress_top_level_rbrace_once: false,
             expr_id_gen: ExprIdGen::new(),
         };
         parser.prime();
@@ -92,6 +105,11 @@ impl Parser {
 
         while self.current_token.token_type != TokenType::Eof {
             if self.current_token.token_type == TokenType::RBrace {
+                if self.suppress_top_level_rbrace_once {
+                    self.suppress_top_level_rbrace_once = false;
+                    self.next_token();
+                    continue;
+                }
                 self.errors.push(unexpected_token(
                     self.current_token.span(),
                     "Unexpected `}` outside of a block.",
@@ -118,6 +136,13 @@ impl Parser {
             .iter()
             .skip(checkpoint)
             .any(|diag| matches!(diag.code(), Some("E034") | Some("E076")))
+    }
+
+    pub(super) fn has_error_since(&self, checkpoint: usize) -> bool {
+        self.errors
+            .iter()
+            .skip(checkpoint)
+            .any(|diag| diag.severity() == crate::diagnostics::types::Severity::Error)
     }
 
     pub(super) fn push_followup_unless_structural_root(

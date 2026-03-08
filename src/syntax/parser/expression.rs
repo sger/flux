@@ -2,9 +2,10 @@ use crate::{
     diagnostics::{
         DiagnosticBuilder, invalid_pattern, lambda_syntax_error, match_fat_arrow,
         match_pipe_separator, missing_array_close_bracket, missing_comprehension_close_bracket,
-        missing_do_block_brace, missing_else_body_brace, missing_hash_close_brace,
-        missing_if_body_brace, missing_lambda_arrow, missing_match_arrow, pipe_target_error,
+        missing_do_block_brace, missing_hash_close_brace, missing_lambda_arrow,
+        missing_match_arrow, pipe_target_error,
         position::{Position, Span},
+        quality::missing_syntax_token_diagnostic_with_origin,
         unclosed_delimiter, unexpected_token, unknown_keyword_alias,
     },
     syntax::{
@@ -19,7 +20,7 @@ use crate::{
     },
 };
 
-use super::{Parser, helpers::ParameterListContext};
+use super::{Parser, RecoveryBoundary, helpers::ParameterListContext};
 
 impl Parser {
     fn parse_parenthesized<T>(
@@ -81,8 +82,10 @@ impl Parser {
                         unexpected_token(
                             self.current_token.span(),
                             format!(
-                                "Expected `,` or `)` in constructor pattern, got {}",
-                                self.current_token.token_type
+                                "I was expecting `,` or `)` in this constructor pattern, but I found {}.",
+                                self.describe_token_type_for_diagnostic(
+                                    self.current_token.token_type
+                                )
                             ),
                         ),
                     ) {
@@ -366,8 +369,8 @@ impl Parser {
             self.errors.push(unexpected_token(
                 self.current_token.span(),
                 format!(
-                    "Expected identifier or tuple field index after `.`, got {}.",
-                    self.peek_token.token_type
+                    "I was expecting an identifier or tuple field index after `.`, but I found {}.",
+                    self.describe_token_type_for_diagnostic(self.peek_token.token_type)
                 ),
             ));
             // Recover to a statement boundary (or the nearest call-arg close) to
@@ -461,6 +464,7 @@ impl Parser {
 
     pub(super) fn parse_grouped_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
+        let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
         if self.is_peek_token(TokenType::RParen) {
             self.next_token();
             return Some(Expression::TupleLiteral {
@@ -499,16 +503,22 @@ impl Parser {
             if self.is_peek_token(TokenType::RParen) {
                 self.next_token();
             } else {
-                if self.peek_token.position.line > self.current_token.end_position.line {
-                    let open_span = Span::new(start, start);
-                    self.errors.push(unclosed_delimiter(
-                        open_span,
-                        "(",
-                        ")",
-                        Some(self.peek_token.span()),
-                    ));
-                } else {
-                    self.peek_error(TokenType::RParen);
+                if !self.has_structural_error_since(construct_checkpoint) {
+                    if self.peek_token.position.line > self.current_token.end_position.line {
+                        let open_span = Span::new(start, start);
+                        self.errors.push(unclosed_delimiter(
+                            open_span,
+                            "(",
+                            ")",
+                            Some(self.peek_token.span()),
+                        ));
+                    } else {
+                        self.emit_expected_token(
+                            TokenType::RParen,
+                            "Expected `)` to close this tuple literal.",
+                            "Add `)` after the last tuple element.",
+                        );
+                    }
                 }
                 // Recover missing `)` so following code can continue parsing with
                 // minimal cascades.
@@ -536,16 +546,22 @@ impl Parser {
             // Use unclosed_delimiter when the unexpected token is on a later
             // line (suggesting a truly forgotten `)`) and fall back to the
             // generic peek_error for same-line issues (e.g. missing comma).
-            if self.peek_token.position.line > self.current_token.end_position.line {
-                let open_span = Span::new(start, start);
-                self.errors.push(unclosed_delimiter(
-                    open_span,
-                    "(",
-                    ")",
-                    Some(self.peek_token.span()),
-                ));
-            } else {
-                self.peek_error(TokenType::RParen);
+            if !self.has_structural_error_since(construct_checkpoint) {
+                if self.peek_token.position.line > self.current_token.end_position.line {
+                    let open_span = Span::new(start, start);
+                    self.errors.push(unclosed_delimiter(
+                        open_span,
+                        "(",
+                        ")",
+                        Some(self.peek_token.span()),
+                    ));
+                } else {
+                    self.emit_expected_token(
+                        TokenType::RParen,
+                        "Expected `)` to close this grouped expression.",
+                        "Add `)` after the expression.",
+                    );
+                }
             }
             // Same recovery as tuple literals: report missing `)` and try to
             // resynchronize locally before giving up.
@@ -666,8 +682,13 @@ impl Parser {
                         "]",
                         Some(self.peek_token.span()),
                     ));
+                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 } else {
-                    self.peek_error(TokenType::RBracket);
+                    self.emit_expected_token(
+                        TokenType::RBracket,
+                        "Expected `]` to close this list expression.",
+                        "Close the list with `]` after the tail expression.",
+                    );
                 }
                 return None;
             } else {
@@ -917,7 +938,7 @@ impl Parser {
 
             if !self.expect_peek_context(
                 TokenType::Colon,
-                "Expected `:` between hash key and value.".to_string(),
+                "This hash entry needs `:` between the key and value.".to_string(),
                 "Hash literals use `{key: value, ...}`.".to_string(),
             ) {
                 return None;
@@ -941,7 +962,11 @@ impl Parser {
                     self.errors
                         .push(missing_hash_close_brace(self.peek_token.span()));
                 } else {
-                    self.peek_error(TokenType::Comma);
+                    self.emit_expected_token(
+                        TokenType::Comma,
+                        "Expected `,` between hash entries.",
+                        "Separate hash entries with commas: `{key: value, next: value}`.",
+                    );
                 }
                 return None;
             }
@@ -969,8 +994,18 @@ impl Parser {
         let condition = self.parse_expression(Precedence::Lowest)?;
 
         if !self.is_peek_token(TokenType::LBrace) {
+            let anchor = self.eof_anchor_span(self.current_token.span());
             self.errors
-                .push(missing_if_body_brace(self.peek_token.span()));
+                .push(missing_syntax_token_diagnostic_with_origin(
+                    &crate::diagnostics::UNEXPECTED_TOKEN,
+                    "",
+                    anchor,
+                    "Missing If Body",
+                    "This `if` branch needs to start with `{`.",
+                    "this `if` branch starts here",
+                    "Try adding `{` after the `if` condition.",
+                ));
+            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token();
@@ -1010,8 +1045,18 @@ impl Parser {
                 })
             } else {
                 if !self.is_peek_token(TokenType::LBrace) {
+                    let anchor = self.eof_anchor_span(self.current_token.span());
                     self.errors
-                        .push(missing_else_body_brace(self.peek_token.span()));
+                        .push(missing_syntax_token_diagnostic_with_origin(
+                            &crate::diagnostics::UNEXPECTED_TOKEN,
+                            "",
+                            anchor,
+                            "Missing Else Body",
+                            "This `else` branch needs to start with `{`.",
+                            "`else` starts here",
+                            "Try adding `{` after `else`.",
+                        ));
+                    self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                     return None;
                 }
                 self.next_token();
@@ -1035,6 +1080,7 @@ impl Parser {
         if !self.is_peek_token(TokenType::LBrace) {
             self.errors
                 .push(missing_do_block_brace(self.peek_token.span()));
+            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token();
@@ -1068,20 +1114,29 @@ impl Parser {
         // `.`
         if !self.expect_peek_context(
             TokenType::Dot,
-            "Expected `.` between effect and operation in `perform`.".to_string(),
+            "This `perform` expression needs `.` between the effect and operation.".to_string(),
             "Perform expressions use `perform Effect.op(args...)`.".to_string(),
         ) {
             return None;
         }
+        let perform_dot_span = self.current_token.span();
 
         // Operation name (Ident)
-        if !self.expect_peek_context(
-            TokenType::Ident,
-            "Expected operation name after `perform Effect.`.".to_string(),
-            "Perform expressions use `perform Effect.op(args...)`.".to_string(),
-        ) {
+        if !self.is_peek_token(TokenType::Ident) {
+            let anchor = self.eof_anchor_span(perform_dot_span);
+            self.errors
+                .push(missing_syntax_token_diagnostic_with_origin(
+                    &crate::diagnostics::UNEXPECTED_TOKEN,
+                    "",
+                    anchor,
+                    "Missing Effect Operation Name",
+                    "Expected operation name after `perform Effect.`.",
+                    "this `perform` expression ends here",
+                    "Perform expressions use `perform Effect.op(args...)`.",
+                ));
             return None;
         }
+        self.next_token();
         let operation = self
             .lexer
             .interner_mut()
@@ -1266,6 +1321,20 @@ impl Parser {
         let construct_checkpoint = self.start_construct_diagnostics_checkpoint();
 
         while !self.is_peek_token(TokenType::RBrace) {
+            if self.is_peek_token(TokenType::Eof) && arms.is_empty() {
+                let anchor = self.eof_anchor_span(self.current_token.span());
+                self.errors
+                    .push(missing_syntax_token_diagnostic_with_origin(
+                        &crate::diagnostics::UNEXPECTED_TOKEN,
+                        "",
+                        anchor,
+                        "Missing Match Body",
+                        "Expected at least one match arm before end of file.",
+                        "this match expression starts here",
+                        "Write match arms as `match value { pattern -> body, ... }`.",
+                    ));
+                return Some(self.build_match_expression(start, scrutinee, arms));
+            }
             self.next_token();
             let pattern = self.parse_pattern()?;
             let mut guard = None;
@@ -1286,7 +1355,7 @@ impl Parser {
             } else {
                 self.errors.push(missing_match_arrow(
                     self.peek_token.span(),
-                    &self.peek_token.token_type.to_string(),
+                    &self.describe_token_type_for_diagnostic(self.peek_token.token_type),
                 ));
                 return None;
             }
@@ -1333,8 +1402,8 @@ impl Parser {
                         unexpected_token(
                             self.peek_token.span(),
                             format!(
-                                "Expected `,` or `}}` after match arm, got {}.",
-                                self.peek_token.token_type
+                                "I was expecting `,` or `}}` after this match arm, but I found {}.",
+                                self.describe_token_type_for_diagnostic(self.peek_token.token_type)
                             ),
                         ),
                     ) {
@@ -1669,10 +1738,15 @@ impl Parser {
         } else if self.is_peek_token(TokenType::Arrow) {
             self.next_token(); // consume `->`
         } else {
-            self.errors.push(missing_lambda_arrow(
-                self.peek_token.span(),
-                &self.peek_token.token_type.to_string(),
-            ));
+            let arrow_anchor = self.eof_anchor_span(self.current_token.span());
+            self.errors.push(
+                missing_lambda_arrow(
+                    arrow_anchor,
+                    &self.describe_token_type_for_diagnostic(self.peek_token.token_type),
+                )
+                .with_primary_label(arrow_anchor, "this lambda parameter list ends here"),
+            );
+            self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
         self.next_token(); // move to lambda body
