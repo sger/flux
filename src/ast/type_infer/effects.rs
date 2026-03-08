@@ -380,18 +380,19 @@ impl<'a> InferCtx<'a> {
             format!("the row variable in the ambient context must include `{first_missing}`")
         };
 
-        self.errors.push(Diagnostic::make_error_dynamic(
-            "E400",
-            "MISSING EFFECT",
-            crate::diagnostics::ErrorType::Compiler,
-            format!(
-                "requires effect `{first_missing}` but the enclosing context does not provide it"
-            ),
-            Some(hint),
-            self.file_path.clone(),
-            span,
-        )
-        .with_primary_label(span, format!("requires `{first_missing}`")),
+        self.errors.push(
+            Diagnostic::make_error_dynamic(
+                "E400",
+                "MISSING EFFECT",
+                crate::diagnostics::ErrorType::Compiler,
+                format!(
+                    "requires effect `{first_missing}` but the enclosing context does not provide it"
+                ),
+                Some(hint),
+                self.file_path.clone(),
+                span,
+            )
+            .with_primary_label(span, format!("requires `{first_missing}`")),
         );
     }
 }
