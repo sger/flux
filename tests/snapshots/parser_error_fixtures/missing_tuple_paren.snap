@@ -14,6 +14,9 @@ Expected a closing `)` to match this opening `(`.
 8 |     let pair = (1, "hello"
   |                ^
 
+Note:
+  while parsing function `main`
+
 note: Expected `)` before this token.
   examples/parser_errors/missing_tuple_paren.flx:9:5
   |
