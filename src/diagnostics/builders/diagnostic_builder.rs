@@ -6,7 +6,9 @@
 use std::rc::Rc;
 
 use crate::diagnostics::position::{Position, Span};
-use crate::diagnostics::{ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic};
+use crate::diagnostics::{
+    DiagnosticCategory, ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic,
+};
 
 /// Builder trait for constructing diagnostics with a fluent API
 ///
@@ -33,6 +35,12 @@ pub trait DiagnosticBuilder: Sized {
 
     /// Set the error/warning code (e.g., "E101")
     fn with_code(self, code: impl Into<String>) -> Self;
+
+    /// Set a text-only display title used by the human renderer.
+    fn with_display_title(self, title: impl Into<String>) -> Self;
+
+    /// Set the semantic diagnostic category used for grouping and tooling.
+    fn with_category(self, category: DiagnosticCategory) -> Self;
 
     /// Set the error type (Compiler or Runtime)
     fn with_error_type(self, error_type: ErrorType) -> Self;
