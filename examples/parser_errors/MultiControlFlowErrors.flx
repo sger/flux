@@ -1,0 +1,9 @@
+module MultiControlFlowErrors {
+    fn flow() -> Unit {
+        let a = if true 1
+        let b = if false { 0 } else 1
+        let c = match 1 { 0 "zero", 1 -> "one" }
+        let d = 1 handle IO { print(resume, msg) print(msg) }
+        let f = \x x + 1
+    }
+}

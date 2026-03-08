@@ -47,6 +47,9 @@ Expected a closing `}` to match this opening `{` in function `main`.
 14 | fn main() with I {
    |                  ^
 
+Note:
+  while parsing function `main`
+
 Help:
   Add `}` to close the body of function `main`.
 

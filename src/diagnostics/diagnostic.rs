@@ -417,22 +417,15 @@ impl Diagnostic {
     ) -> Self {
         let message = format_message(warn_spec.message, values);
         let hint = warn_spec.hint.map(|h| format_message(h, values));
+        let category = super::registry::default_diagnostic_category(warn_spec.code);
 
         let mut diag = Diagnostic::warning(warn_spec.title)
             .with_code(warn_spec.code)
-            .with_category(
-                super::registry::default_diagnostic_category(warn_spec.code)
-                    .unwrap_or(DiagnosticCategory::Internal),
-            )
             .with_error_type(warn_spec.error_type)
             .with_file(file)
             .with_span(span)
             .with_message(message);
-        if diag.category == Some(DiagnosticCategory::Internal)
-            && super::registry::default_diagnostic_category(warn_spec.code).is_none()
-        {
-            diag.category = None;
-        }
+        diag.category = category;
 
         if let Some(hint_text) = hint {
             diag = diag.with_hint_text(hint_text);

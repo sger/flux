@@ -1,9 +1,8 @@
 use crate::{
     diagnostics::{
         DiagnosticBuilder, DiagnosticCategory, missing_fn_param_list, missing_function_body_brace,
-        missing_let_assign, orphan_constructor_pattern, position::Span,
-        quality::with_parser_breadcrumb, unexpected_end_keyword, unexpected_token,
-        unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
+        missing_let_assign, orphan_constructor_pattern, position::Span, unexpected_end_keyword,
+        unexpected_token, unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
@@ -277,9 +276,9 @@ impl Parser {
         } else {
             None
         };
-        if let Some(name) = &context_name {
-            self.push_parser_context(ParserContext::Function(name.clone()));
-        }
+        let _function_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Function(name)));
         let start = self.current_token.position;
 
         if !self.expect_peek_context_with_details(
@@ -339,8 +338,7 @@ impl Parser {
                 && self.token_starts_type(self.peek_token.token_type))
         {
             let fn_name = self.lexer.interner().resolve(name).to_string();
-            self.errors
-                .push(missing_fn_param_list(self.peek_token.span(), &fn_name));
+            self.emit_parser_diagnostic(missing_fn_param_list(self.peek_token.span(), &fn_name));
             return None;
         }
 
@@ -372,7 +370,7 @@ impl Parser {
             }
             ty
         } else if self.token_starts_type(self.peek_token.token_type) {
-            self.errors.push(unexpected_token_with_details(
+            self.emit_parser_diagnostic(unexpected_token_with_details(
                 self.peek_token.span(),
                 "Missing Return Type Arrow",
                 DiagnosticCategory::ParserSeparator,
@@ -404,10 +402,11 @@ impl Parser {
                 TokenType::Eof => "end of file".to_string(),
                 _ => format!("`{}`", self.peek_token.token_type),
             };
-            let breadcrumb = self.current_parser_breadcrumb();
-            self.push_parser_diagnostic(with_parser_breadcrumb(
-                missing_function_body_brace(fn_span, &fn_name, self.peek_token.span(), &found_desc),
-                breadcrumb.as_deref(),
+            self.emit_parser_diagnostic(missing_function_body_brace(
+                fn_span,
+                &fn_name,
+                self.peek_token.span(),
+                &found_desc,
             ));
             self.suppress_top_level_rbrace_once = true;
             self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
@@ -420,7 +419,7 @@ impl Parser {
         let fn_name_str = self.lexer.interner().resolve(name).to_string();
         let body = self.parse_block_with_context(Some(&fn_name_str));
 
-        let statement = Some(Statement::Function {
+        Some(Statement::Function {
             is_public,
             name,
             type_params,
@@ -430,11 +429,7 @@ impl Parser {
             effects,
             body,
             span: self.span_from(start),
-        });
-        if context_name.is_some() {
-            self.pop_parser_context();
-        }
-        statement
+        })
     }
 
     pub(super) fn parse_return_statement(&mut self) -> Option<Statement> {
@@ -591,9 +586,9 @@ impl Parser {
         } else {
             None
         };
-        if let Some(name) = &context_name {
-            self.push_parser_context(ParserContext::Module(name.clone()));
-        }
+        let _module_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Module(name)));
         let start = self.current_token.position;
 
         if !self.expect_peek_context(
@@ -620,15 +615,11 @@ impl Parser {
 
         let body = self.parse_block();
 
-        let statement = Some(Statement::Module {
+        Some(Statement::Module {
             name,
             body,
             span: self.span_from(start),
-        });
-        if context_name.is_some() {
-            self.pop_parser_context();
-        }
-        statement
+        })
     }
 
     pub(super) fn parse_import_statement(&mut self) -> Option<Statement> {
@@ -645,7 +636,7 @@ impl Parser {
                 || self.peek_token.token_type == TokenType::Eof
             {
                 self.errors.pop();
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token_with_details(
                         self.current_token.span(),
                         "Missing Import Path",
@@ -779,9 +770,9 @@ impl Parser {
         } else {
             None
         };
-        if let Some(name) = &context_name {
-            self.push_parser_context(ParserContext::Data(name.clone()));
-        }
+        let _data_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Data(name)));
         let start = self.current_token.position;
 
         // current: 'data' — advance to type name
@@ -851,7 +842,7 @@ impl Parser {
             let variant_checkpoint = self.start_construct_diagnostics_checkpoint();
 
             if self.current_token.token_type != TokenType::Ident {
-                self.errors.push(unexpected_token_with_details(
+                self.emit_parser_diagnostic(unexpected_token_with_details(
                     self.current_token.span(),
                     "Invalid Data Constructor",
                     DiagnosticCategory::ParserDeclaration,
@@ -936,16 +927,12 @@ impl Parser {
             self.next_token(); // advance to next variant or '}'
         }
 
-        let statement = Some(Statement::Data {
+        Some(Statement::Data {
             name,
             type_params,
             variants,
             span: self.span_from(start),
-        });
-        if context_name.is_some() {
-            self.pop_parser_context();
-        }
-        statement
+        })
     }
 
     /// Parses ADT sugar:
@@ -1113,9 +1100,9 @@ impl Parser {
         } else {
             None
         };
-        if let Some(name) = &context_name {
-            self.push_parser_context(ParserContext::Effect(name.clone()));
-        }
+        let _effect_context = context_name
+            .clone()
+            .map(|name| self.enter_parser_context(ParserContext::Effect(name)));
         let start = self.current_token.position;
 
         // Effect name
@@ -1154,7 +1141,7 @@ impl Parser {
             }
 
             if self.current_token.token_type != TokenType::Ident {
-                self.errors.push(unexpected_token_with_details(
+                self.emit_parser_diagnostic(unexpected_token_with_details(
                     self.current_token.span(),
                     "Invalid Effect Operation",
                     DiagnosticCategory::ParserExpression,
@@ -1176,7 +1163,7 @@ impl Parser {
                 self.next_token(); // consume `:`
                 self.next_token(); // move to start of TypeExpr
             } else if self.token_starts_type(self.peek_token.token_type) {
-                self.errors.push(unexpected_token_with_details(
+                self.emit_parser_diagnostic(unexpected_token_with_details(
                     self.peek_token.span(),
                     "Missing Effect Operation Colon",
                     DiagnosticCategory::ParserSeparator,
@@ -1209,14 +1196,10 @@ impl Parser {
             self.next_token(); // advance to next op or `}`
         }
 
-        let statement = Some(Statement::EffectDecl {
+        Some(Statement::EffectDecl {
             name,
             ops,
             span: self.span_from(start),
-        });
-        if context_name.is_some() {
-            self.pop_parser_context();
-        }
-        statement
+        })
     }
 }

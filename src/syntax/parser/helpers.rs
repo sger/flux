@@ -3,7 +3,6 @@ use crate::{
         Diagnostic, DiagnosticBuilder, DiagnosticCategory, EXPECTED_EXPRESSION,
         UNTERMINATED_BLOCK_COMMENT, UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
         position::{Position, Span},
-        quality::with_parser_breadcrumb,
         text_similarity::levenshtein_distance,
         unclosed_delimiter, unexpected_token, unexpected_token_with_details,
     },
@@ -125,13 +124,10 @@ impl Parser {
             self.next_token();
             true
         } else {
-            let breadcrumb = self.current_parser_breadcrumb();
-            let diag = with_parser_breadcrumb(
+            self.emit_parser_diagnostic(
                 unexpected_token(self.peek_token.span(), message.into())
                     .with_hint_text(hint.into()),
-                breadcrumb.as_deref(),
             );
-            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -150,8 +146,7 @@ impl Parser {
             self.next_token();
             true
         } else {
-            let breadcrumb = self.current_parser_breadcrumb();
-            let diag = with_parser_breadcrumb(
+            self.emit_parser_diagnostic(
                 unexpected_token_with_details(
                     self.peek_token.span(),
                     display_title.into(),
@@ -159,9 +154,7 @@ impl Parser {
                     message.into(),
                 )
                 .with_hint_text(hint.into()),
-                breadcrumb.as_deref(),
             );
-            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -182,13 +175,10 @@ impl Parser {
             self.next_token();
             true
         } else {
-            let breadcrumb = self.current_parser_breadcrumb();
-            let diag = with_parser_breadcrumb(
+            self.emit_parser_diagnostic(
                 unexpected_token(self.peek_token.span(), message_fn(self))
                     .with_hint_text(hint_fn(self)),
-                breadcrumb.as_deref(),
             );
-            self.push_parser_diagnostic(diag);
             false
         }
     }
@@ -890,7 +880,7 @@ impl Parser {
             }
 
             if !is_lowercase_ident(&self.current_token.literal) {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token(
                         self.current_token.span(),
                         "Effect row tail variables must be lowecase identifiers.".to_string(),
@@ -918,7 +908,7 @@ impl Parser {
             }
 
             if is_lowercase_ident(&self.current_token.literal) {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token(
                         self.current_token.span(),
                         "Implicit row variables are no longer supported in `with` clauses."
@@ -945,7 +935,7 @@ impl Parser {
         loop {
             if self.is_peek_token(TokenType::Bar) {
                 if saw_row_tail {
-                    self.errors.push(
+                    self.emit_parser_diagnostic(
                         unexpected_token(
                             self.current_token.span(),
                             "Effect expressions can contain only one row variable tail."
@@ -966,7 +956,7 @@ impl Parser {
                 }
 
                 if !is_lowercase_ident(&self.current_token.literal) {
-                    self.errors.push(
+                    self.emit_parser_diagnostic(
                         unexpected_token(
                             self.current_token.span(),
                             "Effect row tail variables must be lowercase identifiers.".to_string(),
@@ -1017,7 +1007,7 @@ impl Parser {
             }
 
             if is_lowercase_ident(&self.current_token.literal) {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token(
                         self.current_token.span(),
                         "Implicit row variables are no longer supported in `with` clauses."
@@ -1105,7 +1095,7 @@ impl Parser {
                 })
             }
             _ => {
-                self.errors.push(unexpected_token(
+                self.emit_parser_diagnostic(unexpected_token(
                     self.current_token.span(),
                     format!(
                         "I was expecting a type here, but I found {}.",
@@ -1269,7 +1259,7 @@ impl Parser {
                 statements.push(body);
             } else {
                 // `where` without a preceding expression — emit an error, still collect bindings
-                self.errors.push(unexpected_token(
+                self.emit_parser_diagnostic(unexpected_token(
                     self.current_token.span(),
                     "`where` must follow an expression",
                 ));
@@ -1301,7 +1291,7 @@ impl Parser {
                         name
                     )));
             }
-            self.errors.push(diag);
+            self.emit_parser_diagnostic(diag);
         }
 
         Block {
@@ -1320,7 +1310,7 @@ impl Parser {
             self.next_token(); // consume `where`
 
             if !self.is_current_token(TokenType::Ident) {
-                self.errors.push(unexpected_token(
+                self.emit_parser_diagnostic(unexpected_token(
                     self.current_token.span(),
                     "expected identifier after `where`",
                 ));
@@ -1334,7 +1324,7 @@ impl Parser {
             self.next_token(); // consume identifier
 
             if !self.is_current_token(TokenType::Assign) {
-                self.errors.push(unexpected_token(
+                self.emit_parser_diagnostic(unexpected_token(
                     self.current_token.span(),
                     "expected `=` after where binding name",
                 ));
@@ -1415,7 +1405,7 @@ impl Parser {
                 }
 
                 if self.is_current_token(TokenType::Comma) {
-                    self.errors.push(unexpected_token(
+                    self.emit_parser_diagnostic(unexpected_token(
                         self.current_token.span(),
                         "Expected expression after `,`, got `,`.",
                     ));
@@ -1426,7 +1416,7 @@ impl Parser {
                 }
 
                 if self.is_current_token(TokenType::Eof) {
-                    self.errors.push(unexpected_token(
+                    self.emit_parser_diagnostic(unexpected_token(
                         self.current_token.span(),
                         format!("Expected `{}` before end of file.", end),
                     ));
@@ -1477,8 +1467,11 @@ impl Parser {
                 };
                 let missing_comma_at = self.peek_token.position;
                 if last_missing_comma_at != Some(missing_comma_at) {
-                    self.errors
-                        .push(missing_comma(self.peek_token.span(), context, example));
+                    self.emit_parser_diagnostic(missing_comma(
+                        self.peek_token.span(),
+                        context,
+                        example,
+                    ));
                     last_missing_comma_at = Some(missing_comma_at);
                     if self.check_list_error_limit(diag_start, end, "list") {
                         return Some(list);
@@ -1498,7 +1491,7 @@ impl Parser {
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
-                self.errors.push(unclosed_delimiter(
+                self.emit_parser_diagnostic(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
                     open,
                     close,
@@ -1579,7 +1572,7 @@ impl Parser {
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
-                self.errors.push(unclosed_delimiter(
+                self.emit_parser_diagnostic(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
                     open,
                     close,
@@ -1595,7 +1588,7 @@ impl Parser {
                     return Some(list);
                 }
                 let (open, close) = Self::delimiter_chars(end);
-                self.errors.push(unclosed_delimiter(
+                self.emit_parser_diagnostic(unclosed_delimiter(
                     Span::new(open_pos, open_pos),
                     open,
                     close,
@@ -1727,7 +1720,6 @@ impl Parser {
         }
 
         if self.current_token.token_type == TokenType::Let {
-            let breadcrumb = self.current_parser_breadcrumb();
             let diag = Diagnostic::make_error(
                 &EXPECTED_EXPRESSION,
                 &[&self.current_token.token_type.to_string()],
@@ -1740,7 +1732,7 @@ impl Parser {
 For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression; extract the `let` before `match` \
 (or use a block only if match arms support it).",
             );
-            self.push_parser_diagnostic(with_parser_breadcrumb(diag, breadcrumb.as_deref()));
+            self.emit_parser_diagnostic(diag);
             return;
         }
 
@@ -1757,8 +1749,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
                 diag = diag.with_help(suggestion);
             }
         }
-        let breadcrumb = self.current_parser_breadcrumb();
-        self.push_parser_diagnostic(with_parser_breadcrumb(diag, breadcrumb.as_deref()));
+        self.emit_parser_diagnostic(diag);
     }
 
     /// Emits the lexer-driven unterminated-string diagnostic and synchronizes.
@@ -1774,7 +1765,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             String::new(), // No file context in parser
             token_span,
         );
-        self.errors.push(diag);
+        self.emit_parser_diagnostic(diag);
         self.synchronize_after_error();
     }
 
@@ -1788,7 +1779,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
             String::new(), // No file context in parser
             token_span,
         );
-        self.errors.push(diag);
+        self.emit_parser_diagnostic(diag);
         self.synchronize_after_error();
     }
 
@@ -1803,7 +1794,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         message: impl Into<String>,
         hint: impl Into<String>,
     ) {
-        self.errors.push(
+        self.emit_parser_diagnostic(
             unexpected_token(self.peek_token.span(), message.into()).with_hint_text(hint.into()),
         );
     }
@@ -1816,7 +1807,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
         message: impl Into<String>,
         hint: impl Into<String>,
     ) {
-        self.errors.push(
+        self.emit_parser_diagnostic(
             unexpected_token_with_details(
                 self.peek_token.span(),
                 display_title.into(),
@@ -1836,7 +1827,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
                     .expect("ident token should have symbol"),
             )
         } else {
-            self.errors.push(unexpected_token(
+            self.emit_parser_diagnostic(unexpected_token(
                 self.current_token.span(),
                 format!(
                     "I was expecting a parameter name here, but I found {}.",

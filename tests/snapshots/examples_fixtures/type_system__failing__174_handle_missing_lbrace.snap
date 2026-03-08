@@ -30,9 +30,6 @@ Expected expression, found `->`.
 1 | let x = 1 handle IO print(resume, msg) -> resume(msg)
   |                                        ^^
 
-Note:
-  while parsing `handle` expression
-
 Found 2 errors.
 == stdout ==
 <not executed>

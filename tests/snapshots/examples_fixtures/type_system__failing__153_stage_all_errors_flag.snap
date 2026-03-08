@@ -16,5 +16,8 @@ String literal is missing closing quote.
 
 Hint:
   Add a closing " at the end of the string.
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

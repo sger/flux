@@ -16,5 +16,8 @@ Missing comma between arguments.
 
 Hint:
   Add a comma between items, e.g. `f(a, b)`.
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

@@ -15,6 +15,9 @@ Expected at least one match arm before end of file.
   |                         ^
   |                         - this match expression starts here
 
+Note:
+  while parsing `match` expression
+
 Help:
   Write match arms as `match value { pattern -> body, ... }`.
 == stdout ==

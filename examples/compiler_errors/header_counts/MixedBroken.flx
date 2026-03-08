@@ -1,0 +1,3 @@
+module MixedBroken {
+    type MaybeInt = SomeInt(Int) | NoneInt
+}

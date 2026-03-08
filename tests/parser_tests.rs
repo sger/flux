@@ -2710,4 +2710,91 @@ let w = match x { Some(n) -> n, None -> 0 };
             diag.hints()
         );
     }
+
+    #[test]
+    fn function_breadcrumb_does_not_leak_to_following_top_level_error() {
+        let lexer = Lexer::new("fn greet(name: String) -> String return name\nimport");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let import_diag = parser
+            .errors
+            .iter()
+            .find(|diag| diag.display_title() == Some("Missing Import Path"))
+            .expect("expected missing import path diagnostic");
+
+        assert!(
+            !import_diag
+                .hints()
+                .iter()
+                .any(|hint| hint.text.contains("while parsing function `greet`")),
+            "function breadcrumb leaked into later top-level diagnostic: {:?}",
+            import_diag.hints()
+        );
+    }
+
+    #[test]
+    fn module_breadcrumb_does_not_leak_to_following_top_level_error() {
+        let lexer = Lexer::new("module Demo\nimport");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let import_diag = parser
+            .errors
+            .iter()
+            .find(|diag| diag.display_title() == Some("Missing Import Path"))
+            .expect("expected missing import path diagnostic");
+
+        assert!(
+            !import_diag
+                .hints()
+                .iter()
+                .any(|hint| hint.text.contains("while parsing module `Demo`")),
+            "module breadcrumb leaked into later top-level diagnostic: {:?}",
+            import_diag.hints()
+        );
+    }
+
+    #[test]
+    fn match_breadcrumb_does_not_leak_to_following_top_level_error() {
+        let lexer = Lexer::new("match 1 { 0 \"zero\" }\nimport");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let import_diag = parser
+            .errors
+            .iter()
+            .find(|diag| diag.display_title() == Some("Missing Import Path"))
+            .expect("expected missing import path diagnostic");
+
+        assert!(
+            !import_diag
+                .hints()
+                .iter()
+                .any(|hint| hint.text.contains("while parsing `match` expression")),
+            "match breadcrumb leaked into later top-level diagnostic: {:?}",
+            import_diag.hints()
+        );
+    }
+
+    #[test]
+    fn helper_emitted_diagnostics_keep_current_breadcrumb() {
+        let lexer = Lexer::new("fn greet(name: String) -> String { match 1 { 0 \"zero\" } }");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .iter()
+            .find(|diag| diag.display_title() == Some("Missing Match Arm Arrow"))
+            .expect("expected missing match arm arrow diagnostic");
+
+        assert!(
+            diag.hints()
+                .iter()
+                .any(|hint| hint.text.contains("while parsing `match` expression")),
+            "expected contextual breadcrumb on helper-emitted diagnostic, got: {:?}",
+            diag.hints()
+        );
+    }
 }

@@ -19,7 +19,7 @@ Hint:
   Add `with IO` to the enclosing function.
 
 
-Note[E000]: Module Skipped
+Note: Module Skipped
 
 I skipped module `examples/compiler_errors/adversarial/stage_all_errors/Main.flx` because its dependency `EffectBroken` already has errors.
 

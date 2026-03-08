@@ -24,9 +24,6 @@ Expected expression, found `;`.
 4 | };
   |  ^
 
-Note:
-  while parsing `match` expression
-
 Found 2 errors.
 == stdout ==
 <not executed>

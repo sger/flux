@@ -14,6 +14,9 @@ Expected a closing `]` to match this opening `[`.
 8 |     let xs = [1, 2, 3
   |              ^
 
+Note:
+  while parsing function `main`
+
 note: Expected `]` before this token.
   examples/parser_errors/missing_bracket.flx:9:5
   |

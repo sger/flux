@@ -14,6 +14,9 @@ This function declaration needs a parameter list after `foo`.
 1 | fn foo -> Int { 1 }
   |        ^^
 
+Note:
+  while parsing function `foo`
+
 Help:
   Try `fn foo()` or `fn foo(x: Type)`.
 == stdout ==

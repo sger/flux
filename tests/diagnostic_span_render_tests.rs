@@ -700,23 +700,45 @@ fn make_warning_from_code() {
 }
 
 #[test]
+fn make_warning_from_code_leaves_missing_category_unset() {
+    use flux::diagnostics::{ErrorCode, ErrorType};
+
+    const TEST_WARNING: ErrorCode = ErrorCode {
+        code: "W999",
+        title: "Synthetic warning",
+        message: "Synthetic message",
+        hint: None,
+        error_type: ErrorType::Compiler,
+    };
+
+    let diag = Diagnostic::make_warning_from_code(
+        &TEST_WARNING,
+        &[],
+        "test.flx",
+        Span::new(Position::new(1, 0), Position::new(1, 1)),
+    );
+
+    assert_eq!(diag.category(), None);
+}
+
+#[test]
 fn all_severity_levels() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     // Test all severity levels can be created
     let error = Diagnostic::warning("Error title").render(None, Some("test.flx"));
-    assert!(error.contains("Warning[E000]: Error title"));
+    assert!(error.contains("Warning: Error title"));
 
     let warning = Diagnostic::warning("Warning title").render(None, Some("test.flx"));
-    assert!(warning.contains("Warning[E000]: Warning title"));
+    assert!(warning.contains("Warning: Warning title"));
 
     let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 
     let note =
         Diagnostic::make_note("Note title", "This is a note", "test.flx", span).render(None, None);
-    assert!(note.contains("Note[E000]: Note title"));
+    assert!(note.contains("Note: Note title"));
 
     let help =
         Diagnostic::make_help("Help title", "This is help", "test.flx", span).render(None, None);
-    assert!(help.contains("Help[E000]: Help title"));
+    assert!(help.contains("Help: Help title"));
 }
