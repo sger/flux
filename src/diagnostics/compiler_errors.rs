@@ -3,7 +3,7 @@ use std::rc::Rc;
 use super::builders::DiagnosticBuilder;
 use super::quality::{
     TypeMismatchNotes, missing_construct_opener_diagnostic, missing_syntax_token_diagnostic,
-    occurs_check_diagnostic, parser_category_for_display_title, type_mismatch_diagnostic,
+    occurs_check_diagnostic, type_mismatch_diagnostic,
 };
 use super::types::{DiagnosticCategory, ErrorCode, ErrorType};
 
@@ -845,209 +845,30 @@ pub fn unknown_keyword_alias(
 
 /// Create an "unexpected token" error
 pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
-    let message = message.into();
-    let mut diag = diagnostic_for(&UNEXPECTED_TOKEN)
+    diagnostic_for(&UNEXPECTED_TOKEN)
         .with_span(span)
-        .with_message(message.as_str());
-
-    if let Some(display_title) = contextual_unexpected_token_display_title(&message) {
-        diag = diag
-            .with_display_title(display_title)
-            .with_category(parser_category_for_display_title(display_title));
-    }
-
-    diag
+        .with_message(message.into())
 }
 
-fn contextual_unexpected_token_display_title(message: &str) -> Option<&'static str> {
-    let mapping = [
-        (
-            "This module body needs to start with `{`.",
-            "Missing Module Body",
-        ),
-        (
-            "This import alias needs a name after `as`.",
-            "Missing Import Alias",
-        ),
-        (
-            "This import needs a module path after `import`.",
-            "Missing Import Path",
-        ),
-        (
-            "Expected `[` after `except` in import.",
-            "Missing Import Except List",
-        ),
-        (
-            "Expected identifier in import `except` list.",
-            "Invalid Import Except List",
-        ),
-        (
-            "I was expecting `,` or `]` in the import except list",
-            "Invalid Import Except List",
-        ),
-        (
-            "Expected `{` to begin the body of this function.",
-            "Missing Function Body",
-        ),
-        (
-            "This `if` branch needs to start with `{`.",
-            "Missing If Body",
-        ),
-        (
-            "This `else` branch needs to start with `{`.",
-            "Missing Else Body",
-        ),
-        (
-            "This `do` block needs to start with `{`.",
-            "Missing Do Block",
-        ),
-        ("Expected `{` to begin match body.", "Missing Match Body"),
-        ("Expected `{` to begin match arms.", "Missing Match Body"),
-        (
-            "I was expecting `->` in this match arm",
-            "Missing Match Arm Arrow",
-        ),
-        (
-            "This match arm needs `->`, not `=>`.",
-            "Missing Match Arm Arrow",
-        ),
-        (
-            "I was expecting `->` after the lambda parameters",
-            "Missing Lambda Arrow",
-        ),
-        (
-            "This function declaration needs a parameter list",
-            "Missing Function Parameter List",
-        ),
-        (
-            "This hash entry needs `:` between the key and value.",
-            "Missing Hash Colon",
-        ),
-        (
-            "Missing `:` in effect operation signature.",
-            "Missing Effect Operation Colon",
-        ),
-        (
-            "Expected `:` after effect operation name.",
-            "Missing Effect Operation Colon",
-        ),
-        (
-            "I was expecting an operation name in this `effect` declaration",
-            "Invalid Effect Operation",
-        ),
-        (
-            "Expected effect name after `effect`.",
-            "Missing Effect Name",
-        ),
-        (
-            "Expected `{` to begin effect declaration body.",
-            "Missing Effect Body",
-        ),
-        ("Expected type name after `data`.", "Missing Data Type Name"),
-        (
-            "Expected `{` to begin data constructors.",
-            "Missing Data Body",
-        ),
-        (
-            "I was expecting a constructor name in this `data` declaration",
-            "Invalid Data Constructor",
-        ),
-        ("Expected type name after `type`.", "Missing Type Name"),
-        (
-            "Expected `=` after type declaration name.",
-            "Missing Type Definition",
-        ),
-        (
-            "I was expecting a constructor name in this `type` declaration",
-            "Invalid Type Variant",
-        ),
-        (
-            "I was expecting `,` or `)` between constructor fields",
-            "Missing Constructor Field Separator",
-        ),
-        (
-            "Expected operation name in `handle` arm.",
-            "Invalid Handle Arm",
-        ),
-        (
-            "Expected `(` after handle operation name.",
-            "Invalid Handle Arm",
-        ),
-        (
-            "Expected resume parameter in handle arm.",
-            "Invalid Handle Arm",
-        ),
-        (
-            "Expected parameter name after `,` in handle arm.",
-            "Invalid Handle Arm",
-        ),
-        (
-            "Expected `)` after handle-arm parameter list.",
-            "Invalid Handle Arm",
-        ),
-        ("Expected `->` in handle arm.", "Missing Handle Arm Arrow"),
-        (
-            "I was expecting a parameter name here",
-            "Missing Parameter Name",
-        ),
-        (
-            "Expected `,` or `)` after function parameter.",
-            "Missing Parameter Separator",
-        ),
-        (
-            "Expected operation name after `perform Effect.`.",
-            "Missing Effect Operation Name",
-        ),
-        (
-            "This `perform` expression needs `.` between the effect and operation.",
-            "Missing Effect Operation Separator",
-        ),
-        (
-            "Expected generator identifier before `<-` in list comprehension.",
-            "Missing Generator Name",
-        ),
-        (
-            "Expected `)` to close this grouped expression.",
-            "Missing Closing Delimiter",
-        ),
-        (
-            "Expected `)` to close this tuple literal.",
-            "Missing Closing Delimiter",
-        ),
-        (
-            "Expected `]` to close this list expression.",
-            "Missing Closing Delimiter",
-        ),
-        (
-            "Expected `}` to close match expression before end of file.",
-            "Missing Match Body",
-        ),
-        (
-            "Expected at least one match arm before end of file.",
-            "Missing Match Body",
-        ),
-        (
-            "Unexpected `}` outside of a block.",
-            "Unexpected Closing Delimiter",
-        ),
-    ];
-
-    for (prefix, title) in mapping {
-        if message.starts_with(prefix) {
-            return Some(title);
-        }
-    }
-
-    None
+/// Create an "unexpected token" error with explicit parser-facing metadata.
+pub fn unexpected_token_with_details(
+    span: Span,
+    display_title: impl Into<String>,
+    category: DiagnosticCategory,
+    message: impl Into<String>,
+) -> Diagnostic {
+    unexpected_token(span, message)
+        .with_display_title(display_title.into())
+        .with_category(category)
 }
 
 /// Create a missing-if-body-brace diagnostic (E034).
 pub fn missing_if_body_brace(span: Span) -> Diagnostic {
     missing_construct_opener_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing If Body",
+        DiagnosticCategory::ParserDeclaration,
         "This `if` branch needs to start with `{`.",
         "This looks like the `if` body",
         "Try adding `{` after the `if` condition.",
@@ -1058,9 +879,9 @@ pub fn missing_if_body_brace(span: Span) -> Diagnostic {
 pub fn missing_else_body_brace(span: Span) -> Diagnostic {
     missing_construct_opener_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Else Body",
+        DiagnosticCategory::ParserDeclaration,
         "This `else` branch needs to start with `{`.",
         "This looks like the `else` body",
         "Try adding `{` after `else`.",
@@ -1071,9 +892,9 @@ pub fn missing_else_body_brace(span: Span) -> Diagnostic {
 pub fn missing_do_block_brace(span: Span) -> Diagnostic {
     missing_construct_opener_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Do Block",
+        DiagnosticCategory::ParserDeclaration,
         "This `do` block needs to start with `{`.",
         "This looks like the `do` block body",
         "Try adding `{` after `do`.",
@@ -1094,9 +915,9 @@ pub fn missing_let_assign(span: Span, name: &str) -> Diagnostic {
 pub fn missing_fn_param_list(span: Span, fn_name: &str) -> Diagnostic {
     missing_syntax_token_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Function Parameter List",
+        DiagnosticCategory::ParserDeclaration,
         format!("This function declaration needs a parameter list after `{fn_name}`."),
         format!("Try `fn {fn_name}()` or `fn {fn_name}(x: Type)`."),
     )
@@ -1114,9 +935,9 @@ pub fn match_pipe_separator(span: Span) -> Diagnostic {
 pub fn match_fat_arrow(span: Span) -> Diagnostic {
     missing_syntax_token_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
         "This match arm needs `->`, not `=>`.",
         "Replace `=>` with `->`.",
     )
@@ -1126,9 +947,9 @@ pub fn match_fat_arrow(span: Span) -> Diagnostic {
 pub fn missing_match_arrow(span: Span, found: &str) -> Diagnostic {
     missing_syntax_token_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
         format!("I was expecting `->` in this match arm, but I found {found}."),
         "Write match arms as `match x { pattern -> body, ... }`.",
     )
@@ -1138,9 +959,9 @@ pub fn missing_match_arrow(span: Span, found: &str) -> Diagnostic {
 pub fn missing_lambda_arrow(span: Span, found: &str) -> Diagnostic {
     missing_syntax_token_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         span,
         "Missing Lambda Arrow",
+        DiagnosticCategory::ParserSeparator,
         format!("I was expecting `->` after the lambda parameters, but I found {found}."),
         "Use `\\x -> expr` or `\\(x, y) -> expr`.",
     )
@@ -1360,9 +1181,9 @@ pub fn missing_function_body_brace(
 ) -> Diagnostic {
     missing_construct_opener_diagnostic(
         &UNEXPECTED_TOKEN,
-        "",
         found_span,
         "Missing Function Body",
+        DiagnosticCategory::ParserDeclaration,
         "This function body needs to start with `{`.",
         "This looks like the function body",
         "Try adding `{` after the function signature.",

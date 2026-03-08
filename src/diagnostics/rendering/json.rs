@@ -4,6 +4,7 @@ use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
     Diagnostic, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind,
     InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
+    StackTraceFrame,
 };
 
 #[derive(Serialize)]
@@ -20,6 +21,7 @@ struct JsonDiagnostic {
     hints: Vec<JsonHint>,
     suggestions: Vec<JsonSuggestion>,
     related: Vec<JsonRelated>,
+    stack_trace: Vec<JsonStackTraceFrame>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +65,11 @@ struct JsonRelated {
     message: String,
     file: Option<String>,
     span: Option<JsonSpan>,
+}
+
+#[derive(Serialize)]
+struct JsonStackTraceFrame {
+    text: String,
 }
 
 /// Render diagnostics as JSON after applying the standard aggregation pipeline.
@@ -111,6 +118,11 @@ impl JsonDiagnostic {
                 .related()
                 .iter()
                 .map(JsonRelated::from_related)
+                .collect(),
+            stack_trace: diag
+                .stack_trace()
+                .iter()
+                .map(JsonStackTraceFrame::from_frame)
                 .collect(),
         }
     }
@@ -189,6 +201,14 @@ impl JsonRelated {
             message: related.message.clone(),
             file: related.file.clone(),
             span: related.span.map(JsonSpan::from_span),
+        }
+    }
+}
+
+impl JsonStackTraceFrame {
+    fn from_frame(frame: &StackTraceFrame) -> Self {
+        Self {
+            text: frame.text.clone(),
         }
     }
 }

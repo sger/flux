@@ -1,12 +1,13 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, invalid_pattern, lambda_syntax_error, match_fat_arrow,
-        match_pipe_separator, missing_array_close_bracket, missing_comprehension_close_bracket,
-        missing_do_block_brace, missing_hash_close_brace, missing_lambda_arrow,
-        missing_match_arrow, pipe_target_error,
+        DiagnosticBuilder, DiagnosticCategory, invalid_pattern, lambda_syntax_error,
+        match_fat_arrow, match_pipe_separator, missing_array_close_bracket,
+        missing_comprehension_close_bracket, missing_do_block_brace, missing_hash_close_brace,
+        missing_lambda_arrow, missing_match_arrow, pipe_target_error,
         position::{Position, Span},
         quality::missing_syntax_token_diagnostic_with_origin,
-        unclosed_delimiter, unexpected_token, unknown_keyword_alias,
+        unclosed_delimiter, unexpected_token, unexpected_token_with_details,
+        unknown_keyword_alias,
     },
     syntax::{
         block::Block,
@@ -29,8 +30,10 @@ impl Parser {
         form_hint: &str,
         mut parse_inner: impl FnMut(&mut Self) -> Option<T>,
     ) -> Option<T> {
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LParen,
+            "Missing Opening Delimiter",
+            DiagnosticCategory::ParserDelimiter,
             format!("Expected `(` after {context}."),
             format!("Use the form `{form_hint}`."),
         ) {
@@ -38,8 +41,10 @@ impl Parser {
         }
         self.next_token();
         let inner = parse_inner(self)?;
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::RParen,
+            "Missing Closing Delimiter",
+            DiagnosticCategory::ParserDelimiter,
             format!("Expected `)` to close {context}."),
             format!("Use the form `{form_hint}`."),
         ) {
@@ -344,8 +349,10 @@ impl Parser {
         self.next_token();
         let index = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::RBracket,
+            "Missing Closing Delimiter",
+            DiagnosticCategory::ParserDelimiter,
             "Expected `]` to close index expression.".to_string(),
             "Index expressions use `expr[index]`.".to_string(),
         ) {
@@ -366,8 +373,10 @@ impl Parser {
         // A newline right after `.` strongly indicates a dangling member access
         // (e.g. `point.\nnext_stmt`) rather than a continued expression.
         if self.peek_token.position.line > self.current_token.end_position.line {
-            self.errors.push(unexpected_token(
+            self.errors.push(unexpected_token_with_details(
                 self.current_token.span(),
+                "Invalid Member Access",
+                DiagnosticCategory::ParserExpression,
                 format!(
                     "I was expecting an identifier or tuple field index after `.`, but I found {}.",
                     self.describe_token_type_for_diagnostic(self.peek_token.token_type)
@@ -385,8 +394,10 @@ impl Parser {
             let index = match self.current_token.literal.parse::<usize>() {
                 Ok(index) => index,
                 Err(_) => {
-                    self.errors.push(unexpected_token(
+                    self.errors.push(unexpected_token_with_details(
                         self.current_token.span(),
+                        "Invalid Tuple Field Index",
+                        DiagnosticCategory::ParserExpression,
                         format!(
                             "Invalid tuple field index `{}`; expected non-negative integer.",
                             self.current_token.literal
@@ -405,16 +416,20 @@ impl Parser {
         }
 
         if self.is_peek_token(TokenType::RParen) {
-            self.errors.push(unexpected_token(
+            self.errors.push(unexpected_token_with_details(
                 self.peek_token.span(),
+                "Missing Member Name",
+                DiagnosticCategory::ParserExpression,
                 "Expected identifier or tuple field index after `.`, got `)`.".to_string(),
             ));
             // Recover as if the member access was omitted so parsing can continue.
             return Some(object);
         }
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Member Name",
+            DiagnosticCategory::ParserExpression,
             "Expected identifier after `.` in member access.".to_string(),
             "Member access uses `value.member`.".to_string(),
         ) {
@@ -513,8 +528,10 @@ impl Parser {
                             Some(self.peek_token.span()),
                         ));
                     } else {
-                        self.emit_expected_token(
+                        self.emit_expected_token_with_details(
                             TokenType::RParen,
+                            "Missing Closing Delimiter",
+                            DiagnosticCategory::ParserDelimiter,
                             "Expected `)` to close this tuple literal.",
                             "Add `)` after the last tuple element.",
                         );
@@ -556,8 +573,10 @@ impl Parser {
                         Some(self.peek_token.span()),
                     ));
                 } else {
-                    self.emit_expected_token(
+                    self.emit_expected_token_with_details(
                         TokenType::RParen,
+                        "Missing Closing Delimiter",
+                        DiagnosticCategory::ParserDelimiter,
                         "Expected `)` to close this grouped expression.",
                         "Add `)` after the expression.",
                     );
@@ -655,8 +674,10 @@ impl Parser {
             // falling through to generic expected-expression errors.
             if self.is_peek_token(TokenType::LeftArrow) {
                 self.errors.push(
-                    unexpected_token(
+                    unexpected_token_with_details(
                         self.peek_token.span(),
+                        "Missing Generator Name",
+                        DiagnosticCategory::ParserExpression,
                         "Expected generator identifier before `<-` in list comprehension.",
                     )
                     .with_hint_text("List comprehensions use `[expr | name <- source, ...]`."),
@@ -684,8 +705,10 @@ impl Parser {
                     ));
                     self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 } else {
-                    self.emit_expected_token(
+                    self.emit_expected_token_with_details(
                         TokenType::RBracket,
+                        "Missing Closing Delimiter",
+                        DiagnosticCategory::ParserDelimiter,
                         "Expected `]` to close this list expression.",
                         "Close the list with `]` after the tail expression.",
                     );
@@ -737,8 +760,10 @@ impl Parser {
         // Parse first generator (required) — peek is Ident, peek2 is LeftArrow
         loop {
             // Expect identifier
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Ident,
+                "Missing Generator Name",
+                DiagnosticCategory::ParserExpression,
                 "Expected generator identifier in list comprehension.".to_string(),
                 "List comprehensions use `[expr | name <- source, ...]`.".to_string(),
             ) {
@@ -750,8 +775,10 @@ impl Parser {
                 .intern(&self.current_token.literal);
 
             // Expect <-
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::LeftArrow,
+                "Missing Generator Arrow",
+                DiagnosticCategory::ParserSeparator,
                 "Expected `<-` after list-comprehension generator variable.".to_string(),
                 "List comprehensions use `[expr | name <- source, ...]`.".to_string(),
             ) {
@@ -936,8 +963,10 @@ impl Parser {
             self.next_token();
             let key = self.parse_expression(Precedence::Lowest)?;
 
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Colon,
+                "Missing Hash Colon",
+                DiagnosticCategory::ParserSeparator,
                 "This hash entry needs `:` between the key and value.".to_string(),
                 "Hash literals use `{key: value, ...}`.".to_string(),
             ) {
@@ -998,9 +1027,9 @@ impl Parser {
             self.errors
                 .push(missing_syntax_token_diagnostic_with_origin(
                     &crate::diagnostics::UNEXPECTED_TOKEN,
-                    "",
                     anchor,
                     "Missing If Body",
+                    crate::diagnostics::DiagnosticCategory::ParserDeclaration,
                     "This `if` branch needs to start with `{`.",
                     "this `if` branch starts here",
                     "Try adding `{` after the `if` condition.",
@@ -1049,9 +1078,9 @@ impl Parser {
                     self.errors
                         .push(missing_syntax_token_diagnostic_with_origin(
                             &crate::diagnostics::UNEXPECTED_TOKEN,
-                            "",
                             anchor,
                             "Missing Else Body",
+                            crate::diagnostics::DiagnosticCategory::ParserDeclaration,
                             "This `else` branch needs to start with `{`.",
                             "`else` starts here",
                             "Try adding `{` after `else`.",
@@ -1112,8 +1141,10 @@ impl Parser {
             .intern(&self.current_token.literal);
 
         // `.`
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Dot,
+            "Missing Effect Operation Separator",
+            DiagnosticCategory::ParserSeparator,
             "This `perform` expression needs `.` between the effect and operation.".to_string(),
             "Perform expressions use `perform Effect.op(args...)`.".to_string(),
         ) {
@@ -1127,9 +1158,9 @@ impl Parser {
             self.errors
                 .push(missing_syntax_token_diagnostic_with_origin(
                     &crate::diagnostics::UNEXPECTED_TOKEN,
-                    "",
                     anchor,
                     "Missing Effect Operation Name",
+                    crate::diagnostics::DiagnosticCategory::ParserSeparator,
                     "Expected operation name after `perform Effect.`.",
                     "this `perform` expression ends here",
                     "Perform expressions use `perform Effect.op(args...)`.",
@@ -1258,8 +1289,10 @@ impl Parser {
             }
 
             // `->`
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Arrow,
+                "Missing Handle Arm Arrow",
+                DiagnosticCategory::ParserSeparator,
                 "Expected `->` in handle arm.".to_string(),
                 "Handle arms use `op(resume, arg1, ...) -> body`.".to_string(),
             ) {
@@ -1308,8 +1341,10 @@ impl Parser {
         self.next_token();
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LBrace,
+            "Missing Match Body",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `{` to begin match arms.".to_string(),
             "Match expressions use `match value { pattern -> body, ... }`.".to_string(),
         ) {
@@ -1326,9 +1361,9 @@ impl Parser {
                 self.errors
                     .push(missing_syntax_token_diagnostic_with_origin(
                         &crate::diagnostics::UNEXPECTED_TOKEN,
-                        "",
                         anchor,
                         "Missing Match Body",
+                        crate::diagnostics::DiagnosticCategory::ParserDeclaration,
                         "Expected at least one match arm before end of file.",
                         "this match expression starts here",
                         "Write match arms as `match value { pattern -> body, ... }`.",

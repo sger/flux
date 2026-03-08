@@ -25,6 +25,7 @@ pub struct Diagnostic {
     pub(crate) suggestions: Vec<InlineSuggestion>,
     pub(crate) hint_chains: Vec<HintChain>,
     pub(crate) related: Vec<RelatedDiagnostic>,
+    pub(crate) stack_trace: Vec<StackTraceFrame>,
     pub(crate) phase: Option<DiagnosticPhase>,
 }
 
@@ -52,6 +53,7 @@ macro_rules! ice {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }};
@@ -75,6 +77,7 @@ impl Diagnostic {
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }
@@ -154,6 +157,11 @@ impl Diagnostic {
         &self.related
     }
 
+    /// Return the runtime stack trace attached to this diagnostic.
+    pub fn stack_trace(&self) -> &[StackTraceFrame] {
+        &self.stack_trace
+    }
+
     /// Return the compiler pipeline phase associated with this diagnostic, if known.
     pub fn phase(&self) -> Option<DiagnosticPhase> {
         self.phase
@@ -167,7 +175,8 @@ impl Diagnostic {
 
     /// Mutate the diagnostic in place to set its file path.
     pub fn set_file(&mut self, file: impl Into<Rc<str>>) {
-        self.file = Some(file.into());
+        let file = file.into();
+        self.file = if file.is_empty() { None } else { Some(file) };
     }
 }
 
@@ -200,7 +209,8 @@ impl DiagnosticBuilder for Diagnostic {
     }
 
     fn with_file(mut self, file: impl Into<Rc<str>>) -> Self {
-        self.file = Some(file.into());
+        let file = file.into();
+        self.file = if file.is_empty() { None } else { Some(file) };
         self
     }
 
@@ -328,6 +338,19 @@ impl DiagnosticBuilder for Diagnostic {
         self
     }
 
+    fn with_stack_trace_frame(mut self, frame: StackTraceFrame) -> Self {
+        self.stack_trace.push(frame);
+        self
+    }
+
+    fn with_stack_trace<I>(mut self, frames: I) -> Self
+    where
+        I: IntoIterator<Item = StackTraceFrame>,
+    {
+        self.stack_trace = frames.into_iter().collect();
+        self
+    }
+
     /// Add a hint chain from a list of steps (convenience method)
     fn with_steps<S: Into<String>>(mut self, steps: impl IntoIterator<Item = S>) -> Self {
         self.hint_chains.push(HintChain::from_steps(steps));
@@ -357,6 +380,7 @@ impl Diagnostic {
     ) -> Self {
         let message = format_message(err_spec.message, values);
         let hint = err_spec.hint.map(|h| format_message(h, values));
+        let file = file.into();
 
         let hints = if let Some(hint_text) = hint {
             vec![Hint::text(hint_text)]
@@ -372,13 +396,14 @@ impl Diagnostic {
             code: Some(err_spec.code.to_string()),
             error_type: Some(err_spec.error_type),
             message: Some(message),
-            file: Some(file.into()),
+            file: if file.is_empty() { None } else { Some(file) },
             span: Some(span),
             labels: Vec::new(),
             hints,
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }
@@ -445,13 +470,14 @@ impl Diagnostic {
             code: Some(code),
             error_type: Some(error_type),
             message: Some(message),
-            file: Some(file),
+            file: if file.is_empty() { None } else { Some(file) },
             span: Some(span),
             labels: Vec::new(),
             hints,
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }
@@ -478,6 +504,7 @@ impl Diagnostic {
         file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
+        let file = file.into();
         Self {
             severity: Severity::Note,
             title: title.into(),
@@ -486,13 +513,14 @@ impl Diagnostic {
             code: None,
             error_type: None,
             message: Some(message.into()),
-            file: Some(file.into()),
+            file: if file.is_empty() { None } else { Some(file) },
             span: Some(span),
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }
@@ -504,6 +532,7 @@ impl Diagnostic {
         file: impl Into<Rc<str>>,
         span: Span,
     ) -> Self {
+        let file = file.into();
         Self {
             severity: Severity::Help,
             title: title.into(),
@@ -512,13 +541,14 @@ impl Diagnostic {
             code: None,
             error_type: None,
             message: Some(message.into()),
-            file: Some(file.into()),
+            file: if file.is_empty() { None } else { Some(file) },
             span: Some(span),
             labels: Vec::new(),
             hints: Vec::new(),
             suggestions: Vec::new(),
             hint_chains: Vec::new(),
             related: Vec::new(),
+            stack_trace: Vec::new(),
             phase: None,
         }
     }
@@ -628,6 +658,8 @@ impl Diagnostic {
             sources_by_file,
             use_color,
         );
+
+        rendering::render_stack_trace(&mut out, &self.stack_trace, use_color);
 
         if !out.ends_with('\n') {
             out.push('\n');

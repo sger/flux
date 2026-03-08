@@ -7,6 +7,7 @@
 use crate::diagnostics::position::Span;
 use crate::diagnostics::types::{
     Hint, HintChain, HintKind, InlineSuggestion, RelatedDiagnostic, RelatedKind, Severity,
+    StackTraceFrame,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -467,6 +468,34 @@ pub fn render_related(
             out.push_str(&format!("  {}:{}:{}\n", file, start.line, display_col));
             render_hint_snippet_internal(out, related_source, span, use_color);
         }
+    }
+}
+
+/// Render a structured runtime stack trace.
+pub fn render_stack_trace(out: &mut String, stack_trace: &[StackTraceFrame], use_color: bool) {
+    if stack_trace.is_empty() {
+        return;
+    }
+
+    let colors = if use_color {
+        Colors::with_color()
+    } else {
+        Colors::no_color()
+    };
+
+    ensure_section_spacing(out);
+    if use_color {
+        out.push_str(colors.cyan);
+    }
+    out.push_str("Stack trace:\n");
+    if use_color {
+        out.push_str(colors.reset);
+    }
+
+    for frame in stack_trace {
+        out.push_str("  at ");
+        out.push_str(&frame.text);
+        out.push('\n');
     }
 }
 

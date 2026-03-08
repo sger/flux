@@ -1,9 +1,9 @@
 use crate::{
     diagnostics::{
         Diagnostic, DiagnosticBuilder, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
-        UNTERMINATED_STRING, missing_comma, missing_lambda_close_paren,
+        UNTERMINATED_STRING, DiagnosticCategory, missing_comma, missing_lambda_close_paren,
         position::{Position, Span},
-        unclosed_delimiter, unexpected_token,
+        unclosed_delimiter, unexpected_token, unexpected_token_with_details,
     },
     syntax::{
         Identifier, block::Block, effect_expr::EffectExpr, expression::Expression,
@@ -86,6 +86,33 @@ impl Parser {
             self.errors.push(
                 unexpected_token(self.peek_token.span(), message.into())
                     .with_hint_text(hint.into()),
+            );
+            false
+        }
+    }
+
+    /// Contextual `expect_peek` variant for parser errors that need an
+    /// explicit display title and category.
+    pub(super) fn expect_peek_context_with_details(
+        &mut self,
+        token_type: TokenType,
+        display_title: impl Into<String>,
+        category: DiagnosticCategory,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) -> bool {
+        if self.is_peek_token(token_type) {
+            self.next_token();
+            true
+        } else {
+            self.errors.push(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    display_title.into(),
+                    category,
+                    message.into(),
+                )
+                .with_hint_text(hint.into()),
             );
             false
         }
@@ -1118,8 +1145,10 @@ impl Parser {
         self.next_token();
         let first = self.parse_type_expr()?;
         if !self.is_peek_token(TokenType::Comma) {
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::RParen,
+                "Missing Closing Delimiter",
+                DiagnosticCategory::ParserDelimiter,
                 "Expected `)` to close parenthesized type.".to_string(),
                 "Grouped types use `(Type)`.".to_string(),
             ) {
@@ -1140,8 +1169,10 @@ impl Parser {
             elements.push(self.parse_type_expr()?);
         }
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::RParen,
+            "Missing Closing Delimiter",
+            DiagnosticCategory::ParserDelimiter,
             "Expected `)` to close tuple type.".to_string(),
             "Tuple types use `(A, B, ...)`.".to_string(),
         ) {
@@ -1714,6 +1745,25 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
     ) {
         self.errors.push(
             unexpected_token(self.peek_token.span(), message.into()).with_hint_text(hint.into()),
+        );
+    }
+
+    pub(super) fn emit_expected_token_with_details(
+        &mut self,
+        _expected: TokenType,
+        display_title: impl Into<String>,
+        category: DiagnosticCategory,
+        message: impl Into<String>,
+        hint: impl Into<String>,
+    ) {
+        self.errors.push(
+            unexpected_token_with_details(
+                self.peek_token.span(),
+                display_title.into(),
+                category,
+                message.into(),
+            )
+            .with_hint_text(hint.into()),
         );
     }
 
