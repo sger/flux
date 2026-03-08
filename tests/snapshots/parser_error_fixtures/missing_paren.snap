@@ -14,6 +14,9 @@ Expected a closing `)` to match this opening `(`.
 7 |     let x = (1 + 2
   |             ^
 
+Note:
+  while parsing function `main`
+
 note: Expected `)` before this token.
   examples/parser_errors/missing_paren.flx:8:5
   |

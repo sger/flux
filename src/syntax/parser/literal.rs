@@ -98,7 +98,7 @@ impl Parser {
                 id: self.next_expr_id(),
             }),
             Err(_) => {
-                self.errors.push(invalid_integer(
+                self.emit_parser_diagnostic(invalid_integer(
                     self.current_token.span(),
                     &self.current_token.literal,
                 ));
@@ -116,7 +116,7 @@ impl Parser {
                 id: self.next_expr_id(),
             }),
             Err(_) => {
-                self.errors.push(invalid_float(
+                self.emit_parser_diagnostic(invalid_float(
                     self.current_token.span(),
                     &self.current_token.literal,
                 ));
@@ -189,7 +189,7 @@ impl Parser {
 
             // Detect empty interpolation `#{}`
             if self.current_token.token_type == TokenType::RBrace {
-                self.errors.push(crate::diagnostics::unexpected_token(
+                self.emit_parser_diagnostic(crate::diagnostics::unexpected_token(
                     self.current_token.span(),
                     "Empty interpolation `#{}` — provide an expression between the braces.",
                 ));
