@@ -520,6 +520,48 @@ fn aggregator_stage_filtering_can_be_disabled() {
 }
 
 #[test]
+fn aggregator_stage_filtering_is_scoped_per_file() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let parse = Diagnostic::make_error_dynamic(
+        "E071",
+        "UNTERMINATED STRING",
+        ErrorType::Compiler,
+        "missing quote",
+        None,
+        "a.flx",
+        span(1, 0),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let ty_other_file = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "cannot unify",
+        None,
+        "b.flx",
+        span(2, 0),
+    )
+    .with_phase(DiagnosticPhase::TypeInference);
+    let eff_other_file = Diagnostic::make_error_dynamic(
+        "E407",
+        "UNKNOWN FUNCTION EFFECT",
+        ErrorType::Compiler,
+        "unknown effect",
+        None,
+        "b.flx",
+        span(3, 0),
+    )
+    .with_phase(DiagnosticPhase::Effect);
+
+    let output = DiagnosticsAggregator::new(&[parse, ty_other_file, eff_other_file]).render();
+    assert!(output.contains("Error[E071]"));
+    assert!(output.contains("Error[E300]"));
+    assert!(!output.contains("Error[E407]"));
+    assert_eq!(output.matches("Downstream Errors Suppressed").count(), 1);
+}
+
+#[test]
 fn aggregator_collapses_parser_cascades() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 

@@ -20,123 +20,6 @@ note: Expected `)` before this token.
   |   ^^
 
 
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:5
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |     ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:7
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |       ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:9
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |         ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:11
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |           ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:13
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |             ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:15
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |               ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:17
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                 ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:19
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                   ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
-Error[E073]: Missing Comma
-
-Missing comma between arguments.
-
-  tests/fixtures/collections/error_limit_missing_commas.flx:3:21
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                     ^^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
 Error[E031]: Expected Expression
 
 Expected expression, found `)`.
@@ -156,4 +39,7 @@ Expected expression, found `;`.
 9 | );
   |  ^
 
-Found 12 errors.
+Note:
+  Suppressed 9 cascading parser diagnostic(s) likely caused by an earlier syntax error.
+
+Found 3 errors.

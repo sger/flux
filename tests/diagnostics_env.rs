@@ -34,7 +34,7 @@ impl Drop for EnvGuard {
 }
 
 pub fn with_no_color(value: Option<&str>) -> (MutexGuard<'static, ()>, EnvGuard) {
-    let lock = ENV_LOCK.lock().unwrap();
+    let lock = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let guard = EnvGuard::set_no_color(value);
     (lock, guard)
 }
