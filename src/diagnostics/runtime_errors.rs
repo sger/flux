@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::diagnostics::position::Span;
 
 use super::builders::DiagnosticBuilder;
+use super::quality::runtime_type_error_diagnostic;
 use super::types::{ErrorCode, ErrorType};
 
 pub const WRONG_NUMBER_OF_ARGUMENTS: ErrorCode = ErrorCode {
@@ -205,4 +206,14 @@ pub fn invalid_operation(
         ))
         .with_file(file)
         .with_span(span)
+}
+
+pub fn runtime_type_error(
+    expected: &str,
+    actual: &str,
+    value_preview: Option<&str>,
+    file: impl Into<Rc<str>>,
+    span: Span,
+) -> Diagnostic {
+    runtime_type_error_diagnostic(file, span, expected, actual, value_preview)
 }
