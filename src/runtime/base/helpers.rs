@@ -38,10 +38,11 @@ pub(super) fn type_error(
     signature: &str,
 ) -> String {
     format!(
-        "{} expected {} to be {}, got {}{}",
+        "I found a value with the wrong runtime type.\n\n  function: {}\n  location: {}\n  expected type: {}\n  found type:    {}\n  runtime value: {}{}",
         name,
         label,
         expected,
+        got,
         got,
         format_hint(signature)
     )
