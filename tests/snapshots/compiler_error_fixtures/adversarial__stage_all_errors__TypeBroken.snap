@@ -1,0 +1,27 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/stage_all_errors/TypeBroken.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E300]: Annotation Type Mismatch
+
+The value of `value` does not match its type annotation.
+
+  examples/compiler_errors/adversarial/stage_all_errors/TypeBroken.flx:3:26
+  |
+3 |         let value: Int = "oops"
+  |                          ^^^^^^
+  |                          ------ this value has type `String`
+
+  |                    --- but `value` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `value` to a `Int` value or update the annotation.
+== stdout ==
+<not executed>

@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismat
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Bool with Int.
+I found a type mismatch.
 
-  --> examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:8
+  examples/type_system/failing/75_hm_if_non_bool_condition_compile_mismatch.flx:2:8
   |
 2 |     if 1 {
   |        ^
-  |        - expected Bool, found Int
+  |        - this expression has type `Int`
+
   |        - if condition is known at compile time
 
+Note:
+  expected type: Bool
+  found type: Int
+
 Help:
+  Booleans are not numeric in Flux. Use `true` or `false` here.
   use a Bool expression, or make the condition/guard explicitly boolean
 == stdout ==
 <not executed>

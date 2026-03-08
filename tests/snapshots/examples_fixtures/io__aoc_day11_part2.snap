@@ -5,22 +5,29 @@ Fixture: examples/io/aoc_day11_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify String with Array<String>.
+I found a type mismatch.
 
-  --> examples/io/aoc_day11_part2.flx:66:13
+  examples/io/aoc_day11_part2.flx:66:13
    |
 66 |     [|name, outs|]
    |             ^^^^
-   |             ---- expected String, found Array<String>
+   |             ---- this expression has type `Array<String>`
+
+Note:
+  expected type: String
+  found type: Array<String>
+
+Help:
+  These two types are not compatible.
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `dfs_count2`.
 
-  --> examples/io/aoc_day11_part2.flx:91:13
+  examples/io/aoc_day11_part2.flx:91:13
    |
 91 |     let r = dfs_count2(nxt, seen_dac, seen_fft, graph, memo)
    |             ^^^^^^^^^^

@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/18_handle_incomplete_operation_set.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E402]: INCOMPLETE EFFECT HANDLER
+Error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: read.
 
-  --> examples/type_system/failing/18_handle_incomplete_operation_set.flx:9:5
+  examples/type_system/failing/18_handle_incomplete_operation_set.flx:9:5
   |
 9 |     perform Console.print("hello") handle Console {
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -5,14 +5,33 @@ Fixture: examples/base/base_directives_ok.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E400]: Missing Effect
 
-Cannot unify () -> Unit with () -> Unit with IO.
+requires effect `IO` but the enclosing context does not provide it
 
-  --> examples/base/base_directives_ok.flx:8:1
+  examples/base/base_directives_ok.flx:8:1
   |
 8 | Base.print("len(xs) = " + to_string(len(xs)));
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | --------------------------------------------- expected () -> Unit, found () -> Unit with IO
+  | --------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/base/base_directives_ok.flx:9:1
+  |
+9 | Base.print("first(xs) = " + to_string(first(xs)));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 2 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/extra_closing_bracket_in_group.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Closing Delimiter
+
+Expected `)` to close this grouped expression.
+
+  examples/parser_errors/extra_closing_bracket_in_group.flx:2:23
+  |
+2 |     let value = (1 + 2]
+  |                       ^
+
+Hint:
+  Add `)` after the expression.
+== stdout ==
+<not executed>

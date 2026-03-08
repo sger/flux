@@ -5,22 +5,11 @@ Fixture: examples/namespaces/namespace_missing_import_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/namespaces/namespace_missing_import_error.flx:1:1
-  |
-1 | print(Modules.Data.MyFile.value());
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ---------------------------------- expected () -> Unit, found () -> Unit with IO
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/namespaces/namespace_missing_import_error.flx:1:1
+  examples/namespaces/namespace_missing_import_error.flx:1:1
   |
 1 | print(Modules.Data.MyFile.value());
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -30,11 +19,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/namespaces/namespace_missing_import_error.flx:1:1
+  examples/namespaces/namespace_missing_import_error.flx:1:1
   |
 1 | print(Modules.Data.MyFile.value());
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -44,11 +33,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E013]: MODULE NOT IMPORTED
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/namespaces/namespace_missing_import_error.flx:1:1
+  |
+1 | print(Modules.Data.MyFile.value());
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ---------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E013]: Module Not Imported
 
 Module `Modules.Data.MyFile` is not imported.
 
-  --> examples/namespaces/namespace_missing_import_error.flx:1:7
+  examples/namespaces/namespace_missing_import_error.flx:1:7
   |
 1 | print(Modules.Data.MyFile.value());
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^

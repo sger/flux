@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/55_strict_any_return_rejected.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Any with Int.
+I found a type mismatch.
 
-  --> examples/type_system/failing/55_strict_any_return_rejected.flx:2:5
+  examples/type_system/failing/55_strict_any_return_rejected.flx:2:5
   |
 2 |     x
   |     ^
-  |     - expected Any, found Int
+  |     - this expression has type `Int`
+
   |     - return expression type is known at compile time
 
+Note:
+  expected type: Any
+  found type: Int
+
 Help:
+  These two types are not compatible.
   return expression type does not match the declared return type
   Unknown type `Any` — did you mean `Int`?
 == stdout ==

@@ -1,0 +1,15 @@
+// Multiple parser errors in a single file.
+//
+// Tests cascade suppression: one missing `{` should not produce 4+ follow-on errors.
+// Expected: primary error about missing function body `{`, follow-on errors suppressed.
+
+fn greet(name: String) -> String
+    "Hello, " + name
+
+fn farewell(name: String) -> String
+    "Goodbye, " + name
+
+fn main() -> Unit {
+    print(greet("Alice"))
+    print(farewell("Bob"))
+}

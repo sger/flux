@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_import_path.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Import Path
+
+This import needs a module path after `import`.
+
+  examples/parser_errors/missing_import_path.flx:5:1
+  |
+5 | import
+  | ^^^^^^
+
+Hint:
+  Import statements use `import Module.Name`.
+== stdout ==
+<not executed>

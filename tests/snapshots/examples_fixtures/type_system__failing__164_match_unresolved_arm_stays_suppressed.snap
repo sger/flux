@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  --> examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx:2:13
+  examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx:2:13
   |
 2 |     let x = mystery_value
   |             ^^^^^^^^^^^^^

@@ -4,22 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/unary_binds_tighter.flx
 exit_code: 1
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> tests/fixtures/precedence/unary_binds_tighter.flx:1:1
-  |
-1 | print(-1 * 2);
-  | ^^^^^^^^^^^^^
-  | ------------- expected () -> Unit, found () -> Unit with IO
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> tests/fixtures/precedence/unary_binds_tighter.flx:1:1
+  tests/fixtures/precedence/unary_binds_tighter.flx:1:1
   |
 1 | print(-1 * 2);
   | ^^^^^^^^^^^^^^
@@ -29,11 +18,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> tests/fixtures/precedence/unary_binds_tighter.flx:1:1
+  tests/fixtures/precedence/unary_binds_tighter.flx:1:1
   |
 1 | print(-1 * 2);
   | ^^^^^^^^^^^^^^
@@ -43,11 +32,25 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  tests/fixtures/precedence/unary_binds_tighter.flx:1:1
+  |
+1 | print(-1 * 2);
+  | ^^^^^^^^^^^^^
+  | ------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> tests/fixtures/precedence/unary_binds_tighter.flx:2:1
+  tests/fixtures/precedence/unary_binds_tighter.flx:2:1
   |
 2 | print(!true && false);
   | ^^^^^^^^^^^^^^^^^^^^^^
@@ -56,4 +59,18 @@ Effectful operation is not allowed at top level (requires: IO).
 Hint:
   Move this code into `fn main() with ... { ... }`.
 
-Found 4 errors.
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  tests/fixtures/precedence/unary_binds_tighter.flx:2:1
+  |
+2 | print(!true && false);
+  | ^^^^^^^^^^^^^^^^^^^^^
+  | --------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 5 errors.

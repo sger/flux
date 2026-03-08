@@ -5,17 +5,21 @@ Fixture: examples/type_system/failing/111_call_arg_anonymous_fn.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to this function has the wrong type.
+I found the wrong type in the 1st argument to this function.
 
-  --> examples/type_system/failing/111_call_arg_anonymous_fn.flx:6:49
+  examples/type_system/failing/111_call_arg_anonymous_fn.flx:6:49
   |
 6 |     let _x = (if true { greet } else { greet })(42)
   |                                                 ^^
-  |                                                 -- this argument is `Int`
+  |                                                 -- this argument has type `Int`
+
+Note:
+  expected argument type: String
+  found argument type: Int
 
 Help:
-  Expected `String` as the 1st argument.
+  Try `to_string(...)` to convert a `Int` into a `String`.
 == stdout ==
 <not executed>

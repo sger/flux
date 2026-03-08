@@ -1,0 +1,9 @@
+// Missing `)` in grouped expression.
+//
+// Expected: E076 UNCLOSED DELIMITER
+//   "Expected a closing `)` to match this opening `(`."
+
+fn main() -> Unit {
+    let x = (1 + 2
+    print(x)
+}

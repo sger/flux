@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/42_handle_unknown_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E405]: UNKNOWN HANDLER EFFECT
+Error[E405]: Unknown Effect
 
 Effect `Console` is not declared for this handle block.
 
-  --> examples/type_system/failing/42_handle_unknown_effect.flx:4:13
+  examples/type_system/failing/42_handle_unknown_effect.flx:4:13
   |
 4 |     let _ = 1 handle Console {
   |             ^

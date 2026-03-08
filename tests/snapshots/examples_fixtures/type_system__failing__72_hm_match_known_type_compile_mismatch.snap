@@ -5,43 +5,34 @@ Fixture: examples/type_system/failing/72_hm_match_known_type_compile_mismatch.fl
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `expect_int` has the wrong type.
+I found the wrong type in the 1st argument to `expect_int`.
 
-  --> examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:14:32
+  examples/type_system/failing/72_hm_match_known_type_compile_mismatch.flx:14:32
    |
  1 | fn expect_int(x: Int) -> Int {
-
  2 |     x
-
  3 | }
-
  4 | 
-
  5 | fn choose(flag: Bool) -> String {
-
  6 |     match flag {
-
  7 |         true -> "yes",
-
  8 |         false -> "no",
-
  9 |         _ -> "maybe",
-
 10 |     }
-
 11 | }
-
 12 | 
-
 13 | fn main() -> Unit with IO {
-
 14 |     print(to_string(expect_int(choose(true))))
    |                                ^^^^^^^^^^^^
-   |                                ------------ this argument is `String`
+   |                                ------------ this argument has type `String`
+
+Note:
+  expected argument type: Int
+  found argument type: String
 
 Help:
-  Expected `Int` as the 1st argument.
+  Pass a `Int` value as the 1st argument.
 == stdout ==
 <not executed>

@@ -1,0 +1,7 @@
+fn loud() -> Unit {
+    print("hi")
+}
+
+fn main() -> Unit {
+    loud()
+}

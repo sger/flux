@@ -1,0 +1,17 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/malformed_type_variant_fields.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Constructor Field Separator
+
+I was expecting `,` or `)` between constructor fields, but I found an identifier.
+
+  examples/parser_errors/malformed_type_variant_fields.flx:1:22
+  |
+1 | type Pair = Pair(Int String) | Empty
+  |                      ^^^^^^
+== stdout ==
+<not executed>

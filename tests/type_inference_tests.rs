@@ -400,7 +400,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "expected contextual if-branch mismatch message, got: {:#?}",
         result
@@ -416,7 +416,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The branches of this `if` expression produce different types.")
+                    m.contains("The branches of this `if` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual if E300 diagnostic");
@@ -470,7 +470,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The branches of this `if` expression produce different types.")
+                    m.contains("The branches of this `if` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual if E300 diagnostic");
@@ -496,7 +496,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "did not expect contextual if-branch mismatch diagnostic when one branch is Any, got: {:#?}",
         result.diagnostics
@@ -516,7 +516,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The branches of this `if` expression produce different types."
+            "The branches of this `if` expression do not agree on a type."
         ),
         "did not expect contextual if-branch mismatch diagnostic when one branch contains nested Any, got: {:#?}",
         result.diagnostics
@@ -542,7 +542,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "expected contextual match-arm mismatch message, got: {:#?}",
         result
@@ -558,7 +558,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The arms of this `match` expression produce different types.")
+                    m.contains("The arms of this `match` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual match E300 diagnostic");
@@ -594,7 +594,7 @@ fn main() -> Unit {
         .filter(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The arms of this `match` expression produce different types.")
+                    m.contains("The arms of this `match` expression do not agree on a type.")
                 })
         })
         .collect();
@@ -639,7 +639,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "did not expect contextual match-arm mismatch diagnostic when one arm is Any, got: {:#?}",
         result.diagnostics
@@ -662,7 +662,7 @@ fn main() -> Unit {
     assert!(
         !has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "did not expect contextual match-arm mismatch diagnostic when one arm contains nested Any, got: {:#?}",
         result.diagnostics
@@ -720,7 +720,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "The arms of this `match` expression produce different types."
+            "The arms of this `match` expression do not agree on a type."
         ),
         "expected contextual match-arm mismatch message, got: {:#?}",
         result.diagnostics
@@ -962,10 +962,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(
-            &result,
-            "Function parameter 1 type does not match: expected `Int`, found `String`."
-        ),
+        has_diagnostic_message_fragment(&result, "Parameter 1 has the wrong type."),
         "expected function param mismatch message, got: {:#?}",
         result
             .diagnostics
@@ -997,7 +994,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(
             &result,
-            "Function return types do not match: expected `Int`, found `String`."
+            "The body of this function does not match its return type."
         ),
         "expected function return mismatch message, got: {:#?}",
         result
@@ -1028,7 +1025,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(&result, "Function arity does not match."),
+        has_diagnostic_message_fragment(&result, "too many arguments"),
         "expected function arity mismatch message, got: {:#?}",
         result
             .diagnostics
@@ -1648,7 +1645,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(&result, "The 1st argument to `greet` has the wrong type."),
+        has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to `greet`"),
         "expected named call-arg contextual message, got: {:#?}",
         result.diagnostics
     );
@@ -1680,7 +1677,7 @@ fn main() -> Unit {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message()
-                    .is_some_and(|m| m.contains("The 2nd argument to `pair` has the wrong type."))
+                    .is_some_and(|m| m.contains("wrong type in the 2nd argument to `pair`"))
         })
         .expect("expected contextual call-arg E300 diagnostic");
     let primary = diag
@@ -1709,10 +1706,7 @@ fn main() -> Unit {
         result.diagnostics
     );
     assert!(
-        has_diagnostic_message_fragment(
-            &result,
-            "The 1st argument to this function has the wrong type."
-        ),
+        has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to this function"),
         "expected anonymous call-arg contextual message, got: {:#?}",
         result.diagnostics
     );
@@ -1744,10 +1738,7 @@ fn main() -> Unit {
 "#;
     let (result, _) = infer_program_from_source(source);
     assert!(
-        !has_diagnostic_message_fragment(
-            &result,
-            "argument to `accepts_any_param_fn` has the wrong type."
-        ),
+        !has_diagnostic_message_fragment(&result, "wrong type in the 1st argument to"),
         "did not expect contextual call-arg mismatch when expected type contains Any, got: {:#?}",
         result.diagnostics
     );

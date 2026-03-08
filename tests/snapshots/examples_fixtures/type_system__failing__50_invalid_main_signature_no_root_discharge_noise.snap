@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/50_invalid_main_signature_no_root_discharg
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E412]: INVALID MAIN RETURN TYPE
+Error[E412]: Invalid Main Return Type
 
 `fn main` must return `Unit` (or omit return type).
 
-  --> examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx:7:14
+  examples/type_system/failing/50_invalid_main_signature_no_root_discharge_noise.flx:7:14
   |
 7 | fn main() -> Int with Console {
   |              ^^^

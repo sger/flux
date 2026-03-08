@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/157_match_tuple_missing_catchall_general.f
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/type_system/failing/157_match_tuple_missing_catchall_general.flx:3:14
+  examples/type_system/failing/157_match_tuple_missing_catchall_general.flx:3:14
   |
 3 |     let _x = match t {
   |              ^^^^^^^^^

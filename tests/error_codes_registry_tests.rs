@@ -1,15 +1,17 @@
 use flux::diagnostics::position::{Position, Span};
 use flux::diagnostics::{
-    ERROR_CODES, LabelStyle, Severity, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
-    cross_module_constructor_access_error, cross_module_constructor_access_warning,
-    fun_arity_mismatch, fun_param_type_mismatch, fun_return_annotation_mismatch,
-    fun_return_type_mismatch, guarded_wildcard_non_exhaustive, if_branch_type_mismatch,
-    let_annotation_type_mismatch, lookup_error_code, match_arm_type_mismatch, match_fat_arrow,
-    match_pipe_separator, missing_array_close_bracket, missing_comprehension_close_bracket,
-    missing_do_block_brace, missing_else_body_brace, missing_fn_param_list,
-    missing_hash_close_brace, missing_if_body_brace, missing_lambda_close_paren,
-    missing_let_assign, missing_string_interpolation_close, orphan_constructor_pattern,
-    unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
+    DiagnosticCategory, ERROR_CODES, LabelStyle, Severity, call_arg_type_mismatch,
+    constructor_pattern_arity_mismatch, cross_module_constructor_access_error,
+    cross_module_constructor_access_warning, fun_arity_mismatch, fun_param_type_mismatch,
+    fun_return_annotation_mismatch, fun_return_type_mismatch, guarded_wildcard_non_exhaustive,
+    if_branch_type_mismatch, let_annotation_type_mismatch, lookup_error_code,
+    match_arm_type_mismatch, match_fat_arrow, match_pipe_separator, missing_array_close_bracket,
+    missing_comprehension_close_bracket, missing_do_block_brace, missing_else_body_brace,
+    missing_fn_param_list, missing_hash_close_brace, missing_if_body_brace,
+    missing_lambda_close_paren, missing_let_assign, missing_string_interpolation_close,
+    orphan_constructor_pattern,
+    quality::{downstream_errors_suppressed_note, module_skipped_note},
+    runtime_type_error, unexpected_end_keyword, unknown_keyword_alias, wrong_argument_count,
 };
 
 fn span(line: usize, start_col: usize, end_col: usize) -> Span {
@@ -54,6 +56,8 @@ fn wrong_argument_count_constructor_shape() {
     );
     assert_eq!(diag.code(), Some("E056"));
     assert_eq!(diag.title(), "WRONG NUMBER OF ARGUMENTS");
+    assert_eq!(diag.display_title(), Some("Wrong Number Of Arguments"));
+    assert_eq!(diag.category(), Some(DiagnosticCategory::TypeInference));
     assert!(
         diag.labels()
             .iter()
@@ -85,6 +89,8 @@ fn e300_constructor_shapes_have_primary_labels() {
     );
     assert_eq!(if_diag.code(), Some("E300"));
     assert_eq!(if_diag.title(), "TYPE UNIFICATION ERROR");
+    assert_eq!(if_diag.display_title(), Some("Branch Type Mismatch"));
+    assert_eq!(if_diag.category(), Some(DiagnosticCategory::TypeInference));
     assert!(
         if_diag
             .labels()
@@ -111,10 +117,7 @@ fn e300_constructor_shapes_have_primary_labels() {
     let ret_diag =
         fun_return_type_mismatch("test.flx".to_string(), span(8, 20, 23), "Int", "String");
     assert_eq!(ret_diag.code(), Some("E300"));
-    assert_eq!(
-        ret_diag.message(),
-        Some("Function return types do not match: expected `Int`, found `String`.")
-    );
+    assert_eq!(ret_diag.display_title(), Some("Return Type Mismatch"));
     assert!(
         ret_diag
             .labels()
@@ -125,10 +128,7 @@ fn e300_constructor_shapes_have_primary_labels() {
     let param_diag =
         fun_param_type_mismatch("test.flx".to_string(), span(8, 15, 21), 1, "Int", "String");
     assert_eq!(param_diag.code(), Some("E300"));
-    assert_eq!(
-        param_diag.message(),
-        Some("Function parameter 1 type does not match: expected `Int`, found `String`.")
-    );
+    assert_eq!(param_diag.display_title(), Some("Parameter Type Mismatch"));
     assert!(
         param_diag
             .labels()
@@ -138,6 +138,10 @@ fn e300_constructor_shapes_have_primary_labels() {
 
     let arity_diag = fun_arity_mismatch("test.flx".to_string(), span(8, 9, 26), 2, 1);
     assert_eq!(arity_diag.code(), Some("E300"));
+    assert_eq!(
+        arity_diag.display_title(),
+        Some("Wrong Number Of Arguments")
+    );
     assert!(
         arity_diag
             .labels()
@@ -155,10 +159,14 @@ fn e300_constructor_shapes_have_primary_labels() {
         "Int",
     );
     assert_eq!(call_arg_diag.code(), Some("E300"));
+    assert_eq!(
+        call_arg_diag.display_title(),
+        Some("Argument Type Mismatch")
+    );
     assert!(
         call_arg_diag
             .message()
-            .is_some_and(|m| m.contains("argument to `greet` has the wrong type"))
+            .is_some_and(|m| m.contains("wrong type in the 1st argument"))
     );
     assert!(
         call_arg_diag
@@ -176,6 +184,7 @@ fn e300_constructor_shapes_have_primary_labels() {
         "String",
     );
     assert_eq!(let_diag.code(), Some("E300"));
+    assert_eq!(let_diag.display_title(), Some("Annotation Type Mismatch"));
     assert!(
         let_diag
             .labels()
@@ -198,10 +207,11 @@ fn e300_constructor_shapes_have_primary_labels() {
         "String",
     );
     assert_eq!(ret_ann_diag.code(), Some("E300"));
+    assert_eq!(ret_ann_diag.display_title(), Some("Return Type Mismatch"));
     assert!(
         ret_ann_diag
             .message()
-            .is_some_and(|m| m.contains("return value of `add`"))
+            .is_some_and(|m| m.contains("body of `add`"))
     );
 }
 
@@ -209,6 +219,7 @@ fn e300_constructor_shapes_have_primary_labels() {
 fn parser_diagnostic_constructor_shapes_for_059() {
     let kw = unknown_keyword_alias(span(1, 1, 4), "def", "fn", "function declarations");
     assert_eq!(kw.code(), Some("E030"));
+    assert_eq!(kw.category(), Some(DiagnosticCategory::ParserKeyword));
     assert!(
         kw.message()
             .is_some_and(|m| m.contains("Unknown keyword `def`")),
@@ -223,26 +234,38 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let if_brace = missing_if_body_brace(span(2, 9, 10));
     assert_eq!(if_brace.code(), Some("E034"));
+    assert_eq!(
+        if_brace.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
     assert!(
         if_brace
             .message()
-            .is_some_and(|m| m.contains("begin the `if` body"))
+            .is_some_and(|m| m.contains("needs to start with `{`"))
     );
 
     let else_brace = missing_else_body_brace(span(2, 20, 21));
     assert_eq!(else_brace.code(), Some("E034"));
+    assert_eq!(
+        else_brace.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
     assert!(
         else_brace
             .message()
-            .is_some_and(|m| m.contains("begin the `else` body"))
+            .is_some_and(|m| m.contains("needs to start with `{`"))
     );
 
     let do_brace = missing_do_block_brace(span(2, 30, 31));
     assert_eq!(do_brace.code(), Some("E034"));
+    assert_eq!(
+        do_brace.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
     assert!(
         do_brace
             .message()
-            .is_some_and(|m| m.contains("begin the `do` block"))
+            .is_some_and(|m| m.contains("needs to start with `{`"))
     );
     assert!(
         !do_brace.hints().is_empty(),
@@ -251,6 +274,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let let_assign = missing_let_assign(span(3, 11, 12), "x");
     assert_eq!(let_assign.code(), Some("E034"));
+    assert_eq!(
+        let_assign.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
     assert!(
         let_assign.message().is_some_and(|m| m.contains("let x =")),
         "expected missing-let-assign message to name binding"
@@ -258,26 +285,39 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let fn_params = missing_fn_param_list(span(4, 8, 10), "foo");
     assert_eq!(fn_params.code(), Some("E034"));
+    assert_eq!(
+        fn_params.category(),
+        Some(DiagnosticCategory::ParserDeclaration)
+    );
     assert!(
         fn_params
             .message()
-            .is_some_and(|m| m.contains("Missing parameter list for function `foo`"))
+            .is_some_and(|m| m.contains("needs a parameter list after `foo`"))
     );
 
     let pipe = match_pipe_separator(span(5, 20, 21));
     assert_eq!(pipe.code(), Some("E034"));
+    assert_eq!(pipe.category(), Some(DiagnosticCategory::ParserSeparator));
     assert!(pipe.message().is_some_and(|m| m.contains("not `|`")));
 
     let fat = match_fat_arrow(span(6, 14, 15));
     assert_eq!(fat.code(), Some("E034"));
-    assert!(fat.message().is_some_and(|m| m.contains("found `=>`")));
+    assert_eq!(fat.category(), Some(DiagnosticCategory::ParserSeparator));
+    assert!(
+        fat.message()
+            .is_some_and(|m| m.contains("needs `->`, not `=>`"))
+    );
 
     let miss_match_arrow = flux::diagnostics::missing_match_arrow(span(6, 20, 21), ",");
     assert_eq!(miss_match_arrow.code(), Some("E034"));
+    assert_eq!(
+        miss_match_arrow.category(),
+        Some(DiagnosticCategory::ParserSeparator)
+    );
     assert!(
         miss_match_arrow
             .message()
-            .is_some_and(|m| m.contains("Expected `->` in match arm")),
+            .is_some_and(|m| m.contains("expecting `->` in this match arm")),
         "expected contextual missing match arrow message"
     );
     assert!(
@@ -287,10 +327,14 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let miss_lambda_arrow = flux::diagnostics::missing_lambda_arrow(span(7, 3, 4), "Ident");
     assert_eq!(miss_lambda_arrow.code(), Some("E034"));
+    assert_eq!(
+        miss_lambda_arrow.category(),
+        Some(DiagnosticCategory::ParserSeparator)
+    );
     assert!(
         miss_lambda_arrow
             .message()
-            .is_some_and(|m| m.contains("Expected `->` after lambda parameters")),
+            .is_some_and(|m| m.contains("expecting `->` after the lambda parameters")),
         "expected contextual missing lambda arrow message"
     );
     assert!(
@@ -300,6 +344,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let orphan_ctor = orphan_constructor_pattern(span(8, 1, 7), "Some");
     assert_eq!(orphan_ctor.code(), Some("E034"));
+    assert_eq!(
+        orphan_ctor.category(),
+        Some(DiagnosticCategory::ParserPattern)
+    );
     assert!(
         orphan_ctor
             .message()
@@ -316,6 +364,7 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let end_kw = unexpected_end_keyword(span(7, 9, 12));
     assert_eq!(end_kw.code(), Some("E034"));
+    assert_eq!(end_kw.category(), Some(DiagnosticCategory::ParserKeyword));
     assert!(
         end_kw
             .message()
@@ -324,6 +373,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let hash_close = missing_hash_close_brace(span(8, 20, 21));
     assert_eq!(hash_close.code(), Some("E034"));
+    assert_eq!(
+        hash_close.category(),
+        Some(DiagnosticCategory::ParserDelimiter)
+    );
     assert!(
         hash_close
             .message()
@@ -333,6 +386,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let array_close = missing_array_close_bracket(span(9, 20, 21));
     assert_eq!(array_close.code(), Some("E034"));
+    assert_eq!(
+        array_close.category(),
+        Some(DiagnosticCategory::ParserDelimiter)
+    );
     assert!(
         array_close
             .message()
@@ -342,6 +399,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let lambda_close = missing_lambda_close_paren(span(10, 15, 16));
     assert_eq!(lambda_close.code(), Some("E034"));
+    assert_eq!(
+        lambda_close.category(),
+        Some(DiagnosticCategory::ParserDelimiter)
+    );
     assert!(
         lambda_close
             .message()
@@ -351,6 +412,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let interp_close = missing_string_interpolation_close(span(11, 18, 19));
     assert_eq!(interp_close.code(), Some("E034"));
+    assert_eq!(
+        interp_close.category(),
+        Some(DiagnosticCategory::ParserDelimiter)
+    );
     assert!(
         interp_close
             .message()
@@ -360,6 +425,10 @@ fn parser_diagnostic_constructor_shapes_for_059() {
 
     let comp_close = missing_comprehension_close_bracket(span(12, 18, 19));
     assert_eq!(comp_close.code(), Some("E034"));
+    assert_eq!(
+        comp_close.category(),
+        Some(DiagnosticCategory::ParserDelimiter)
+    );
     assert!(
         comp_close
             .message()
@@ -406,4 +475,36 @@ fn t14_constructor_and_boundary_diagnostic_shapes() {
     assert_eq!(non_strict.code(), Some("W201"));
     assert_eq!(non_strict.title(), "CROSS-MODULE CONSTRUCTOR ACCESS");
     assert_eq!(non_strict.severity(), Severity::Warning);
+}
+
+#[test]
+fn runtime_and_orchestration_diagnostics_have_explicit_categories() {
+    let runtime = runtime_type_error("Int", "String", Some("\"oops\""), "test.flx", span(5, 3, 4));
+    assert_eq!(runtime.code(), Some("E1004"));
+    assert_eq!(runtime.display_title(), Some("Type Error"));
+    assert_eq!(runtime.category(), Some(DiagnosticCategory::RuntimeType));
+
+    let skipped = module_skipped_note("main.flx", "Main", "BrokenDep");
+    assert_eq!(skipped.display_title(), Some("Module Skipped"));
+    assert_eq!(skipped.category(), Some(DiagnosticCategory::Orchestration));
+    assert!(
+        skipped
+            .message()
+            .is_some_and(|m| m.contains("dependency `BrokenDep` already has errors"))
+    );
+
+    let suppressed = downstream_errors_suppressed_note("main.flx", 2, 1);
+    assert_eq!(
+        suppressed.display_title(),
+        Some("Downstream Errors Suppressed")
+    );
+    assert_eq!(
+        suppressed.category(),
+        Some(DiagnosticCategory::Orchestration)
+    );
+    assert!(
+        suppressed
+            .message()
+            .is_some_and(|m| m.contains("use `--all-errors` to see everything"))
+    );
 }

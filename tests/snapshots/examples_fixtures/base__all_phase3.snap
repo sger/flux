@@ -5,14 +5,33 @@ Fixture: examples/base/all_phase3.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E400]: Missing Effect
 
-Cannot unify () -> Unit with () -> Unit with IO.
+requires effect `IO` but the enclosing context does not provide it
 
-  --> examples/base/all_phase3.flx:5:1
+  examples/base/all_phase3.flx:5:1
   |
 5 | Base.print("== Base directives smoke ==");
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  | ----------------------------------------- expected () -> Unit, found () -> Unit with IO
+  | ----------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/base/all_phase3.flx:6:1
+  |
+6 | Base.print("len([1,2,3]) = " + to_string(len([1, 2, 3])));
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | --------------------------------------------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 2 errors.
 == stdout ==
 <not executed>

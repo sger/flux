@@ -5,11 +5,11 @@ Fixture: examples/io/aoc_day11_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `paths_to`.
 
-  --> examples/io/aoc_day11_haskell_style.flx:60:13
+  examples/io/aoc_day11_haskell_style.flx:60:13
    |
 60 |     let r = paths_to(str_at(outs, i), graph, memo, end_node)
    |             ^^^^^^^^
@@ -18,18 +18,17 @@ Hint:
   Define it first: let paths_to = ...;
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `paths_to2`.
 
-  --> examples/io/aoc_day11_haskell_style.flx:103:13
+  examples/io/aoc_day11_haskell_style.flx:103:13
     |
 103 |     let r = paths_to2(str_at(outs, i), seen_dac, seen_fft, graph, memo)
     |             ^^^^^^^^^
 
 Hint:
   Define it first: let paths_to2 = ...;
-
 
 Help:
   Did you mean `paths_to`?

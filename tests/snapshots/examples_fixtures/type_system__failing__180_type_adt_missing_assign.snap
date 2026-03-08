@@ -5,16 +5,28 @@ Fixture: examples/type_system/failing/180_type_adt_missing_assign.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Type Definition
 
 Expected `=` after type declaration name.
 
-  --> examples/type_system/failing/180_type_adt_missing_assign.flx:1:15
+  examples/type_system/failing/180_type_adt_missing_assign.flx:1:15
   |
 1 | type Maybe<T> Some(T) | None
   |               ^^^^
 
 Hint:
   ADT sugar uses `type Name = Ctor(...) | Other`.
+
+
+Error[E031]: Expected Expression
+
+Expected expression, found `|`.
+
+  examples/type_system/failing/180_type_adt_missing_assign.flx:1:23
+  |
+1 | type Maybe<T> Some(T) | None
+  |                       ^
+
+Found 2 errors.
 == stdout ==
 <not executed>

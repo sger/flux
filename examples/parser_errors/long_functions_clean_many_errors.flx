@@ -1,0 +1,17 @@
+fn first_clean_long_function() -> Unit {
+    let hash = { "a" 1 }
+    let _r = add(1 2)
+    let _label = if true { "ok" } else "bad"
+    let more = { "c" 3 }
+    let _next = add(3 4)
+    let again = if false { "left" } else "right"
+}
+
+fn second_clean_long_function() -> Unit {
+    let info = { "b" 2 }
+    let _s = greet("Alice" "Bob")
+    let _branch = if false { "left" } else "right"
+    let more_data = { "d" 4 }
+    let _call = greet("Carol" "Dave")
+    let final_branch = if true { "up" } else "down"
+}

@@ -1,0 +1,7 @@
+import RuntimeErrors.BoundaryUnknown
+
+fn bad() -> Int {
+    RuntimeErrors.BoundaryUnknown.dynamic_string()
+}
+
+bad()

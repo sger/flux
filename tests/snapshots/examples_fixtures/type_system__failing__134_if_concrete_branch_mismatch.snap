@@ -5,18 +5,23 @@ Fixture: examples/type_system/failing/134_if_concrete_branch_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Branch Type Mismatch
 
-The branches of this `if` expression produce different types.
+The branches of this `if` expression do not agree on a type.
 
-  --> examples/type_system/failing/134_if_concrete_branch_mismatch.flx:2:36
+  examples/type_system/failing/134_if_concrete_branch_mismatch.flx:2:36
   |
 2 |     let _x = if true { 42 } else { "nope" }
   |                                    ^^^^^^
-  |                                    ------ `else` branch returns `String`
+  |                                    ------ the `else` branch has type `String`
+
   |                        -- `then` branch returns `Int`
 
+Note:
+  then branch type: Int
+  else branch type: String
+
 Help:
-  Both branches must return the same type. Change one branch to match `Int` or `String`.
+  Both branches of an `if` must produce the same type.
 == stdout ==
 <not executed>

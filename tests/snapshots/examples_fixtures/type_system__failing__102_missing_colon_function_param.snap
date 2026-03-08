@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/102_missing_colon_function_param.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Unexpected Token
 
 Missing `:` in function parameter type annotation. Write it as `x: Type`.
 
-  --> examples/type_system/failing/102_missing_colon_function_param.flx:1:10
+  examples/type_system/failing/102_missing_colon_function_param.flx:1:10
   |
 1 | fn add(x Int, y: Int) -> Int {
   |          ^^^

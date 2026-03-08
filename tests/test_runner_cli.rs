@@ -259,12 +259,12 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         default_text
     );
     assert!(
-        default_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
+        default_text.contains("Downstream Errors Suppressed"),
         "expected suppression note in default mode, output:\n{}",
         default_text
     );
     assert!(
-        !default_text.contains("error[E300]"),
+        !default_text.contains("Error[E300]"),
         "expected type diagnostic suppressed in default mode, output:\n{}",
         default_text
     );
@@ -277,7 +277,7 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         all_text
     );
     assert!(
-        all_text.contains("error[E300]"),
+        all_text.contains("Error[E300]"),
         "expected downstream type diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
@@ -295,7 +295,7 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
         normal_text
     );
     assert!(
-        normal_text.contains("error[E071]") || normal_text.contains("error[E076]"),
+        normal_text.contains("Error[E071]") || normal_text.contains("Error[E076]"),
         "expected parse diagnostics in test mode, output:\n{}",
         normal_text
     );
@@ -308,13 +308,59 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
         all_text
     );
     assert!(
-        all_text.contains("error[E071]") || all_text.contains("error[E076]"),
+        all_text.contains("Error[E071]") || all_text.contains("Error[E076]"),
         "expected parse diagnostics in test mode with --all-errors, output:\n{}",
         all_text
     );
     assert!(
-        !all_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
+        !all_text.contains("Downstream Errors Suppressed"),
         "test mode exits immediately on parse errors, so stage-filter suppression notes should not appear:\n{}",
+        all_text
+    );
+}
+
+#[test]
+fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
+    let file = example_path("compiler_errors/adversarial/stage_all_errors/Main.flx");
+
+    let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let default_text = combined_output(&default_output);
+    assert!(
+        !default_output.status.success(),
+        "expected adversarial compiler fixture to fail in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        default_text.contains("Error[E300]: Annotation Type Mismatch"),
+        "expected visible type diagnostic in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        !default_text.contains("Error[E400]: Missing Ambient Effect"),
+        "expected effect diagnostic suppressed in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        default_text.contains("Downstream Errors Suppressed"),
+        "expected suppression note in default mode, output:\n{}",
+        default_text
+    );
+
+    let all_output = run_flux(&["--no-cache", "--all-errors", file.to_str().unwrap()]);
+    let all_text = combined_output(&all_output);
+    assert!(
+        !all_output.status.success(),
+        "expected adversarial compiler fixture to fail with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("Error[E300]: Annotation Type Mismatch"),
+        "expected type diagnostic visible with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("Error[E400]: Missing Ambient Effect"),
+        "expected effect diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
 }

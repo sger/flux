@@ -5,11 +5,11 @@ Fixture: examples/type_system/TypeSystem/EffectsChain.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.EffectsChain` doesn't match file path `examples/type_system/TypeSystem/EffectsChain.flx`.
 
-  --> examples/type_system/TypeSystem/EffectsChain.flx:1:1
+  examples/type_system/TypeSystem/EffectsChain.flx:1:1
   |
 1 | module TypeSystem.EffectsChain {
   | ^

@@ -5,11 +5,11 @@ Fixture: examples/Modules/FunctionalUtils.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `Modules.FunctionalUtils` doesn't match file path `examples/Modules/FunctionalUtils.flx`.
 
-  --> examples/Modules/FunctionalUtils.flx:4:1
+  examples/Modules/FunctionalUtils.flx:4:1
   |
 4 | module Modules.FunctionalUtils {
   | ^

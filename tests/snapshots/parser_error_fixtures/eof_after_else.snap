@@ -1,0 +1,21 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/eof_after_else.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/eof_after_else.flx:2:31
+  |
+2 |     let value = if true { 1 } else
+  |                               ^^^^
+  |                               ---- `else` starts here
+
+Help:
+  Try adding `{` after `else`.
+== stdout ==
+<not executed>

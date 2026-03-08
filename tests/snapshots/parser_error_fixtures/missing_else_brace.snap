@@ -1,0 +1,21 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_else_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/missing_else_brace.flx:7:33
+  |
+7 |     let _r = if x > 3 { "big" } else "small"
+  |                                 ^^^^
+  |                                 ---- `else` starts here
+
+Help:
+  Try adding `{` after `else`.
+== stdout ==
+<not executed>

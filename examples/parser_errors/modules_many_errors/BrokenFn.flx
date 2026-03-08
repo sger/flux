@@ -1,0 +1,7 @@
+module BrokenFn {
+    pub fn greet(name: String) -> String
+        "Hello, " + name
+
+    pub fn parting(name: String) -> String
+        "Goodbye, " + name
+}

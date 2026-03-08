@@ -5,441 +5,291 @@ Fixture: examples/io/aoc_day7_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 5th argument to `simulate_a` has the wrong type.
+I found the wrong type in the 5th argument to `simulate_a`.
 
-  --> examples/io/aoc_day7_haskell_style.flx:138:59
+  examples/io/aoc_day7_haskell_style.flx:138:59
     |
 138 |     simulate_a(lines, row_idx + 1, width, step_a_next(r), step_a_split(r))
     |                                                           ^^^^^^^^^^^^^^^
-    |                                                           --------------- this argument is `Int`
+    |                                                           --------------- this argument has type `Int`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Int
 
 Help:
-  Expected `Array<Int>` as the 5th argument.
+  Pass a `Array<Int>` value as the 5th argument.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `step_a_split` has the wrong type.
+I found the wrong type in the 1st argument to `step_a_split`.
 
-  --> examples/io/aoc_day7_haskell_style.flx:138:72
+  examples/io/aoc_day7_haskell_style.flx:138:72
     |
 104 | fn step_a_split(x) {
-
 105 |     match get(x, "split") {
-
 106 |         Some(v) -> v,
-
 107 |         _ -> 0
-
 108 |     }
-
 109 | }
-
 110 | 
-
 111 | fn process_cols_a(row_txt, col, width, active, next_mask, split_count) {
-
 112 |     if col >= width {
-
 113 |         step_a_res(next_mask, split_count)
-
 114 |     } else {
-
 115 |     if int_at(active, col) == 0 {
-
 116 |         process_cols_a(row_txt, col + 1, width, active, next_mask, split_count)
-
 117 |     } else {
-
 118 |     let ch = char_at_pad(row_txt, col)
-
 119 |     if ch == "^" {
-
 120 |         let n1 = if col - 1 >= 0 { set_at(next_mask, col - 1, 1) } else { next_mask }
-
 121 |         let n2 = if col + 1 < width { set_at(n1, col + 1, 1) } else { n1 }
-
 122 |         process_cols_a(row_txt, col + 1, width, active, n2, split_count + 1)
-
 123 |     } else {
-
 124 |     let stay = set_at(next_mask, col, 1)
-
 125 |     process_cols_a(row_txt, col + 1, width, active, stay, split_count)
-
 126 | }
-
 127 | }
-
 128 | }
-
 129 | }
-
 130 | 
-
 131 | fn simulate_a(lines, row_idx, width, active, split_count) {
-
 132 |     if row_idx >= len(lines) {
-
 133 |         split_count
-
 134 |     } else {
-
 135 |     let row_txt = line_at(lines, row_idx)
-
 136 |     let next0 = zeros(width, 0, [||])
-
 137 |     let r = process_cols_a(row_txt, 0, width, active, next0, split_count)
-
 138 |     simulate_a(lines, row_idx + 1, width, step_a_next(r), step_a_split(r))
     |                                                                        ^
-    |                                                                        - this argument is `Map<String, Array<Int>>`
+    |                                                                        - this argument has type `Map<String, Array<Int>>`
+
+Note:
+  expected argument type: Map<String, Int>
+  found argument type: Map<String, Array<Int>>
 
 Help:
-  Expected `Map<String, Int>` as the 1st argument.
+  Pass a `Map<String, Int>` value as the 1st argument.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Array<Int> and Int.
+I found a type mismatch.
 
-  --> examples/io/aoc_day7_haskell_style.flx:177:68
+  examples/io/aoc_day7_haskell_style.flx:177:68
     |
 177 |         process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
     |                                                                    ^^^^^^^^^^^^^^^^^^^
-    |                                                                    ------------------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Array<Int> and Int
+    |                                                                    ------------------- this expression has type `Array<Int> and Int`
+
     |                                                                    ------------------- operator operands are known at compile time
 
+Note:
+  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
+  found type: Array<Int> and Int
+
 Help:
+  These two types are not compatible.
   adjust operand types or add explicit conversion
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 6th argument to `process_cols_b` has the wrong type.
+I found the wrong type in the 6th argument to `process_cols_b`.
 
-  --> examples/io/aoc_day7_haskell_style.flx:192:69
+  examples/io/aoc_day7_haskell_style.flx:192:69
     |
 161 | fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
-
 162 |     if col >= width {
-
 163 |         step_b_res(next_counts, finished)
-
 164 |     } else {
-
 165 |     let cnt = int_at(active_counts, col)
-
 166 |     if cnt == 0 {
-
 167 |         process_cols_b(row_txt, col + 1, width, active_counts, next_counts, finished)
-
 168 |     } else {
-
 169 |     let ch = char_at_pad(row_txt, col)
-
 170 |     if ch == "^" {
-
 171 |         let left_in = if col - 1 >= 0 { cnt } else { 0 }
-
 172 |         let right_in = if col + 1 < width { cnt } else { 0 }
-
 173 |         let out_left = if col - 1 < 0 { cnt } else { 0 }
-
 174 |         let out_right = if col + 1 >= width { cnt } else { 0 }
-
 175 |         let n1 = add_at(next_counts, col - 1, left_in)
-
 176 |         let n2 = add_at(n1, col + 1, right_in)
-
 177 |         process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
-
 178 |     } else {
-
 179 |     let stay = add_at(next_counts, col, cnt)
-
 180 |     process_cols_b(row_txt, col + 1, width, active_counts, stay, finished)
-
 181 | }
-
 182 | }
-
 183 | }
-
 184 | }
-
 185 | 
-
 186 | fn simulate_b(lines, row_idx, width, active_counts, finished) {
-
 187 |     if row_idx >= len(lines) {
-
 188 |         finished + sum_arr(active_counts, 0, 0)
-
 189 |     } else {
-
 190 |     let row_txt = line_at(lines, row_idx)
-
 191 |     let next0 = zeros(width, 0, [||])
-
 192 |     let r = process_cols_b(row_txt, 0, width, active_counts, next0, finished)
     |                                                                     ^^^^^^^^
-    |                                                                     -------- this argument is `Int`
+    |                                                                     -------- this argument has type `Int`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Int
 
 Help:
-  Expected `Array<Int>` as the 6th argument.
+  Pass a `Array<Int>` value as the 6th argument.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 1st argument to `step_b_done` has the wrong type.
+I found the wrong type in the 1st argument to `step_b_done`.
 
-  --> examples/io/aoc_day7_haskell_style.flx:193:71
+  examples/io/aoc_day7_haskell_style.flx:193:71
     |
 154 | fn step_b_done(x) {
-
 155 |     match get(x, "done") {
-
 156 |         Some(v) -> v,
-
 157 |         _ -> 0
-
 158 |     }
-
 159 | }
-
 160 | 
-
 161 | fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
-
 162 |     if col >= width {
-
 163 |         step_b_res(next_counts, finished)
-
 164 |     } else {
-
 165 |     let cnt = int_at(active_counts, col)
-
 166 |     if cnt == 0 {
-
 167 |         process_cols_b(row_txt, col + 1, width, active_counts, next_counts, finished)
-
 168 |     } else {
-
 169 |     let ch = char_at_pad(row_txt, col)
-
 170 |     if ch == "^" {
-
 171 |         let left_in = if col - 1 >= 0 { cnt } else { 0 }
-
 172 |         let right_in = if col + 1 < width { cnt } else { 0 }
-
 173 |         let out_left = if col - 1 < 0 { cnt } else { 0 }
-
 174 |         let out_right = if col + 1 >= width { cnt } else { 0 }
-
 175 |         let n1 = add_at(next_counts, col - 1, left_in)
-
 176 |         let n2 = add_at(n1, col + 1, right_in)
-
 177 |         process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
-
 178 |     } else {
-
 179 |     let stay = add_at(next_counts, col, cnt)
-
 180 |     process_cols_b(row_txt, col + 1, width, active_counts, stay, finished)
-
 181 | }
-
 182 | }
-
 183 | }
-
 184 | }
-
 185 | 
-
 186 | fn simulate_b(lines, row_idx, width, active_counts, finished) {
-
 187 |     if row_idx >= len(lines) {
-
 188 |         finished + sum_arr(active_counts, 0, 0)
-
 189 |     } else {
-
 190 |     let row_txt = line_at(lines, row_idx)
-
 191 |     let next0 = zeros(width, 0, [||])
-
 192 |     let r = process_cols_b(row_txt, 0, width, active_counts, next0, finished)
-
 193 |     simulate_b(lines, row_idx + 1, width, step_b_next(r), step_b_done(r))
     |                                                                       ^
-    |                                                                       - this argument is `Map<String, Array<Int>>`
+    |                                                                       - this argument has type `Map<String, Array<Int>>`
+
+Note:
+  expected argument type: Map<String, Int>
+  found argument type: Map<String, Array<Int>>
 
 Help:
-  Expected `Map<String, Int>` as the 1st argument.
+  Pass a `Map<String, Int>` value as the 1st argument.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 5th argument to `simulate_a` has the wrong type.
+I found the wrong type in the 5th argument to `simulate_a`.
 
-  --> examples/io/aoc_day7_haskell_style.flx:203:48
+  examples/io/aoc_day7_haskell_style.flx:203:48
     |
 131 | fn simulate_a(lines, row_idx, width, active, split_count) {
-
 132 |     if row_idx >= len(lines) {
-
 133 |         split_count
-
 134 |     } else {
-
 135 |     let row_txt = line_at(lines, row_idx)
-
 136 |     let next0 = zeros(width, 0, [||])
-
 137 |     let r = process_cols_a(row_txt, 0, width, active, next0, split_count)
-
 138 |     simulate_a(lines, row_idx + 1, width, step_a_next(r), step_a_split(r))
-
 139 | }
-
 140 | }
-
 141 | 
-
 142 | fn step_b_res(next_counts, finished) {
-
 143 |     let m = put({}, "next", next_counts)
-
 144 |     put(m, "done", finished)
-
 145 | }
-
 146 | 
-
 147 | fn step_b_next(x) {
-
 148 |     match get(x, "next") {
-
 149 |         Some(v) -> v,
-
 150 |         _ -> [||]
-
 151 |     }
-
 152 | }
-
 153 | 
-
 154 | fn step_b_done(x) {
-
 155 |     match get(x, "done") {
-
 156 |         Some(v) -> v,
-
 157 |         _ -> 0
-
 158 |     }
-
 159 | }
-
 160 | 
-
 161 | fn process_cols_b(row_txt, col, width, active_counts, next_counts, finished) {
-
 162 |     if col >= width {
-
 163 |         step_b_res(next_counts, finished)
-
 164 |     } else {
-
 165 |     let cnt = int_at(active_counts, col)
-
 166 |     if cnt == 0 {
-
 167 |         process_cols_b(row_txt, col + 1, width, active_counts, next_counts, finished)
-
 168 |     } else {
-
 169 |     let ch = char_at_pad(row_txt, col)
-
 170 |     if ch == "^" {
-
 171 |         let left_in = if col - 1 >= 0 { cnt } else { 0 }
-
 172 |         let right_in = if col + 1 < width { cnt } else { 0 }
-
 173 |         let out_left = if col - 1 < 0 { cnt } else { 0 }
-
 174 |         let out_right = if col + 1 >= width { cnt } else { 0 }
-
 175 |         let n1 = add_at(next_counts, col - 1, left_in)
-
 176 |         let n2 = add_at(n1, col + 1, right_in)
-
 177 |         process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
-
 178 |     } else {
-
 179 |     let stay = add_at(next_counts, col, cnt)
-
 180 |     process_cols_b(row_txt, col + 1, width, active_counts, stay, finished)
-
 181 | }
-
 182 | }
-
 183 | }
-
 184 | }
-
 185 | 
-
 186 | fn simulate_b(lines, row_idx, width, active_counts, finished) {
-
 187 |     if row_idx >= len(lines) {
-
 188 |         finished + sum_arr(active_counts, 0, 0)
-
 189 |     } else {
-
 190 |     let row_txt = line_at(lines, row_idx)
-
 191 |     let next0 = zeros(width, 0, [||])
-
 192 |     let r = process_cols_b(row_txt, 0, width, active_counts, next0, finished)
-
 193 |     simulate_b(lines, row_idx + 1, width, step_b_next(r), step_b_done(r))
-
 194 | }
-
 195 | }
-
 196 | 
-
 197 | fn day07a(lines) {
-
 198 |     let width = max_width(lines, 0, 0)
-
 199 |     let start = find_s(lines, 0)
-
 200 |     let srow = start.0
-
 201 |     let scol = start.1
-
 202 |     let start_mask = set_at(zeros(width, 0, [||]), scol, 1)
-
 203 |     simulate_a(lines, srow, width, start_mask, 0)
     |                                                ^
-    |                                                - this argument is `Int`
+    |                                                - this argument has type `Int`
+
+Note:
+  expected argument type: Array<Int>
+  found argument type: Int
 
 Help:
-  Expected `Array<Int>` as the 5th argument.
+  Pass a `Array<Int>` value as the 5th argument.
 
 Found 6 errors.
 == stdout ==

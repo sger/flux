@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/143_match_bool_missing_false.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive: missing Bool case(s): false.
 
-  --> examples/type_system/failing/143_match_bool_missing_false.flx:4:14
+  examples/type_system/failing/143_match_bool_missing_false.flx:4:14
   |
 4 |     let _x = match b {
   |              ^^^^^^^^^

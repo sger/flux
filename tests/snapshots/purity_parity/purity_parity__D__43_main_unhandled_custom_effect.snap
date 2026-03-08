@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/43_main_unhandled_custom_effect.f
 exit_code: 1
 
 == vm tuples ==
-- E406 | UNHANDLED ROOT EFFECT | 
+- E406 | Unhandled Root Effect | 
 
 == jit tuples ==
-- E406 | UNHANDLED ROOT EFFECT | 
+- E406 | Unhandled Root Effect | 
 
 == parity ==
 match

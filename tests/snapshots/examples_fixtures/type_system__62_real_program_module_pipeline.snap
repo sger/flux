@@ -5,11 +5,11 @@ Fixture: examples/type_system/62_real_program_module_pipeline.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+Error[E011]: Private Member
 
 Cannot access private member `map_list`.
 
-  --> examples/type_system/62_real_program_module_pipeline.flx:17:32
+  examples/type_system/62_real_program_module_pipeline.flx:17:32
    |
 17 |     let labels: List<String> = C.map_list(rows, /p -> format_row(p))
    |                                ^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
---> compiler error[E011]: PRIVATE MEMBER
+Error[E011]: Private Member
 
 Cannot access private member `join_strings`.
 
-  --> examples/type_system/62_real_program_module_pipeline.flx:19:11
+  examples/type_system/62_real_program_module_pipeline.flx:19:11
    |
 19 |     print(C.join_strings(labels, ", "))
    |           ^^^^^^^^^^^^^^

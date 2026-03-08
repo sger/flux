@@ -1,0 +1,78 @@
+// Omnibus parser-torture fixture.
+//
+// This file intentionally combines many independent parser mistakes in one
+// place so the CLI can exercise broad recovery behavior in a single run.
+
+import
+import Demo as
+import Foo.Bar except x, y ]
+
+effect Console {
+    print String -> Unit
+    read: Unit -> String
+}
+
+type Pair = Pair(Int String) | Empty
+
+data Result {
+    Ok(Int String),
+    Err(String),
+}
+
+fn greet(name: String) -> String
+    "Hello, " + name
+
+fn bad_param(name String) -> String { name }
+
+fn tuple_case() -> Unit {
+    let pair = (1, "hello"
+    print(pair)
+}
+
+fn list_case() -> Unit {
+    let xs = [1, 2, 3
+    print(xs)
+}
+
+fn hash_case() -> Unit {
+    let h = { "a" 1 }
+    print(h)
+}
+
+fn lambda_case() -> Unit {
+    let f = \x x + 1
+    print(f(5))
+}
+
+fn args_case() -> Unit {
+    let _r = add(1 2)
+}
+
+fn do_case() -> Unit {
+    do
+        let x = 1
+        print(x)
+}
+
+fn else_case() -> Unit {
+    let _label = if true { "ok" } else "bad"
+}
+
+fn match_case() -> Unit
+    let _m = match 1 {
+        0 "zero",
+        1 -> "one",
+    }
+
+fn handle_case() -> Unit {
+    let _x = 1 handle IO { print(resume, msg) print(msg) }
+}
+
+fn mixed_closer_case() -> Unit {
+    let _x = (1 + 2]
+}
+
+module BrokenModule
+
+else
+->

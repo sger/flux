@@ -5,17 +5,21 @@ Fixture: examples/type_system/failing/200_effect_row_absent_ordering_linked_viol
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E421]: INVALID EFFECT SUBTRACTION
+Error[E421]: Effect Requirement Mismatch
 
-Cannot subtract effect `IO` from a row that does not contain it.
+I cannot subtract effect `IO` from this effect row.
 
-  --> examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:20:13
+  examples/type_system/failing/200_effect_row_absent_ordering_linked_violation_e421.flx:20:13
    |
 20 |     let _ = needs_linked_absence(row_var_worker, io_worker)
    |             ^^^^^^^^^^^^^^^^^^^^
-   |             -------------------- effect row constraint failed
+   |             -------------------- this call violates an effect-row subtraction constraint
 
-Hint:
+Note:
+  requested subtraction: IO
+  constraint source: effect-row subtraction during call checking
+
+Help:
   Handle or include this effect before subtracting it from an effect row.
 == stdout ==
 <not executed>

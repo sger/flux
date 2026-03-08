@@ -5,11 +5,11 @@ Fixture: examples/Modules/UserUtils.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `Modules.UserUtils` doesn't match file path `examples/Modules/UserUtils.flx`.
 
-  --> examples/Modules/UserUtils.flx:1:1
+  examples/Modules/UserUtils.flx:1:1
   |
 1 | module Modules.UserUtils {
   | ^

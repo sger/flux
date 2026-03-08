@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify Int with String.
+I found a type mismatch.
 
-  --> examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:2:8
+  examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:2:8
   |
 2 |     xs["0"]
   |        ^^^
-  |        --- expected Int, found String
+  |        --- this expression has type `String`
+
   |        --- index expression is known at compile time
 
+Note:
+  expected type: Int
+  found type: String
+
 Help:
+  These two types are not compatible.
   use an Int index for Array/List/Tuple access
 == stdout ==
 <not executed>

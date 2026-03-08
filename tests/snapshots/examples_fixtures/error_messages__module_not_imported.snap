@@ -5,11 +5,11 @@ Fixture: examples/error_messages/module_not_imported.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E013]: MODULE NOT IMPORTED
+Error[E013]: Module Not Imported
 
 Module `MyModule` is not imported.
 
-  --> examples/error_messages/module_not_imported.flx:6:14
+  examples/error_messages/module_not_imported.flx:6:14
   |
 6 | let result = MyModule.someFunction();
   |              ^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,12 @@
+// Missing closing `}` in module declaration.
+//
+// Expected: E076 UNCLOSED DELIMITER
+//   Points to the opening `{` of the module.
+
+module Math {
+    pub fn add(a: Int, b: Int) -> Int { a + b }
+
+
+fn main() -> Unit {
+    let _r = Math.add(1, 2)
+}

@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/t16_perform_missing_dot_contextual.flx
 exit_code: 1
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Effect Operation Separator
 
-Expected `.` between effect and operation in `perform`.
+This `perform` expression needs `.` between the effect and operation.
 
-  --> tests/fixtures/recovery/t16_perform_missing_dot_contextual.flx:1:20
+  tests/fixtures/recovery/t16_perform_missing_dot_contextual.flx:1:20
   |
 1 | let x = perform IO print("hi")
   |                    ^^^^^

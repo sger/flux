@@ -5,22 +5,24 @@ Fixture: examples/type_system/failing/12_generic_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 2nd argument to `both` has the wrong type.
+I found the wrong type in the 2nd argument to `both`.
 
-  --> examples/type_system/failing/12_generic_mismatch.flx:7:10
+  examples/type_system/failing/12_generic_mismatch.flx:7:10
   |
 5 | fn both<T>(a: T, b: T) -> T { a }
-
   | --------------------------------- `both` expects `Int` as the 2nd parameter
 6 | 
-
 7 | both(42, "hello")
   |          ^^^^^^^
-  |          ------- this argument is `String`
+  |          ------- this argument has type `String`
+
+Note:
+  expected argument type: Int
+  found argument type: String
 
 Help:
-  Expected `Int` as the 2nd argument.
+  Pass a `Int` value as the 2nd argument.
 == stdout ==
 <not executed>

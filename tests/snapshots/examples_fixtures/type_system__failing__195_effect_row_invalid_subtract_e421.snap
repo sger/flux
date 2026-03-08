@@ -5,30 +5,26 @@ Fixture: examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E421]: INVALID EFFECT SUBTRACTION
+Error[E300]: Parameter Type Mismatch
 
-Cannot subtract effect `Console` from a row that does not contain it.
+Parameter 1 has the wrong type.
 
-  --> examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:18:5
-   |
-18 |     run_filtered(io_console_work)
-   |     ^^^^^^^^^^^^
-   |     ------------ effect row constraint failed
-
-Hint:
-  Handle or include this effect before subtracting it from an effect row.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Function parameter 1 type does not match: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`.
-
-  --> examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:18:5
+  examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:18:5
    |
 18 |     run_filtered(io_console_work)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |     ----------------------------- parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
+   |     ----------------------------- parameter 1 has type `() -> Unit with Console, IO`
 
-Found 2 errors.
+Note:
+  expected parameter type: () -> Unit with IO
+  found parameter type: () -> Unit with Console, IO
+
+Help:
+  Change parameter 1 to use `() -> Unit with IO` consistently.
+
+
+Note[E000]: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 == stdout ==
 <not executed>

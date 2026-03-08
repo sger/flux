@@ -5,11 +5,11 @@ Fixture: examples/errors/unterminated_string.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E071]: UNTERMINATED STRING
+Error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  --> examples/errors/unterminated_string.flx:6:15
+  examples/errors/unterminated_string.flx:6:15
   |
 6 | let message = "Hello World
   |               ^^^^^^^^^^^^

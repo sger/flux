@@ -15,14 +15,14 @@ $ flux --no-cache examples/type_system/failing/38_top_level_effect_rejected.flx 
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected () -> Unit, found () -> Unit with IO
-- E413 | TOP-LEVEL EFFECT | top-level effectful expression
-- E414 | MISSING MAIN FUNCTION | effectful top-level execution
+- E413 | Top-Level Effect | top-level effectful expression
+- E414 | Missing Main Function | effectful top-level execution
+- E400 | Missing Effect | requires `IO`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected () -> Unit, found () -> Unit with IO
-- E413 | TOP-LEVEL EFFECT | top-level effectful expression
-- E414 | MISSING MAIN FUNCTION | effectful top-level execution
+- E413 | Top-Level Effect | top-level effectful expression
+- E414 | Missing Main Function | effectful top-level execution
+- E400 | Missing Effect | requires `IO`
 
 == parity ==
 match

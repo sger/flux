@@ -5,70 +5,65 @@ Fixture: examples/io/aoc_day1_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 2nd argument to `count_zeros_right` has the wrong type.
+I found the wrong type in the 2nd argument to `count_zeros_right`.
 
-  --> examples/io/aoc_day1_part2.flx:45:44
+  examples/io/aoc_day1_part2.flx:45:44
    |
 30 | fn count_zeros_right(pos, distance) {
-
 31 |     let first_zero_click = if pos == 0 { 100 } else { 100 - pos }
-
 32 |     count_hits_for_rotation(first_zero_click, distance)
-
 33 | }
-
 34 | 
-
 35 | fn count_zeros_left(pos, distance) {
-
 36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
-
 37 |     count_hits_for_rotation(first_zero_click, distance)
-
 38 | }
-
 39 | 
-
 40 | fn apply_rotation(step, rest, pos, hits) {
-
 41 |     let dir = substring(step, 0, 1)
-
 42 |     let distance = parse_int(substring(step, 1, len(step)))
-
 43 | 
-
 44 |     if dir == "R" {
-
 45 |         let zeros = count_zeros_right(pos, distance)
    |                                            ^^^^^^^^
-   |                                            -------- this argument is `Option<Int>`
+   |                                            -------- this argument has type `Option<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Option<Int>
 
 Help:
-  Expected `Int` as the 2nd argument.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify matching '+' operands (Int+Int, Float+Float, or String+String) with Int and Option<Int>.
+I found a type mismatch.
 
-  --> examples/io/aoc_day1_part2.flx:46:39
+  examples/io/aoc_day1_part2.flx:46:39
    |
 46 |         let next_pos_right = wrap_100(pos + distance)
    |                                       ^^^^^^^^^^^^^^
-   |                                       -------------- expected matching '+' operands (Int+Int, Float+Float, or String+String), found Int and Option<Int>
+   |                                       -------------- this expression has type `Int and Option<Int>`
+
    |                                       -------------- operator operands are known at compile time
 
+Note:
+  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
+  found type: Int and Option<Int>
+
 Help:
+  These two types are not compatible.
   adjust operand types or add explicit conversion
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `solve`.
 
-  --> examples/io/aoc_day1_part2.flx:47:9
+  examples/io/aoc_day1_part2.flx:47:9
    |
 47 |         solve(rest, next_pos_right, hits + zeros)
    |         ^^^^^
@@ -77,46 +72,36 @@ Hint:
   Define it first: let solve = ...;
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 2nd argument to `count_zeros_left` has the wrong type.
+I found the wrong type in the 2nd argument to `count_zeros_left`.
 
-  --> examples/io/aoc_day1_part2.flx:49:44
+  examples/io/aoc_day1_part2.flx:49:44
    |
 35 | fn count_zeros_left(pos, distance) {
-
 36 |     let first_zero_click = if pos == 0 { 100 } else { pos }
-
 37 |     count_hits_for_rotation(first_zero_click, distance)
-
 38 | }
-
 39 | 
-
 40 | fn apply_rotation(step, rest, pos, hits) {
-
 41 |     let dir = substring(step, 0, 1)
-
 42 |     let distance = parse_int(substring(step, 1, len(step)))
-
 43 | 
-
 44 |     if dir == "R" {
-
 45 |         let zeros = count_zeros_right(pos, distance)
-
 46 |         let next_pos_right = wrap_100(pos + distance)
-
 47 |         solve(rest, next_pos_right, hits + zeros)
-
 48 |     } else {
-
 49 |     let zeros_left = count_zeros_left(pos, distance)
    |                                            ^^^^^^^^
-   |                                            -------- this argument is `Option<Int>`
+   |                                            -------- this argument has type `Option<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Option<Int>
 
 Help:
-  Expected `Int` as the 2nd argument.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 Found 4 errors.
 == stdout ==
