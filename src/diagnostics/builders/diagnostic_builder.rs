@@ -8,6 +8,7 @@ use std::rc::Rc;
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
     DiagnosticCategory, ErrorType, Hint, HintChain, InlineSuggestion, Label, RelatedDiagnostic,
+    StackTraceFrame,
 };
 
 /// Builder trait for constructing diagnostics with a fluent API
@@ -134,4 +135,14 @@ pub trait DiagnosticBuilder: Sized {
 
     /// Add a related diagnostic entry (note/help/related)
     fn with_related(self, related: RelatedDiagnostic) -> Self;
+
+    // ===== Runtime Stack Trace =====
+
+    /// Add a rendered runtime stack trace frame.
+    fn with_stack_trace_frame(self, frame: StackTraceFrame) -> Self;
+
+    /// Replace the runtime stack trace with the provided frames.
+    fn with_stack_trace<I>(self, frames: I) -> Self
+    where
+        I: IntoIterator<Item = StackTraceFrame>;
 }

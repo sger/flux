@@ -4,7 +4,9 @@ use crate::runtime::{
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{Diagnostic, ErrorType, render_runtime_diagnostic, runtime_type_error},
+    diagnostics::{
+        Diagnostic, DiagnosticPhase, ErrorType, render_runtime_diagnostic, runtime_type_error,
+    },
 };
 use std::collections::HashMap;
 
@@ -113,7 +115,8 @@ impl JitContext {
             None,
             file.clone(),
             span,
-        );
+        )
+        .with_phase(DiagnosticPhase::Runtime);
         render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 

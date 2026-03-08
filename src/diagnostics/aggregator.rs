@@ -109,6 +109,11 @@ struct HintChainKey {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct StackTraceKey {
+    text: String,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct DiagnosticKey {
     file: Option<String>,
     span: Option<SpanKey>,
@@ -121,6 +126,7 @@ struct DiagnosticKey {
     suggestions: Vec<SuggestionKey>,
     hint_chains: Vec<HintChainKey>,
     related: Vec<RelatedKey>,
+    stack_trace: Vec<StackTraceKey>,
 }
 
 impl DiagnosticKey {
@@ -159,6 +165,11 @@ impl DiagnosticKey {
             .map(RelatedKey::from_related)
             .collect::<Vec<_>>();
         related.sort_by(related_sort);
+        let stack_trace = diag
+            .stack_trace()
+            .iter()
+            .map(StackTraceKey::from_frame)
+            .collect::<Vec<_>>();
         Self {
             file: effective_file(diag, default_file).map(|f| f.to_string()),
             span: diag.span().map(SpanKey::from_span),
@@ -171,6 +182,15 @@ impl DiagnosticKey {
             suggestions,
             hint_chains,
             related,
+            stack_trace,
+        }
+    }
+}
+
+impl StackTraceKey {
+    fn from_frame(frame: &super::StackTraceFrame) -> Self {
+        Self {
+            text: frame.text.clone(),
         }
     }
 }
@@ -253,7 +273,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
-    fn unique_sorted_suppressed(&self) -> Vec<Diagnostic> {
+    fn unique_sorted(&self) -> Vec<Diagnostic> {
         let default_file = self.default_file.as_deref();
         let mut seen: HashSet<DiagnosticKey> = HashSet::new();
         let mut unique: Vec<IndexedDiagnostic<'_>> = Vec::new();
@@ -279,7 +299,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .then_with(|| a.index.cmp(&b.index))
         });
 
-        suppress_nearby_duplicate_e300(unique, default_file)
+        unique.into_iter().map(|item| item.diag.clone()).collect()
     }
 
     fn apply_stage_filtering(
@@ -357,8 +377,6 @@ impl<'a> DiagnosticsAggregator<'a> {
         };
 
         let mut out = Vec::with_capacity(diagnostics.len());
-        let mut root_file = effective_file(&diagnostics[first_idx], self.default_file.as_deref())
-            .map(ToString::to_string);
         let mut root_line = diagnostics[first_idx]
             .span()
             .map(|s| s.start.line)
@@ -375,25 +393,18 @@ impl<'a> DiagnosticsAggregator<'a> {
                 continue;
             }
 
-            let file = effective_file(&diag, self.default_file.as_deref()).map(ToString::to_string);
             let line = diag.span().map(|s| s.start.line).unwrap_or(0);
-            let is_generic = diag.code() == Some("E034");
-            // Only collapse generic E034 errors that follow a *structural* root
-            // error which corrupts the token stream (unterminated string, unclosed
-            // delimiter).  Other root errors (e.g. E030 unknown keyword) recover
-            // cleanly, so nearby E034s are likely independent issues.
-            let root_is_structural = matches!(root_code.as_deref(), Some("E071" | "E076"));
+            let is_generic = is_generic_parser_cascade(&diag);
+            let root_is_structural = is_structural_parse_root(root_code.as_deref());
             if seen_parse_error
                 && is_generic
                 && root_is_structural
-                && file == root_file
                 && line <= root_line.saturating_add(3)
             {
                 suppressed_cascades += 1;
                 continue;
             }
 
-            root_file = file;
             root_line = line;
             root_code = diag.code().map(ToString::to_string);
             seen_parse_error = true;
@@ -415,10 +426,43 @@ impl<'a> DiagnosticsAggregator<'a> {
     }
 
     fn process_with_metadata(&self) -> (Vec<Diagnostic>, StageFilterStats) {
-        let deduped = self.unique_sorted_suppressed();
-        let (filtered, stats) = self.apply_stage_filtering(deduped);
-        let collapsed = self.collapse_parser_cascades(filtered);
-        (collapsed, stats)
+        let default_file = self.default_file.as_deref();
+        let deduped = self.unique_sorted();
+        let mut processed = Vec::new();
+        let mut stats = StageFilterStats::default();
+        let mut group = Vec::new();
+        let mut current_file: Option<String> = None;
+
+        let flush_group =
+            |group: &mut Vec<Diagnostic>, stats: &mut StageFilterStats, processed: &mut Vec<Diagnostic>| {
+                if group.is_empty() {
+                    return;
+                }
+                let indexed = group
+                    .iter()
+                    .enumerate()
+                    .map(|(index, diag)| IndexedDiagnostic { index, diag })
+                    .collect::<Vec<_>>();
+                let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
+                let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
+                let collapsed = self.collapse_parser_cascades(filtered);
+                stats.suppressed_type_count += group_stats.suppressed_type_count;
+                stats.suppressed_effect_count += group_stats.suppressed_effect_count;
+                processed.extend(collapsed);
+                group.clear();
+            };
+
+        for diag in deduped {
+            let file_key = effective_file(&diag, default_file).map(ToString::to_string);
+            if !group.is_empty() && file_key != current_file {
+                flush_group(&mut group, &mut stats, &mut processed);
+            }
+            current_file = file_key;
+            group.push(diag);
+        }
+
+        flush_group(&mut group, &mut stats, &mut processed);
+        (processed, stats)
     }
 
     fn apply_error_limit(&self, diagnostics: Vec<Diagnostic>) -> (Vec<Diagnostic>, usize) {
@@ -689,6 +733,24 @@ fn column_key(diag: &Diagnostic) -> usize {
 
 fn message_key(diag: &Diagnostic) -> &str {
     diag.message().unwrap_or("")
+}
+
+fn is_structural_parse_root(code: Option<&str>) -> bool {
+    matches!(code, Some("E071" | "E076"))
+}
+
+fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {
+    matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+        && diag.severity() == Severity::Error
+        && matches!(diag.code(), Some("E031" | "E034" | "E073"))
+        && matches!(
+            diag.category(),
+            Some(
+                crate::diagnostics::DiagnosticCategory::ParserExpression
+                    | crate::diagnostics::DiagnosticCategory::ParserSeparator
+                    | crate::diagnostics::DiagnosticCategory::ParserDelimiter
+            )
+        )
 }
 
 fn suppress_nearby_duplicate_e300(

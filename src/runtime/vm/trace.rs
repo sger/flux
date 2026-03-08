@@ -1,7 +1,7 @@
 use crate::{
     bytecode::op_code::{OpCode, operand_widths, read_u8, read_u16, read_u32},
     diagnostics::{
-        Diagnostic, ErrorCode, ErrorType, RUNTIME_TYPE_ERROR,
+        Diagnostic, DiagnosticPhase, ErrorCode, ErrorType, RUNTIME_TYPE_ERROR,
         position::{Position, Span},
         render_display_path, render_runtime_diagnostic, runtime_type_error,
     },
@@ -44,7 +44,8 @@ impl VM {
             hint.map(|h| h.trim().to_string()),
             file.clone(),
             span,
-        );
+        )
+        .with_phase(DiagnosticPhase::Runtime);
         self.render_runtime_diagnostic(&diag, &file)
     }
 
@@ -70,6 +71,7 @@ impl VM {
             )
         } else {
             Diagnostic::make_error(error_code, values, file.clone(), span)
+                .with_phase(DiagnosticPhase::Runtime)
         };
         self.render_runtime_diagnostic(&diag, &file)
     }

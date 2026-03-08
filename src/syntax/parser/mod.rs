@@ -1,8 +1,9 @@
 use crate::{
     diagnostics::{
+        DiagnosticCategory,
         Diagnostic,
         position::{Position, Span},
-        unexpected_token,
+        unexpected_token_with_details,
     },
     syntax::{
         expression::{ExprId, ExprIdGen},
@@ -110,8 +111,10 @@ impl Parser {
                     self.next_token();
                     continue;
                 }
-                self.errors.push(unexpected_token(
+                self.errors.push(unexpected_token_with_details(
                     self.current_token.span(),
+                    "Unexpected Closing Delimiter",
+                    DiagnosticCategory::ParserDelimiter,
                     "Unexpected `}` outside of a block.",
                 ));
                 self.next_token();

@@ -1,8 +1,9 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, missing_fn_param_list, missing_function_body_brace, missing_let_assign,
-        orphan_constructor_pattern, position::Span, unexpected_end_keyword, unexpected_token,
-        unknown_keyword, unknown_keyword_alias,
+        DiagnosticBuilder, DiagnosticCategory, missing_fn_param_list,
+        missing_function_body_brace, missing_let_assign, orphan_constructor_pattern,
+        position::Span, unexpected_end_keyword, unexpected_token,
+        unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
         data_variant::DataVariant, effect_ops::EffectOp, precedence::Precedence,
@@ -272,8 +273,10 @@ impl Parser {
     pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
         let start = self.current_token.position;
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Function Name",
+            DiagnosticCategory::ParserDeclaration,
             "Expected function name after `fn`.".to_string(),
             "Function declarations start with `fn name(...) { ... }`.".to_string(),
         ) {
@@ -291,8 +294,10 @@ impl Parser {
             self.next_token(); // consume '<'
 
             loop {
-                if !self.expect_peek_context(
+                if !self.expect_peek_context_with_details(
                     TokenType::Ident,
+                    "Missing Generic Parameter Name",
+                    DiagnosticCategory::ParserDeclaration,
                     "Expected generic type parameter name.".to_string(),
                     "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
                 ) {
@@ -309,8 +314,10 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Gt,
+                "Missing Generic Parameter List",
+                DiagnosticCategory::ParserDelimiter,
                 "Expected `>` to close generic parameter list.".to_string(),
                 "Generic parameters use `fn name<T, U>(...) { ... }`.".to_string(),
             ) {
@@ -328,8 +335,10 @@ impl Parser {
             return None;
         }
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LParen,
+            "Missing Function Parameter List",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `(` after function name.".to_string(),
             "Function declarations use `fn name(params) { ... }`.".to_string(),
         ) {
@@ -354,8 +363,10 @@ impl Parser {
             }
             ty
         } else if self.token_starts_type(self.peek_token.token_type) {
-            self.errors.push(unexpected_token(
+            self.errors.push(unexpected_token_with_details(
                 self.peek_token.span(),
+                "Missing Return Type Arrow",
+                DiagnosticCategory::ParserSeparator,
                 "Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.",
             ));
             self.next_token(); // start of return type
@@ -575,8 +586,10 @@ impl Parser {
 
         let name = self.parse_qualified_name()?;
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LBrace,
+            "Missing Module Body",
+            DiagnosticCategory::ParserDeclaration,
             "This module body needs to start with `{`.".to_string(),
             "Module declarations use `module Name { ... }`.".to_string(),
         ) {
@@ -597,8 +610,10 @@ impl Parser {
     pub(super) fn parse_import_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
 
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Import Path",
+            DiagnosticCategory::ParserDeclaration,
             "This import needs a module path after `import`.".to_string(),
             "Import statements use `import Module.Name`.".to_string(),
         ) {
@@ -607,8 +622,10 @@ impl Parser {
             {
                 self.errors.pop();
                 self.errors.push(
-                    unexpected_token(
+                    unexpected_token_with_details(
                         self.current_token.span(),
+                        "Missing Import Path",
+                        DiagnosticCategory::ParserDeclaration,
                         "This import needs a module path after `import`.",
                     )
                     .with_hint_text("Import statements use `import Module.Name`."),
@@ -634,8 +651,13 @@ impl Parser {
                     self.peek_token.span()
                 };
                 self.errors.push(
-                    unexpected_token(alias_span, "This import alias needs a name after `as`.")
-                        .with_hint_text("Import aliases use `import Module as Alias`."),
+                    unexpected_token_with_details(
+                        alias_span,
+                        "Missing Import Alias",
+                        DiagnosticCategory::ParserDeclaration,
+                        "This import alias needs a name after `as`.",
+                    )
+                    .with_hint_text("Import aliases use `import Module as Alias`."),
                 );
                 self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return None;
@@ -664,8 +686,10 @@ impl Parser {
     }
 
     fn parse_import_except_list(&mut self) -> Option<Vec<crate::syntax::Identifier>> {
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LBracket,
+            "Missing Import Except List",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `[` after `except` in import.".to_string(),
             "Import exclusions use `import Module except [Name1, Name2]`.".to_string(),
         ) {
@@ -680,8 +704,10 @@ impl Parser {
         }
 
         loop {
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Ident,
+                "Invalid Import Except List",
+                DiagnosticCategory::ParserDeclaration,
                 "Expected identifier in import `except` list.".to_string(),
                 "Import exclusions use `import Module except [Name1, Name2]`.".to_string(),
             ) {
@@ -727,8 +753,10 @@ impl Parser {
         let start = self.current_token.position;
 
         // current: 'data' — advance to type name
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Data Type Name",
+            DiagnosticCategory::ParserDeclaration,
             "Expected type name after `data`.".to_string(),
             "Data declarations use `data TypeName { Ctor, ... }`.".to_string(),
         ) {
@@ -773,8 +801,10 @@ impl Parser {
         }
 
         // Expect opening brace
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LBrace,
+            "Missing Data Body",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `{` to begin data constructors.".to_string(),
             "Data declarations use `data TypeName { Ctor, ... }`.".to_string(),
         ) {
@@ -789,8 +819,10 @@ impl Parser {
             let variant_checkpoint = self.start_construct_diagnostics_checkpoint();
 
             if self.current_token.token_type != TokenType::Ident {
-                self.errors.push(unexpected_token(
+                self.errors.push(unexpected_token_with_details(
                     self.current_token.span(),
+                    "Invalid Data Constructor",
+                    DiagnosticCategory::ParserDeclaration,
                     format!(
                         "I was expecting a constructor name in this `data` declaration, but I found {}.",
                         self.describe_token_type_for_diagnostic(self.current_token.token_type)
@@ -831,8 +863,10 @@ impl Parser {
                             _ => {
                                 if !self.push_followup_unless_structural_root(
                                     variant_checkpoint,
-                                    unexpected_token(
+                                    unexpected_token_with_details(
                                         self.current_token.span(),
+                                        "Missing Constructor Field Separator",
+                                        DiagnosticCategory::ParserSeparator,
                                         format!(
                                             "I was expecting `,` or `)` between constructor fields, but I found {}.",
                                             self.describe_token_type_for_diagnostic(
@@ -886,8 +920,10 @@ impl Parser {
         let start = self.current_token.position;
 
         // current: 'type' — advance to type name
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Type Name",
+            DiagnosticCategory::ParserDeclaration,
             "Expected type name after `type`.".to_string(),
             "ADT sugar uses `type TypeName = Ctor(...) | Other`.".to_string(),
         ) {
@@ -931,8 +967,10 @@ impl Parser {
         }
 
         // Expect '='
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Assign,
+            "Missing Type Definition",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `=` after type declaration name.".to_string(),
             "ADT sugar uses `type Name = Ctor(...) | Other`.".to_string(),
         ) {
@@ -980,8 +1018,10 @@ impl Parser {
                             _ => {
                                 if !self.push_followup_unless_structural_root(
                                     variant_checkpoint,
-                                    unexpected_token(
+                                    unexpected_token_with_details(
                                         self.current_token.span(),
+                                        "Missing Constructor Field Separator",
+                                        DiagnosticCategory::ParserSeparator,
                                         format!(
                                             "I was expecting `,` or `)` between constructor fields, but I found {}.",
                                             self.describe_token_type_for_diagnostic(
@@ -1035,8 +1075,10 @@ impl Parser {
         let start = self.current_token.position;
 
         // Effect name
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::Ident,
+            "Missing Effect Name",
+            DiagnosticCategory::ParserDeclaration,
             "Expected effect name after `effect`.".to_string(),
             "Effect declarations use `effect Name { op: Type -> Return, ... }`.".to_string(),
         ) {
@@ -1048,8 +1090,10 @@ impl Parser {
             .expect("ident token should have symbol");
 
         // `{`
-        if !self.expect_peek_context(
+        if !self.expect_peek_context_with_details(
             TokenType::LBrace,
+            "Missing Effect Body",
+            DiagnosticCategory::ParserDeclaration,
             "Expected `{` to begin effect declaration body.".to_string(),
             "Effect declarations use `effect Name { op: Type -> Return, ... }`.".to_string(),
         ) {
@@ -1066,8 +1110,10 @@ impl Parser {
             }
 
             if self.current_token.token_type != TokenType::Ident {
-                self.errors.push(unexpected_token(
+                self.errors.push(unexpected_token_with_details(
                     self.current_token.span(),
+                    "Invalid Effect Operation",
+                    DiagnosticCategory::ParserExpression,
                     format!(
                         "I was expecting an operation name in this `effect` declaration, but I found {}.",
                         self.describe_token_type_for_diagnostic(self.current_token.token_type)
@@ -1086,8 +1132,10 @@ impl Parser {
                 self.next_token(); // consume `:`
                 self.next_token(); // move to start of TypeExpr
             } else if self.token_starts_type(self.peek_token.token_type) {
-                self.errors.push(unexpected_token(
+                self.errors.push(unexpected_token_with_details(
                     self.peek_token.span(),
+                    "Missing Effect Operation Colon",
+                    DiagnosticCategory::ParserSeparator,
                     "Missing `:` in effect operation signature. Write it as `op: Type -> Return`.",
                 ));
                 self.next_token(); // move to start of TypeExpr
