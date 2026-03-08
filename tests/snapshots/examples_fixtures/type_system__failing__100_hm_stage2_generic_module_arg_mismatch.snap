@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.HmGenericModule` to import.
 
-  --> examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx:8:1
+  examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx:8:1
   |
 8 | import TypeSystem.HmGenericModule as M
   | ^

@@ -1,0 +1,74 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/modules_many_errors/Main.flx
+== compile ==
+failed (module)
+== diagnostics ==
+Error[E034]: Missing Effect Operation Colon
+
+Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:3:15
+  |
+3 |         print String -> Unit,,
+  |               ^^^^^^
+
+
+Error[E034]: Invalid Effect Operation
+
+I was expecting an operation name in this `effect` declaration, but I found `,`.
+
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:3:30
+  |
+3 |         print String -> Unit,,
+  |                              ^
+
+
+Error[E034]: Missing Function Body
+
+This function body needs to start with `{`.
+
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:3:9
+  |
+2 |     pub fn greet(name: String) -> String
+  |         - `greet` starts here
+3 |         "Hello, " + name
+  |         ^^^^^^^^^
+  |         --------- This looks like the function body
+
+Help:
+  Try adding `{` after the function signature.
+
+
+Error[E034]: Missing Function Body
+
+This function body needs to start with `{`.
+
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:6:9
+  |
+5 |     pub fn parting(name: String) -> String
+  |         - `parting` starts here
+6 |         "Goodbye, " + name
+  |         ^^^^^^^^^^^
+  |         ----------- This looks like the function body
+
+Help:
+  Try adding `{` after the function signature.
+
+
+Error[E034]: Missing Match Arm Arrow
+
+I was expecting `->` in this match arm, but I found a string literal.
+
+  examples/parser_errors/modules_many_errors/BrokenMatch.flx:4:15
+  |
+4 |             0 "zero",
+  |               ^^^^^^
+
+Help:
+  Write match arms as `match x { pattern -> body, ... }`.
+
+Found 5 errors across 3 modules.
+== stdout ==
+<not executed>

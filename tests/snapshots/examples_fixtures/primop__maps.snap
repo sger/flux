@@ -5,17 +5,21 @@ Fixture: examples/primop/maps.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 3rd argument to `put` has the wrong type.
+I found the wrong type in the 3rd argument to `put`.
 
-  --> examples/primop/maps.flx:5:30
+  examples/primop/maps.flx:5:30
   |
 5 |     let m2 = put(m1, "year", 2026);
   |                              ^^^^
-  |                              ---- this argument is `Int`
+  |                              ---- this argument has type `Int`
+
+Note:
+  expected argument type: String
+  found argument type: Int
 
 Help:
-  Expected `String` as the 3rd argument.
+  Try `to_string(...)` to convert a `Int` into a `String`.
 == stdout ==
 <not executed>

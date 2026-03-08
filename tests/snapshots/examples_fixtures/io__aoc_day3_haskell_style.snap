@@ -5,11 +5,11 @@ Fixture: examples/io/aoc_day3_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `best_with_digit`.
 
-  --> examples/io/aoc_day3_haskell_style.flx:22:5
+  examples/io/aoc_day3_haskell_style.flx:22:5
    |
 22 |     best_with_digit(line, start_idx, k, 9)
    |     ^^^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Define it first: let best_with_digit = ...;
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `try_occurrences`.
 
-  --> examples/io/aoc_day3_haskell_style.flx:32:11
+  examples/io/aoc_day3_haskell_style.flx:32:11
    |
 32 |     match try_occurrences(line, digit_str, first_pos, k) {
    |           ^^^^^^^^^^^^^^^
@@ -31,17 +31,15 @@ Hint:
   Define it first: let try_occurrences = ...;
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Branch Type Mismatch
 
-The branches of this `if` expression produce different types.
+The branches of this `if` expression do not agree on a type.
 
-  --> examples/io/aoc_day3_haskell_style.flx:58:5
+  examples/io/aoc_day3_haskell_style.flx:58:5
    |
 56 |         Some(0)
-
    |         ------- `then` branch returns `Int`
 57 |     } else {
-
 58 |     match best_number_string(cleaned, 0, n) {
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 59 |         Some(s) -> Some(parse_int(s)),
@@ -51,23 +49,18 @@ The branches of this `if` expression produce different types.
 61 |     }
    | ^^^^^
 
+Note:
+  then branch type: Int
+  else branch type: Option<Int>
+
 Help:
-  Both branches must return the same type. Change one branch to match `Int` or `Option<Int>`.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 
---> compiler error[E400]: MISSING EFFECT
+Note[E000]: Downstream Errors Suppressed
 
-Call to `read_lines` requires effect `IO` in this function signature.
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
-  --> examples/io/aoc_day3_haskell_style.flx:78:30
-   |
-78 |     match sum_values(to_list(read_lines(path)), n, 0) {
-   |                              ^^^^^^^^^^
-   |                              ---------- effectful call occurs here
-
-Hint:
-  Add `with IO` to the enclosing function.
-
-Found 4 errors.
+Found 3 errors.
 == stdout ==
 <not executed>

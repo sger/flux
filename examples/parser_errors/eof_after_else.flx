@@ -1,0 +1,2 @@
+fn main() -> Unit {
+    let value = if true { 1 } else

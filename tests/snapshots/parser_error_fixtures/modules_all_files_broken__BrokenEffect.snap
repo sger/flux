@@ -1,0 +1,29 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/modules_all_files_broken/BrokenEffect.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Effect Operation Colon
+
+Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
+
+  examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:3:15
+  |
+3 |         print String -> Unit,,
+  |               ^^^^^^
+
+
+Error[E034]: Invalid Effect Operation
+
+I was expecting an operation name in this `effect` declaration, but I found `,`.
+
+  examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:3:30
+  |
+3 |         print String -> Unit,,
+  |                              ^
+
+Found 2 errors.
+== stdout ==
+<not executed>

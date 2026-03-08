@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Wrong Number Of Arguments
 
-Function arity does not match.
+I am applying a function to too many arguments.
 
-  --> examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx:11:14
+  examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx:11:14
    |
 11 |     let _f = if true {
    |              ^^^^^^^^^
@@ -21,5 +21,12 @@ Function arity does not match.
    | ^^^^^^^^^^^^^^^^
 15 |     }
    | ^^^^^
+
+Note:
+  this function takes: 1 argument(s)
+  but this call passes: 2 argument(s)
+
+Help:
+  Remove 1 extra argument(s).
 == stdout ==
 <not executed>

@@ -1,0 +1,5 @@
+module EffectBroken {
+    fn noisy() -> Unit {
+        print("hi")
+    }
+}

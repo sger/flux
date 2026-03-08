@@ -5,11 +5,11 @@ Fixture: examples/errors/empty_match_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E014]: EMPTY MATCH
+Error[E014]: Empty Match
 
 Match expression must have at least one arm.
 
-  --> examples/errors/empty_match_error.flx:2:9
+  examples/errors/empty_match_error.flx:2:9
   |
 2 | let x = match 1 { };
   |         ^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/errors/empty_match_error.flx:2:9
+  examples/errors/empty_match_error.flx:2:9
   |
 2 | let x = match 1 { };
   |         ^^^^^^^^^^^
@@ -31,22 +31,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/errors/empty_match_error.flx:3:1
-  |
-3 | print(x);
-  | ^^^^^^^^
-  | -------- expected () -> Unit, found () -> Unit with IO
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/empty_match_error.flx:3:1
+  examples/errors/empty_match_error.flx:3:1
   |
 3 | print(x);
   | ^^^^^^^^^
@@ -56,11 +45,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/errors/empty_match_error.flx:3:1
+  examples/errors/empty_match_error.flx:3:1
   |
 3 | print(x);
   | ^^^^^^^^^
@@ -68,6 +57,20 @@ Effectful program is missing `fn main` root effect handler.
 
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
+
+
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/empty_match_error.flx:3:1
+  |
+3 | print(x);
+  | ^^^^^^^^
+  | -------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
 
 Found 5 errors.
 == stdout ==

@@ -1,0 +1,23 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_fn_brace.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Function Body
+
+This function body needs to start with `{`.
+
+  examples/parser_errors/missing_fn_brace.flx:9:5
+  |
+8 | fn greet(name: String) -> String
+  | - `greet` starts here
+9 |     "Hello, " + name
+  |     ^^^^^^^^^
+  |     --------- This looks like the function body
+
+Help:
+  Try adding `{` after the function signature.
+== stdout ==
+<not executed>

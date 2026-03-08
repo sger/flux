@@ -1,0 +1,17 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/malformed_effect_op_list.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Invalid Effect Operation
+
+I was expecting an operation name in this `effect` declaration, but I found `,`.
+
+  examples/parser_errors/malformed_effect_op_list.flx:2:27
+  |
+2 |     print: String -> Unit,,
+  |                           ^
+== stdout ==
+<not executed>

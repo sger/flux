@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/200_effect_row_absent_ordering_li
 exit_code: 1
 
 == vm tuples ==
-- E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
+- E421 | Effect Requirement Mismatch | this call violates an effect-row subtraction constraint
 
 == jit tuples ==
-- E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
+- E421 | Effect Requirement Mismatch | this call violates an effect-row subtraction constraint
 
 == parity ==
 match

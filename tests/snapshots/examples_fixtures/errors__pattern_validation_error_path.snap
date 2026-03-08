@@ -5,27 +5,11 @@ Fixture: examples/errors/pattern_validation_error_path.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with () -> Unit with IO.
-
-  --> examples/errors/pattern_validation_error_path.flx:9:1
-   |
- 9 | print(match value {
-   | ^^^^^^^^^^^^^^^^^^^
-10 |     _ -> "any",
-   | ^^^^^^^^^^^^^^^
-11 |     2 -> "two",
-   | ^^^^^^^^^^^^^^^
-12 | });
-   | ^^
-
-
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/pattern_validation_error_path.flx:9:1
+  examples/errors/pattern_validation_error_path.flx:9:1
    |
  9 | print(match value {
    | ^^^^^^^^^^^^^^^^^^^
@@ -40,11 +24,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+Error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/errors/pattern_validation_error_path.flx:9:1
+  examples/errors/pattern_validation_error_path.flx:9:1
    |
  9 | print(match value {
    | ^^^^^^^^^^^^^^^^^^^
@@ -59,11 +43,30 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
---> compiler error[E016]: INVALID PATTERN
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/pattern_validation_error_path.flx:9:1
+   |
+ 9 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^^
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E016]: Invalid Pattern
 
 Catch-all patterns must be the final match arm.
 
-  --> examples/errors/pattern_validation_error_path.flx:10:5
+  examples/errors/pattern_validation_error_path.flx:10:5
    |
 10 |     _ -> "any",
    |     ^
@@ -72,11 +75,11 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/pattern_validation_error_path.flx:14:1
+  examples/errors/pattern_validation_error_path.flx:14:1
    |
 14 | print(match value {
    | ^^^^^^^^^^^^^^^^^^^
@@ -91,11 +94,30 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/pattern_validation_error_path.flx:14:1
+   |
+14 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^^
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/errors/pattern_validation_error_path.flx:14:7
+  examples/errors/pattern_validation_error_path.flx:14:7
    |
 14 | print(match value {
    |       ^^^^^^^^^^^^^
@@ -110,11 +132,11 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+Error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/errors/pattern_validation_error_path.flx:19:1
+  examples/errors/pattern_validation_error_path.flx:19:1
    |
 19 | print(match value { });
    | ^^^^^^^^^^^^^^^^^^^^^^^
@@ -124,11 +146,25 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E014]: EMPTY MATCH
+Error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/pattern_validation_error_path.flx:19:1
+   |
+19 | print(match value { });
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+Error[E014]: Empty Match
 
 Match expression must have at least one arm.
 
-  --> examples/errors/pattern_validation_error_path.flx:19:7
+  examples/errors/pattern_validation_error_path.flx:19:7
    |
 19 | print(match value { });
    |       ^^^^^^^^^^^^^^^
@@ -137,11 +173,11 @@ Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
 
---> compiler error[E015]: NON-EXHAUSTIVE MATCH
+Error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
-  --> examples/errors/pattern_validation_error_path.flx:19:7
+  examples/errors/pattern_validation_error_path.flx:19:7
    |
 19 | print(match value { });
    |       ^^^^^^^^^^^^^^^
@@ -149,6 +185,6 @@ Match is non-exhaustive without an unguarded catch-all arm.
 Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
-Found 9 errors.
+Found 11 errors.
 == stdout ==
 <not executed>

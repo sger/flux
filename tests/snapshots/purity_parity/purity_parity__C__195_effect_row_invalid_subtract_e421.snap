@@ -15,12 +15,12 @@ $ flux --no-cache examples/type_system/failing/195_effect_row_invalid_subtract_e
 exit_code: 1
 
 == vm tuples ==
-- E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with Console, IO`
+- E000 | Downstream Errors Suppressed | 
 
 == jit tuples ==
-- E421 | INVALID EFFECT SUBTRACTION | effect row constraint failed
-- E300 | TYPE UNIFICATION ERROR | parameter 1: expected `() -> Unit with IO`, found `() -> Unit with Console, IO`
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with Console, IO`
+- E000 | Downstream Errors Suppressed | 
 
 == parity ==
 match

@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+Error[E083]: Non-Exhaustive ADT Match
 
 Match is non-exhaustive: nested list patterns under constructor `Boxed` field #1 miss non-empty list cases.
 
-  --> examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:9:5
+  examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:9:5
    |
  9 |     match w {
    |     ^^^^^^^^^

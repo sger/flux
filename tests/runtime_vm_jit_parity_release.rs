@@ -178,12 +178,12 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 
     assert!(
-        vm_stderr.contains("runtime error[E1004]"),
+        vm_stderr.contains("Error[E1004]: Type Error"),
         "expected VM runtime E1004 for `{file}`; got:\n{}",
         vm_stderr
     );
     assert!(
-        jit_stderr.contains("runtime error[E1004]"),
+        jit_stderr.contains("Error[E1004]: Type Error"),
         "expected JIT runtime E1004 for `{file}`; got:\n{}",
         jit_stderr
     );
@@ -270,7 +270,7 @@ fn release_runtime_parity_e1004_argument_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/185_runtime_boundary_arg_e1004.flx",
         &["examples/type_system"],
-        "Expected Int, got String.",
+        "expected type: Int",
     );
 }
 
@@ -279,7 +279,7 @@ fn release_runtime_parity_e1004_return_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/186_runtime_boundary_return_e1004.flx",
         &["examples/type_system"],
-        "Expected Int, got String.",
+        "expected type: Int",
     );
 }
 
@@ -288,7 +288,7 @@ fn release_runtime_parity_e1004_list_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/187_runtime_list_boundary_e1004.flx",
         &["examples/type_system"],
-        "Expected List<Int>, got String.",
+        "expected type: List<Int>",
     );
 }
 
@@ -297,6 +297,6 @@ fn release_runtime_parity_e1004_either_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/188_runtime_either_boundary_e1004.flx",
         &["examples/type_system"],
-        "Expected Either<String, Int>, got String.",
+        "expected type: Either<String, Int>",
     );
 }

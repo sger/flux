@@ -5,11 +5,11 @@ Fixture: examples/Modules/advanced_map_filter_fold_pipeline.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Modules.Analytics.Transforms` to import.
 
-  --> examples/Modules/advanced_map_filter_fold_pipeline.flx:5:1
+  examples/Modules/advanced_map_filter_fold_pipeline.flx:5:1
   |
 5 | import Modules.Analytics.Transforms as T
   | ^
@@ -19,11 +19,11 @@ Hint:
   Looked for module `Modules.Analytics.Transforms` under roots: examples/Modules, src (imported from examples/Modules/advanced_map_filter_fold_pipeline.flx).
 
 
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  --> examples/Modules/advanced_map_filter_fold_pipeline.flx:6:1
+  examples/Modules/advanced_map_filter_fold_pipeline.flx:6:1
   |
 6 | import Modules.Math as Math
   | ^

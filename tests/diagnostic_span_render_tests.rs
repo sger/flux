@@ -44,17 +44,44 @@ fn renders_single_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
---> warning[E123]: TEST
+Warning[E123]: Test
 
 message
 
-  --> test.flx:1:5
+  test.flx:1:5
   |
 1 | let x = 1;
   |     ^
 ";
 
     assert_eq!(output, expected);
+}
+
+#[test]
+fn renders_explicit_display_title_when_present() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let output = Diagnostic::warning("UNEXPECTED TOKEN")
+        .with_code("E034")
+        .with_display_title("Missing Function Body")
+        .with_message("Expected `{` to begin the body of this function.")
+        .with_file("test.flx")
+        .with_span(Span::new(Position::new(1, 0), Position::new(1, 1)))
+        .render(Some("fn x() -> Int\n"), None);
+
+    assert!(output.starts_with("Warning[E034]: Missing Function Body"));
+}
+
+#[test]
+fn falls_back_to_humanized_title_without_display_title() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let output = Diagnostic::warning("UNEXPECTED TOKEN")
+        .with_code("E034")
+        .with_message("message")
+        .with_file("test.flx")
+        .with_span(Span::new(Position::new(1, 0), Position::new(1, 1)))
+        .render(Some("x\n"), None);
+
+    assert!(output.starts_with("Warning[E034]: Unexpected Token"));
 }
 
 #[test]
@@ -71,11 +98,11 @@ fn renders_multi_line_snapshot() {
         .render(Some(source), None);
 
     let expected = "\
---> warning[E123]: TEST
+Warning[E123]: Test
 
 message
 
-  --> test.flx:1:5
+  test.flx:1:5
   |
 1 | let x = 1;
   |     ^^^^^^
@@ -84,6 +111,34 @@ message
 ";
 
     assert_eq!(output, expected);
+}
+
+#[test]
+fn renders_adjacent_lines_without_blank_separator_between_labels() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+    let source = "fn greet(name: String) -> String\n    \"Hello, \" + name\n";
+    let signature_span = Span::new(Position::new(1, 0), Position::new(1, 1));
+    let body_span = Span::new(Position::new(2, 4), Position::new(2, 13));
+
+    let output = Diagnostic::make_error_dynamic(
+        "E034",
+        "UNEXPECTED TOKEN",
+        ErrorType::Compiler,
+        "Expected `{` to begin the body of this function.",
+        None,
+        "test.flx",
+        body_span,
+    )
+    .with_secondary_label(signature_span, "`greet` starts here")
+    .with_primary_label(body_span, "This looks like the function body")
+    .render(Some(source), None);
+
+    assert!(
+        output.contains(
+            "1 | fn greet(name: String) -> String\n  | - `greet` starts here\n2 |     \"Hello, \" + name"
+        ),
+        "expected adjacent snippet lines without a blank separator, got:\n{output}"
+    );
 }
 
 #[test]
@@ -103,12 +158,12 @@ fn renders_hint_with_span() {
         .render(Some(source), None);
 
     // Should contain the main error location
-    assert!(output.contains("  --> test.flx:2:5"));
+    assert!(output.contains("  test.flx:2:5"));
     assert!(output.contains("2 | let x = 2;"));
 
     // Should contain the hint location
     assert!(output.contains("   = note:"));
-    assert!(output.contains("  --> test.flx:1:5"));
+    assert!(output.contains("  test.flx:1:5"));
     assert!(output.contains("1 | let x = 1;"));
 
     // Should contain the hint text
@@ -135,7 +190,7 @@ fn renders_hint_with_span_and_label() {
     assert!(output.contains("   = note: first defined here"));
 
     // Should contain the hint location
-    assert!(output.contains("  --> test.flx:1:5"));
+    assert!(output.contains("  test.flx:1:5"));
     assert!(output.contains("1 | let x = 1;"));
 
     // Should contain the hint text
@@ -164,7 +219,7 @@ fn renders_multiple_hints_mixed() {
 
     // Span-based hints should appear after with location
     assert!(output.contains("   = note:"));
-    assert!(output.contains("  --> test.flx:1:5"));
+    assert!(output.contains("  test.flx:1:5"));
     assert!(output.contains("1 | let x = 1;"));
 }
 
@@ -637,7 +692,7 @@ fn make_warning_from_code() {
     )
     .render(None, None);
 
-    assert!(output.contains("--> warning[W001]: Unused variable"));
+    assert!(output.contains("Warning[W001]: Unused variable"));
     assert!(output.contains("W001"));
     assert!(output.contains("Unused variable"));
     assert!(output.contains("Variable 'count' is declared but never used"));
@@ -650,18 +705,18 @@ fn all_severity_levels() {
 
     // Test all severity levels can be created
     let error = Diagnostic::warning("Error title").render(None, Some("test.flx"));
-    assert!(error.contains("--> warning[E000]: Error title"));
+    assert!(error.contains("Warning[E000]: Error title"));
 
     let warning = Diagnostic::warning("Warning title").render(None, Some("test.flx"));
-    assert!(warning.contains("--> warning[E000]: Warning title"));
+    assert!(warning.contains("Warning[E000]: Warning title"));
 
     let span = Span::new(Position::new(1, 0), Position::new(1, 5));
 
     let note =
         Diagnostic::make_note("Note title", "This is a note", "test.flx", span).render(None, None);
-    assert!(note.contains("--> note[E000]: Note title"));
+    assert!(note.contains("Note[E000]: Note title"));
 
     let help =
         Diagnostic::make_help("Help title", "This is help", "test.flx", span).render(None, None);
-    assert!(help.contains("--> help[E000]: Help title"));
+    assert!(help.contains("Help[E000]: Help title"));
 }

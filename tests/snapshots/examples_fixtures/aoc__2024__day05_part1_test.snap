@@ -5,11 +5,11 @@ Fixture: examples/aoc/2024/day05_part1_test.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+Error[E018]: Import Not Found
 
 Cannot find module `Flow.FTest` to import.
 
-  --> examples/aoc/2024/day05_part1_test.flx:1:1
+  examples/aoc/2024/day05_part1_test.flx:1:1
   |
 1 | import Flow.FTest as Test
   | ^

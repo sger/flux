@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/138_match_scrutinee_constraint_propagates.
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  --> examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:2:13
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:2:13
   |
 2 |     let x = mystery_value
   |             ^^^^^^^^^^^^^
@@ -18,11 +18,11 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  --> examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:3:21
+  examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx:3:21
   |
 3 |     let y: String = match x {
   |                     ^^^^^^^^^
@@ -34,8 +34,12 @@ The value of `y` does not match its type annotation.
 6 |     }
   | ^^^^^
 
+Note:
+  annotated type: String
+  value type: Int
+
 Help:
-  Change `y` to a `String` value or update the annotation to `Int`.
+  Try `to_string(...)` to convert a `Int` into a `String`.
 
 Found 2 errors.
 == stdout ==

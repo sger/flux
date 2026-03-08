@@ -1,0 +1,9 @@
+module HiddenApi {
+    fn secret() -> Int {
+        1
+    }
+
+    fn _private_secret() -> Int {
+        2
+    }
+}

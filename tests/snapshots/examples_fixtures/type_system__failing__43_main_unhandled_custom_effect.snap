@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/43_main_unhandled_custom_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E406]: UNHANDLED ROOT EFFECT
+Error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Console.
 
-  --> examples/type_system/failing/43_main_unhandled_custom_effect.flx:11:32
+  examples/type_system/failing/43_main_unhandled_custom_effect.flx:11:32
    |
 11 | fn main() -> Unit with Console {
    |                                ^

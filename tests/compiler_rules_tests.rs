@@ -293,7 +293,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("error[E082]"),
+        rendered.contains("Error[E082]"),
         "expected E082 constructor call arity diagnostic, got:\n{}",
         rendered
     );
@@ -516,7 +516,7 @@ fn match_tuple_without_catchall_reports_tuple_conservative_message() {
         "../examples/type_system/failing/157_match_tuple_missing_catchall_general.flx"
     ));
     assert!(
-        rendered.contains("error[E015]"),
+        rendered.contains("Error[E015]"),
         "expected E015 for tuple conservative fixture 157, got:\n{}",
         rendered
     );
@@ -533,7 +533,7 @@ fn match_tuple_guarded_only_is_non_exhaustive() {
         "../examples/type_system/failing/158_match_tuple_guarded_only_non_exhaustive.flx"
     ));
     assert!(
-        rendered.contains("error[E015]"),
+        rendered.contains("Error[E015]"),
         "expected E015 for guarded tuple fixture 158, got:\n{}",
         rendered
     );
@@ -550,7 +550,7 @@ fn nested_tuple_mixed_shape_reports_non_exhaustive() {
         "../examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exhaustive.flx"
     ));
     assert!(
-        rendered.contains("error[E083]"),
+        rendered.contains("Error[E083]"),
         "expected E083 for nested tuple mixed-shape fixture 159, got:\n{}",
         rendered
     );
@@ -736,7 +736,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("The branches of this `if` expression produce different types."),
+        rendered.contains("The branches of this `if` expression do not agree on a type."),
         "expected contextual if mismatch text, got:\n{}",
         rendered
     );
@@ -753,7 +753,7 @@ fn main() -> Unit {
     );
     assert!(
         !unresolved_rendered
-            .contains("The branches of this `if` expression produce different types."),
+            .contains("The branches of this `if` expression do not agree on a type."),
         "did not expect contextual if mismatch text for unresolved/Any branch, got:\n{}",
         unresolved_rendered
     );
@@ -769,7 +769,7 @@ fn main() -> Unit {
     );
     assert!(
         !nested_any_rendered
-            .contains("The branches of this `if` expression produce different types."),
+            .contains("The branches of this `if` expression do not agree on a type."),
         "did not expect contextual if mismatch text for nested Any branch type, got:\n{}",
         nested_any_rendered
     );
@@ -781,7 +781,7 @@ fn hm_fixture_134_if_concrete_branch_mismatch_reports_contextual_message() {
         include_str!("../examples/type_system/failing/134_if_concrete_branch_mismatch.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("The branches of this `if` expression produce different types."),
+        rendered.contains("The branches of this `if` expression do not agree on a type."),
         "expected contextual if mismatch text for fixture 134, got:\n{}",
         rendered
     );
@@ -792,7 +792,7 @@ fn hm_fixture_135_if_nested_any_branch_suppresses_contextual_message() {
     let source = include_str!("../examples/type_system/failing/135_if_any_branch_suppressed.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        !rendered.contains("The branches of this `if` expression produce different types."),
+        !rendered.contains("The branches of this `if` expression do not agree on a type."),
         "did not expect contextual if mismatch text for fixture 135, got:\n{}",
         rendered
     );
@@ -809,7 +809,7 @@ fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
         include_str!("../examples/type_system/failing/136_tuple_projection_precise_mismatch.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 136, got:\n{}",
         rendered
     );
@@ -821,7 +821,7 @@ fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "known tuple projection should not be unresolved in fixture 136, got:\n{}",
         rendered
     );
@@ -834,7 +834,7 @@ fn hm_fixture_137_tuple_projection_unresolved_behavior_is_stable() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected strict unresolved boundary error for fixture 137, got:\n{}",
         rendered
     );
@@ -852,7 +852,7 @@ fn hm_fixture_138_match_scrutinee_constraint_propagates() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 138, got:\n{}",
         rendered
     );
@@ -872,12 +872,12 @@ fn hm_fixture_139_match_scrutinee_constraint_mixed_family_no_propagation() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E056]"),
+        rendered.contains("Error[E056]"),
         "expected independent follow-up E056 for fixture 139, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("The arms of this `match` expression produce different types."),
+        !rendered.contains("The arms of this `match` expression do not agree on a type."),
         "did not expect contextual match-arm mismatch noise for fixture 139, got:\n{}",
         rendered
     );
@@ -888,7 +888,7 @@ fn hm_fixture_142_bool_missing_true_emits_e015() {
     let source = include_str!("../examples/type_system/failing/142_match_bool_missing_true.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E015]"),
+        rendered.contains("Error[E015]"),
         "expected E015 for fixture 142, got:\n{}",
         rendered
     );
@@ -904,7 +904,7 @@ fn hm_fixture_143_bool_missing_false_emits_e015() {
     let source = include_str!("../examples/type_system/failing/143_match_bool_missing_false.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E015]"),
+        rendered.contains("Error[E015]"),
         "expected E015 for fixture 143, got:\n{}",
         rendered
     );
@@ -922,7 +922,7 @@ fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E015]"),
+        rendered.contains("Error[E015]"),
         "expected E015 for fixture 144, got:\n{}",
         rendered
     );
@@ -940,12 +940,12 @@ fn hm_fixture_151_array_literal_concrete_conflict_prefers_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 151, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "did not expect strict unresolved E425 when concrete array mismatch already exists in fixture 151, got:\n{}",
         rendered
     );
@@ -958,12 +958,12 @@ fn hm_fixture_152_array_literal_callarg_conflict_prefers_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 152, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "did not expect strict unresolved E425 when concrete array arg mismatch already exists in fixture 152, got:\n{}",
         rendered
     );
@@ -975,7 +975,7 @@ fn hm_fixture_153_match_branch_conflict_prefers_e300() {
         include_str!("../examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 153, got:\n{}",
         rendered
     );
@@ -987,7 +987,7 @@ fn hm_fixture_154_unresolved_projection_strict_e425() {
         include_str!("../examples/type_system/failing/154_unresolved_projection_strict_e425.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 for fixture 154, got:\n{}",
         rendered
     );
@@ -1000,7 +1000,7 @@ fn hm_fixture_155_unresolved_member_access_strict_e425() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 for fixture 155, got:\n{}",
         rendered
     );
@@ -1012,12 +1012,12 @@ fn hm_fixture_156_unresolved_call_arg_strict_e425() {
         include_str!("../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 for fixture 156, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E300]"),
+        !rendered.contains("Error[E300]"),
         "did not expect concrete E300 for unresolved call-arg fixture 156, got:\n{}",
         rendered
     );
@@ -1030,7 +1030,7 @@ fn hm_fixture_146_constructor_pattern_arity_some_too_many() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E085]"),
+        rendered.contains("Error[E085]"),
         "expected E085 for fixture 146, got:\n{}",
         rendered
     );
@@ -1043,7 +1043,7 @@ fn hm_fixture_147_constructor_pattern_arity_none_too_many() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E085]"),
+        rendered.contains("Error[E085]"),
         "expected E085 for fixture 147, got:\n{}",
         rendered
     );
@@ -1056,7 +1056,7 @@ fn hm_fixture_148_constructor_pattern_arity_left_too_many() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E085]"),
+        rendered.contains("Error[E085]"),
         "expected E085 for fixture 148, got:\n{}",
         rendered
     );
@@ -1070,7 +1070,7 @@ fn main() { M.SomeInt(1); }
 "#;
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E086]"),
+        rendered.contains("Error[E086]"),
         "expected E086 for fixture 149 in strict mode, got:\n{}",
         rendered
     );
@@ -1118,7 +1118,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("The arms of this `match` expression produce different types."),
+        rendered.contains("The arms of this `match` expression do not agree on a type."),
         "expected contextual match-arm mismatch text, got:\n{}",
         rendered
     );
@@ -1135,7 +1135,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("The 1st argument to `greet` has the wrong type."),
+        rendered.contains("wrong type in the 1st argument to `greet`"),
         "expected named call-arg mismatch message, got:\n{}",
         rendered
     );
@@ -1150,7 +1150,7 @@ fn hm_fixture_131_call_arg_primary_label_is_argument_subspan() {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message()
-                    .is_some_and(|m| m.contains("The 2nd argument to `pair` has the wrong type."))
+                    .is_some_and(|m| m.contains("wrong type in the 2nd argument to `pair`"))
         })
         .expect("expected contextual call-arg E300 diagnostic for fixture 131");
     let primary = diag
@@ -1187,7 +1187,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        !nested_any_rendered.contains("argument to `accepts_any_param_fn` has the wrong type."),
+        !nested_any_rendered.contains("wrong type in the 1st argument to `accepts_any_param_fn`"),
         "did not expect contextual call-arg mismatch text when expected type contains Any, got:\n{}",
         nested_any_rendered
     );
@@ -1208,7 +1208,7 @@ fn main() -> Unit {
         rendered
     );
     assert!(
-        rendered.contains("Change `x` to a `Int` value or update the annotation to `String`."),
+        rendered.contains("Change `x` to a `Int` value or update the annotation."),
         "expected actionable let-annotation help text, got:\n{}",
         rendered
     );
@@ -1248,12 +1248,12 @@ fn main() -> Unit { add() }
 "#,
     );
     assert!(
-        rendered.contains("The return value of `add` does not match its declared return type."),
+        rendered.contains("The body of `add` does not match its declared return type."),
         "expected contextual return-annotation mismatch message, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("Return a `Int` value from `add` or change the declared return type."),
+        rendered.contains("Return a `Int` value from `add` or change its annotation."),
         "expected actionable return-annotation help text, got:\n{}",
         rendered
     );
@@ -1269,7 +1269,7 @@ fn hm_fixture_133_if_primary_label_is_else_value_subspan() {
         .find(|d| {
             d.code() == Some("E300")
                 && d.message().is_some_and(|m| {
-                    m.contains("The branches of this `if` expression produce different types.")
+                    m.contains("The branches of this `if` expression do not agree on a type.")
                 })
         })
         .expect("expected contextual if-branch E300 diagnostic for fixture 133");
@@ -1314,7 +1314,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("WRONG NUMBER OF ARGUMENTS"),
+        rendered.contains("Error[E056]: Wrong Number Of Arguments"),
         "expected E056 title in rendered diagnostics, got:\n{}",
         rendered
     );
@@ -1382,10 +1382,10 @@ fn pass2_multi_error_continuation_reports_independent_errors_in_order() {
     let rendered = compile_err_rendered(source);
 
     let e002_idx = rendered
-        .find("error[E002]")
+        .find("Error[E002]")
         .expect("expected E002 immutability error in rendered diagnostics");
     let e300_idx = rendered
-        .find("error[E300]")
+        .find("Error[E300]")
         .expect("expected E300 type-unification error in rendered diagnostics");
 
     assert!(
@@ -1402,12 +1402,12 @@ fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 161, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "did not expect E425 for concrete destructure mismatch fixture 161, got:\n{}",
         rendered
     );
@@ -1420,7 +1420,7 @@ fn hm_fixture_162_tuple_destructure_unresolved_strict_e425() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 for unresolved destructure fixture 162, got:\n{}",
         rendered
     );
@@ -1433,7 +1433,7 @@ fn hm_fixture_163_match_concrete_disagreement_prefers_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 163, got:\n{}",
         rendered
     );
@@ -1446,7 +1446,7 @@ fn hm_fixture_164_match_unresolved_arm_stays_suppressed() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        !rendered.contains("The arms of this `match` expression produce different types."),
+        !rendered.contains("The arms of this `match` expression do not agree on a type."),
         "did not expect contextual match-arm mismatch for unresolved-arm fixture 164, got:\n{}",
         rendered
     );
@@ -1459,7 +1459,7 @@ fn hm_fixture_165_self_recursive_precision_prefers_e300() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 165, got:\n{}",
         rendered
     );
@@ -1472,12 +1472,12 @@ fn hm_fixture_166_self_recursive_guard_stable_unresolved() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E004]"),
+        rendered.contains("Error[E004]"),
         "expected unresolved symbol baseline for fixture 166, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("The function return type does not match its annotation."),
+        !rendered.contains("Return Type Mismatch"),
         "did not expect recursion hardening to introduce unrelated return-mismatch noise for fixture 166, got:\n{}",
         rendered
     );
@@ -1490,12 +1490,12 @@ fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 167, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "did not expect E425 for concrete tuple-destructure conflict fixture 167, got:\n{}",
         rendered
     );
@@ -1508,7 +1508,7 @@ fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 for unresolved tuple-destructure fixture 168, got:\n{}",
         rendered
     );
@@ -1533,14 +1533,14 @@ fn strict_only_unresolved_fixtures_are_e425_in_strict_but_may_be_e004_in_non_str
     for source in strict_only {
         let strict_rendered = compile_err_strict_rendered(source);
         assert!(
-            strict_rendered.contains("error[E425]"),
+            strict_rendered.contains("Error[E425]"),
             "expected strict E425 for strict-only unresolved fixture, got:\n{}",
             strict_rendered
         );
 
         let non_strict_rendered = compile_err_rendered(source);
         assert!(
-            non_strict_rendered.contains("error[E004]"),
+            non_strict_rendered.contains("Error[E004]"),
             "expected non-strict unresolved baseline E004 for strict-only unresolved fixture, got:\n{}",
             non_strict_rendered
         );
@@ -1554,12 +1554,12 @@ fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 169, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "did not expect E425 to mask concrete match disagreement in fixture 169, got:\n{}",
         rendered
     );
@@ -1572,7 +1572,7 @@ fn hm_fixture_170_match_disagreement_all_concrete_ordering_invariant_e300() {
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 170, got:\n{}",
         rendered
     );
@@ -1585,7 +1585,7 @@ fn hm_fixture_171_self_recursive_refinement_concrete_chain_e300() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 171, got:\n{}",
         rendered
     );
@@ -1598,12 +1598,12 @@ fn hm_fixture_172_self_recursive_unresolved_guard_no_false_positive() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E004]"),
+        rendered.contains("Error[E004]"),
         "expected unresolved symbol baseline for fixture 172, got:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("The function return type does not match its annotation."),
+        !rendered.contains("Return Type Mismatch"),
         "did not expect recursion hardening to introduce unrelated return-mismatch noise for fixture 172, got:\n{}",
         rendered
     );
@@ -1625,8 +1625,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered
-            .contains("Function parameter 1 type does not match: expected `Int`, found `String`."),
+        rendered.contains("Parameter 1 has the wrong type."),
         "expected function parameter mismatch text, got:\n{}",
         rendered
     );
@@ -1648,7 +1647,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("Function return types do not match: expected `Int`, found `String`."),
+        rendered.contains("The body of this function does not match its return type."),
         "expected function return mismatch text, got:\n{}",
         rendered
     );
@@ -1670,7 +1669,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("Function arity does not match."),
+        rendered.contains("too many arguments"),
         "expected function arity mismatch text, got:\n{}",
         rendered
     );
@@ -1780,7 +1779,7 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E400]"),
+        rendered.contains("Error[E400]"),
         "expected E400 for deterministic multi-missing fixture, got:\n{}",
         rendered
     );
@@ -1836,17 +1835,17 @@ fn effect_row_invalid_subtract_reports_e421() {
         include_str!("../examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E421]"),
+        rendered.contains("Error[E421]"),
         "expected E421 for invalid subtraction fixture, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("INVALID EFFECT SUBTRACTION"),
+        rendered.contains("Effect Requirement Mismatch"),
         "expected E421 title in rendered diagnostics, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("Cannot subtract effect `Console`"),
+        rendered.contains("I cannot subtract effect `Console`"),
         "expected concrete subtract message for `Console`, got:\n{}",
         rendered
     );
@@ -1859,17 +1858,17 @@ fn effect_row_unresolved_single_subtract_reports_e419() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E419]"),
+        rendered.contains("Error[E419]"),
         "expected E419 for unresolved single subtraction fixture, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("UNRESOLVED EFFECT VARIABLE"),
+        rendered.contains("Unresolved Effect Row"),
         "expected E419 title in rendered diagnostics, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("Cannot resolve effect variable `e`"),
+        rendered.contains("I cannot resolve the effect variable `e`"),
         "expected unresolved variable `e` message, got:\n{}",
         rendered
     );
@@ -1882,12 +1881,12 @@ fn effect_row_unresolved_multi_subtract_reports_e420() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E420]"),
+        rendered.contains("Error[E420]"),
         "expected E420 for unresolved multi subtraction fixture, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("AMBIGUOUS EFFECT VARIABLES"),
+        rendered.contains("Unresolved Effect Row"),
         "expected E420 title in rendered diagnostics, got:\n{}",
         rendered
     );
@@ -1904,12 +1903,12 @@ fn effect_row_subset_unsatisfied_reports_e422() {
         include_str!("../examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx");
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E422]"),
+        rendered.contains("Error[E422]"),
         "expected E422 for unsatisfied subset fixture, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("UNSATISFIED EFFECT SUBSET"),
+        rendered.contains("Effect Requirement Mismatch"),
         "expected E422 title in rendered diagnostics, got:\n{}",
         rendered
     );
@@ -1927,7 +1926,7 @@ fn effect_row_subset_missing_list_is_sorted() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E422]"),
+        rendered.contains("Error[E422]"),
         "expected E422 for ordered missing-list fixture, got:\n{}",
         rendered
     );
@@ -1945,17 +1944,17 @@ fn effect_row_absent_ordering_linked_violation_reports_e421() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E421]"),
+        rendered.contains("Error[E421]"),
         "expected E421 for deferred-absent ordering fixture, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("INVALID EFFECT SUBTRACTION"),
+        rendered.contains("Effect Requirement Mismatch"),
         "expected E421 title in rendered diagnostics, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("Cannot subtract effect `IO`"),
+        rendered.contains("I cannot subtract effect `IO`"),
         "expected deferred absent violation message for `IO`, got:\n{}",
         rendered
     );
@@ -1985,12 +1984,12 @@ fn main() -> Unit {
 "#,
     );
     assert!(
-        rendered.contains("error[E425]"),
+        rendered.contains("Error[E425]"),
         "expected E425 in rendered diagnostics:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("STRICT UNRESOLVED BOUNDARY TYPE"),
+        rendered.contains("Unresolved Boundary Type"),
         "expected title in rendered diagnostics:\n{}",
         rendered
     );
@@ -2026,12 +2025,12 @@ fn main() -> Unit with I {
 "#,
     );
     assert!(
-        rendered.contains("error[E407]"),
+        rendered.contains("Error[E407]"),
         "expected E407 in rendered diagnostics, got:\n{}",
         rendered
     );
     assert!(
-        rendered.contains("UNKNOWN FUNCTION EFFECT"),
+        rendered.contains("Error[E407]: Unknown Effect"),
         "expected E407 title in rendered diagnostics, got:\n{}",
         rendered
     );
@@ -2100,7 +2099,7 @@ fn hm_fixture_140_recursive_self_reference_refines_type() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E300]"),
+        rendered.contains("Error[E300]"),
         "expected E300 for fixture 140, got:\n{}",
         rendered
     );
@@ -2120,7 +2119,7 @@ fn hm_fixture_141_recursive_self_reference_guard_no_regression() {
     );
     let rendered = compile_err_rendered(source);
     assert!(
-        rendered.contains("error[E056]"),
+        rendered.contains("Error[E056]"),
         "expected independent follow-up E056 in fixture 141, got:\n{}",
         rendered
     );

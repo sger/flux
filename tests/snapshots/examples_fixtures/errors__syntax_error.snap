@@ -5,17 +5,17 @@ Fixture: examples/errors/syntax_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E076]: UNCLOSED DELIMITER
+Error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.
 
-  --> examples/errors/syntax_error.flx:6:6
+  examples/errors/syntax_error.flx:6:6
   |
 6 | print("Hello World"
   |      ^
 
 note: Expected `)` before this token.
-  --> examples/errors/syntax_error.flx:7:1
+  examples/errors/syntax_error.flx:7:1
   |
 == stdout ==
 <not executed>

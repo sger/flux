@@ -1,0 +1,5 @@
+module TypeBroken {
+    fn bad() -> Unit {
+        let value: Int = "oops"
+    }
+}

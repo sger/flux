@@ -20,7 +20,7 @@ fn render_uses_span_for_caret() {
 
     let out = diag.render(Some(source), Some("test.flx"));
 
-    assert!(out.contains("  --> test.flx:2:9"));
+    assert!(out.contains("  test.flx:2:9"));
     assert!(out.contains("2 | let y = x + 2;"));
     let lines: Vec<&str> = out.lines().collect();
     let snippet_idx = lines
@@ -71,6 +71,7 @@ fn json_render_contains_required_fields() {
         .expect("expected at least one diagnostic");
     for key in [
         "severity",
+        "category",
         "phase",
         "code",
         "title",
@@ -107,6 +108,30 @@ fn json_render_includes_phase_when_tagged() {
         .expect("expected at least one diagnostic");
     assert_eq!(
         first.get("phase").and_then(|v| v.as_str()),
+        Some("type_inference")
+    );
+}
+
+#[test]
+fn json_render_includes_category_when_present() {
+    let diag = Diagnostic::make_error_dynamic(
+        "E300",
+        "TYPE UNIFICATION ERROR",
+        ErrorType::Compiler,
+        "type mismatch",
+        None,
+        "test.flx",
+        Span::new(Position::new(1, 1), Position::new(1, 2)),
+    );
+    let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
+    let first = parsed
+        .as_array()
+        .and_then(|arr| arr.first())
+        .expect("expected at least one diagnostic");
+    assert_eq!(
+        first.get("category").and_then(|v| v.as_str()),
         Some("type_inference")
     );
 }

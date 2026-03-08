@@ -1,0 +1,13 @@
+// E400: pure function calls a function that requires IO.
+// Verifies that the HM-layer effect mismatch path emits a dedicated
+// E400 diagnostic naming the missing effect directly, not a confusing
+// "() -> ()" type-unification message.
+
+fn write_log(msg: String) -> Unit with IO {
+    print(msg)
+}
+
+fn process() -> Int {
+    write_log("processing")
+    42
+}

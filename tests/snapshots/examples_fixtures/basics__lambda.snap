@@ -5,14 +5,21 @@ Fixture: examples/basics/lambda.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Parameter Type Mismatch
 
-Function parameter 2 type does not match: expected `Option<Int>`, found `Int`.
+Parameter 2 has the wrong type.
 
-  --> examples/basics/lambda.flx:64:15
+  examples/basics/lambda.flx:64:15
    |
 64 | let tripled = myMap(nums, /x -> x * 3);
    |               ^^^^^^^^^^^^^^^^^^^^^^^^
-   |               ------------------------ parameter 2: expected `Option<Int>`, found `Int`
+   |               ------------------------ parameter 2 has type `Int`
+
+Note:
+  expected parameter type: Option<Int>
+  found parameter type: Int
+
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 == stdout ==
 <not executed>

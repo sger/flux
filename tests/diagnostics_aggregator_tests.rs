@@ -32,15 +32,15 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
 
     let output = render_diagnostics_multi(&diags, Some(50));
 
-    let a_idx = output.find("--> a.flx").expect("missing a.flx header");
-    let b_idx = output.find("--> b.flx").expect("missing b.flx header");
+    let a_idx = output.find("a.flx").expect("missing a.flx header");
+    let b_idx = output.find("b.flx").expect("missing b.flx header");
     assert!(a_idx < b_idx);
 
     let err_idx = output
-        .find("--> warning[E000]: ERR")
+        .find("Warning[E000]: Err")
         .expect("missing err warning");
     let warn_idx = output
-        .find("--> warning[E000]: WARN")
+        .find("Warning[E000]: Warn")
         .expect("missing warn warning");
     assert!(err_idx < warn_idx);
 }
@@ -63,7 +63,7 @@ fn aggregator_prints_summary_counts() {
         .find("Found 2 warnings.")
         .expect("missing summary line");
     let last_diag_idx = output
-        .rfind("--> warning[E000]:")
+        .rfind("Warning[E000]:")
         .expect("missing warning diagnostics");
     assert!(
         summary_idx > last_diag_idx,
@@ -82,7 +82,7 @@ fn aggregator_single_file_shows_header() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert!(output.contains("--> a.flx"));
+    assert!(output.contains("a.flx"));
 }
 
 #[test]
@@ -106,9 +106,9 @@ fn aggregator_enforces_max_errors() {
 
     let output = render_diagnostics_multi(&diags, Some(1));
     // Since all diagnostics are warnings now, max_errors doesn't limit them
-    assert_eq!(output.matches("--> warning[E000]:").count(), 4);
-    assert!(output.contains("--> warning[E000]: E1"));
-    assert!(output.contains("--> warning[E000]: W1"));
+    assert_eq!(output.matches("Warning[E000]:").count(), 4);
+    assert!(output.contains("Warning[E000]: E1"));
+    assert!(output.contains("Warning[E000]: W1"));
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn aggregator_deduplicates_identical_diagnostics() {
         .with_span(span(1, 0));
 
     let output = render_diagnostics_multi(&[base, dup, near], Some(50));
-    assert_eq!(output.matches("--> warning[E123]: DUP").count(), 2);
+    assert_eq!(output.matches("Warning[E123]: Dup").count(), 2);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn aggregator_renders_related_diagnostics_in_order() {
     let output = render_diagnostics_multi(&[primary], Some(50));
 
     let primary_idx = output
-        .find("--> warning[E000]: PRIMARY")
+        .find("Warning[E000]: Primary")
         .expect("missing primary");
     let note_idx = output.find("note: first note").expect("missing note");
     let help_idx = output.find("help: second help").expect("missing help");
@@ -194,7 +194,7 @@ fn aggregator_keeps_diagnostics_with_different_hints() {
         .with_hint_text("extra context");
 
     let output = render_diagnostics_multi(&[base, with_hint], Some(50));
-    assert_eq!(output.matches("--> warning[E000]: HINTDEDUP").count(), 2);
+    assert_eq!(output.matches("Warning[E000]: Hintdedup").count(), 2);
     assert!(output.contains("extra context"));
 }
 
@@ -214,7 +214,7 @@ fn aggregator_dedupes_identical_with_hints() {
         .with_hint_text("same context");
 
     let output = render_diagnostics_multi(&[with_hint, with_hint_dup], Some(50));
-    assert_eq!(output.matches("--> warning[E000]: HINTDEDUP2").count(), 1);
+    assert_eq!(output.matches("Warning[E000]: Hintdedup2").count(), 1);
     assert_eq!(output.matches("same context").count(), 1);
 }
 
@@ -237,7 +237,7 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     let output = DiagnosticsAggregator::new(&[with_label_a, with_label_b])
         .with_source("a.flx", source)
         .render();
-    assert_eq!(output.matches("--> warning[E000]: LABELDEDUP").count(), 2);
+    assert_eq!(output.matches("Warning[E000]: Labeldedup").count(), 2);
     assert!(output.contains("label A"));
     assert!(output.contains("label B"));
 }
@@ -262,7 +262,7 @@ fn aggregator_renders_cross_file_related_snippet() {
         .with_source("b.flx", related_source)
         .render();
 
-    assert!(output.contains("  --> b.flx:1:5"));
+    assert!(output.contains("  b.flx:1:5"));
     assert!(output.contains("let b = 2;"));
 }
 
@@ -285,7 +285,7 @@ fn aggregator_related_without_source_renders_no_snippet() {
         .with_source("a.flx", primary_source)
         .render();
 
-    assert!(output.contains("  --> missing_related.flx:1:1"));
+    assert!(output.contains("  missing_related.flx:1:1"));
     assert!(!output.contains(related_source));
 }
 
@@ -312,7 +312,7 @@ fn aggregator_suppresses_nearby_duplicate_e300_same_message() {
     let d3 = mk(11, 2, 6); // adjacent line to retained span
 
     let output = render_diagnostics_multi(&[d1, d2, d3], Some(50));
-    assert_eq!(output.matches("error[E300]").count(), 1);
+    assert_eq!(output.matches("Error[E300]").count(), 1);
     assert!(output.contains("Suppressed 2 nearby duplicate E300 diagnostic(s)."));
 }
 
@@ -344,7 +344,7 @@ fn aggregator_does_not_suppress_e300_with_different_messages() {
     .with_primary_label(s2, "arg");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert_eq!(output.matches("Error[E300]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -375,7 +375,7 @@ fn aggregator_does_not_suppress_e300_across_files() {
     .with_primary_label(s, "b");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("error[E300]").count(), 2);
+    assert_eq!(output.matches("Error[E300]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -407,7 +407,7 @@ fn aggregator_does_not_suppress_non_e300() {
     .with_primary_label(s2, "e2");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("error[E031]").count(), 2);
+    assert_eq!(output.matches("Error[E031]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -447,10 +447,10 @@ fn aggregator_stage_filtering_parse_suppresses_type_and_effect() {
     .with_phase(DiagnosticPhase::Effect);
 
     let output = DiagnosticsAggregator::new(&[parse, ty, eff]).render();
-    assert!(output.contains("error[E071]"));
-    assert!(!output.contains("error[E300]"));
-    assert!(!output.contains("error[E407]"));
-    assert!(output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+    assert!(output.contains("Error[E071]"));
+    assert!(!output.contains("Error[E300]"));
+    assert!(!output.contains("Error[E407]"));
+    assert!(output.contains("Downstream Errors Suppressed"));
     assert!(!output.contains(":0:1"));
 }
 
@@ -480,9 +480,9 @@ fn aggregator_stage_filtering_type_suppresses_effect() {
     .with_phase(DiagnosticPhase::Effect);
 
     let output = DiagnosticsAggregator::new(&[ty, eff]).render();
-    assert!(output.contains("error[E300]"));
-    assert!(!output.contains("error[E407]"));
-    assert!(output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+    assert!(output.contains("Error[E300]"));
+    assert!(!output.contains("Error[E407]"));
+    assert!(output.contains("Downstream Errors Suppressed"));
     assert!(!output.contains(":0:1"));
 }
 
@@ -514,9 +514,9 @@ fn aggregator_stage_filtering_can_be_disabled() {
     let output = DiagnosticsAggregator::new(&[parse, ty])
         .with_stage_filtering(false)
         .render();
-    assert!(output.contains("error[E071]"));
-    assert!(output.contains("error[E300]"));
-    assert!(!output.contains("DOWNSTREAM ERRORS SUPPRESSED"));
+    assert!(output.contains("Error[E071]"));
+    assert!(output.contains("Error[E300]"));
+    assert!(!output.contains("Downstream Errors Suppressed"));
 }
 
 #[test]
@@ -555,8 +555,8 @@ fn aggregator_collapses_parser_cascades() {
     .with_phase(DiagnosticPhase::Parse);
 
     let output = DiagnosticsAggregator::new(&[root, cascade_1, cascade_2]).render();
-    assert_eq!(output.matches("error[E034]").count(), 0);
-    assert_eq!(output.matches("error[E076]").count(), 1);
+    assert_eq!(output.matches("Error[E034]").count(), 0);
+    assert_eq!(output.matches("Error[E076]").count(), 1);
     assert!(output.contains("cascading parser diagnostic"));
 }
 

@@ -5,11 +5,11 @@ Fixture: examples/type_system/01_typed_let_and_functions.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E071]: UNTERMINATED STRING
+Error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:2:21
+  examples/type_system/01_typed_let_and_functions.flx:2:21
   |
 2 | let label: String = "The answer
   |                     ^^^^^^^^^^^
@@ -18,31 +18,31 @@ Hint:
   Add a closing " at the end of the string.
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Unexpected Token
 
 Missing `:` in let binding type annotation. Write it as `point: Type`.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:3:11
+  examples/type_system/01_typed_let_and_functions.flx:3:11
   |
 3 | let point (Int, Int) = (10, 20)
   |           ^
 
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Unexpected Token
 
 Empty interpolation `#{}` — provide an expression between the braces.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:11:14
+  examples/type_system/01_typed_let_and_functions.flx:11:14
    |
 11 |     "Point(#{}, #{y})"
    |              ^
 
 
---> compiler error[E076]: UNCLOSED DELIMITER
+Error[E076]: Missing Closing Delimiter
 
 Expected a closing `}` to match this opening `{` in function `main`.
 
-  --> examples/type_system/01_typed_let_and_functions.flx:14:18
+  examples/type_system/01_typed_let_and_functions.flx:14:18
    |
 14 | fn main() with I {
    |                  ^

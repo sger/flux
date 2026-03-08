@@ -615,7 +615,15 @@ fn parse_diagnostic_tuples(output: &str) -> Vec<DiagnosticTuple> {
 }
 
 fn parse_diagnostic_header(line: &str) -> Option<(String, String)> {
-    for marker in ["compiler error[", "compiler warning[", "warning["] {
+    for marker in [
+        "Error[",
+        "Warning[",
+        "Note[",
+        "Help[",
+        "compiler error[",
+        "compiler warning[",
+        "warning[",
+    ] {
         if let Some(marker_idx) = line.find(marker) {
             let code_start = marker_idx + marker.len();
             let code_end_rel = line[code_start..].find(']')?;

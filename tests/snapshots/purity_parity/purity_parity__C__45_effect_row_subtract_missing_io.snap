@@ -15,12 +15,10 @@ $ flux --no-cache examples/type_system/failing/45_effect_row_subtract_missing_io
 exit_code: 1
 
 == vm tuples ==
-- E400 | MISSING EFFECT | effectful call occurs here
-- E300 | TYPE UNIFICATION ERROR | expected () -> Unit with Time, found () -> Unit with IO
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == jit tuples ==
-- E400 | MISSING EFFECT | effectful call occurs here
-- E300 | TYPE UNIFICATION ERROR | expected () -> Unit with Time, found () -> Unit with IO
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == parity ==
 match

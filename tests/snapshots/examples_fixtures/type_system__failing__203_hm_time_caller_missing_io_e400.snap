@@ -1,0 +1,21 @@
+---
+source: tests/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/203_hm_time_caller_missing_io_e400.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E400]: Missing Ambient Effect
+
+Call to `log_event` requires effect `IO` in this function signature.
+
+  examples/type_system/failing/203_hm_time_caller_missing_io_e400.flx:11:5
+   |
+11 |     log_event("recorded")
+   |     ^^^^^^^^^
+   |     --------- effectful call occurs here
+
+Hint:
+  Add `with IO` to the enclosing function.
+== stdout ==
+<not executed>

@@ -1,0 +1,10 @@
+// Missing `]` in list literal.
+//
+// Expected: E076 UNCLOSED DELIMITER
+//   "Expected a closing `]` to match this opening `[`."
+//   Points to the opening `[`.
+
+fn main() -> Unit {
+    let xs = [1, 2, 3
+    print(xs)
+}

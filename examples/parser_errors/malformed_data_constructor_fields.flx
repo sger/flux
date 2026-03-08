@@ -1,0 +1,6 @@
+data Result {
+    Ok(Int String),
+    Err(String),
+}
+
+fn main() -> Unit {}

@@ -1,6 +1,5 @@
 ---
 source: tests/purity_vm_jit_parity_snapshots.rs
-assertion_line: 53
 ---
 Fixture: examples/type_system/failing/79_hm_module_generic_call_mismatch.flx
 Category: H
@@ -16,10 +15,10 @@ $ flux --no-cache --root examples/type_system examples/type_system/failing/79_hm
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | this is `String`
+- E300 | Annotation Type Mismatch | this value has type `String`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | this is `String`
+- E300 | Annotation Type Mismatch | this value has type `String`
 
 == parity ==
 match

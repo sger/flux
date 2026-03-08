@@ -5,16 +5,28 @@ Fixture: examples/type_system/failing/175_handle_arm_missing_arrow.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Handle Arm Arrow
 
 Expected `->` in handle arm.
 
-  --> examples/type_system/failing/175_handle_arm_missing_arrow.flx:1:42
+  examples/type_system/failing/175_handle_arm_missing_arrow.flx:1:42
   |
 1 | let x = 1 handle IO { print(resume, msg) resume(msg) }
   |                                          ^^^^^^
 
 Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
+
+
+Error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/type_system/failing/175_handle_arm_missing_arrow.flx:1:54
+  |
+1 | let x = 1 handle IO { print(resume, msg) resume(msg) }
+  |                                                      ^
+
+Found 2 errors.
 == stdout ==
 <not executed>

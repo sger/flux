@@ -1,0 +1,8 @@
+module BrokenMatch {
+    pub fn classify(x: Int) -> String {
+        match x {
+            0 "zero",
+            _ -> "many",
+        }
+    }
+}

@@ -1,0 +1,10 @@
+// Missing `{` in if body.
+//
+// Expected: E034 contextual error about if body.
+//   Help about enclosing if body in braces.
+
+fn main() -> Unit {
+    let x = 5
+    if x > 3
+        print("big")
+}

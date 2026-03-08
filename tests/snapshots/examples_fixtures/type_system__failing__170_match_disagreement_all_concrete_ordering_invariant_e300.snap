@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/170_match_disagreement_all_concrete_orderi
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  --> examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:2:18
+  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:2:18
   |
 2 |     let y: Int = match true {
   |                  ^^^^^^^^^^^^
@@ -21,7 +21,11 @@ The value of `y` does not match its type annotation.
 5 |     }
   | ^^^^^
 
+Note:
+  annotated type: Int
+  value type: String
+
 Help:
-  Change `y` to a `Int` value or update the annotation to `String`.
+  Change `y` to a `Int` value or update the annotation.
 == stdout ==
 <not executed>

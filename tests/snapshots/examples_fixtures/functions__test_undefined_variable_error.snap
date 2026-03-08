@@ -5,18 +5,17 @@ Fixture: examples/functions/test_undefined_variable_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+Error[E004]: Undefined Variable
 
 I can't find a value named `c`.
 
-  --> examples/functions/test_undefined_variable_error.flx:2:1
+  examples/functions/test_undefined_variable_error.flx:2:1
   |
 2 | c = 10;
   | ^^^^^^^
 
 Hint:
   Define it first: let c = ...;
-
 
 Help:
   Did you mean one of: `chars`, `count`, `concat`?

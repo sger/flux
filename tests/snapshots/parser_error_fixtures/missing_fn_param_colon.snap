@@ -1,0 +1,17 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_fn_param_colon.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Unexpected Token
+
+Missing `:` in function parameter type annotation. Write it as `x: Type`.
+
+  examples/parser_errors/missing_fn_param_colon.flx:1:10
+  |
+1 | fn add(x Int, y: Int) -> Int {
+  |          ^^^
+== stdout ==
+<not executed>

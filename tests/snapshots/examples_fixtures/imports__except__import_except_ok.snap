@@ -5,11 +5,11 @@ Fixture: examples/imports/except/import_except_ok.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+Error[E011]: Private Member
 
 Cannot access private member `keep`.
 
-  --> examples/imports/except/import_except_ok.flx:7:11
+  examples/imports/except/import_except_ok.flx:7:11
   |
 7 |     print(Lib.keep());
   |           ^^^^^^^^

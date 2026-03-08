@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/17_handle_unknown_operation.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E401]: UNKNOWN HANDLER OPERATION
+Error[E401]: Unknown Effect Operation
 
 Handler for `Console` includes unknown operation `read`.
 
-  --> examples/type_system/failing/17_handle_unknown_operation.flx:9:9
+  examples/type_system/failing/17_handle_unknown_operation.flx:9:9
   |
 9 |         read(resume) -> resume("x")
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -144,8 +144,7 @@ let test2 = "this compiles";
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 diagnostic for missing do-block brace");
         assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("begin the `do` block")),
+            diag.message().is_some_and(|m| m.contains("`do` block")),
             "expected contextual do-block message, got: {:?}",
             diag.message()
         );
@@ -695,7 +694,7 @@ fn t(x) {
         assert!(
             first
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier or tuple field index after `.`")),
+                .is_some_and(|m| m.contains("identifier or tuple field index after `.`")),
             "unexpected message: {:?}",
             first.message()
         );
@@ -797,7 +796,7 @@ fn t(x) {
         assert!(
             first
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier or tuple field index after `.`")),
+                .is_some_and(|m| m.contains("identifier or tuple field index after `.`")),
             "expected first diagnostic to be about incomplete member access, got: {:?}",
             first.message()
         );
@@ -1036,7 +1035,7 @@ fn t(x) {
             .expect("expected E034 diagnostic for missing lambda arrow");
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected `->` after lambda parameters"))
+                .is_some_and(|m| m.contains("lambda parameters"))
         );
         assert!(
             diag.hints()
@@ -1045,7 +1044,7 @@ fn t(x) {
         );
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start.line, 1);
-        assert_eq!(span.start.column, 3);
+        assert_eq!(span.start.column, 1);
     }
 
     #[test]
@@ -1061,7 +1060,7 @@ fn t(x) {
             .expect("expected E034 diagnostic for missing match arm arrow");
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected `->` in match arm")),
+                .is_some_and(|m| m.contains("match arm") && m.contains("`->`")),
             "expected contextual match-arrow message, got: {:?}",
             diag.message()
         );
@@ -1111,7 +1110,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .expect("expected E034 for non-identifier function parameter");
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+                .is_some_and(|m| m.contains("parameter name here"))
         );
     }
 
@@ -1128,7 +1127,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .expect("expected E034 for non-identifier lambda parameter");
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+                .is_some_and(|m| m.contains("parameter name here"))
         );
     }
 
@@ -1154,7 +1153,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             single_diag
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter, got if"))
+                .is_some_and(|m| m.contains("parameter name here") && m.contains("`if`"))
         );
         assert_eq!(single_diag.message(), paren_diag.message());
         assert_eq!(single_parser.errors.len(), 1);
@@ -1195,7 +1194,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             single_diag
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter, got INT"))
+                .is_some_and(|m| m.contains("parameter name here") && m.contains("integer literal"))
         );
         assert_eq!(single_diag.message(), paren_diag.message());
         assert_eq!(single_parser.errors.len(), 1);
@@ -1270,7 +1269,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert_eq!(span.start, Position::new(1, 7));
         assert!(
             diag.message()
-                .is_some_and(|m| m.contains("Expected `,` or `)` after function parameter"))
+                .is_some_and(|m| m.contains("after function parameter"))
         );
 
         match &program.statements[0] {
@@ -1319,7 +1318,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             e105_diags[0]
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+                .is_some_and(|m| m.contains("parameter name here"))
         );
 
         match &program.statements[0] {
@@ -1347,7 +1346,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             e105_diags[0]
                 .message()
-                .is_some_and(|m| m.contains("Expected identifier as parameter"))
+                .is_some_and(|m| m.contains("parameter name here"))
         );
 
         match &program.statements[0] {
@@ -2283,7 +2282,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             fn_msgs
                 .iter()
-                .any(|m| m.contains("Missing parameter list for function `foo`")),
+                .any(|m| m.contains("parameter list after `foo`")),
             "expected missing-parameter-list message, got: {:#?}",
             fn_msgs
         );
@@ -2292,7 +2291,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert!(
             if_msgs
                 .iter()
-                .any(|m| m.contains("Expected `{` to begin the `if` body")),
+                .any(|m| m.contains("`if` branch needs to start with `{`")),
             "expected missing-if-brace message, got: {:#?}",
             if_msgs
         );
@@ -2328,8 +2327,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             msgs
         );
         assert!(
-            msgs.iter()
-                .any(|m| m.contains("Expected `->` in match arm, found `=>`")),
+            msgs.iter().any(|m| m.contains("needs `->`, not `=>`")),
             "expected fat-arrow diagnostic, got: {:#?}",
             msgs
         );
@@ -2424,12 +2422,6 @@ let w = match x { Some(n) -> n, None -> 0 };
                 .message()
                 .unwrap_or_else(|| panic!("expected message for case `{}`", case.name));
             assert!(
-                !msg.contains("Expected `") || msg.contains(case.message_fragment),
-                "expected contextual message for case `{}`, got: {}",
-                case.name,
-                msg
-            );
-            assert!(
                 msg.to_lowercase().contains(case.message_fragment),
                 "expected message to mention `{}` for case `{}`, got: {}",
                 case.message_fragment,
@@ -2507,7 +2499,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             Case {
                 name: "perform_missing_dot",
                 input: include_str!("../examples/type_system/failing/173_perform_missing_dot.flx"),
-                expected_message: "Expected `.` between effect and operation in `perform`.",
+                expected_message: "This `perform` expression needs `.` between the effect and operation.",
                 expected_hint: "Perform expressions use `perform Effect.op(args...)`.",
             },
             Case {
@@ -2529,7 +2521,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             Case {
                 name: "module_missing_lbrace",
                 input: include_str!("fixtures/recovery/t16_module_missing_lbrace_contextual.flx"),
-                expected_message: "Expected `{` to begin module body.",
+                expected_message: "This module body needs to start with `{`.",
                 expected_hint: "Module declarations use `module Name { ... }`.",
             },
         ];
@@ -2569,6 +2561,133 @@ let w = match x { Some(n) -> n, None -> 0 };
                 first_hint, case.expected_hint,
                 "unexpected E034 hint for case `{}`",
                 case.name
+            );
+        }
+    }
+
+    #[test]
+    fn parser_torture_contextual_titles_and_no_token_jargon() {
+        let cases = [
+            (
+                include_str!("../examples/parser_errors/malformed_data_constructor_fields.flx"),
+                "constructor",
+            ),
+            (
+                include_str!("../examples/parser_errors/malformed_type_variant_fields.flx"),
+                "constructor",
+            ),
+            (
+                include_str!("../examples/parser_errors/malformed_effect_op_list.flx"),
+                "effect",
+            ),
+            (
+                include_str!("../examples/parser_errors/eof_after_perform_dot.flx"),
+                "perform",
+            ),
+        ];
+
+        for (input, fragment) in cases {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            assert!(
+                parser
+                    .errors
+                    .iter()
+                    .any(|d| d.code() == Some("E034") || d.code() == Some("E076")),
+                "expected structural parser diagnostic, got: {:?}",
+                parser.errors
+            );
+            assert!(
+                parser
+                    .errors
+                    .iter()
+                    .filter(|d| d.code() == Some("E034"))
+                    .all(|d| d
+                        .display_title()
+                        .is_some_and(|title| title != "Unexpected Token")),
+                "expected contextual E034 display titles, got: {:?}",
+                parser.errors
+            );
+            for diag in &parser.errors {
+                if let Some(message) = diag.message() {
+                    assert!(
+                        !message.contains(" STRING")
+                            && !message.contains(" INT")
+                            && !message.contains(" IDENT")
+                            && !message.contains(" EOF"),
+                        "unexpected token-enum jargon in message: {message}"
+                    );
+                }
+            }
+            assert!(
+                parser
+                    .errors
+                    .iter()
+                    .filter_map(|d| d.message())
+                    .any(|m| m.to_lowercase().contains(fragment)),
+                "expected contextual message mentioning `{fragment}`, got: {:?}",
+                parser.errors
+            );
+        }
+    }
+
+    #[test]
+    fn eof_truncation_diagnostics_anchor_to_real_source_tokens() {
+        let cases = [
+            (
+                include_str!("../examples/parser_errors/eof_after_if_condition.flx"),
+                "Missing If Body",
+                2usize,
+                "this `if` branch starts here",
+            ),
+            (
+                include_str!("../examples/parser_errors/eof_after_else.flx"),
+                "Missing Else Body",
+                2usize,
+                "`else` starts here",
+            ),
+            (
+                include_str!("../examples/parser_errors/eof_after_match_open.flx"),
+                "Missing Match Body",
+                2usize,
+                "this match expression starts here",
+            ),
+            (
+                include_str!("../examples/parser_errors/eof_after_lambda_params.flx"),
+                "Missing Lambda Arrow",
+                2usize,
+                "this lambda parameter list ends here",
+            ),
+            (
+                include_str!("../examples/parser_errors/eof_after_perform_dot.flx"),
+                "Missing Effect Operation Name",
+                2usize,
+                "this `perform` expression ends here",
+            ),
+        ];
+
+        for (input, expected_title, expected_line, expected_label) in cases {
+            let lexer = Lexer::new(input);
+            let mut parser = Parser::new(lexer);
+            let _ = parser.parse_program();
+
+            let diag = parser
+                .errors
+                .first()
+                .expect("expected eof-truncation diagnostic");
+            assert_eq!(diag.code(), Some("E034"));
+            assert_eq!(diag.display_title(), Some(expected_title));
+
+            let span = diag.span().expect("expected eof-truncation span");
+            assert_eq!(span.start.line, expected_line);
+            assert!(
+                diag.labels()
+                    .iter()
+                    .any(|label| label.text == expected_label),
+                "expected origin label `{expected_label}`, got: {:?}",
+                diag.labels()
             );
         }
     }

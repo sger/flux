@@ -5,18 +5,24 @@ Fixture: examples/type_system/failing/88_effect_op_signature_argument_mismatch.f
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify String with Int.
+I found a type mismatch.
 
-  --> examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:9:35
+  examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:9:35
   |
 9 |     let _ = (perform Console.read(123)) handle Console {
   |                                   ^^^
-  |                                   --- expected String, found Int
+  |                                   --- this expression has type `Int`
+
   |                                   --- perform argument type is known at compile time
 
+Note:
+  expected type: String
+  found type: Int
+
 Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
   argument does not match effect operation signature
 == stdout ==
 <not executed>

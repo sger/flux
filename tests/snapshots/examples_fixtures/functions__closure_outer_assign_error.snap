@@ -5,11 +5,11 @@ Fixture: examples/functions/closure_outer_assign_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E003]: OUTER ASSIGNMENT
+Error[E003]: Outer Assignment
 
 Cannot assign to variable `x` from outer scope.
 
-  --> examples/functions/closure_outer_assign_error.flx:5:7
+  examples/functions/closure_outer_assign_error.flx:5:7
   |
 5 |       x = 2;
   |       ^^^^^^

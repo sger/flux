@@ -5,18 +5,23 @@ Fixture: examples/type_system/failing/Stage150Type.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  --> examples/type_system/failing/Stage150Type.flx:6:23
+  examples/type_system/failing/Stage150Type.flx:6:23
   |
 6 |         let x: Bool = 42
   |                       ^^
-  |                       -- this is `Int`
+  |                       -- this value has type `Int`
+
   |                ---- but `x` was annotated as `Bool`
 
+Note:
+  annotated type: Bool
+  value type: Int
+
 Help:
-  Change `x` to a `Bool` value or update the annotation to `Int`.
+  Booleans are not numeric in Flux. Use `true` or `false` here.
 == stdout ==
 <not executed>

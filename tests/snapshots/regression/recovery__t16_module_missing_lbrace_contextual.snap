@@ -4,11 +4,11 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx
 exit_code: 1
 
---> compiler error[E034]: UNEXPECTED TOKEN
+Error[E034]: Missing Module Body
 
-Expected `{` to begin module body.
+This module body needs to start with `{`.
 
-  --> tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx:2:1
+  tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx:2:1
   |
 2 | let after = 1
   | ^^^

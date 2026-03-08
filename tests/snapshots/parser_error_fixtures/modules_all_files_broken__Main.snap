@@ -1,0 +1,23 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/modules_all_files_broken/Main.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Function Body
+
+This function body needs to start with `{`.
+
+  examples/parser_errors/modules_all_files_broken/Main.flx:6:5
+  |
+5 | fn main() -> Unit
+  | - `main` starts here
+6 |     print("parser torture entry")
+  |     ^^^^^
+  |     ----- This looks like the function body
+
+Help:
+  Try adding `{` after the function signature.
+== stdout ==
+<not executed>

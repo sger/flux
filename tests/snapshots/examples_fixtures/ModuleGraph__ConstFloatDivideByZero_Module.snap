@@ -5,11 +5,11 @@ Fixture: examples/ModuleGraph/ConstFloatDivideByZero_Module.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+Error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ConstFloatDivideByZero` doesn't match file path `examples/ModuleGraph/ConstFloatDivideByZero_Module.flx`.
 
-  --> examples/ModuleGraph/ConstFloatDivideByZero_Module.flx:4:1
+  examples/ModuleGraph/ConstFloatDivideByZero_Module.flx:4:1
   |
 4 | module ModuleGraph.ConstFloatDivideByZero {
   | ^

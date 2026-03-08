@@ -1,0 +1,13 @@
+// Missing closing `}` for function body.
+//
+// Expected: E076 UNCLOSED DELIMITER
+//   "Expected a closing `}` to match this opening `{` in function `add`."
+//   Points to the opening `{` on the function line.
+//   Help: "Add `}` to close the body of function `add`."
+
+fn add(a: Int, b: Int) -> Int {
+    a + b
+
+fn main() -> Unit {
+    let _x = add(1, 2)
+}

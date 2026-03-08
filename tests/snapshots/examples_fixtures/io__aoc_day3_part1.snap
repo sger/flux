@@ -5,61 +5,57 @@ Fixture: examples/io/aoc_day3_part1.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Type Mismatch
 
-Cannot unify numeric operands (Int or Float) with Option<Int> and Int.
+I found a type mismatch.
 
-  --> examples/io/aoc_day3_part1.flx:18:80
+  examples/io/aoc_day3_part1.flx:18:80
    |
 18 |         let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
    |                                                                                ^^^^^^
-   |                                                                                ------ expected numeric operands (Int or Float), found Option<Int> and Int
+   |                                                                                ------ this expression has type `Option<Int> and Int`
+
    |                                                                                ------ operator operands are known at compile time
 
+Note:
+  expected type: numeric operands (Int or Float)
+  found type: Option<Int> and Int
+
 Help:
+  This value might be `None`. Use `match` to unwrap it before using it here.
   adjust operand types or add explicit conversion
 
 
---> compiler error[E300]: TYPE UNIFICATION ERROR
+Error[E300]: Argument Type Mismatch
 
-The 2nd argument to `max2` has the wrong type.
+I found the wrong type in the 2nd argument to `max2`.
 
-  --> examples/io/aoc_day3_part1.flx:19:43
+  examples/io/aoc_day3_part1.flx:19:43
    |
  5 |     fn max2(a, b) {
-
  6 |         if a > b { a } else { b }
-
  7 |     }
-
  8 | 
-
  9 |     fn digit_at(line, idx) {
-
 10 |         parse_int(substring(line, idx, idx + 1))
-
 11 |     }
-
 12 | 
-
 13 |     fn max_bank_scan(line, idx, best_right, best_pair) {
-
 14 |         if idx < 0 {
-
 15 |             best_pair
-
 16 |         } else {
-
 17 |         let d = digit_at(line, idx)
-
 18 |         let pair_here = if best_right < 0 { best_pair } else { max2(best_pair, d * 10 + best_right) }
-
 19 |         let next_right = max2(best_right, d)
    |                                           ^
-   |                                           - this argument is `Option<Int>`
+   |                                           - this argument has type `Option<Int>`
+
+Note:
+  expected argument type: Int
+  found argument type: Option<Int>
 
 Help:
-  Expected `Int` as the 2nd argument.
+  This value might be `None`. Use `match` to unwrap it before using it here.
 
 Found 2 errors.
 == stdout ==

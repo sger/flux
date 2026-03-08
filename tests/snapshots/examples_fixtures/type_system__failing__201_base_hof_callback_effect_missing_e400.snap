@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/201_base_hof_callback_effect_missing_e400.
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+Error[E400]: Missing Ambient Effect
 
 Call to `map_with_io_callback` requires effect `IO` in this function signature.
 
-  --> examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:13:13
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:13:13
    |
 13 |     let _ = map_with_io_callback(noisy_inc)
    |             ^^^^^^^^^^^^^^^^^^^^
@@ -17,18 +17,5 @@ Call to `map_with_io_callback` requires effect `IO` in this function signature.
 
 Hint:
   Add `with IO` to the enclosing function.
-
-
---> compiler error[E300]: TYPE UNIFICATION ERROR
-
-Cannot unify () -> Unit with Time with () -> Unit with IO.
-
-  --> examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:13:13
-   |
-13 |     let _ = map_with_io_callback(noisy_inc)
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |             ------------------------------- expected () -> Unit with Time, found () -> Unit with IO
-
-Found 2 errors.
 == stdout ==
 <not executed>

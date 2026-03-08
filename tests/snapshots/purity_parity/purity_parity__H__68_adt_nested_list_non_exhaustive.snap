@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/68_adt_nested_list_non_exhaustive
 exit_code: 1
 
 == vm tuples ==
-- E083 | NON-EXHAUSTIVE ADT MATCH | 
+- E083 | Non-Exhaustive ADT Match | 
 
 == jit tuples ==
-- E083 | NON-EXHAUSTIVE ADT MATCH | 
+- E083 | Non-Exhaustive ADT Match | 
 
 == parity ==
 match
