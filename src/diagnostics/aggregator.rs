@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -165,6 +166,8 @@ impl DiagnosticKey {
             .map(RelatedKey::from_related)
             .collect::<Vec<_>>();
         related.sort_by(related_sort);
+        // Stack trace text participates in diagnostic identity so runtime
+        // diagnostics with different call stacks are intentionally kept distinct.
         let stack_trace = diag
             .stack_trace()
             .iter()
@@ -500,6 +503,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
 
         let default_file = self.default_file.as_deref();
+        let use_color = env::var_os("NO_COLOR").is_none();
         let (processed, stage_stats) = self.process_with_metadata();
         let counts = {
             let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = processed
@@ -520,8 +524,11 @@ impl<'a> DiagnosticsAggregator<'a> {
         let suppressed_effect_count = stage_stats.suppressed_effect_count;
         let suppressed_total = suppressed_type_count + suppressed_effect_count;
         if suppressed_total > 0 {
+            let suppression_file = single_effective_file(&shown, default_file)
+                .or(default_file)
+                .unwrap_or("<unknown>");
             let mut suppression_note = downstream_errors_suppressed_note(
-                default_file.unwrap_or("<unknown>"),
+                suppression_file,
                 suppressed_type_count,
                 suppressed_effect_count,
             );
@@ -537,50 +544,59 @@ impl<'a> DiagnosticsAggregator<'a> {
         let mut rendered = String::new();
 
         let mut groups: Vec<String> = Vec::new();
-        let mut current_file_key: Option<&str> = None;
-        let mut current_group = String::new();
-        let mut first_in_group = true;
         let mut rendered_items: Vec<String> = Vec::new();
 
-        for diag in &shown {
-            let file_key = effective_file(diag, default_file);
-            ensure_source(file_key, &mut file_cache);
-            for hint in diag.hints() {
-                ensure_source(hint.file.as_deref(), &mut file_cache);
-            }
-            for related in diag.related() {
-                ensure_source(related.file.as_deref(), &mut file_cache);
-            }
-            let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
-
-            if show_file_headers {
-                if current_file_key.is_none_or(|f| f != file_key.unwrap_or("")) {
-                    if !current_group.is_empty() {
-                        groups.push(current_group);
-                        current_group = String::new();
-                    }
-                    current_file_key = Some(file_key.unwrap_or(""));
-                    first_in_group = true;
-                    let display = format_file_header(file_key);
-                    current_group.push_str(&format!("{display}\n"));
-                }
-
-                if !first_in_group {
-                    current_group.push_str("\n\n");
-                }
-                first_in_group = false;
-                current_group.push_str(&rendered_diag);
-            } else {
-                rendered_items.push(rendered_diag);
-            }
-        }
-
         if show_file_headers {
-            if !current_group.is_empty() {
+            let mut grouped: Vec<(Option<&str>, Vec<&Diagnostic>)> = Vec::new();
+            for diag in &shown {
+                let file_key = effective_file(diag, default_file);
+                if let Some((current_file, diags)) = grouped.last_mut()
+                    && *current_file == file_key
+                {
+                    diags.push(diag);
+                } else {
+                    grouped.push((file_key, vec![diag]));
+                }
+            }
+
+            for (file_key, group_diags) in grouped {
+                let mut current_group = String::new();
+                let counts = count_diagnostics(group_diags.iter().copied());
+                let display = format_file_header(file_key, counts, use_color);
+                current_group.push_str(&display);
+                current_group.push('\n');
+
+                for (index, diag) in group_diags.iter().enumerate() {
+                    ensure_source(effective_file(diag, default_file), &mut file_cache);
+                    for hint in diag.hints() {
+                        ensure_source(hint.file.as_deref(), &mut file_cache);
+                    }
+                    for related in diag.related() {
+                        ensure_source(related.file.as_deref(), &mut file_cache);
+                    }
+                    let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
+                    if index > 0 {
+                        current_group.push_str("\n\n");
+                    }
+                    current_group.push_str(&rendered_diag);
+                }
+
                 groups.push(current_group);
             }
+
             rendered.push_str(&groups.join("\n\n"));
         } else {
+            for diag in &shown {
+                let file_key = effective_file(diag, default_file);
+                ensure_source(file_key, &mut file_cache);
+                for hint in diag.hints() {
+                    ensure_source(hint.file.as_deref(), &mut file_cache);
+                }
+                for related in diag.related() {
+                    ensure_source(related.file.as_deref(), &mut file_cache);
+                }
+                rendered_items.push(diag.render_with_sources(default_file, Some(&file_cache)));
+            }
             rendered.push_str(&rendered_items.join("\n\n"));
         }
 
@@ -630,19 +646,43 @@ fn effective_file<'a>(diag: &'a Diagnostic, default_file: Option<&'a str>) -> Op
     normalize_file(diag.file()).or(normalize_file(default_file))
 }
 
+fn single_effective_file<'a>(
+    diagnostics: &'a [Diagnostic],
+    default_file: Option<&'a str>,
+) -> Option<&'a str> {
+    let mut file: Option<&str> = None;
+    for diag in diagnostics {
+        let current = effective_file(diag, default_file)?;
+        if let Some(existing) = file {
+            if existing != current {
+                return None;
+            }
+        } else {
+            file = Some(current);
+        }
+    }
+    file
+}
+
 fn file_display<'a>(file: Option<&'a str>) -> Cow<'a, str> {
     file.filter(|f| !f.is_empty())
         .map(render_display_path)
         .unwrap_or_else(|| Cow::Borrowed("<unknown>"))
 }
 
-fn format_file_header(file: Option<&str>) -> String {
+fn format_file_header(file: Option<&str>, counts: DiagnosticCounts, use_color: bool) -> String {
     let display = file_display(file);
-    let colors = Colors::new();
-    if colors.cyan.is_empty() {
-        display.into_owned()
+    let summary = format_group_header_counts(&counts);
+    let header = format!("• {summary} • {display}");
+    let colors = if use_color {
+        Colors::with_color()
     } else {
-        format!("{}{}{}{}", colors.bold, colors.cyan, display, colors.reset)
+        Colors::no_color()
+    };
+    if !use_color {
+        header
+    } else {
+        format!("{}{}{}{}", colors.bold, colors.cyan, header, colors.reset)
     }
 }
 
@@ -669,6 +709,40 @@ fn count_severity(diags: &[IndexedDiagnostic<'_>]) -> DiagnosticCounts {
         }
     }
     counts
+}
+
+fn count_diagnostics<'a>(diags: impl IntoIterator<Item = &'a Diagnostic>) -> DiagnosticCounts {
+    let mut counts = DiagnosticCounts::default();
+    for diag in diags {
+        match diag.severity() {
+            Severity::Error => counts.errors += 1,
+            Severity::Warning => counts.warnings += 1,
+            Severity::Note => counts.notes += 1,
+            Severity::Help => counts.helps += 1,
+        }
+    }
+    counts
+}
+
+fn format_group_header_counts(counts: &DiagnosticCounts) -> String {
+    let mut parts = Vec::new();
+    if counts.errors > 0 {
+        parts.push(format!("{} error{}", counts.errors, plural(counts.errors)));
+    }
+    if counts.warnings > 0 {
+        parts.push(format!(
+            "{} warning{}",
+            counts.warnings,
+            plural(counts.warnings)
+        ));
+    }
+    if counts.notes > 0 {
+        parts.push(format!("{} note{}", counts.notes, plural(counts.notes)));
+    }
+    if counts.helps > 0 {
+        parts.push(format!("{} help{}", counts.helps, plural(counts.helps)));
+    }
+    join_with_commas(&parts)
 }
 
 fn format_summary(counts: &DiagnosticCounts, file_count: usize) -> Option<String> {
@@ -721,6 +795,10 @@ fn join_parts(parts: &[String]) -> String {
             format!("{}, and {}", all.join(", "), last)
         }
     }
+}
+
+fn join_with_commas(parts: &[String]) -> String {
+    parts.join(", ")
 }
 
 fn severity_rank(severity: Severity) -> u8 {

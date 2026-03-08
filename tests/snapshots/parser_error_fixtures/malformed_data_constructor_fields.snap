@@ -13,5 +13,8 @@ I was expecting `,` or `)` between constructor fields, but I found an identifier
   |
 2 |     Ok(Int String),
   |            ^^^^^^
+
+Note:
+  while parsing data declaration `Result`
 == stdout ==
 <not executed>

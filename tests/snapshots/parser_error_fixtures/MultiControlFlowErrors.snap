@@ -1,0 +1,102 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/MultiControlFlowErrors.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing If Body
+
+This `if` branch needs to start with `{`.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:3:20
+  |
+3 |         let a = if true 1
+  |                    ^^^^
+  |                    ---- this `if` branch starts here
+
+Note:
+  while parsing `if` expression
+
+Help:
+  Try adding `{` after the `if` condition.
+
+
+Error[E034]: Missing Else Body
+
+This `else` branch needs to start with `{`.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:4:32
+  |
+4 |         let b = if false { 0 } else 1
+  |                                ^^^^
+  |                                ---- `else` starts here
+
+Note:
+  while parsing `if` expression
+
+Help:
+  Try adding `{` after `else`.
+
+
+Error[E034]: Missing Match Arm Arrow
+
+I was expecting `->` in this match arm, but I found a string literal.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:5:29
+  |
+5 |         let c = match 1 { 0 "zero", 1 -> "one" }
+  |                             ^^^^^^
+
+Note:
+  while parsing `match` expression
+
+Help:
+  Write match arms as `match x { pattern -> body, ... }`.
+
+
+Error[E034]: Missing Handle Arm Arrow
+
+Expected `->` in handle arm.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:6:50
+  |
+6 |         let d = 1 handle IO { print(resume, msg) print(msg) }
+  |                                                  ^^^^^
+
+Hint:
+  Handle arms use `op(resume, arg1, ...) -> body`.
+
+Note:
+  while parsing `handle` expression
+
+
+Error[E034]: Missing Lambda Arrow
+
+I was expecting `->` after the lambda parameters, but I found an identifier.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:7:18
+  |
+7 |         let f = /x x + 1
+  |                  ^
+  |                  - this lambda parameter list ends here
+
+Note:
+  while parsing lambda expression
+
+Help:
+  Use `/x -> expr` or `/(x, y) -> expr`.
+
+
+Error[E034]: Unexpected Closing Delimiter
+
+Unexpected `}` outside of a block.
+
+  examples/parser_errors/MultiControlFlowErrors.flx:9:1
+  |
+9 | }
+  | ^
+
+Found 6 errors.
+== stdout ==
+<not executed>

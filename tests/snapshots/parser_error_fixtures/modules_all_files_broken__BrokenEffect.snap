@@ -14,6 +14,9 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 3 |         print String -> Unit,,
   |               ^^^^^^
 
+Note:
+  while parsing effect `Console`
+
 
 Error[E034]: Invalid Effect Operation
 
@@ -23,6 +26,9 @@ I was expecting an operation name in this `effect` declaration, but I found `,`.
   |
 3 |         print String -> Unit,,
   |                              ^
+
+Note:
+  while parsing effect `Console`
 
 Found 2 errors.
 == stdout ==

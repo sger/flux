@@ -160,7 +160,7 @@ Help:
   Wrap this value in `Some(...)` or return `None`.
 
 
-Note[E000]: Downstream Errors Suppressed
+Note: Downstream Errors Suppressed
 
 I hid 9 later-stage diagnostics (9 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 

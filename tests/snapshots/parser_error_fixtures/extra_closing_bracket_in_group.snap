@@ -16,5 +16,8 @@ Expected `)` to close this grouped expression.
 
 Hint:
   Add `)` after the expression.
+
+Note:
+  while parsing function `main`
 == stdout ==
 <not executed>

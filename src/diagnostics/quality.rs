@@ -340,7 +340,9 @@ pub fn render_runtime_diagnostic(
         )
     };
 
-    let mut agg = DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
+    let show_file_headers = !source_file.is_empty() && !source_file.starts_with('<');
+    let mut agg = DiagnosticsAggregator::new(std::slice::from_ref(&diag))
+        .with_file_headers(show_file_headers);
     if let Some(src) = source_text {
         agg = agg.with_source(source_file.to_string(), src.to_string());
     }

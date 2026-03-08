@@ -1,0 +1,62 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/MultiAnnotationErrors.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Unexpected Token
+
+Missing `:` in function parameter type annotation. Write it as `name: Type`.
+
+  examples/parser_errors/MultiAnnotationErrors.flx:2:23
+  |
+2 |     fn bad_param(name String) -> String { name }
+  |                       ^^^^^^
+
+
+Error[E034]: Missing Return Type Arrow
+
+Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.
+
+  examples/parser_errors/MultiAnnotationErrors.flx:3:27
+  |
+3 |     fn bad_return(x: Int) String { x }
+  |                           ^^^^^^
+
+Note:
+  while parsing function `bad_return`
+
+
+Error[E034]: Unexpected Token
+
+Missing `:` in let binding type annotation. Write it as `value: Type`.
+
+  examples/parser_errors/MultiAnnotationErrors.flx:6:19
+  |
+6 |         let value Int = 1
+  |                   ^^^
+
+
+Error[E034]: Unexpected Token
+
+Missing `:` in function parameter type annotation. Write it as `x: Type`.
+
+  examples/parser_errors/MultiAnnotationErrors.flx:7:21
+  |
+7 |         let f = /(x Int, y String) -> x
+  |                     ^^^
+
+
+Error[E034]: Unexpected Token
+
+Missing `:` in function parameter type annotation. Write it as `y: Type`.
+
+  examples/parser_errors/MultiAnnotationErrors.flx:7:28
+  |
+7 |         let f = /(x Int, y String) -> x
+  |                            ^^^^^^
+
+Found 5 errors.
+== stdout ==
+<not executed>

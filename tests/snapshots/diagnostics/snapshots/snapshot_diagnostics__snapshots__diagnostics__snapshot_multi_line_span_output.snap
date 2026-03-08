@@ -2,7 +2,7 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-multi.flx
+• 1 warning • multi.flx
 Warning[E123]: Multi
 
 multi

@@ -13,5 +13,8 @@ Expected a closing `}` to match this opening `{`.
   |
 6 | module Math {
   |             ^
+
+Note:
+  while parsing module `Math`
 == stdout ==
 <not executed>

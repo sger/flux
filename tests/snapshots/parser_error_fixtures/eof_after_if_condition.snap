@@ -15,6 +15,9 @@ This `if` branch needs to start with `{`.
   |        ^^^^
   |        ---- this `if` branch starts here
 
+Note:
+  while parsing `if` expression
+
 Help:
   Try adding `{` after the `if` condition.
 == stdout ==

@@ -1,0 +1,10 @@
+module MultiImportKeywordErrors {
+    import
+    import Demo as
+    import Foo.Bar except x, y ]
+
+    def greet(name) { name }
+    var count = 1
+    switch count { 0 -> 1 }
+    end
+}

@@ -23,9 +23,10 @@ fn build_compiler_transcript(
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
 
-    let mut diagnostics: Vec<Diagnostic> = std::mem::take(&mut parser.errors);
+    let mut diagnostics: Vec<Diagnostic> = parser.take_warnings();
+    let entry_has_errors = !parser.errors.is_empty();
+    diagnostics.append(&mut parser.errors);
     let mut compile_status = String::from("ok");
-    let entry_has_errors = !diagnostics.is_empty();
 
     if entry_has_errors {
         compile_status = String::from("failed (parse)");
@@ -72,7 +73,16 @@ fn build_compiler_transcript(
             }
 
             compiler.set_file_path(node.path.to_string_lossy().to_string());
-            if let Err(mut diags) = compiler.compile(&node.program) {
+            let compile_result = compiler.compile(&node.program);
+            let mut warnings = compiler.take_warnings();
+            for diag in &mut warnings {
+                if diag.file().is_none() {
+                    diag.set_file(node.path.to_string_lossy().to_string());
+                }
+            }
+            diagnostics.append(&mut warnings);
+
+            if let Err(mut diags) = compile_result {
                 for diag in &mut diags {
                     if diag.file().is_none() {
                         diag.set_file(node.path.to_string_lossy().to_string());

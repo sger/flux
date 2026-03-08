@@ -23,6 +23,9 @@ I was expecting a type here, but I found `,`.
 4 | fn f(a: , b: Int) {
   |         ^
 
+Note:
+  while parsing function `f`
+
 
 Error[E034]: Unexpected Token
 
@@ -33,6 +36,9 @@ I was expecting a type here, but I found `{`.
 9 | fn g() -> {
   |           ^
 
+Note:
+  while parsing function `g`
+
 
 Error[E034]: Unexpected Token
 
@@ -42,5 +48,8 @@ I was expecting a type here, but I found `->`.
    |
 14 | let lam = /x: -> x
    |               ^^
+
+Note:
+  while parsing lambda expression
 
 Found 4 errors.

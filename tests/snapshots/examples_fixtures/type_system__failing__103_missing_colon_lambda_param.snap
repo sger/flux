@@ -25,6 +25,9 @@ I was expecting `->` after the lambda parameters, but I found the end of the fil
   |                   ^
   |                   - this lambda parameter list ends here
 
+Note:
+  while parsing lambda expression
+
 Help:
   Use `/x -> expr` or `/(x, y) -> expr`.
 

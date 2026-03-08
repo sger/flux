@@ -14,6 +14,9 @@ Expected a closing `}` to match this opening `{` in function `add`.
 8 | fn add(a: Int, b: Int) -> Int {
   |                               ^
 
+Note:
+  while parsing function `add`
+
 Help:
   Add `}` to close the body of function `add`.
 == stdout ==

@@ -2,6 +2,7 @@ use crate::{
     diagnostics::{
         Diagnostic, DiagnosticCategory,
         position::{Position, Span},
+        quality::with_parser_breadcrumb,
         unexpected_token_with_details,
     },
     syntax::{
@@ -18,6 +19,19 @@ mod expression;
 mod helpers;
 mod literal;
 mod statement;
+
+pub(super) struct ParserContextGuard {
+    parser: std::ptr::NonNull<Parser>,
+    depth: usize,
+}
+
+impl Drop for ParserContextGuard {
+    fn drop(&mut self) {
+        unsafe {
+            self.parser.as_mut().parser_contexts.truncate(self.depth);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum RecoveryBoundary {
@@ -188,17 +202,21 @@ impl Parser {
         if self.has_structural_error_since(checkpoint) {
             false
         } else {
-            self.errors.push(diag);
-            true
+            self.emit_parser_diagnostic(diag)
         }
     }
 
-    pub(super) fn push_parser_context(&mut self, context: ParserContext) {
+    fn push_parser_context(&mut self, context: ParserContext) {
         self.parser_contexts.push(context);
     }
 
-    pub(super) fn pop_parser_context(&mut self) {
-        let _ = self.parser_contexts.pop();
+    pub(super) fn enter_parser_context(&mut self, context: ParserContext) -> ParserContextGuard {
+        let depth = self.parser_contexts.len();
+        self.push_parser_context(context);
+        ParserContextGuard {
+            parser: std::ptr::NonNull::from(self),
+            depth,
+        }
     }
 
     pub(super) fn current_parser_breadcrumb(&self) -> Option<String> {
@@ -223,6 +241,13 @@ impl Parser {
         }
         self.errors.push(diag);
         true
+    }
+
+    /// Emit a parser diagnostic through the centralized parser error path so
+    /// breadcrumb notes and structural-followup suppression stay consistent.
+    pub(super) fn emit_parser_diagnostic(&mut self, diag: Diagnostic) -> bool {
+        let breadcrumb = self.current_parser_breadcrumb();
+        self.push_parser_diagnostic(with_parser_breadcrumb(diag, breadcrumb.as_deref()))
     }
 }
 

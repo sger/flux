@@ -25,6 +25,9 @@ I was expecting `->` after the lambda parameters, but I found the end of the fil
   examples/type_system/failing/124_lambda_missing_close_paren.flx:3:1
   |
 
+Note:
+  while parsing lambda expression
+
 Help:
   Use `/x -> expr` or `/(x, y) -> expr`.
 

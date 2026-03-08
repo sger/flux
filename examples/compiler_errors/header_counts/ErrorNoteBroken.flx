@@ -1,0 +1,5 @@
+module ErrorNoteBroken {
+    public fn one() -> Int {
+        1
+    }
+}

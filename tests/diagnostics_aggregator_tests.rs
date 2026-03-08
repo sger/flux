@@ -37,10 +37,10 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     assert!(a_idx < b_idx);
 
     let err_idx = output
-        .find("Warning[E000]: Err")
+        .find("Warning: Err")
         .expect("missing err warning");
     let warn_idx = output
-        .find("Warning[E000]: Warn")
+        .find("Warning: Warn")
         .expect("missing warn warning");
     assert!(err_idx < warn_idx);
 }
@@ -63,7 +63,7 @@ fn aggregator_prints_summary_counts() {
         .find("Found 2 warnings.")
         .expect("missing summary line");
     let last_diag_idx = output
-        .rfind("Warning[E000]:")
+        .rfind("Warning:")
         .expect("missing warning diagnostics");
     assert!(
         summary_idx > last_diag_idx,
@@ -82,7 +82,7 @@ fn aggregator_single_file_shows_header() {
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert!(output.contains("a.flx"));
+    assert!(output.contains("• 1 warning • a.flx"));
 }
 
 #[test]
@@ -97,9 +97,34 @@ fn aggregator_file_headers_use_bold_cyan_when_color_enabled() {
 
     let output = render_diagnostics_multi(&diags, Some(50));
     assert!(
-        output.contains("\u{1b}[1m\u{1b}[36ma.flx\u{1b}[0m"),
+        output.contains("\u{1b}[1m\u{1b}[36m• 1 warning • a.flx\u{1b}[0m"),
         "expected bold cyan file header, got:\n{output}"
     );
+}
+
+#[test]
+fn aggregator_file_header_lists_mixed_counts_in_severity_order() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let diags = vec![
+        Diagnostic::warning("warn")
+            .with_file("a.flx")
+            .with_span(span(1, 0)),
+        Diagnostic::make_note("NOTE", "note body", "a.flx", span(2, 0)),
+        Diagnostic::make_help("HELP", "help body", "a.flx", span(3, 0)),
+        Diagnostic::make_error_dynamic(
+            "E100",
+            "ERR",
+            ErrorType::Compiler,
+            "err body",
+            None,
+            "a.flx",
+            span(4, 0),
+        ),
+    ];
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert!(output.contains("• 1 error, 1 warning, 1 note, 1 help • a.flx"));
 }
 
 #[test]
@@ -123,9 +148,9 @@ fn aggregator_enforces_max_errors() {
 
     let output = render_diagnostics_multi(&diags, Some(1));
     // Since all diagnostics are warnings now, max_errors doesn't limit them
-    assert_eq!(output.matches("Warning[E000]:").count(), 4);
-    assert!(output.contains("Warning[E000]: E1"));
-    assert!(output.contains("Warning[E000]: W1"));
+    assert_eq!(output.matches("Warning:").count(), 4);
+    assert!(output.contains("Warning: E1"));
+    assert!(output.contains("Warning: W1"));
 }
 
 #[test]
@@ -161,7 +186,7 @@ fn aggregator_renders_related_diagnostics_in_order() {
     let output = render_diagnostics_multi(&[primary], Some(50));
 
     let primary_idx = output
-        .find("Warning[E000]: Primary")
+        .find("Warning: Primary")
         .expect("missing primary");
     let note_idx = output.find("note: first note").expect("missing note");
     let help_idx = output.find("help: second help").expect("missing help");
@@ -211,7 +236,7 @@ fn aggregator_keeps_diagnostics_with_different_hints() {
         .with_hint_text("extra context");
 
     let output = render_diagnostics_multi(&[base, with_hint], Some(50));
-    assert_eq!(output.matches("Warning[E000]: Hintdedup").count(), 2);
+    assert_eq!(output.matches("Warning: Hintdedup").count(), 2);
     assert!(output.contains("extra context"));
 }
 
@@ -231,7 +256,7 @@ fn aggregator_dedupes_identical_with_hints() {
         .with_hint_text("same context");
 
     let output = render_diagnostics_multi(&[with_hint, with_hint_dup], Some(50));
-    assert_eq!(output.matches("Warning[E000]: Hintdedup2").count(), 1);
+    assert_eq!(output.matches("Warning: Hintdedup2").count(), 1);
     assert_eq!(output.matches("same context").count(), 1);
 }
 
@@ -254,7 +279,7 @@ fn aggregator_keeps_diagnostics_with_different_labels() {
     let output = DiagnosticsAggregator::new(&[with_label_a, with_label_b])
         .with_source("a.flx", source)
         .render();
-    assert_eq!(output.matches("Warning[E000]: Labeldedup").count(), 2);
+    assert_eq!(output.matches("Warning: Labeldedup").count(), 2);
     assert!(output.contains("label A"));
     assert!(output.contains("label B"));
 }

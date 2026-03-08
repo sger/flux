@@ -1017,23 +1017,22 @@ impl Parser {
 
     // Complex expressions
     pub(super) fn parse_if_expression(&mut self) -> Option<Expression> {
-        self.push_parser_context(ParserContext::IfBranch);
+        let _if_context = self.enter_parser_context(ParserContext::IfBranch);
         let start = self.current_token.position;
         self.next_token();
         let condition = self.parse_expression(Precedence::Lowest)?;
 
         if !self.is_peek_token(TokenType::LBrace) {
             let anchor = self.eof_anchor_span(self.current_token.span());
-            self.errors
-                .push(missing_syntax_token_diagnostic_with_origin(
-                    &crate::diagnostics::UNEXPECTED_TOKEN,
-                    anchor,
-                    "Missing If Body",
-                    crate::diagnostics::DiagnosticCategory::ParserDeclaration,
-                    "This `if` branch needs to start with `{`.",
-                    "this `if` branch starts here",
-                    "Try adding `{` after the `if` condition.",
-                ));
+            self.emit_parser_diagnostic(missing_syntax_token_diagnostic_with_origin(
+                &crate::diagnostics::UNEXPECTED_TOKEN,
+                anchor,
+                "Missing If Body",
+                crate::diagnostics::DiagnosticCategory::ParserDeclaration,
+                "This `if` branch needs to start with `{`.",
+                "this `if` branch starts here",
+                "Try adding `{` after the `if` condition.",
+            ));
             self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
@@ -1044,7 +1043,7 @@ impl Parser {
         if self.peek_token.token_type == TokenType::Ident
             && matches!(self.peek_token.literal.as_ref(), "elif" | "elsif")
         {
-            self.errors.push(
+            self.emit_parser_diagnostic(
                 unknown_keyword_alias(
                     self.peek_token.span(),
                     &self.peek_token.literal,
@@ -1075,23 +1074,21 @@ impl Parser {
             } else {
                 if !self.is_peek_token(TokenType::LBrace) {
                     let anchor = self.eof_anchor_span(self.current_token.span());
-                    self.errors
-                        .push(missing_syntax_token_diagnostic_with_origin(
-                            &crate::diagnostics::UNEXPECTED_TOKEN,
-                            anchor,
-                            "Missing Else Body",
-                            crate::diagnostics::DiagnosticCategory::ParserDeclaration,
-                            "This `else` branch needs to start with `{`.",
-                            "`else` starts here",
-                            "Try adding `{` after `else`.",
-                        ));
+                    self.emit_parser_diagnostic(missing_syntax_token_diagnostic_with_origin(
+                        &crate::diagnostics::UNEXPECTED_TOKEN,
+                        anchor,
+                        "Missing Else Body",
+                        crate::diagnostics::DiagnosticCategory::ParserDeclaration,
+                        "This `else` branch needs to start with `{`.",
+                        "`else` starts here",
+                        "Try adding `{` after `else`.",
+                    ));
                     self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                     return None;
                 }
                 self.next_token();
-                self.push_parser_context(ParserContext::ElseBranch);
+                let _else_context = self.enter_parser_context(ParserContext::ElseBranch);
                 let block = self.parse_block();
-                self.pop_parser_context();
                 Some(block)
             }
         } else {
@@ -1105,7 +1102,6 @@ impl Parser {
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
         });
-        self.pop_parser_context();
         expression
     }
 
@@ -1203,7 +1199,7 @@ impl Parser {
     /// Parses `expr handle Effect { op(resume, arg1, ...) -> body, ... }`.
     /// `current_token` is `Handle`; `left` is the expression being handled.
     pub(super) fn parse_handle_expression(&mut self, left: Expression) -> Option<Expression> {
-        self.push_parser_context(ParserContext::HandleExpression);
+        let _handle_context = self.enter_parser_context(ParserContext::HandleExpression);
         let start = left.span().start;
 
         // Expect the effect name (Ident)
@@ -1340,12 +1336,11 @@ impl Parser {
             span: Span::new(start, end),
             id: self.next_expr_id(),
         });
-        self.pop_parser_context();
         expression
     }
 
     pub(super) fn parse_match_expression(&mut self) -> Option<Expression> {
-        self.push_parser_context(ParserContext::MatchExpression);
+        let _match_context = self.enter_parser_context(ParserContext::MatchExpression);
         let start = self.current_token.position;
         self.next_token();
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
@@ -1367,16 +1362,15 @@ impl Parser {
         while !self.is_peek_token(TokenType::RBrace) {
             if self.is_peek_token(TokenType::Eof) && arms.is_empty() {
                 let anchor = self.eof_anchor_span(self.current_token.span());
-                self.errors
-                    .push(missing_syntax_token_diagnostic_with_origin(
-                        &crate::diagnostics::UNEXPECTED_TOKEN,
-                        anchor,
-                        "Missing Match Body",
-                        crate::diagnostics::DiagnosticCategory::ParserDeclaration,
-                        "Expected at least one match arm before end of file.",
-                        "this match expression starts here",
-                        "Write match arms as `match value { pattern -> body, ... }`.",
-                    ));
+                self.emit_parser_diagnostic(missing_syntax_token_diagnostic_with_origin(
+                    &crate::diagnostics::UNEXPECTED_TOKEN,
+                    anchor,
+                    "Missing Match Body",
+                    crate::diagnostics::DiagnosticCategory::ParserDeclaration,
+                    "Expected at least one match arm before end of file.",
+                    "this match expression starts here",
+                    "Write match arms as `match value { pattern -> body, ... }`.",
+                ));
                 return Some(self.build_match_expression(start, scrutinee, arms));
             }
             self.next_token();
@@ -1391,13 +1385,13 @@ impl Parser {
 
             if self.is_peek_token(TokenType::Assign) && self.peek2_token.token_type == TokenType::Gt
             {
-                self.errors.push(match_fat_arrow(self.peek_token.span()));
+                self.emit_parser_diagnostic(match_fat_arrow(self.peek_token.span()));
                 self.next_token(); // consume '='
                 self.next_token(); // consume '>'
             } else if self.is_peek_token(TokenType::Arrow) {
                 self.next_token();
             } else {
-                self.errors.push(missing_match_arrow(
+                self.emit_parser_diagnostic(missing_match_arrow(
                     self.peek_token.span(),
                     &self.describe_token_type_for_diagnostic(self.peek_token.token_type),
                 ));
@@ -1505,9 +1499,7 @@ impl Parser {
             return None;
         }
 
-        let expression = Some(self.build_match_expression(start, scrutinee, arms));
-        self.pop_parser_context();
-        expression
+        Some(self.build_match_expression(start, scrutinee, arms))
     }
 
     /// Parses a single match pattern, including ADT constructors such as
@@ -1739,7 +1731,7 @@ impl Parser {
     /// Parse a lambda expression: \x -> expr, \(x, y) -> expr, \() -> expr
     pub(super) fn parse_lambda(&mut self) -> Option<Expression> {
         debug_assert!(self.is_current_token(TokenType::Backslash));
-        self.push_parser_context(ParserContext::Lambda);
+        let _lambda_context = self.enter_parser_context(ParserContext::Lambda);
         let start = self.current_token.position;
 
         // Consume `\` and position on the first parameter token or `(`.
@@ -1750,7 +1742,7 @@ impl Parser {
             // Parenthesized parameters: \() -> or \(x) -> or \(x, y) ->
             self.parse_typed_function_parameters(ParameterListContext::Lambda)?
         } else if self.is_current_token(TokenType::Arrow) {
-            self.errors.push(lambda_syntax_error(
+            self.emit_parser_diagnostic(lambda_syntax_error(
                 self.current_token.span(),
                 "Expected parameter or `(` after `\\`.",
             ));
@@ -1786,7 +1778,7 @@ impl Parser {
             self.next_token(); // consume `->`
         } else {
             let arrow_anchor = self.eof_anchor_span(self.current_token.span());
-            self.errors.push(
+            self.emit_parser_diagnostic(
                 missing_lambda_arrow(
                     arrow_anchor,
                     &self.describe_token_type_for_diagnostic(self.peek_token.token_type),
@@ -1817,7 +1809,7 @@ impl Parser {
             }
         };
 
-        let expression = Some(Expression::Function {
+        Some(Expression::Function {
             parameters,
             parameter_types,
             return_type: None,
@@ -1825,9 +1817,7 @@ impl Parser {
             body,
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
-        });
-        self.pop_parser_context();
-        expression
+        })
     }
 
     // Option/Either expressions

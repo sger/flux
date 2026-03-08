@@ -31,7 +31,7 @@ Help:
   Pass a `List<Int>` value as the 1st argument.
 
 
-Note[E000]: Module Skipped
+Note: Module Skipped
 
 I skipped module `examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx` because its dependency `CollectionsConfusion` already has errors.
 

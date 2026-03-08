@@ -1,7 +1,7 @@
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticPhase, ErrorType, StackTraceFrame,
     position::{Position, Span},
-    render_diagnostics_json,
+    render_diagnostics_json, render_runtime_diagnostic,
 };
 
 mod diagnostics_env;
@@ -268,5 +268,45 @@ fn json_render_includes_structured_stack_trace_payload() {
     assert_eq!(
         stack_trace[0].get("text").and_then(|v| v.as_str()),
         Some("test.flx:3:1 in inner")
+    );
+}
+
+#[test]
+fn runtime_render_includes_file_header_for_real_source_files() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let diag = Diagnostic::make_error_dynamic(
+        "E1004",
+        "RUNTIME TYPE ERROR",
+        ErrorType::Runtime,
+        "type mismatch",
+        None,
+        "test.flx",
+        Span::new(Position::new(3, 1), Position::new(3, 4)),
+    )
+    .with_phase(DiagnosticPhase::Runtime);
+
+    let out = render_runtime_diagnostic(&diag, "test.flx", Some("foo\nbar\nbaz\n"), &[]);
+    assert!(
+        out.starts_with("• 1 error • test.flx\n"),
+        "expected file header, got:\n{out}"
+    );
+    assert!(out.contains("Error[E1004]: Runtime Type Error"));
+}
+
+#[test]
+fn render_location_uses_dim_cyan_when_color_enabled() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(None);
+
+    let diag = Diagnostic::warning("TEST")
+        .with_code("E999")
+        .with_file("test.flx")
+        .with_span(Span::new(Position::new(2, 8), Position::new(2, 9)))
+        .with_message("span test");
+
+    let out = diag.render(Some("let x = 1;\nlet y = x + 2;\n"), Some("test.flx"));
+    assert!(
+        out.contains("  \u{1b}[2m\u{1b}[36mtest.flx:2:9\u{1b}[0m"),
+        "expected dim cyan location line, got:\n{out}"
     );
 }

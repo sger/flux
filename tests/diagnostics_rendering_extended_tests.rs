@@ -56,7 +56,7 @@ fn missing_span_renders_without_location() {
         .with_message("no span message");
 
     let out = render_with_color(&diag, source, "test.flx", false);
-    assert!(out.contains("Warning[E000]: No Span"));
+    assert!(out.contains("Warning: No Span"));
     assert!(out.contains("no span message"));
     assert!(!out.contains("  test.flx:"));
 }
