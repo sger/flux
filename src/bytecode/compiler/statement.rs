@@ -156,6 +156,8 @@ impl Compiler {
             self.file_path.clone(),
             span,
         )
+        .with_display_title("Unknown Effect")
+        .with_category(crate::diagnostics::DiagnosticCategory::Effects)
         .with_primary_label(span, "unknown effect in function annotation")
         .with_phase(DiagnosticPhase::Effect)
     }

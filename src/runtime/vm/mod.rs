@@ -111,12 +111,17 @@ impl VM {
             Err(err) => {
                 let normalized = trace::strip_ansi(&err);
                 // Check if error is already formatted (from runtime_error_enhanced / aggregator)
-                // Formatted errors may start with "-- " or a file header "-->" and include an error code.
+                // Formatted errors may start with a rendered severity header and include an error code.
                 let has_code = normalized.contains("[E") || normalized.contains("[e");
                 let looks_formatted = has_code
-                    && (normalized.starts_with("-- ")
-                        || normalized.starts_with("--> ")
-                        || normalized.contains("\n-- "));
+                    && (normalized.starts_with("Error[")
+                        || normalized.starts_with("Warning[")
+                        || normalized.starts_with("Note[")
+                        || normalized.starts_with("Help[")
+                        || normalized.contains("\nError[")
+                        || normalized.contains("\nWarning[")
+                        || normalized.contains("\nNote[")
+                        || normalized.contains("\nHelp["));
                 if looks_formatted {
                     Err(err)
                 } else {

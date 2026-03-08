@@ -1,9 +1,10 @@
 use crate::runtime::{
-    RuntimeContext, function_contract::FunctionContract, gc::GcHeap, value::Value,
+    RuntimeContext, base::list_ops::format_value, function_contract::FunctionContract, gc::GcHeap,
+    value::Value,
 };
 use crate::{
     diagnostics::position::{Position, Span},
-    diagnostics::{Diagnostic, DiagnosticsAggregator, ErrorType, RUNTIME_TYPE_ERROR},
+    diagnostics::{Diagnostic, ErrorType, render_runtime_diagnostic, runtime_type_error},
 };
 use std::collections::HashMap;
 
@@ -62,6 +63,7 @@ impl JitContext {
         &self,
         expected: &str,
         actual: &str,
+        value_preview: Option<&str>,
         span: Option<Span>,
     ) -> String {
         let file = self
@@ -69,26 +71,21 @@ impl JitContext {
             .clone()
             .unwrap_or_else(|| "<jit>".to_string());
         let span = span.unwrap_or_else(|| Span::new(Position::new(1, 0), Position::new(1, 0)));
-        let diag =
-            Diagnostic::make_error(&RUNTIME_TYPE_ERROR, &[expected, actual], file.clone(), span);
-        let mut agg =
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
-        if let Some(src) = &self.source_text {
-            agg = agg.with_source(file, src.clone());
-        }
-        agg.report().rendered
+        let diag = runtime_type_error(expected, actual, value_preview, file.clone(), span);
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 
     pub(crate) fn render_runtime_type_error_at(
         &self,
         expected: &str,
         actual: &str,
+        value_preview: Option<&str>,
         line: usize,
         column_1_based: usize,
     ) -> String {
         let col0 = column_1_based.saturating_sub(1);
         let span = Span::new(Position::new(line, col0), Position::new(line, col0));
-        self.render_runtime_type_error(expected, actual, Some(span))
+        self.render_runtime_type_error(expected, actual, value_preview, Some(span))
     }
 
     /// Render a generic runtime error through the diagnostics system.
@@ -117,12 +114,7 @@ impl JitContext {
             file.clone(),
             span,
         );
-        let mut agg =
-            DiagnosticsAggregator::new(std::slice::from_ref(&diag)).with_file_headers(false);
-        if let Some(src) = &self.source_text {
-            agg = agg.with_source(file, src.clone());
-        }
-        agg.report().rendered
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 
     pub(crate) fn check_contract_arg(
@@ -245,7 +237,13 @@ impl RuntimeContext for JitContext {
                     if let Err((expected, actual)) =
                         self.check_contract_arg(closure.function_index, index, arg)
                     {
-                        return Err(self.render_runtime_type_error(&expected, &actual, None));
+                        let preview = format_value(self, arg);
+                        return Err(self.render_runtime_type_error(
+                            &expected,
+                            &actual,
+                            Some(&preview),
+                            None,
+                        ));
                     }
                 }
 
@@ -286,7 +284,13 @@ impl RuntimeContext for JitContext {
                 if let Err((expected, actual)) =
                     self.check_contract_return(closure.function_index, &result)
                 {
-                    return Err(self.render_runtime_type_error(&expected, &actual, None));
+                    let preview = format_value(self, &result);
+                    return Err(self.render_runtime_type_error(
+                        &expected,
+                        &actual,
+                        Some(&preview),
+                        None,
+                    ));
                 }
                 Ok(result)
             }
