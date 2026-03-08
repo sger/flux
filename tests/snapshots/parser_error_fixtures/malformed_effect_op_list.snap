@@ -13,5 +13,8 @@ I was expecting an operation name in this `effect` declaration, but I found `,`.
   |
 2 |     print: String -> Unit,,
   |                           ^
+
+Note:
+  while parsing effect `Console`
 == stdout ==
 <not executed>

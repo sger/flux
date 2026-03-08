@@ -30,9 +30,6 @@ Expected expression, found `,`.
 1 | data Maybe<T> Some(T), None }
   |                      ^
 
-Note:
-  while parsing data declaration `Maybe`
-
 Found 2 errors.
 == stdout ==
 <not executed>

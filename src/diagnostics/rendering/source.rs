@@ -130,6 +130,33 @@ fn max_span_col_on_line(line_no: usize, span: Span, labels: &[Label]) -> usize {
     max_col
 }
 
+fn span_column(column: usize, line_len: usize) -> usize {
+    if column >= END_OF_LINE_SENTINEL {
+        line_len
+    } else {
+        column.min(line_len)
+    }
+}
+
+fn compute_caret_range(line_no: usize, span: Span, line_len: usize) -> (usize, usize) {
+    let start_line = span.start.line;
+    let end_line = span.end.line.max(start_line);
+
+    if line_no == start_line && line_no == end_line {
+        let start = span_column(span.start.column, line_len);
+        let end = span_column(span.end.column, line_len);
+        (start, end.max(start + 1))
+    } else if line_no == start_line {
+        let start = span.start.column.min(line_len);
+        (start, line_len.max(start + 1))
+    } else if line_no == end_line {
+        let end = span.end.column.min(line_len);
+        (0, end.max(1))
+    } else {
+        (0, line_len.max(1))
+    }
+}
+
 /// Render a source code snippet with the primary error span and labels
 ///
 /// This function displays:
@@ -202,29 +229,7 @@ pub fn render_source_snippet(
             // Render primary caret if this line is in the primary span
             let mut has_rendered_annotation_line = false;
             if render_primary {
-                let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
-                    // Handle end-of-line sentinel value
-                    let start = if span.start.column >= END_OF_LINE_SENTINEL {
-                        line_len
-                    } else {
-                        span.start.column.min(line_len)
-                    };
-                    let end = if span.end.column >= END_OF_LINE_SENTINEL {
-                        line_len
-                    } else {
-                        span.end.column.min(line_len)
-                    };
-                    let end = end.max(start + 1);
-                    (start, end)
-                } else if line_no == start_line {
-                    let start = span.start.column.min(line_len);
-                    (start, line_len.max(start + 1))
-                } else if line_no == end_line {
-                    let end = span.end.column.min(line_len);
-                    (0, end.max(1))
-                } else {
-                    (0, line_len.max(1))
-                };
+                let (caret_start, caret_end) = compute_caret_range(line_no, span, line_len);
 
                 out.push_str(&format!(
                     "{:>width$} | {}",
@@ -322,27 +327,7 @@ pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, u
             let (display_line, _, _) = render_diagnostic_line(line_text, 0, max_col);
             let line_len = display_line.len();
 
-            let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
-                let start = if span.start.column >= END_OF_LINE_SENTINEL {
-                    line_len
-                } else {
-                    span.start.column.min(line_len)
-                };
-                let end = if span.end.column >= END_OF_LINE_SENTINEL {
-                    line_len
-                } else {
-                    span.end.column.min(line_len)
-                };
-                (start, end.max(start + 1))
-            } else if line_no == start_line {
-                let start = span.start.column.min(line_len);
-                (start, line_len.max(start + 1))
-            } else if line_no == end_line {
-                let end = span.end.column.min(line_len);
-                (0, end.max(1))
-            } else {
-                (0, line_len.max(1))
-            };
+            let (caret_start, caret_end) = compute_caret_range(line_no, span, line_len);
 
             out.push_str(&format!(
                 "{:>width$} | {}\n",
@@ -375,6 +360,7 @@ pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::position::Position;
 
     // ── find_comment_start ──────────────────────────────────────────
 
@@ -428,6 +414,22 @@ mod tests {
         assert_eq!(display, "print(len(arr));");
         assert_eq!(start, 0);
         assert_eq!(end, 16);
+    }
+
+    #[test]
+    fn compute_caret_range_handles_single_line_sentinel() {
+        let span = Span::new(Position::new(3, 2), Position::new(3, END_OF_LINE_SENTINEL));
+
+        assert_eq!(compute_caret_range(3, span, 8), (2, 8));
+    }
+
+    #[test]
+    fn compute_caret_range_handles_multiline_edges() {
+        let span = Span::new(Position::new(2, 4), Position::new(4, 3));
+
+        assert_eq!(compute_caret_range(2, span, 10), (4, 10));
+        assert_eq!(compute_caret_range(3, span, 6), (0, 6));
+        assert_eq!(compute_caret_range(4, span, 9), (0, 3));
     }
 
     #[test]

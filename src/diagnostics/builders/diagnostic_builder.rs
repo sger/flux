@@ -142,6 +142,9 @@ pub trait DiagnosticBuilder: Sized {
     fn with_stack_trace_frame(self, frame: StackTraceFrame) -> Self;
 
     /// Replace the runtime stack trace with the provided frames.
+    ///
+    /// This overwrites any frames already attached, including frames added via
+    /// [`DiagnosticBuilder::with_stack_trace_frame`].
     fn with_stack_trace<I>(self, frames: I) -> Self
     where
         I: IntoIterator<Item = StackTraceFrame>;

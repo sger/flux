@@ -17,5 +17,24 @@ Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
 Hint:
   Did you mean `else if`?
   Replace `elif`/`elsif` with `else if`.
+
+Note:
+  while parsing `if` expression
+
+
+Error[E030]: Unknown Keyword
+
+Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
+
+  examples/type_system/failing/115_keyword_alias_elif.flx:1:15
+  |
+1 | if true { 1 } elif false { 2 } else { 3 }
+  |               ^^^^
+
+Hint:
+  Did you mean `else if`?
+  Replace `elif`/`elsif` with `else if`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

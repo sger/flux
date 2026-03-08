@@ -187,7 +187,10 @@ fn main() {
             }
 
             if !is_flx_file(&args[2]) {
-                eprintln!("Error: file must have .flx extension: {}", args[2]);
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             if test_mode {
@@ -235,7 +238,10 @@ fn main() {
                 return;
             }
             if !is_flx_file(&args[2]) {
-                eprintln!("Error: file must have .flx extension: {}", args[2]);
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_tokens(&args[2]);
@@ -243,6 +249,13 @@ fn main() {
         "bytecode" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux bytecode <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_bytecode(
@@ -259,6 +272,13 @@ fn main() {
                 eprintln!("Usage: flux lint <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             lint_file(&args[2], max_errors, diagnostics_format);
         }
         "fmt" => {
@@ -272,11 +292,25 @@ fn main() {
                 eprintln!("Usage: flux fmt --check <file.flx>");
                 return;
             }
+            if !is_flx_file(file) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    file
+                );
+                return;
+            }
             fmt_file(file, check);
         }
         "cache-info" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux cache-info <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_cache_info(&args[2], &roots);
@@ -293,6 +327,13 @@ fn main() {
                 eprintln!("Usage: flux analyze-free-vars <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             analyze_free_vars(&args[2], max_errors, diagnostics_format);
         }
         "analyze-tail-calls" | "analyze-tails-calls" | "tail-calls" => {
@@ -300,12 +341,24 @@ fn main() {
                 eprintln!("Usage: flux analyze-tail-calls <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
         "repl" => {
             repl(trace);
         }
-        _ => {}
+        _ => {
+            eprintln!(
+                "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
+                args[1]
+            );
+        }
     }
 }
 
@@ -1189,6 +1242,24 @@ fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
     }
 }
 
+fn should_show_file_headers(diagnostics: &[Diagnostic], requested: bool) -> bool {
+    if requested {
+        return true;
+    }
+
+    let mut files = std::collections::BTreeSet::new();
+    for diag in diagnostics {
+        if let Some(file) = diag.file() {
+            files.insert(file);
+            if files.len() > 1 {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_diagnostics(
     diagnostics: &[Diagnostic],
@@ -1200,6 +1271,7 @@ fn emit_diagnostics(
     all_errors: bool,
     text_to_stderr: bool,
 ) {
+    let show_file_headers = should_show_file_headers(diagnostics, show_file_headers);
     let mut agg = DiagnosticsAggregator::new(diagnostics)
         .with_file_headers(show_file_headers)
         .with_max_errors(Some(max_errors))

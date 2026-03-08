@@ -1,0 +1,7 @@
+import ErrorNoteBroken
+
+fn main() -> Unit {
+    let _x = ErrorNoteBroken.one()
+    let value: Int = "oops"
+    print("hi")
+}

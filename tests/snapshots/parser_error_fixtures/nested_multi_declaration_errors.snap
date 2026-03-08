@@ -14,6 +14,9 @@ I was expecting `,` or `)` between constructor fields, but I found an identifier
 2 |     Item(Int String),
   |              ^^^^^^
 
+Note:
+  while parsing data declaration `Bad`
+
 
 Error[E034]: Missing Effect Operation Colon
 
@@ -24,6 +27,9 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 6 |     print String -> Unit
   |           ^^^^^^
 
+Note:
+  while parsing effect `Console`
+
 
 Error[E034]: Missing Match Arm Arrow
 
@@ -33,6 +39,9 @@ I was expecting `->` in this match arm, but I found a string literal.
    |
 11 |         0 "zero",
    |           ^^^^^^
+
+Note:
+  while parsing `match` expression
 
 Help:
   Write match arms as `match x { pattern -> body, ... }`.

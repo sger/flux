@@ -53,7 +53,7 @@ Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
 
 
-Note[E000]: Downstream Errors Suppressed
+Note: Downstream Errors Suppressed
 
 I hid 2 later-stage diagnostics (2 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 

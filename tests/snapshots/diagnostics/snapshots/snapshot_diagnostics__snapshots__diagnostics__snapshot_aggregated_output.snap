@@ -2,7 +2,7 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-a.flx
+• 1 warning • a.flx
 Warning[E100]: Test A
 
 message a
@@ -13,7 +13,7 @@ message a
   |     ^
 
 
-b.flx
+• 1 warning • b.flx
 Warning[W200]: Test B
 
 message b

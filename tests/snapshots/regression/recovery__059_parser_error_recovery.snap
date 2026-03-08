@@ -52,6 +52,9 @@ This match arm needs `->`, not `=>`.
 3 | match y { 0 => 0, _ -> 1 }
   |             ^
 
+Note:
+  while parsing `match` expression
+
 Help:
   Replace `=>` with `->`.
 

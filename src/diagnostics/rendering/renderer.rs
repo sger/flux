@@ -39,12 +39,12 @@ pub fn render_header(
         out.push_str(colors.yellow);
     }
     let label = header_label(severity);
-    out.push_str(&format!(
-        "{}[{}]: {}",
-        label,
-        code,
-        display_title_for_text(title, display_title)
-    ));
+    let title_text = display_title_for_text(title, display_title);
+    if code == "E000" && severity != Severity::Error {
+        out.push_str(&format!("{label}: {title_text}"));
+    } else {
+        out.push_str(&format!("{label}[{code}]: {title_text}"));
+    }
     if use_color {
         out.push_str(colors.reset);
     }
@@ -80,6 +80,12 @@ pub fn render_location(
     span: Option<Span>,
     message: Option<&str>,
 ) {
+    let colors = if std::env::var_os("NO_COLOR").is_none() {
+        Colors::with_color()
+    } else {
+        Colors::no_color()
+    };
+
     // Location indicator: --> file:line:column
     if let Some(span) = span {
         let position = span.start;
@@ -97,7 +103,12 @@ pub fn render_location(
         } else {
             position.column + 1
         };
-        out.push_str(&format!("  {}:{}:{}\n", file, position.line, display_col));
+        out.push_str("  ");
+        out.push_str(colors.dim);
+        out.push_str(colors.cyan);
+        out.push_str(&format!("{}:{}:{}", file, position.line, display_col));
+        out.push_str(colors.reset);
+        out.push('\n');
     }
 }
 

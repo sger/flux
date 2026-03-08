@@ -16,11 +16,9 @@ exit_code: 1
 
 == vm tuples ==
 - E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with Console, IO`
-- E000 | Downstream Errors Suppressed | 
 
 == jit tuples ==
 - E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit with Console, IO`
-- E000 | Downstream Errors Suppressed | 
 
 == parity ==
 match
