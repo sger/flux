@@ -125,7 +125,8 @@ fn map_filter_fold_reject_non_callable_callback() {
         ],
     )
     .unwrap_err();
-    assert!(map_err.contains("to be Function"));
+    assert!(map_err.contains("wrong runtime type"));
+    assert!(map_err.contains("expected type: Function"));
 
     let filter_err = base_filter(
         &mut test_vm(),
@@ -135,7 +136,8 @@ fn map_filter_fold_reject_non_callable_callback() {
         ],
     )
     .unwrap_err();
-    assert!(filter_err.contains("to be Function"));
+    assert!(filter_err.contains("wrong runtime type"));
+    assert!(filter_err.contains("expected type: Function"));
 
     let fold_err = base_fold(
         &mut test_vm(),
@@ -146,7 +148,8 @@ fn map_filter_fold_reject_non_callable_callback() {
         ],
     )
     .unwrap_err();
-    assert!(fold_err.contains("to be Function"));
+    assert!(fold_err.contains("wrong runtime type"));
+    assert!(fold_err.contains("expected type: Function"));
 }
 
 #[test]
@@ -293,16 +296,20 @@ fn any_all_find_sort_by_reject_non_callable() {
     let arr = Value::Array(vec![Value::Integer(1)].into());
 
     let err = base_any(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
-    assert!(err.contains("to be Function"));
+    assert!(err.contains("wrong runtime type"));
+    assert!(err.contains("expected type: Function"));
 
     let err = base_all(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
-    assert!(err.contains("to be Function"));
+    assert!(err.contains("wrong runtime type"));
+    assert!(err.contains("expected type: Function"));
 
     let err = base_find(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
-    assert!(err.contains("to be Function"));
+    assert!(err.contains("wrong runtime type"));
+    assert!(err.contains("expected type: Function"));
 
     let err = base_sort_by(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
-    assert!(err.contains("to be Function"));
+    assert!(err.contains("wrong runtime type"));
+    assert!(err.contains("expected type: Function"));
 }
 
 #[test]
@@ -436,7 +443,8 @@ fn count_matches_and_empty() {
 
     // count rejects non-callable
     let err = base_count(&mut test_vm(), vec![arr.clone(), Value::Integer(1)]).unwrap_err();
-    assert!(err.contains("to be Function"));
+    assert!(err.contains("wrong runtime type"));
+    assert!(err.contains("expected type: Function"));
 }
 
 #[test]
