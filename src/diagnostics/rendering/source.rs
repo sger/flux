@@ -178,14 +178,8 @@ pub fn render_source_snippet(
     // Add separator line
     out.push_str(&format!("{:>width$} |\n", "", width = line_width));
 
-    let mut printed_any = false;
     for line_no in actual_start..=actual_end {
         if let Some(line_text) = source.and_then(|src| get_source_line(src, line_no)) {
-            if printed_any {
-                out.push('\n');
-            }
-            printed_any = true;
-
             // Compute the maximum span column end on this line from the
             // primary span and all labels so we know whether any highlighted
             // region extends into a comment.
@@ -206,6 +200,7 @@ pub fn render_source_snippet(
             let render_primary = line_no >= start_line && line_no <= end_line;
 
             // Render primary caret if this line is in the primary span
+            let mut has_rendered_annotation_line = false;
             if render_primary {
                 let (caret_start, caret_end) = if line_no == start_line && line_no == end_line {
                     // Handle end-of-line sentinel value
@@ -245,6 +240,7 @@ pub fn render_source_snippet(
                 if use_color {
                     out.push_str(colors.reset);
                 }
+                has_rendered_annotation_line = true;
             }
 
             // Render labels for this line
@@ -262,7 +258,9 @@ pub fn render_source_snippet(
                         LabelStyle::Note => colors.cyan,
                     };
 
-                    out.push('\n');
+                    if has_rendered_annotation_line {
+                        out.push('\n');
+                    }
                     out.push_str(&format!(
                         "{:>width$} | {}",
                         "",
@@ -280,7 +278,14 @@ pub fn render_source_snippet(
                     if use_color {
                         out.push_str(colors.reset);
                     }
+
+                    out.push('\n');
+                    has_rendered_annotation_line = true;
                 }
+            }
+
+            if has_rendered_annotation_line && !out.ends_with('\n') {
+                out.push('\n');
             }
         }
     }
