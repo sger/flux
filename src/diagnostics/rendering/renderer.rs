@@ -6,8 +6,7 @@
 
 use crate::diagnostics::position::Span;
 use crate::diagnostics::types::{
-    ErrorType, Hint, HintChain, HintKind, InlineSuggestion, RelatedDiagnostic, RelatedKind,
-    Severity,
+    Hint, HintChain, HintKind, InlineSuggestion, RelatedDiagnostic, RelatedKind, Severity,
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -19,24 +18,13 @@ use super::source::{get_source_line, render_hint_snippet as render_hint_snippet_
 /// Sentinel value for end-of-line positions.
 const END_OF_LINE_SENTINEL: usize = usize::MAX - 1;
 
-/// Render the diagnostic header with severity and error code
-///
-/// Displays a header line like:
-/// `--> compiler error[E031]: expected expression`
-///
-/// # Parameters
-/// - `out`: String buffer to append rendered output
-/// - `severity`: The diagnostic severity level
-/// - `error_type`: Optional error type for phase-aware prefixing
-/// - `title`: The diagnostic title
-/// - `code`: The error code (e.g., "E031")
-/// - `use_color`: Whether to use ANSI color codes
 pub fn render_header(
     out: &mut String,
     severity: Severity,
-    error_type: Option<ErrorType>,
     title: &str,
+    display_title: Option<&str>,
     code: &str,
+    _message: Option<&str>,
     use_color: bool,
 ) {
     let colors = if use_color {
@@ -45,12 +33,16 @@ pub fn render_header(
         Colors::no_color()
     };
 
-    // Header: --> compiler error[E031]: expected expression
     if use_color {
         out.push_str(colors.yellow);
     }
-    let label = header_label(severity, error_type).to_ascii_lowercase();
-    out.push_str(&format!("--> {}[{}]: {}", label, code, title));
+    let label = header_label(severity);
+    out.push_str(&format!(
+        "{}[{}]: {}",
+        label,
+        code,
+        display_title_for_text(title, display_title)
+    ));
     if use_color {
         out.push_str(colors.reset);
     }
@@ -78,17 +70,6 @@ pub fn render_message(out: &mut String, message: Option<&str>) {
     out.push('\n');
 }
 
-/// Render the file:line:column location indicator
-///
-/// Displays a location line like:
-/// `  --> file.flx:10:5`
-///
-/// # Parameters
-/// - `out`: String buffer to append rendered output
-/// - `source`: Optional source code text for END_OF_LINE_SENTINEL resolution
-/// - `file`: The file path (should be display-formatted)
-/// - `span`: Optional span containing the position
-/// - `message`: Optional message (for spacing logic)
 pub fn render_location(
     out: &mut String,
     source: Option<&str>,
@@ -113,10 +94,7 @@ pub fn render_location(
         } else {
             position.column + 1
         };
-        out.push_str(&format!(
-            "  --> {}:{}:{}\n",
-            file, position.line, display_col
-        ));
+        out.push_str(&format!("  {}:{}:{}\n", file, position.line, display_col));
     }
 }
 
@@ -263,8 +241,6 @@ pub fn render_hints(
     // Separate hints into those with and without spans
     let (text_hints, span_hints): (Vec<_>, Vec<_>) = hints.iter().partition(|h| h.span.is_none());
 
-    let has_text_hints = !text_hints.is_empty();
-
     // Group text-only hints by kind
     let mut hints_by_kind: HashMap<HintKind, Vec<&Hint>> = HashMap::new();
     for hint in text_hints {
@@ -280,7 +256,7 @@ pub fn render_hints(
         HintKind::Example,
     ] {
         if let Some(hints) = hints_by_kind.get(&kind) {
-            out.push_str("\n\n");
+            ensure_section_spacing(out);
             let (label, color) = match kind {
                 HintKind::Hint => ("Hint", colors.blue),
                 HintKind::Note => ("Note", colors.cyan),
@@ -304,12 +280,7 @@ pub fn render_hints(
     for hint in span_hints {
         if let Some(span) = hint.span {
             // Add separator before each span-based hint
-            // Use single newline if text hints already added double newline
-            if has_text_hints {
-                out.push('\n');
-            } else {
-                out.push_str("\n\n");
-            }
+            ensure_section_spacing(out);
 
             // Render the note header with optional label
             if let Some(label) = &hint.label {
@@ -349,7 +320,7 @@ pub fn render_hints(
                 .filter(|f| !f.is_empty())
                 .map(render_display_path)
                 .unwrap_or_else(|| Cow::Borrowed("<unknown>"));
-            out.push_str(&format!("  --> {}:{}:{}\n", file, start.line, display_col));
+            out.push_str(&format!("  {}:{}:{}\n", file, start.line, display_col));
 
             // Render source snippet for this hint (use hint's file if specified)
             let hint_source = match hint.file.as_deref() {
@@ -389,7 +360,7 @@ pub fn render_hints(
 
     // Render hint chains
     for chain in hint_chains {
-        out.push_str("\n\n");
+        ensure_section_spacing(out);
         if use_color {
             out.push_str(colors.blue);
         }
@@ -442,7 +413,7 @@ pub fn render_related(
     };
 
     for related_item in related {
-        out.push_str("\n\n");
+        ensure_section_spacing(out);
         let (label, color) = match related_item.kind {
             RelatedKind::Note => ("note", colors.cyan),
             RelatedKind::Help => ("help", colors.green),
@@ -491,26 +462,80 @@ pub fn render_related(
             } else {
                 start.column + 1
             };
-            out.push_str(&format!("  --> {}:{}:{}\n", file, start.line, display_col));
+            out.push_str(&format!("  {}:{}:{}\n", file, start.line, display_col));
             render_hint_snippet_internal(out, related_source, span, use_color);
         }
     }
 }
 
-/// Determine the appropriate severity label for the diagnostic header
-///
-/// Returns a string like "compiler error", "runtime error", "warning", etc.
-///
-/// # Parameters
-/// - `severity`: The diagnostic severity level
-/// - `error_type`: Optional error type for phase-aware prefixing
-fn header_label(severity: Severity, error_type: Option<ErrorType>) -> &'static str {
+fn ensure_section_spacing(out: &mut String) {
+    if out.ends_with("\n\n") {
+        return;
+    }
+    if out.ends_with('\n') {
+        out.push('\n');
+    } else {
+        out.push_str("\n\n");
+    }
+}
+
+fn header_label(severity: Severity) -> &'static str {
     match severity {
-        Severity::Error => error_type
-            .map(|error_type| error_type.prefix())
-            .unwrap_or("Error"),
+        Severity::Error => "Error",
         Severity::Warning => "Warning",
         Severity::Note => "Note",
         Severity::Help => "Help",
     }
+}
+
+fn display_title_for_text(title: &str, display_title: Option<&str>) -> String {
+    display_title
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| humanize_title(title))
+}
+
+fn humanize_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return "Diagnostic".to_string();
+    }
+    if !trimmed
+        .chars()
+        .all(|ch| !ch.is_ascii_lowercase() || ch.is_whitespace())
+    {
+        return trimmed.to_string();
+    }
+
+    trimmed
+        .split_whitespace()
+        .map(humanize_word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn humanize_word(word: &str) -> String {
+    word.split('-')
+        .map(|part| {
+            if matches!(part, "ADT" | "IO" | "JIT" | "VM" | "EOF" | "API" | "JSON") {
+                part.to_string()
+            } else {
+                title_case_segment(part)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn title_case_segment(segment: &str) -> String {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+
+    let mut out = String::new();
+    out.extend(first.to_uppercase());
+    for ch in chars {
+        out.extend(ch.to_lowercase());
+    }
+    out
 }
