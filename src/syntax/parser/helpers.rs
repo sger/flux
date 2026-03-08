@@ -250,7 +250,7 @@ impl Parser {
             self.current_token.span()
         };
 
-        self.errors.push(unexpected_token(
+        self.emit_parser_diagnostic(unexpected_token(
             span,
             format!(
                 "Too many errors in this {}; stopping after {} errors.",

@@ -74,7 +74,7 @@ impl Parser {
             TokenType::Ident
                 if self.current_token.literal == "def" && self.is_peek_token(TokenType::Ident) =>
             {
-                self.errors.push(unknown_keyword_alias(
+                self.emit_parser_diagnostic(unknown_keyword_alias(
                     self.current_token.span(),
                     "def",
                     "fn",
@@ -86,7 +86,7 @@ impl Parser {
                 if matches!(self.current_token.literal.as_ref(), "var" | "const" | "val")
                     && self.is_peek_token(TokenType::Ident) =>
             {
-                self.errors.push(unknown_keyword_alias(
+                self.emit_parser_diagnostic(unknown_keyword_alias(
                     self.current_token.span(),
                     &self.current_token.literal,
                     "let",
@@ -100,7 +100,7 @@ impl Parser {
                     "case" | "switch" | "when"
                 ) =>
             {
-                self.errors.push(unknown_keyword_alias(
+                self.emit_parser_diagnostic(unknown_keyword_alias(
                     self.current_token.span(),
                     &self.current_token.literal,
                     "match",
@@ -114,7 +114,7 @@ impl Parser {
                         || self.current_token.literal.starts_with("fun"))
                     && self.is_peek_token(TokenType::Ident) =>
             {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unknown_keyword(self.current_token.span(), &self.current_token.literal, None)
                         .with_message(format!(
                             "Unknown keyword `{}`. Flux uses `fn` for function declarations.",
@@ -168,7 +168,7 @@ impl Parser {
         {
             let ident_name = self.peek_token.literal.to_string();
             if matches!(ident_name.as_str(), "elif" | "elsif") {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unknown_keyword_alias(
                         self.peek_token.span(),
                         &ident_name,
@@ -665,7 +665,7 @@ impl Parser {
                 } else {
                     self.peek_token.span()
                 };
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token_with_details(
                         alias_span,
                         "Missing Import Alias",
@@ -1006,7 +1006,7 @@ impl Parser {
             let var_start = self.current_token.position;
             let variant_checkpoint = self.start_construct_diagnostics_checkpoint();
             if self.current_token.token_type != TokenType::Ident {
-                self.errors.push(unexpected_token(
+                self.emit_parser_diagnostic(unexpected_token(
                     self.current_token.span(),
                     format!(
                         "I was expecting a constructor name in this `type` declaration, but I found {}.",

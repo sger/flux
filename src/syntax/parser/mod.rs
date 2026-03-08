@@ -157,7 +157,7 @@ impl Parser {
                     self.next_token();
                     continue;
                 }
-                self.errors.push(unexpected_token_with_details(
+                self.emit_parser_diagnostic(unexpected_token_with_details(
                     self.current_token.span(),
                     "Unexpected Closing Delimiter",
                     DiagnosticCategory::ParserDelimiter,

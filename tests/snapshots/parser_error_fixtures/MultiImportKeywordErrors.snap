@@ -33,6 +33,9 @@ This import alias needs a name after `as`.
 Hint:
   Import aliases use `import Module as Alias`.
 
+Note:
+  while parsing module `MultiImportKeywordErrors`
+
 
 Error[E034]: Missing Import Except List
 
@@ -62,6 +65,9 @@ Unknown keyword `def`. Flux uses `fn` for function declarations.
 Hint:
   Did you mean `fn`?
 
+Note:
+  while parsing module `MultiImportKeywordErrors`
+
 
 Error[E034]: Missing Hash Colon
 
@@ -90,6 +96,9 @@ Unknown keyword `var`. Flux uses `let` for bindings.
 
 Hint:
   Did you mean `let`?
+
+Note:
+  while parsing module `MultiImportKeywordErrors`
 
 
 Error[E034]: Unexpected Token

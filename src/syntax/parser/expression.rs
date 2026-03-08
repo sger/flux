@@ -117,7 +117,7 @@ impl Parser {
     }
 
     fn emit_match_semicolon_separator_diagnostic(&mut self, diag_start: usize) -> bool {
-        self.errors.push(unexpected_token(
+        self.emit_parser_diagnostic(unexpected_token(
             self.peek_token.span(),
             "Match arms must be separated by `,`, not `;`.",
         ));
@@ -125,13 +125,12 @@ impl Parser {
     }
 
     fn emit_match_pipe_separator_diagnostic(&mut self, diag_start: usize) -> bool {
-        self.errors
-            .push(match_pipe_separator(self.peek_token.span()));
+        self.emit_parser_diagnostic(match_pipe_separator(self.peek_token.span()));
         self.check_list_error_limit(diag_start, TokenType::RBrace, "match arm list")
     }
 
     fn emit_match_eof_diagnostic(&mut self, diag_start: usize) -> bool {
-        self.errors.push(unexpected_token(
+        self.emit_parser_diagnostic(unexpected_token(
             self.peek_token.span(),
             "Expected `}` to close match expression before end of file.",
         ));
@@ -372,7 +371,7 @@ impl Parser {
         // A newline right after `.` strongly indicates a dangling member access
         // (e.g. `point.\nnext_stmt`) rather than a continued expression.
         if self.peek_token.position.line > self.current_token.end_position.line {
-            self.errors.push(unexpected_token_with_details(
+            self.emit_parser_diagnostic(unexpected_token_with_details(
                 self.current_token.span(),
                 "Invalid Member Access",
                 DiagnosticCategory::ParserExpression,
@@ -393,7 +392,7 @@ impl Parser {
             let index = match self.current_token.literal.parse::<usize>() {
                 Ok(index) => index,
                 Err(_) => {
-                    self.errors.push(unexpected_token_with_details(
+                    self.emit_parser_diagnostic(unexpected_token_with_details(
                         self.current_token.span(),
                         "Invalid Tuple Field Index",
                         DiagnosticCategory::ParserExpression,
@@ -415,7 +414,7 @@ impl Parser {
         }
 
         if self.is_peek_token(TokenType::RParen) {
-            self.errors.push(unexpected_token_with_details(
+            self.emit_parser_diagnostic(unexpected_token_with_details(
                 self.peek_token.span(),
                 "Missing Member Name",
                 DiagnosticCategory::ParserExpression,
@@ -520,7 +519,7 @@ impl Parser {
                 if !self.has_structural_error_since(construct_checkpoint) {
                     if self.peek_token.position.line > self.current_token.end_position.line {
                         let open_span = Span::new(start, start);
-                        self.errors.push(unclosed_delimiter(
+                        self.emit_parser_diagnostic(unclosed_delimiter(
                             open_span,
                             "(",
                             ")",
@@ -565,12 +564,12 @@ impl Parser {
             if !self.has_structural_error_since(construct_checkpoint) {
                 if self.peek_token.position.line > self.current_token.end_position.line {
                     let open_span = Span::new(start, start);
-                    self.errors.push(unclosed_delimiter(
-                        open_span,
-                        "(",
-                        ")",
-                        Some(self.peek_token.span()),
-                    ));
+                        self.emit_parser_diagnostic(unclosed_delimiter(
+                            open_span,
+                            "(",
+                            ")",
+                            Some(self.peek_token.span()),
+                        ));
                 } else {
                     self.emit_expected_token_with_details(
                         TokenType::RParen,
@@ -672,7 +671,7 @@ impl Parser {
             // should report a contextual parser diagnostic rather than
             // falling through to generic expected-expression errors.
             if self.is_peek_token(TokenType::LeftArrow) {
-                self.errors.push(
+                self.emit_parser_diagnostic(
                     unexpected_token_with_details(
                         self.peek_token.span(),
                         "Missing Generator Name",
@@ -696,7 +695,7 @@ impl Parser {
                     || self.token_starts_statement(self.peek_token.token_type)
                     || self.peek_token.token_type == TokenType::Eof
                 {
-                    self.errors.push(unclosed_delimiter(
+                    self.emit_parser_diagnostic(unclosed_delimiter(
                         Span::new(start, start),
                         "[",
                         "]",
@@ -1634,7 +1633,7 @@ impl Parser {
                     "Expected `,` in tuple pattern.".to_string(),
                     "Tuple patterns use `(a, b, ...)`.".to_string(),
                 ) {
-                    self.errors.push(unexpected_token(
+                    self.emit_parser_diagnostic(unexpected_token(
                         self.peek_token.span(),
                         "Tuple patterns require a comma, for example `(x, y)`.".to_string(),
                     ));
@@ -1686,7 +1685,7 @@ impl Parser {
                 })
             }
             _ => {
-                self.errors.push(invalid_pattern(
+                self.emit_parser_diagnostic(invalid_pattern(
                     self.current_token.span(),
                     &self.current_token.token_type.to_string(),
                 ));
