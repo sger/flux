@@ -20,6 +20,65 @@ mod helpers;
 mod literal;
 mod statement;
 
+#[derive(Debug, Clone)]
+struct StructuralRoot {
+    code: Option<String>,
+    span: Option<Span>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct ParserRecoveryState {
+    requested_boundary: Option<RecoveryBoundary>,
+    used_custom_recovery: bool,
+    suppress_structural_followups: bool,
+    structural_root: Option<StructuralRoot>,
+}
+
+impl ParserRecoveryState {
+    fn begin_statement(&mut self) {
+        self.requested_boundary = None;
+        self.used_custom_recovery = false;
+        self.clear_structural_suppression();
+    }
+
+    fn request_boundary(&mut self, boundary: RecoveryBoundary) {
+        self.requested_boundary = Some(boundary);
+    }
+
+    fn take_boundary(&mut self) -> Option<RecoveryBoundary> {
+        self.requested_boundary.take()
+    }
+
+    fn mark_custom_recovery_used(&mut self) {
+        self.used_custom_recovery = true;
+    }
+
+    fn used_custom_recovery(&self) -> bool {
+        self.used_custom_recovery
+    }
+
+    fn begin_structural_root(&mut self, code: Option<&str>, span: Option<Span>) {
+        self.suppress_structural_followups = true;
+        self.structural_root = Some(StructuralRoot {
+            code: code.map(ToOwned::to_owned),
+            span,
+        });
+    }
+
+    fn clear_structural_suppression(&mut self) {
+        self.suppress_structural_followups = false;
+        self.structural_root = None;
+    }
+
+    fn should_drop_followup(&self, diag: &Diagnostic) -> bool {
+        self.suppress_structural_followups && !is_structural_parse_diagnostic_code(diag.code())
+    }
+
+    fn structural_root(&self) -> Option<&StructuralRoot> {
+        self.structural_root.as_ref()
+    }
+}
+
 pub(super) struct ParserContextGuard {
     parser: std::ptr::NonNull<Parser>,
     depth: usize,
@@ -33,7 +92,7 @@ impl Drop for ParserContextGuard {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RecoveryBoundary {
     Statement,
     NextLineOrBlock,
@@ -69,6 +128,17 @@ impl ParserContext {
     }
 }
 
+const MAX_RENDERED_BREADCRUMB_DEPTH: usize = 3;
+
+/// Structural parser diagnostics are parse-root errors that suppress noisier
+/// followups until recovery completes. `E071` mostly matters in aggregator
+/// collapse logic because it originates from lexer-level unterminated tokens,
+/// while parser-emitted suppression typically starts from structural roots
+/// encountered during parsing such as `E034` and `E076`.
+pub(crate) fn is_structural_parse_diagnostic_code(code: Option<&str>) -> bool {
+    matches!(code, Some("E034" | "E071" | "E076"))
+}
+
 pub struct Parser {
     pub(super) lexer: Lexer,
     pub(super) current_token: Token,
@@ -78,11 +148,9 @@ pub struct Parser {
     pub warnings: Vec<Diagnostic>,
     pub(super) suppress_unterminated_string_error_at: Option<Position>,
     pub(super) reported_unclosed_brace: bool,
-    pub(super) pending_recovery_boundary: Option<RecoveryBoundary>,
-    pub(super) used_custom_recovery: bool,
+    pub(super) recovery_state: ParserRecoveryState,
     pub(super) suppress_top_level_rbrace_once: bool,
     pub(super) parser_contexts: Vec<ParserContext>,
-    pub(super) suppress_structural_followups: bool,
     expr_id_gen: ExprIdGen,
 }
 
@@ -97,11 +165,9 @@ impl Parser {
             warnings: Vec::new(),
             suppress_unterminated_string_error_at: None,
             reported_unclosed_brace: false,
-            pending_recovery_boundary: None,
-            used_custom_recovery: false,
+            recovery_state: ParserRecoveryState::default(),
             suppress_top_level_rbrace_once: false,
             parser_contexts: Vec::new(),
-            suppress_structural_followups: false,
             expr_id_gen: ExprIdGen::new(),
         };
         parser.prime();
@@ -117,10 +183,26 @@ impl Parser {
 
     fn next_non_doc_token(&mut self) -> Token {
         let mut token = self.lexer.next_token();
+        self.absorb_lexer_diagnostics();
         while token.token_type == TokenType::DocComment {
             token = self.lexer.next_token();
+            self.absorb_lexer_diagnostics();
         }
         token
+    }
+
+    fn absorb_lexer_diagnostics(&mut self) {
+        for diag in self.lexer.take_diagnostics() {
+            let suppress_unterminated = diag.code() == Some("E071")
+                && self
+                    .suppress_unterminated_string_error_at
+                    .is_some_and(|pos| diag.span().is_some_and(|span| span.start == pos));
+            if suppress_unterminated {
+                self.suppress_unterminated_string_error_at = None;
+                continue;
+            }
+            self.errors.push(diag);
+        }
     }
 
     /// Takes ownership of the interner from the parser's lexer,
@@ -184,7 +266,7 @@ impl Parser {
         self.errors
             .iter()
             .skip(checkpoint)
-            .any(|diag| matches!(diag.code(), Some("E034") | Some("E076")))
+            .any(|diag| is_structural_parse_diagnostic_code(diag.code()))
     }
 
     pub(super) fn has_error_since(&self, checkpoint: usize) -> bool {
@@ -220,24 +302,57 @@ impl Parser {
     }
 
     pub(super) fn current_parser_breadcrumb(&self) -> Option<String> {
-        self.parser_contexts.last().map(ParserContext::breadcrumb)
+        let count = self.parser_contexts.len();
+        if count == 0 {
+            return None;
+        }
+        if count == 1 {
+            return self.parser_contexts.first().map(ParserContext::breadcrumb);
+        }
+
+        let mut segments = Vec::new();
+        if count <= MAX_RENDERED_BREADCRUMB_DEPTH {
+            segments.extend(self.parser_contexts.iter().map(ParserContext::breadcrumb));
+        } else {
+            segments.push(self.parser_contexts[0].breadcrumb());
+            segments.push("...".to_string());
+            segments.extend(
+                self.parser_contexts[count - (MAX_RENDERED_BREADCRUMB_DEPTH - 1)..]
+                    .iter()
+                    .map(ParserContext::breadcrumb),
+            );
+        }
+
+        Some(segments.join(" > "))
     }
 
-    pub(super) fn begin_structural_suppression(&mut self) {
-        self.suppress_structural_followups = true;
+    pub(super) fn request_recovery_boundary(&mut self, boundary: RecoveryBoundary) {
+        self.recovery_state.request_boundary(boundary);
+    }
+
+    pub(super) fn take_requested_recovery_boundary(&mut self) -> Option<RecoveryBoundary> {
+        self.recovery_state.take_boundary()
+    }
+
+    pub(super) fn begin_statement_recovery(&mut self) {
+        self.recovery_state.begin_statement();
+    }
+
+    pub(super) fn used_custom_recovery(&self) -> bool {
+        self.recovery_state.used_custom_recovery()
     }
 
     pub(super) fn clear_structural_suppression(&mut self) {
-        self.suppress_structural_followups = false;
+        self.recovery_state.clear_structural_suppression();
     }
 
     pub(super) fn push_parser_diagnostic(&mut self, diag: Diagnostic) -> bool {
-        let is_structural = matches!(diag.code(), Some("E034") | Some("E076"));
-        if self.suppress_structural_followups && !is_structural {
+        if self.recovery_state.should_drop_followup(&diag) {
             return false;
         }
-        if is_structural {
-            self.begin_structural_suppression();
+        if is_structural_parse_diagnostic_code(diag.code()) {
+            self.recovery_state
+                .begin_structural_root(diag.code(), diag.span());
         }
         self.errors.push(diag);
         true

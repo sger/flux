@@ -15,7 +15,7 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
   |               ^^^^^^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `BrokenEffect` > effect `Console`
 
 
 Error[E034]: Invalid Effect Operation
@@ -28,7 +28,7 @@ I was expecting an operation name in this `effect` declaration, but I found `,`.
   |                              ^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `BrokenEffect` > effect `Console`
 
 
 Error[E034]: Missing Function Body
@@ -44,7 +44,7 @@ This function body needs to start with `{`.
   |         --------- This looks like the function body
 
 Note:
-  while parsing function `greet`
+  while parsing module `BrokenFn` > function `greet`
 
 Help:
   Try adding `{` after the function signature.
@@ -63,7 +63,7 @@ This function body needs to start with `{`.
   |         ----------- This looks like the function body
 
 Note:
-  while parsing function `parting`
+  while parsing module `BrokenFn` > function `parting`
 
 Help:
   Try adding `{` after the function signature.
@@ -79,7 +79,7 @@ I was expecting `->` in this match arm, but I found a string literal.
   |               ^^^^^^
 
 Note:
-  while parsing `match` expression
+  while parsing module `BrokenMatch` > function `classify` > `match` expression
 
 Help:
   Write match arms as `match x { pattern -> body, ... }`.

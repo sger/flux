@@ -16,7 +16,7 @@ This `else` branch needs to start with `{`.
   |                               ---- `else` starts here
 
 Note:
-  while parsing `if` expression
+  while parsing function `main` > `if` expression
 
 Help:
   Try adding `{` after `else`.

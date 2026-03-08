@@ -92,7 +92,7 @@ Fallback to `Any` is **blocked** (Stage 1) when:
 - 40+ E425 cases in `tests/compiler_rules_tests.rs` validating strict-path behavior
 - E300 concrete-only guard tests in `tests/type_inference_tests.rs`
 - `examples/type_system/96_hm_stage2_generic_module_call_ok.flx` — passing: consistent generic calls, no error
-- `examples/type_system/failing/100_hm_stage2_generic_module_arg_mismatch.flx` — failing: `prepend<T>("hello", [|1,2,3|])` → E300 arg #2 `Array<Int>` vs `Array<String>`
+- `examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx` — failing: `prepend<T>("hello", [|1,2,3|])` → E300 arg #2 `Array<Int>` vs `Array<String>`
 - VM/JIT diagnostic parity verified for both fixtures
 
 ---

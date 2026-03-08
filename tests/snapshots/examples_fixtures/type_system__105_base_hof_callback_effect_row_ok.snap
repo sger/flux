@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/166_effect_row_absent_ordering_linked_ok.flx
+Fixture: examples/type_system/105_base_hof_callback_effect_row_ok.flx
 == compile ==
 ok
 == diagnostics ==

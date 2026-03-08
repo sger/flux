@@ -50,8 +50,7 @@ impl Parser {
     }
 
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
-        self.used_custom_recovery = false;
-        self.clear_structural_suppression();
+        self.begin_statement_recovery();
         let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Import => self.parse_import_statement(),
@@ -132,9 +131,9 @@ impl Parser {
             _ => self.parse_expression_statement(),
         };
 
-        if let Some(boundary) = self.take_recovery_boundary() {
+        if let Some(boundary) = self.take_requested_recovery_boundary() {
             self.synchronize_recovery_boundary(boundary);
-        } else if statement.is_none() && !self.used_custom_recovery {
+        } else if statement.is_none() && !self.used_custom_recovery() {
             self.synchronize(SyncMode::Stmt);
         }
 
@@ -409,7 +408,7 @@ impl Parser {
                 &found_desc,
             ));
             self.suppress_top_level_rbrace_once = true;
-            self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
+            self.request_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
             return None;
         }
         if self.is_peek_token(TokenType::LBrace) {
@@ -609,7 +608,7 @@ impl Parser {
             "Module declarations use `module Name { ... }`.".to_string(),
         ) {
             self.suppress_top_level_rbrace_once = true;
-            self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
+            self.request_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
             return None;
         }
 
@@ -645,7 +644,7 @@ impl Parser {
                     )
                     .with_hint_text("Import statements use `import Module.Name`."),
                 );
-                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             }
             return None;
         }
@@ -674,7 +673,7 @@ impl Parser {
                     )
                     .with_hint_text("Import aliases use `import Module as Alias`."),
                 );
-                self.set_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
+                self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
                 return None;
             }
             self.next_token();

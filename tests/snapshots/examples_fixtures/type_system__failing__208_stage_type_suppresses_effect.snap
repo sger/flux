@@ -1,7 +1,7 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/151_stage_type_suppresses_effect.flx
+Fixture: examples/type_system/failing/208_stage_type_suppresses_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,7 +9,7 @@ Error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Mystery.
 
-  examples/type_system/failing/151_stage_type_suppresses_effect.flx:13:19
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:13:19
    |
 13 | fn main() with IO {
    |                   ^
@@ -28,7 +28,7 @@ Error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 
-  examples/type_system/failing/151_stage_type_suppresses_effect.flx:14:17
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:14:17
    |
  5 | fn greet(name: String) -> String {
  6 |     "Hello, #{name}!"

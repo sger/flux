@@ -86,15 +86,15 @@ ADT declaration note:
 - `93_adt_generic_constructor_hm_ok.flx` - generic ADT constructor call and constructor-pattern bindings are HM-typed without `Any` rescue
 - `94_adt_module_factory_boundary_ok.flx` - cross-module ADT usage through public factory/accessor API (no direct constructor access)
 - `95_adt_generic_nested_pattern_hm_ok.flx` - nested generic constructor patterns preserve concrete HM field typing
-- `145_guarded_wildcard_with_fallback_ok.flx` - guarded wildcard plus unguarded wildcard fallback remains exhaustive
-- `160_match_nested_tuple_with_catchall_ok.flx` - nested tuple `match` remains accepted with explicit unguarded catch-all fallback
-- `161_contextual_boundary_effect_module_ok.flx` - module-qualified boundary + effect flow remains accepted when typed boundary and effect annotation are compatible
-- `162_effect_row_order_equivalence_ok.flx` - effect-row concrete atom ordering remains non-semantic for higher-order callbacks
-- `163_effect_row_subtract_concrete_ok.flx` - concrete subtraction contract (`IO + Console - Console`) remains accepted when callback satisfies remaining effects
-- `164_effect_row_subtract_var_satisfied_ok.flx` - row-variable subtraction (`e - Console`) is accepted when callback effects are concrete and satisfiable
-- `165_effect_row_multivar_disambiguated_ok.flx` - multi-variable effect rows are disambiguated by concrete callback effects
-- `166_effect_row_absent_ordering_linked_ok.flx` - deferred `Absent` validation across multi-arg shared row vars remains accepted when final binding excludes `IO`
-- `167_base_hof_callback_effect_row_ok.flx` - Base higher-order callback effects propagate through explicit row tails (`with |e`)
+- `97_guarded_wildcard_with_fallback_ok.flx` - guarded wildcard plus unguarded wildcard fallback remains exhaustive
+- `98_match_nested_tuple_with_catchall_ok.flx` - nested tuple `match` remains accepted with explicit unguarded catch-all fallback
+- `99_contextual_boundary_effect_module_ok.flx` - module-qualified boundary + effect flow remains accepted when typed boundary and effect annotation are compatible
+- `100_effect_row_order_equivalence_ok.flx` - effect-row concrete atom ordering remains non-semantic for higher-order callbacks
+- `101_effect_row_subtract_concrete_ok.flx` - concrete subtraction contract (`IO + Console - Console`) remains accepted when callback satisfies remaining effects
+- `102_effect_row_subtract_var_satisfied_ok.flx` - row-variable subtraction (`e - Console`) is accepted when callback effects are concrete and satisfiable
+- `103_effect_row_multivar_disambiguated_ok.flx` - multi-variable effect rows are disambiguated by concrete callback effects
+- `104_effect_row_absent_ordering_linked_ok.flx` - deferred `Absent` validation across multi-arg shared row vars remains accepted when final binding excludes `IO`
+- `105_base_hof_callback_effect_row_ok.flx` - Base higher-order callback effects propagate through explicit row tails (`with |e`)
 
 Module source used by `07`:
 
@@ -170,15 +170,15 @@ cargo run -- examples/type_system/92_effect_op_signature_enforcement_ok.flx
 cargo run -- examples/type_system/93_adt_generic_constructor_hm_ok.flx
 cargo run -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx
 cargo run -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx
-cargo run -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx
-cargo run -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx
-cargo run -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx
-cargo run -- examples/type_system/162_effect_row_order_equivalence_ok.flx
-cargo run -- examples/type_system/163_effect_row_subtract_concrete_ok.flx
-cargo run -- examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx
-cargo run -- examples/type_system/165_effect_row_multivar_disambiguated_ok.flx
-cargo run -- examples/type_system/166_effect_row_absent_ordering_linked_ok.flx
-cargo run -- examples/type_system/167_base_hof_callback_effect_row_ok.flx
+cargo run -- examples/type_system/97_guarded_wildcard_with_fallback_ok.flx
+cargo run -- examples/type_system/98_match_nested_tuple_with_catchall_ok.flx
+cargo run -- --root examples/type_system examples/type_system/99_contextual_boundary_effect_module_ok.flx
+cargo run -- examples/type_system/100_effect_row_order_equivalence_ok.flx
+cargo run -- examples/type_system/101_effect_row_subtract_concrete_ok.flx
+cargo run -- examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx
+cargo run -- examples/type_system/103_effect_row_multivar_disambiguated_ok.flx
+cargo run -- examples/type_system/104_effect_row_absent_ordering_linked_ok.flx
+cargo run -- examples/type_system/105_base_hof_callback_effect_row_ok.flx
 ```
 
 JIT:
@@ -236,15 +236,15 @@ cargo run --features jit -- examples/type_system/92_effect_op_signature_enforcem
 cargo run --features jit -- examples/type_system/93_adt_generic_constructor_hm_ok.flx --jit
 cargo run --features jit -- --root examples/type_system examples/type_system/94_adt_module_factory_boundary_ok.flx --jit
 cargo run --features jit -- examples/type_system/95_adt_generic_nested_pattern_hm_ok.flx --jit
-cargo run --features jit -- examples/type_system/145_guarded_wildcard_with_fallback_ok.flx --jit
-cargo run --features jit -- examples/type_system/160_match_nested_tuple_with_catchall_ok.flx --jit
-cargo run --features jit -- --root examples/type_system examples/type_system/161_contextual_boundary_effect_module_ok.flx --jit
-cargo run --features jit -- examples/type_system/162_effect_row_order_equivalence_ok.flx --jit
-cargo run --features jit -- examples/type_system/163_effect_row_subtract_concrete_ok.flx --jit
-cargo run --features jit -- examples/type_system/164_effect_row_subtract_var_satisfied_ok.flx --jit
-cargo run --features jit -- examples/type_system/165_effect_row_multivar_disambiguated_ok.flx --jit
-cargo run --features jit -- examples/type_system/166_effect_row_absent_ordering_linked_ok.flx --jit
-cargo run --features jit -- examples/type_system/167_base_hof_callback_effect_row_ok.flx --jit
+cargo run --features jit -- examples/type_system/97_guarded_wildcard_with_fallback_ok.flx --jit
+cargo run --features jit -- examples/type_system/98_match_nested_tuple_with_catchall_ok.flx --jit
+cargo run --features jit -- --root examples/type_system examples/type_system/99_contextual_boundary_effect_module_ok.flx --jit
+cargo run --features jit -- examples/type_system/100_effect_row_order_equivalence_ok.flx --jit
+cargo run --features jit -- examples/type_system/101_effect_row_subtract_concrete_ok.flx --jit
+cargo run --features jit -- examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx --jit
+cargo run --features jit -- examples/type_system/103_effect_row_multivar_disambiguated_ok.flx --jit
+cargo run --features jit -- examples/type_system/104_effect_row_absent_ordering_linked_ok.flx --jit
+cargo run --features jit -- examples/type_system/105_base_hof_callback_effect_row_ok.flx --jit
 ```
 
 ## Flow.FTest Unit Tests

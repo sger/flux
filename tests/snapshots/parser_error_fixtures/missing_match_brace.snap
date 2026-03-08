@@ -18,6 +18,6 @@ Hint:
   Match expressions use `match value { pattern -> body, ... }`.
 
 Note:
-  while parsing `match` expression
+  while parsing function `main` > `match` expression
 == stdout ==
 <not executed>

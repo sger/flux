@@ -25,7 +25,7 @@ Missing `->` before function return type. Write it as `fn name(...) -> Type { ..
   |                           ^^^^^^
 
 Note:
-  while parsing function `bad_return`
+  while parsing module `MultiAnnotationErrors` > function `bad_return`
 
 
 Error[E034]: Unexpected Token
@@ -69,7 +69,7 @@ This `if` branch needs to start with `{`.
   |                    ---- this `if` branch starts here
 
 Note:
-  while parsing `if` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
 
 Help:
   Try adding `{` after the `if` condition.
@@ -86,7 +86,7 @@ This `else` branch needs to start with `{`.
   |                                ---- `else` starts here
 
 Note:
-  while parsing `if` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
 
 Help:
   Try adding `{` after `else`.
@@ -102,7 +102,7 @@ I was expecting `->` in this match arm, but I found a string literal.
   |                             ^^^^^^
 
 Note:
-  while parsing `match` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `match` expression
 
 Help:
   Write match arms as `match x { pattern -> body, ... }`.
@@ -121,7 +121,7 @@ Hint:
   Handle arms use `op(resume, arg1, ...) -> body`.
 
 Note:
-  while parsing `handle` expression
+  while parsing module `MultiControlFlowErrors` > function `flow` > `handle` expression
 
 
 Error[E034]: Missing Lambda Arrow
@@ -135,7 +135,7 @@ I was expecting `->` after the lambda parameters, but I found an identifier.
   |                  - this lambda parameter list ends here
 
 Note:
-  while parsing lambda expression
+  while parsing module `MultiControlFlowErrors` > lambda expression
 
 Help:
   Use `/x -> expr` or `/(x, y) -> expr`.
@@ -161,7 +161,7 @@ I was expecting `,` or `)` between constructor fields, but I found an identifier
   |                  ^^^^^^
 
 Note:
-  while parsing data declaration `Pair`
+  while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
 Error[E034]: Invalid Data Constructor
@@ -174,7 +174,7 @@ I was expecting a constructor name in this `data` declaration, but I found an in
   |         ^^^
 
 Note:
-  while parsing data declaration `Pair`
+  while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
 Error[E034]: Missing Effect Operation Colon
@@ -187,7 +187,7 @@ Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
   |               ^^^^^^
 
 Note:
-  while parsing effect `Console`
+  while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
 Error[E034]: Unexpected Token
@@ -203,7 +203,7 @@ Hint:
   Effect operation signatures use `op: Type -> Return`.
 
 Note:
-  while parsing effect `Console`
+  while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
 Error[E034]: Missing Constructor Field Separator
@@ -232,7 +232,7 @@ Hint:
   Add `)` after the last tuple element.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E076]: Missing Closing Delimiter
@@ -245,7 +245,7 @@ Expected a closing `]` to match this opening `[`.
   |                  ^
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 note: Expected `]` before this token.
   examples/parser_errors/MultiDelimiterErrors.flx:5:9
@@ -267,7 +267,7 @@ Hint:
   Hash literals use `{key: value, ...}`.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E073]: Missing Comma
@@ -283,7 +283,7 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E034]: Missing Closing Delimiter
@@ -299,7 +299,7 @@ Hint:
   Add `)` after the expression.
 
 Note:
-  while parsing function `delimiters`
+  while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
 Error[E034]: Missing Import Path

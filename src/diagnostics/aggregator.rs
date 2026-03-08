@@ -10,6 +10,7 @@ use super::{
     rendering::Colors, types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
+use crate::syntax::parser::is_structural_parse_diagnostic_code;
 
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;
@@ -825,7 +826,7 @@ fn message_key(diag: &Diagnostic) -> &str {
 }
 
 fn is_structural_parse_root(code: Option<&str>) -> bool {
-    matches!(code, Some("E071" | "E076"))
+    is_structural_parse_diagnostic_code(code)
 }
 
 fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {

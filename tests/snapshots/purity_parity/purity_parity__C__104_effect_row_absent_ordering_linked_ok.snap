@@ -1,17 +1,17 @@
 ---
 source: tests/purity_vm_jit_parity_snapshots.rs
 ---
-Fixture: examples/type_system/162_effect_row_order_equivalence_ok.flx
+Fixture: examples/type_system/104_effect_row_absent_ordering_linked_ok.flx
 Category: C
 Strict: false
 Expect compile error: false
 
 == vm command ==
-$ flux --no-cache examples/type_system/162_effect_row_order_equivalence_ok.flx
+$ flux --no-cache examples/type_system/104_effect_row_absent_ordering_linked_ok.flx
 exit_code: 0
 
 == jit command ==
-$ flux --no-cache examples/type_system/162_effect_row_order_equivalence_ok.flx --jit
+$ flux --no-cache examples/type_system/104_effect_row_absent_ordering_linked_ok.flx --jit
 exit_code: 0
 
 == vm tuples ==

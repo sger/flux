@@ -253,6 +253,12 @@ impl Parser {
                     .push(unterminated_interpolation(self.peek_token.span()));
                 if self.peek_token.token_type == TokenType::UnterminatedString {
                     self.suppress_unterminated_string_error_at = Some(self.peek_token.position);
+                    self.errors.retain(|diag| {
+                        !(diag.code() == Some("E071")
+                            && diag
+                                .span()
+                                .is_some_and(|span| span.start == self.peek_token.position))
+                    });
                 } else {
                     self.suppress_unterminated_string_error_at = None;
                 }
