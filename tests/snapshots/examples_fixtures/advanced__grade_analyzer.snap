@@ -43,6 +43,8 @@ I found the wrong type in the 1st argument to `letter_grade`.
 Note:
   expected argument type: Float
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Try `to_float(...)` to widen this `Int` to a `Float`.
@@ -58,9 +60,12 @@ I found a type mismatch.
    |                  ^^^^^^^^^^^
    |                  ----------- this expression has type `Float`
 
+   |                  ----------- this type mismatch is reported here
+
 Note:
   expected type: Int
   found type: Float
+  the conflicting types meet at this expression
 
 Help:
   Try `to_int(...)` if truncating a `Float` to an `Int` is intended.

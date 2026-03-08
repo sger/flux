@@ -17,7 +17,12 @@ fn normalize_cli_text(text: &str, workspace_root: &Path) -> String {
     lines.trim().to_string()
 }
 
-fn run_flux_file(workspace_root: &Path, flux_bin: &Path, file: &str, jit: bool) -> (i32, String, String) {
+fn run_flux_file(
+    workspace_root: &Path,
+    flux_bin: &Path,
+    file: &str,
+    jit: bool,
+) -> (i32, String, String) {
     let mut args = vec!["--no-cache".to_string(), file.to_string()];
     if jit {
         args.push("--jit".to_string());
@@ -36,13 +41,11 @@ fn run_flux_file(workspace_root: &Path, flux_bin: &Path, file: &str, jit: bool) 
     (status, stdout, stderr)
 }
 
-fn build_runtime_transcript(
-    workspace_root: &Path,
-    flux_bin: &Path,
-    fixture_rel: &str,
-) -> String {
-    let (vm_status, vm_stdout, vm_stderr) = run_flux_file(workspace_root, flux_bin, fixture_rel, false);
-    let (jit_status, jit_stdout, jit_stderr) = run_flux_file(workspace_root, flux_bin, fixture_rel, true);
+fn build_runtime_transcript(workspace_root: &Path, flux_bin: &Path, fixture_rel: &str) -> String {
+    let (vm_status, vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, fixture_rel, false);
+    let (jit_status, jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, fixture_rel, true);
 
     format!(
         "Fixture: {fixture_rel}\n== vm ==\nstatus: {vm_status}\nstdout:\n{}\nstderr:\n{}\n== jit ==\nstatus: {jit_status}\nstdout:\n{}\nstderr:\n{}\n",

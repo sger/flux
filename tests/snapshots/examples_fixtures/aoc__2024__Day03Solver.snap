@@ -15,9 +15,12 @@ I found a type mismatch.
    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |                           ------------------------------------------------ this expression has type `Int`
 
+   |                           ------------------------------------------------ this type mismatch is reported here
+
 Note:
   expected type: Option<Int>
   found type: Int
+  the conflicting types meet at this expression
 
 Help:
   Wrap this value in `Some(...)` or return `None`.

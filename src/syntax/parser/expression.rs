@@ -6,8 +6,7 @@ use crate::{
         missing_lambda_arrow, missing_match_arrow, pipe_target_error,
         position::{Position, Span},
         quality::missing_syntax_token_diagnostic_with_origin,
-        unclosed_delimiter, unexpected_token, unexpected_token_with_details,
-        unknown_keyword_alias,
+        unclosed_delimiter, unexpected_token, unexpected_token_with_details, unknown_keyword_alias,
     },
     syntax::{
         block::Block,
@@ -21,7 +20,7 @@ use crate::{
     },
 };
 
-use super::{Parser, RecoveryBoundary, helpers::ParameterListContext};
+use super::{Parser, ParserContext, RecoveryBoundary, helpers::ParameterListContext};
 
 impl Parser {
     fn parse_parenthesized<T>(
@@ -1018,6 +1017,7 @@ impl Parser {
 
     // Complex expressions
     pub(super) fn parse_if_expression(&mut self) -> Option<Expression> {
+        self.push_parser_context(ParserContext::IfBranch);
         let start = self.current_token.position;
         self.next_token();
         let condition = self.parse_expression(Precedence::Lowest)?;
@@ -1089,19 +1089,24 @@ impl Parser {
                     return None;
                 }
                 self.next_token();
-                Some(self.parse_block())
+                self.push_parser_context(ParserContext::ElseBranch);
+                let block = self.parse_block();
+                self.pop_parser_context();
+                Some(block)
             }
         } else {
             None
         };
 
-        Some(Expression::If {
+        let expression = Some(Expression::If {
             condition: Box::new(condition),
             consequence,
             alternative,
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
-        })
+        });
+        self.pop_parser_context();
+        expression
     }
 
     pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
@@ -1198,6 +1203,7 @@ impl Parser {
     /// Parses `expr handle Effect { op(resume, arg1, ...) -> body, ... }`.
     /// `current_token` is `Handle`; `left` is the expression being handled.
     pub(super) fn parse_handle_expression(&mut self, left: Expression) -> Option<Expression> {
+        self.push_parser_context(ParserContext::HandleExpression);
         let start = left.span().start;
 
         // Expect the effect name (Ident)
@@ -1327,16 +1333,19 @@ impl Parser {
         }
 
         let end = self.current_token.span().end;
-        Some(Expression::Handle {
+        let expression = Some(Expression::Handle {
             expr: Box::new(left),
             effect,
             arms,
             span: Span::new(start, end),
             id: self.next_expr_id(),
-        })
+        });
+        self.pop_parser_context();
+        expression
     }
 
     pub(super) fn parse_match_expression(&mut self) -> Option<Expression> {
+        self.push_parser_context(ParserContext::MatchExpression);
         let start = self.current_token.position;
         self.next_token();
         let scrutinee = self.parse_expression(Precedence::Lowest)?;
@@ -1496,7 +1505,9 @@ impl Parser {
             return None;
         }
 
-        Some(self.build_match_expression(start, scrutinee, arms))
+        let expression = Some(self.build_match_expression(start, scrutinee, arms));
+        self.pop_parser_context();
+        expression
     }
 
     /// Parses a single match pattern, including ADT constructors such as
@@ -1728,6 +1739,7 @@ impl Parser {
     /// Parse a lambda expression: \x -> expr, \(x, y) -> expr, \() -> expr
     pub(super) fn parse_lambda(&mut self) -> Option<Expression> {
         debug_assert!(self.is_current_token(TokenType::Backslash));
+        self.push_parser_context(ParserContext::Lambda);
         let start = self.current_token.position;
 
         // Consume `\` and position on the first parameter token or `(`.
@@ -1805,7 +1817,7 @@ impl Parser {
             }
         };
 
-        Some(Expression::Function {
+        let expression = Some(Expression::Function {
             parameters,
             parameter_types,
             return_type: None,
@@ -1813,7 +1825,9 @@ impl Parser {
             body,
             span: Span::new(start, self.current_token.end_position),
             id: self.next_expr_id(),
-        })
+        });
+        self.pop_parser_context();
+        expression
     }
 
     // Option/Either expressions

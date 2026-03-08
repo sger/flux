@@ -6,6 +6,7 @@ use std::env;
 
 /// ANSI color codes for diagnostic rendering
 pub struct Colors {
+    pub bold: &'static str,
     pub red: &'static str,
     pub blue: &'static str,
     pub cyan: &'static str,
@@ -27,6 +28,7 @@ impl Colors {
     /// Get colored output (default)
     pub fn with_color() -> Self {
         Self {
+            bold: "\u{1b}[1m",
             red: "\u{1b}[31m",
             blue: "\u{1b}[34m",
             cyan: "\u{1b}[36m",
@@ -39,6 +41,7 @@ impl Colors {
     /// Get no-color output (when NO_COLOR is set)
     pub fn no_color() -> Self {
         Self {
+            bold: "",
             red: "",
             blue: "",
             cyan: "",

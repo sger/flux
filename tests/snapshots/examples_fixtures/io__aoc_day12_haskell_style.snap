@@ -28,9 +28,12 @@ I found a type mismatch.
    |                                                       ^^^^^^
    |                                                       ------ this expression has type `Array<Option<Int>>`
 
+   |                                                       ------ this type mismatch is reported here
+
 Note:
   expected type: Int
   found type: Array<Option<Int>>
+  the conflicting types meet at this expression
 
 Help:
   These two types are not compatible.
@@ -76,6 +79,8 @@ I found the wrong type in the 2nd argument to `weighted_sum`.
 Note:
   expected argument type: Array<Int>
   found argument type: Int
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
   Pass a `Array<Int>` value as the 2nd argument.

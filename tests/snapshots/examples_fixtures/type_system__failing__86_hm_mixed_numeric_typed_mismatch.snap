@@ -15,9 +15,12 @@ I found a type mismatch.
   |                  ^^^^^^^
   |                  ------- this expression has type `Float`
 
+  |                  ------- this type mismatch is reported here
+
 Note:
   expected type: Int
   found type: Float
+  the conflicting types meet at this expression
 
 Help:
   Try `to_int(...)` if truncating a `Float` to an `Int` is intended.

@@ -15,9 +15,11 @@ I cannot subtract effect `IO` from this effect row.
    |             ^^^^^^^^^^^^^^^^^^^^
    |             -------------------- this call violates an effect-row subtraction constraint
 
+   |             -------------------- this call to `needs_linked_absence` creates the effect obligation
+
 Note:
   requested subtraction: IO
-  constraint source: effect-row subtraction during call checking
+  constraint source: effect-row checking for `needs_linked_absence`
 
 Help:
   Handle or include this effect before subtracting it from an effect row.

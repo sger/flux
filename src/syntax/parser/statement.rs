@@ -1,8 +1,8 @@
 use crate::{
     diagnostics::{
-        DiagnosticBuilder, DiagnosticCategory, missing_fn_param_list,
-        missing_function_body_brace, missing_let_assign, orphan_constructor_pattern,
-        position::Span, unexpected_end_keyword, unexpected_token,
+        DiagnosticBuilder, DiagnosticCategory, missing_fn_param_list, missing_function_body_brace,
+        missing_let_assign, orphan_constructor_pattern, position::Span,
+        quality::with_parser_breadcrumb, unexpected_end_keyword, unexpected_token,
         unexpected_token_with_details, unknown_keyword, unknown_keyword_alias,
     },
     syntax::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    Parser, RecoveryBoundary,
+    Parser, ParserContext, RecoveryBoundary,
     helpers::{ParameterListContext, SyncMode},
 };
 
@@ -52,6 +52,7 @@ impl Parser {
 
     pub(super) fn parse_statement(&mut self) -> Option<Statement> {
         self.used_custom_recovery = false;
+        self.clear_structural_suppression();
         let statement = match self.current_token.token_type {
             TokenType::Module => self.parse_module_statement(),
             TokenType::Import => self.parse_import_statement(),
@@ -271,6 +272,14 @@ impl Parser {
     }
 
     pub(super) fn parse_function_statement(&mut self, is_public: bool) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        if let Some(name) = &context_name {
+            self.push_parser_context(ParserContext::Function(name.clone()));
+        }
         let start = self.current_token.position;
 
         if !self.expect_peek_context_with_details(
@@ -395,11 +404,10 @@ impl Parser {
                 TokenType::Eof => "end of file".to_string(),
                 _ => format!("`{}`", self.peek_token.token_type),
             };
-            self.errors.push(missing_function_body_brace(
-                fn_span,
-                &fn_name,
-                self.peek_token.span(),
-                &found_desc,
+            let breadcrumb = self.current_parser_breadcrumb();
+            self.push_parser_diagnostic(with_parser_breadcrumb(
+                missing_function_body_brace(fn_span, &fn_name, self.peek_token.span(), &found_desc),
+                breadcrumb.as_deref(),
             ));
             self.suppress_top_level_rbrace_once = true;
             self.set_recovery_boundary(RecoveryBoundary::MissingBlockOpener);
@@ -412,7 +420,7 @@ impl Parser {
         let fn_name_str = self.lexer.interner().resolve(name).to_string();
         let body = self.parse_block_with_context(Some(&fn_name_str));
 
-        Some(Statement::Function {
+        let statement = Some(Statement::Function {
             is_public,
             name,
             type_params,
@@ -422,7 +430,11 @@ impl Parser {
             effects,
             body,
             span: self.span_from(start),
-        })
+        });
+        if context_name.is_some() {
+            self.pop_parser_context();
+        }
+        statement
     }
 
     pub(super) fn parse_return_statement(&mut self) -> Option<Statement> {
@@ -574,6 +586,14 @@ impl Parser {
     }
 
     pub(super) fn parse_module_statement(&mut self) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        if let Some(name) = &context_name {
+            self.push_parser_context(ParserContext::Module(name.clone()));
+        }
         let start = self.current_token.position;
 
         if !self.expect_peek_context(
@@ -600,11 +620,15 @@ impl Parser {
 
         let body = self.parse_block();
 
-        Some(Statement::Module {
+        let statement = Some(Statement::Module {
             name,
             body,
             span: self.span_from(start),
-        })
+        });
+        if context_name.is_some() {
+            self.pop_parser_context();
+        }
+        statement
     }
 
     pub(super) fn parse_import_statement(&mut self) -> Option<Statement> {
@@ -750,6 +774,14 @@ impl Parser {
     /// Parses a `data` declaration with optional type parameters and constructor
     /// variants, for example `data Option<T> { Some(T), None }`.
     pub(super) fn parse_data_statement(&mut self) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        if let Some(name) = &context_name {
+            self.push_parser_context(ParserContext::Data(name.clone()));
+        }
         let start = self.current_token.position;
 
         // current: 'data' — advance to type name
@@ -904,12 +936,16 @@ impl Parser {
             self.next_token(); // advance to next variant or '}'
         }
 
-        Some(Statement::Data {
+        let statement = Some(Statement::Data {
             name,
             type_params,
             variants,
             span: self.span_from(start),
-        })
+        });
+        if context_name.is_some() {
+            self.pop_parser_context();
+        }
+        statement
     }
 
     /// Parses ADT sugar:
@@ -1072,6 +1108,14 @@ impl Parser {
     /// Parses `effect Name { op: TypeExpr, ... }`.
     /// current_token is `effect` on entry.
     pub(super) fn parse_effect_statement(&mut self) -> Option<Statement> {
+        let context_name = if self.is_peek_token(TokenType::Ident) {
+            Some(self.peek_token.literal.to_string())
+        } else {
+            None
+        };
+        if let Some(name) = &context_name {
+            self.push_parser_context(ParserContext::Effect(name.clone()));
+        }
         let start = self.current_token.position;
 
         // Effect name
@@ -1165,10 +1209,14 @@ impl Parser {
             self.next_token(); // advance to next op or `}`
         }
 
-        Some(Statement::EffectDecl {
+        let statement = Some(Statement::EffectDecl {
             name,
             ops,
             span: self.span_from(start),
-        })
+        });
+        if context_name.is_some() {
+            self.pop_parser_context();
+        }
+        statement
     }
 }

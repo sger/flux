@@ -121,7 +121,10 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> (InferEffectRow, InferEffectRow) {
         let ambient_effect_row = if effects.is_empty() {
-            InferEffectRow::open_from_symbols(std::iter::empty::<Identifier>(), self.env.alloc_type_var_id())
+            InferEffectRow::open_from_symbols(
+                std::iter::empty::<Identifier>(),
+                self.env.alloc_type_var_id(),
+            )
         } else {
             Self::infer_effect_row(effects, row_var_env, &mut self.env.counter)
         };
@@ -270,7 +273,6 @@ impl<'a> InferCtx<'a> {
         search.visit_block(block);
         search.found
     }
-
 }
 
 /// Read-only AST search for direct self-calls to a named function.

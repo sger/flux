@@ -1689,6 +1689,13 @@ fn main() -> Unit {
         primary.span, expected_arg_span,
         "expected primary label span to match mismatching argument expression span"
     );
+    assert!(
+        diag.hints().iter().any(|hint| hint
+            .text
+            .contains("actual argument type is inferred from this expression")),
+        "expected origin note explaining conflicting type source, got: {:?}",
+        diag.hints()
+    );
 }
 
 #[test]

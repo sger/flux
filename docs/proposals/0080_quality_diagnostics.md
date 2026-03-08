@@ -1,6 +1,6 @@
 - Feature Name: Quality Diagnostics
 - Start Date: 2026-03-07
-- Status: Not Implemented
+- Status: Implemented
 - Proposal PR:
 - Flux Issue:
 - Depends on: 0059 (parser error experience), 0061 (stage-aware diagnostic pipeline)
@@ -12,6 +12,25 @@
 Rewrite every compiler diagnostic to meet the Elm standard: natural first-person
 language, clearly separated "I found / I expected" type blocks, pattern-based
 fix suggestions, and zero jargon leakage to the user.
+
+## Implementation Notes
+
+The shipped implementation completed the proposal in the existing diagnostics
+architecture rather than as a single rewrite pass:
+
+- parser diagnostics now attach contextual titles, origin labels, and
+  breadcrumb notes for major constructs
+- parser expression failures add conservative typo hints for obvious builtin and
+  keyword misspellings
+- HM diagnostics attach origin labels that explain where the competing types
+  came from
+- effect-row diagnostics (`E419`, `E420`, `E421`, `E422`) now identify the call
+  that created the obligation
+- runtime type errors render with the same expected/found note structure and
+  value-preview support already used by `E1004`
+
+The exact wording differs slightly from the draft examples below, but the
+accepted contract is the shipped behavior in code and tests.
 
 ## Motivation
 

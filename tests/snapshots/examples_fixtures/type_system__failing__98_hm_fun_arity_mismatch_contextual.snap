@@ -15,16 +15,20 @@ I am applying a function to too many arguments.
    |              ^^^^^^^^^
 12 |         one_arg
    | ^^^^^^^^^^^^^^^
+   |         ------- this branch established the expected type
 13 |     } else {
    | ^^^^^^^^^^^^
 14 |         two_args
    | ^^^^^^^^^^^^^^^^
+   |         -------- this branch conflicts with that type
 15 |     }
    | ^^^^^
 
 Note:
   this function takes: 1 argument(s)
   but this call passes: 2 argument(s)
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
 
 Help:
   Remove 1 extra argument(s).

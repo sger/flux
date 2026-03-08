@@ -7,7 +7,7 @@ failed (compile)
 == diagnostics ==
 Error[E419]: Unresolved Effect Row
 
-I cannot resolve the effect variable `e` for this call.
+I cannot resolve the effect variable `e` introduced by this call.
 
   examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:8:5
   |
@@ -15,9 +15,11 @@ I cannot resolve the effect variable `e` for this call.
   |     ^^^^^^^^^^
   |     ---------- this call leaves an effect variable unconstrained
 
+  |     ---------- this call to `unresolved` creates the effect obligation
+
 Note:
   unresolved effect variable: e
-  constraint source: effect inference at this call
+  constraint source: effect-row checking for `unresolved`
 
 Help:
   Add an explicit effect annotation such as `with e` or pass a callback with concrete effects.

@@ -15,16 +15,20 @@ Parameter 1 has the wrong type.
    |              ^^^^^^^^^
 12 |         takes_int
    | ^^^^^^^^^^^^^^^^^
+   |         --------- this branch established the expected type
 13 |     } else {
    | ^^^^^^^^^^^^
 14 |         takes_string
    | ^^^^^^^^^^^^^^^^^^^^
+   |         ------------ this branch conflicts with that type
 15 |     }
    | ^^^^^
 
 Note:
   expected parameter type: Int
   found parameter type: String
+  the `then` branch fixes the type expected from the whole `if`
+  the `else` branch produces the competing type
 
 Help:
   Change parameter 1 to use `Int` consistently.

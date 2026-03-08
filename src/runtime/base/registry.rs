@@ -1,9 +1,4 @@
-use crate::{
-    runtime::{
-        base::base_hm_signature_id::BaseHmSignatureId,
-        base_function::BaseFunction,
-    },
-};
+use crate::runtime::{base::base_hm_signature_id::BaseHmSignatureId, base_function::BaseFunction};
 #[cfg(test)]
 use crate::{runtime::base::scheme_for_signature_id, syntax::interner::Interner};
 

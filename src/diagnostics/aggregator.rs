@@ -6,7 +6,7 @@ use std::path::Path;
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
     RelatedKind, Severity, quality::downstream_errors_suppressed_note, render_display_path,
-    types::DiagnosticPhase,
+    rendering::Colors, types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
 
@@ -433,24 +433,25 @@ impl<'a> DiagnosticsAggregator<'a> {
         let mut group = Vec::new();
         let mut current_file: Option<String> = None;
 
-        let flush_group =
-            |group: &mut Vec<Diagnostic>, stats: &mut StageFilterStats, processed: &mut Vec<Diagnostic>| {
-                if group.is_empty() {
-                    return;
-                }
-                let indexed = group
-                    .iter()
-                    .enumerate()
-                    .map(|(index, diag)| IndexedDiagnostic { index, diag })
-                    .collect::<Vec<_>>();
-                let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
-                let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
-                let collapsed = self.collapse_parser_cascades(filtered);
-                stats.suppressed_type_count += group_stats.suppressed_type_count;
-                stats.suppressed_effect_count += group_stats.suppressed_effect_count;
-                processed.extend(collapsed);
-                group.clear();
-            };
+        let flush_group = |group: &mut Vec<Diagnostic>,
+                           stats: &mut StageFilterStats,
+                           processed: &mut Vec<Diagnostic>| {
+            if group.is_empty() {
+                return;
+            }
+            let indexed = group
+                .iter()
+                .enumerate()
+                .map(|(index, diag)| IndexedDiagnostic { index, diag })
+                .collect::<Vec<_>>();
+            let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
+            let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
+            let collapsed = self.collapse_parser_cascades(filtered);
+            stats.suppressed_type_count += group_stats.suppressed_type_count;
+            stats.suppressed_effect_count += group_stats.suppressed_effect_count;
+            processed.extend(collapsed);
+            group.clear();
+        };
 
         for diag in deduped {
             let file_key = effective_file(&diag, default_file).map(ToString::to_string);
@@ -560,8 +561,8 @@ impl<'a> DiagnosticsAggregator<'a> {
                     }
                     current_file_key = Some(file_key.unwrap_or(""));
                     first_in_group = true;
-                    let display = file_display(file_key);
-                    current_group.push_str(&format!("{}\n", display));
+                    let display = format_file_header(file_key);
+                    current_group.push_str(&format!("{display}\n"));
                 }
 
                 if !first_in_group {
@@ -633,6 +634,16 @@ fn file_display<'a>(file: Option<&'a str>) -> Cow<'a, str> {
     file.filter(|f| !f.is_empty())
         .map(render_display_path)
         .unwrap_or_else(|| Cow::Borrowed("<unknown>"))
+}
+
+fn format_file_header(file: Option<&str>) -> String {
+    let display = file_display(file);
+    let colors = Colors::new();
+    if colors.cyan.is_empty() {
+        display.into_owned()
+    } else {
+        format!("{}{}{}{}", colors.bold, colors.cyan, display, colors.reset)
+    }
 }
 
 fn ensure_source(file: Option<&str>, cache: &mut HashMap<String, String>) {

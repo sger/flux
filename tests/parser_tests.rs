@@ -2691,4 +2691,23 @@ let w = match x { Some(n) -> n, None -> 0 };
             );
         }
     }
+
+    #[test]
+    fn parser_contextual_diagnostics_include_breadcrumb_notes() {
+        let lexer = Lexer::new("fn greet(name: String) -> String return name");
+        let mut parser = Parser::new(lexer);
+        let _ = parser.parse_program();
+
+        let diag = parser
+            .errors
+            .first()
+            .expect("expected parser diagnostic for missing function body");
+        assert!(
+            diag.hints()
+                .iter()
+                .any(|hint| hint.text.contains("while parsing function `greet`")),
+            "expected breadcrumb note on parser diagnostic, got: {:?}",
+            diag.hints()
+        );
+    }
 }

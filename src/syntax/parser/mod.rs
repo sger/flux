@@ -1,7 +1,6 @@
 use crate::{
     diagnostics::{
-        DiagnosticCategory,
-        Diagnostic,
+        Diagnostic, DiagnosticCategory,
         position::{Position, Span},
         unexpected_token_with_details,
     },
@@ -27,6 +26,35 @@ pub(super) enum RecoveryBoundary {
     MissingBlockOpener,
 }
 
+#[derive(Debug, Clone)]
+pub(super) enum ParserContext {
+    Function(String),
+    Module(String),
+    IfBranch,
+    ElseBranch,
+    MatchExpression,
+    Lambda,
+    HandleExpression,
+    Effect(String),
+    Data(String),
+}
+
+impl ParserContext {
+    pub(super) fn breadcrumb(&self) -> String {
+        match self {
+            ParserContext::Function(name) => format!("function `{name}`"),
+            ParserContext::Module(name) => format!("module `{name}`"),
+            ParserContext::IfBranch => "`if` expression".to_string(),
+            ParserContext::ElseBranch => "`else` branch".to_string(),
+            ParserContext::MatchExpression => "`match` expression".to_string(),
+            ParserContext::Lambda => "lambda expression".to_string(),
+            ParserContext::HandleExpression => "`handle` expression".to_string(),
+            ParserContext::Effect(name) => format!("effect `{name}`"),
+            ParserContext::Data(name) => format!("data declaration `{name}`"),
+        }
+    }
+}
+
 pub struct Parser {
     pub(super) lexer: Lexer,
     pub(super) current_token: Token,
@@ -39,6 +67,8 @@ pub struct Parser {
     pub(super) pending_recovery_boundary: Option<RecoveryBoundary>,
     pub(super) used_custom_recovery: bool,
     pub(super) suppress_top_level_rbrace_once: bool,
+    pub(super) parser_contexts: Vec<ParserContext>,
+    pub(super) suppress_structural_followups: bool,
     expr_id_gen: ExprIdGen,
 }
 
@@ -56,6 +86,8 @@ impl Parser {
             pending_recovery_boundary: None,
             used_custom_recovery: false,
             suppress_top_level_rbrace_once: false,
+            parser_contexts: Vec::new(),
+            suppress_structural_followups: false,
             expr_id_gen: ExprIdGen::new(),
         };
         parser.prime();
@@ -159,6 +191,38 @@ impl Parser {
             self.errors.push(diag);
             true
         }
+    }
+
+    pub(super) fn push_parser_context(&mut self, context: ParserContext) {
+        self.parser_contexts.push(context);
+    }
+
+    pub(super) fn pop_parser_context(&mut self) {
+        let _ = self.parser_contexts.pop();
+    }
+
+    pub(super) fn current_parser_breadcrumb(&self) -> Option<String> {
+        self.parser_contexts.last().map(ParserContext::breadcrumb)
+    }
+
+    pub(super) fn begin_structural_suppression(&mut self) {
+        self.suppress_structural_followups = true;
+    }
+
+    pub(super) fn clear_structural_suppression(&mut self) {
+        self.suppress_structural_followups = false;
+    }
+
+    pub(super) fn push_parser_diagnostic(&mut self, diag: Diagnostic) -> bool {
+        let is_structural = matches!(diag.code(), Some("E034") | Some("E076"));
+        if self.suppress_structural_followups && !is_structural {
+            return false;
+        }
+        if is_structural {
+            self.begin_structural_suppression();
+        }
+        self.errors.push(diag);
+        true
     }
 }
 

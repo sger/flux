@@ -86,6 +86,23 @@ fn aggregator_single_file_shows_header() {
 }
 
 #[test]
+fn aggregator_file_headers_use_bold_cyan_when_color_enabled() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(None);
+
+    let diags = vec![
+        Diagnostic::warning("ERR")
+            .with_file("a.flx")
+            .with_span(span(1, 0)),
+    ];
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert!(
+        output.contains("\u{1b}[1m\u{1b}[36ma.flx\u{1b}[0m"),
+        "expected bold cyan file header, got:\n{output}"
+    );
+}
+
+#[test]
 fn aggregator_enforces_max_errors() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
