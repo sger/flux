@@ -2,13 +2,14 @@ use serde::Serialize;
 
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
-    Diagnostic, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind, InlineSuggestion, Label,
-    LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
+    Diagnostic, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind,
+    InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
 };
 
 #[derive(Serialize)]
 struct JsonDiagnostic {
     severity: &'static str,
+    category: Option<&'static str>,
     phase: Option<&'static str>,
     code: Option<String>,
     title: String,
@@ -91,6 +92,7 @@ impl JsonDiagnostic {
     fn from_diag(diag: &Diagnostic) -> Self {
         Self {
             severity: severity_str(diag.severity()),
+            category: diag.category().map(category_str),
             phase: diag.phase().map(phase_str),
             code: diag.code().map(ToString::to_string),
             title: diag.title().to_string(),
@@ -111,6 +113,10 @@ impl JsonDiagnostic {
                 .collect(),
         }
     }
+}
+
+fn category_str(category: DiagnosticCategory) -> &'static str {
+    category.as_str()
 }
 
 fn phase_str(phase: DiagnosticPhase) -> &'static str {
