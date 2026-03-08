@@ -121,6 +121,8 @@ impl Compiler {
             self.file_path.clone(),
             expression.span(),
         )
+        .with_display_title("Unresolved Boundary Type")
+        .with_category(crate::diagnostics::DiagnosticCategory::TypeInference)
         .with_primary_label(
             expression.span(),
             "expression type is unresolved in strict mode",

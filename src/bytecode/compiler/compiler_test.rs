@@ -168,7 +168,7 @@ let x: Int = y
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("Error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -191,7 +191,7 @@ let x: Int = make()
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("Error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -219,7 +219,7 @@ fn main() -> Unit {
         .expect_err("expected HM strict-path mismatch for module member call");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("Error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -248,7 +248,7 @@ fn main() -> Unit {
         .expect_err("expected private member access failure");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E011]"),
+        rendered.contains("Error[E011]: Private Member"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -283,7 +283,7 @@ fn main() -> Unit {
         .expect_err("expected tuple-field typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("Error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("String"),
@@ -291,7 +291,7 @@ fn main() -> Unit {
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "tuple-field projection should be typed, not unresolved:\n{}",
         rendered
     );
@@ -314,12 +314,13 @@ fn main() -> Unit {
         .expect_err("expected index projection typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Option<Int>"),
+        rendered.contains("Error[E300]: Annotation Type Mismatch")
+            && rendered.contains("Option<Int>"),
         "unexpected diagnostics:\n{}",
         rendered
     );
     assert!(
-        !rendered.contains("error[E425]"),
+        !rendered.contains("Error[E425]"),
         "index projection should be typed, not unresolved:\n{}",
         rendered
     );

@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use crate::diagnostics::{NOT_A_FUNCTION, RUNTIME_TYPE_ERROR};
+use crate::diagnostics::NOT_A_FUNCTION;
 use crate::runtime::RuntimeContext;
 use crate::runtime::base::get_base_function_by_index;
+use crate::runtime::base::list_ops::format_value;
 use crate::runtime::gc::GcHeap;
 use crate::runtime::{closure::Closure, frame::Frame, value::Value};
 
@@ -34,9 +35,12 @@ impl VM {
             let actual = &self.stack[args_start + index];
             if !expected.matches_value(actual, self) {
                 let expected_name = expected.type_name();
-                return Err(self.runtime_error_enhanced(
-                    &RUNTIME_TYPE_ERROR,
-                    &[&expected_name, actual.type_name()],
+                let actual_type = actual.type_name();
+                let actual_value = format_value(self, actual);
+                return Err(self.runtime_type_error_enhanced(
+                    &expected_name,
+                    actual_type,
+                    Some(&actual_value),
                 ));
             }
         }
@@ -61,9 +65,12 @@ impl VM {
             };
             if !expected.matches_value(actual, self) {
                 let expected_name = expected.type_name();
-                return Err(self.runtime_error_enhanced(
-                    &RUNTIME_TYPE_ERROR,
-                    &[&expected_name, actual.type_name()],
+                let actual_type = actual.type_name();
+                let actual_value = format_value(self, actual);
+                return Err(self.runtime_type_error_enhanced(
+                    &expected_name,
+                    actual_type,
+                    Some(&actual_value),
                 ));
             }
         }

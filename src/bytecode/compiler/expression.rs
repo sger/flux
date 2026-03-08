@@ -21,18 +21,18 @@ use crate::{
     },
     diagnostics::{
         ADT_NON_EXHAUSTIVE_MATCH, CONSTRUCTOR_ARITY_MISMATCH, DUPLICATE_PARAMETER, Diagnostic,
-        DiagnosticBuilder, ICE_SYMBOL_SCOPE_PATTERN, ICE_TEMP_SYMBOL_LEFT_BINDING,
-        ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH, ICE_TEMP_SYMBOL_RIGHT_BINDING,
-        ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING, ICE_TEMP_SYMBOL_SOME_PATTERN,
-        LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED, NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER,
-        UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR, UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER,
-        UNKNOWN_PREFIX_OPERATOR,
+        DiagnosticBuilder, DiagnosticCategory, ICE_SYMBOL_SCOPE_PATTERN,
+        ICE_TEMP_SYMBOL_LEFT_BINDING, ICE_TEMP_SYMBOL_LEFT_PATTERN, ICE_TEMP_SYMBOL_MATCH,
+        ICE_TEMP_SYMBOL_RIGHT_BINDING, ICE_TEMP_SYMBOL_RIGHT_PATTERN, ICE_TEMP_SYMBOL_SOME_BINDING,
+        ICE_TEMP_SYMBOL_SOME_PATTERN, LEGACY_LIST_TAIL_NONE, MODULE_NOT_IMPORTED,
+        NON_EXHAUSTIVE_MATCH, PRIVATE_MEMBER, UNKNOWN_BASE_MEMBER, UNKNOWN_CONSTRUCTOR,
+        UNKNOWN_INFIX_OPERATOR, UNKNOWN_MODULE_MEMBER, UNKNOWN_PREFIX_OPERATOR,
         compiler_errors::{
             UNREACHABLE_PATTERN_ARM, call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
             guarded_wildcard_non_exhaustive, type_unification_error, wrong_argument_count,
         },
-        diag_enhanced,
+        diag_enhanced, dynamic_explained_diagnostic,
         position::{Position, Span},
         types::ErrorType,
     },
@@ -733,6 +733,9 @@ impl Compiler {
                             self.file_path.clone(),
                             function.span(),
                         )
+                        .with_display_title("Missing Ambient Effect")
+                        .with_category(DiagnosticCategory::Effects)
+                        .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                         .with_primary_label(function.span(), "effectful call occurs here"),
                     ));
                 }
@@ -764,6 +767,8 @@ impl Compiler {
                             self.file_path.clone(),
                             argument.span(),
                         )
+                        .with_display_title("Unresolved Boundary Type")
+                        .with_category(DiagnosticCategory::TypeInference)
                         .with_primary_label(
                             argument.span(),
                             "runtime boundary check is unresolved in strict mode",
@@ -945,41 +950,49 @@ impl Compiler {
     fn unresolved_effect_vars_diagnostic(&self, vars: &[Symbol], span: Span) -> Diagnostic {
         if vars.len() == 1 {
             let effect_name = self.sym(vars[0]).to_string();
-            Diagnostic::make_error_dynamic(
+            dynamic_explained_diagnostic(
                 "E419",
                 "UNRESOLVED EFFECT VARIABLE",
-                ErrorType::Compiler,
-                format!("Cannot resolve effect variable `{}` for this call.", effect_name),
-                Some(format!(
-                    "Add an explicit effect annotation (for example `with {}`) or pass a callback with concrete effects.",
-                    effect_name
-                )),
+                format!("I cannot resolve the effect variable `{effect_name}` for this call."),
                 self.file_path.clone(),
                 span,
+                "this call leaves an effect variable unconstrained",
+                [
+                    format!("unresolved effect variable: {effect_name}"),
+                    "constraint source: effect inference at this call".to_string(),
+                ],
+                format!(
+                    "Add an explicit effect annotation such as `with {effect_name}` or pass a callback with concrete effects."
+                ),
             )
-            .with_primary_label(span, "effect variable is unconstrained")
+            .with_display_title("Unresolved Effect Row")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
         } else {
             let mut names: Vec<String> = vars
                 .iter()
                 .map(|symbol| self.sym(*symbol).to_string())
                 .collect();
             names.sort();
-            Diagnostic::make_error_dynamic(
+            dynamic_explained_diagnostic(
                 "E420",
                 "AMBIGUOUS EFFECT VARIABLES",
-                ErrorType::Compiler,
                 format!(
-                    "Call leaves multiple effect variables unresolved: {}.",
+                    "I cannot determine which effects this call should carry: {}.",
                     names.join(", ")
-                ),
-                Some(
-                    "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate."
-                        .to_string(),
                 ),
                 self.file_path.clone(),
                 span,
+                "this call leaves multiple effect variables ambiguous",
+                [
+                    format!("ambiguous effect variables: {}", names.join(", ")),
+                    "constraint source: effect inference at this call".to_string(),
+                ],
+                "Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.",
             )
-            .with_primary_label(span, "effect variables are ambiguous")
+            .with_display_title("Unresolved Effect Row")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
         }
     }
 
@@ -991,22 +1004,23 @@ impl Compiler {
         match violation {
             RowConstraintViolation::InvalidSubtract { atom } => {
                 let effect_name = self.sym(*atom).to_string();
-                Diagnostic::make_error_dynamic(
+                dynamic_explained_diagnostic(
                     "E421",
                     "INVALID EFFECT SUBTRACTION",
-                    ErrorType::Compiler,
-                    format!(
-                        "Cannot subtract effect `{}` from a row that does not contain it.",
-                        effect_name
-                    ),
-                    Some(
-                        "Handle or include this effect before subtracting it from an effect row."
-                            .to_string(),
-                    ),
+                    format!("I cannot subtract effect `{effect_name}` from this effect row."),
                     self.file_path.clone(),
                     function.span(),
+                    "this call violates an effect-row subtraction constraint",
+                    [
+                        format!("requested subtraction: {effect_name}"),
+                        "constraint source: effect-row subtraction during call checking"
+                            .to_string(),
+                    ],
+                    "Handle or include this effect before subtracting it from an effect row.",
                 )
-                .with_primary_label(function.span(), "effect row constraint failed")
+                .with_display_title("Effect Requirement Mismatch")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             }
             RowConstraintViolation::UnresolvedVars { vars } => {
                 self.unresolved_effect_vars_diagnostic(vars, function.span())
@@ -1017,22 +1031,25 @@ impl Compiler {
                     .map(|effect| self.sym(*effect).to_string())
                     .collect();
                 names.sort();
-                Diagnostic::make_error_dynamic(
+                dynamic_explained_diagnostic(
                     "E422",
                     "UNSATISFIED EFFECT SUBSET",
-                    ErrorType::Compiler,
                     format!(
-                        "Effect row is missing required effects: {}.",
+                        "This call requires effects that are missing from the surrounding effect row: {}.",
                         names.join(", ")
-                    ),
-                    Some(
-                        "Add missing effects to the enclosing function or handle them before this call."
-                            .to_string(),
                     ),
                     self.file_path.clone(),
                     function.span(),
+                    "this call needs effects that are not currently available",
+                    [
+                        format!("missing required effects: {}", names.join(", ")),
+                        "constraint source: effect subset checking at this call".to_string(),
+                    ],
+                    "Add the missing effects to the enclosing function or handle them before this call.",
                 )
-                .with_primary_label(function.span(), "effect row constraint failed")
+                .with_display_title("Effect Requirement Mismatch")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             }
         }
     }
@@ -1084,6 +1101,9 @@ impl Compiler {
                 self.file_path.clone(),
                 function.span(),
             )
+            .with_display_title("Missing Ambient Effect")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
             .with_primary_label(function.span(), "effectful call occurs here"),
         ))
     }
@@ -2305,6 +2325,9 @@ impl Compiler {
                     self.file_path.clone(),
                     function.span(),
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(function.span(), "effectful call occurs here"),
             ));
         }
@@ -2357,6 +2380,9 @@ impl Compiler {
                     self.file_path.clone(),
                     function.span(),
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(function.span(), "effectful call occurs here"),
             ));
         }
@@ -2396,6 +2422,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Unknown Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "unknown effect in perform"),
             ));
         };
@@ -2415,6 +2444,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Unknown Effect Operation")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "unknown operation in perform"),
             ));
         }
@@ -2437,6 +2469,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Wrong Number Of Arguments")
+                .with_category(DiagnosticCategory::TypeInference)
+                .with_phase(crate::diagnostics::DiagnosticPhase::TypeInference)
                 .with_primary_label(span, "perform argument count mismatch"),
             ));
         }
@@ -2478,6 +2513,9 @@ impl Compiler {
                     self.file_path.clone(),
                     span,
                 )
+                .with_display_title("Missing Ambient Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(span, "effectful perform occurs here"),
             ));
         }
@@ -2531,6 +2569,9 @@ impl Compiler {
                     self.file_path.clone(),
                     expr.span(),
                 )
+                .with_display_title("Unknown Effect")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(expr.span(), "unknown effect in handle"),
             ));
         };
@@ -2555,6 +2596,9 @@ impl Compiler {
                         self.file_path.clone(),
                         arm.span,
                     )
+                    .with_display_title("Unknown Effect Operation")
+                    .with_category(DiagnosticCategory::Effects)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                     .with_primary_label(arm.span, "unknown operation arm"),
                 ));
             }
@@ -2583,6 +2627,9 @@ impl Compiler {
                     self.file_path.clone(),
                     expr.span(),
                 )
+                .with_display_title("Missing Effect Handler Arm")
+                .with_category(DiagnosticCategory::Effects)
+                .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
                 .with_primary_label(expr.span(), "handled expression"),
             ));
         }
@@ -2618,6 +2665,9 @@ impl Compiler {
                         self.file_path.clone(),
                         arm.span,
                     )
+                    .with_display_title("Wrong Number Of Arguments")
+                    .with_category(DiagnosticCategory::TypeInference)
+                    .with_phase(crate::diagnostics::DiagnosticPhase::TypeInference)
                     .with_primary_label(arm.span, "handler arm parameter mismatch"),
                 ));
             }
