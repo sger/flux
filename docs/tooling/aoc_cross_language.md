@@ -1,6 +1,6 @@
 # AoC Cross-Language Benchmarking
 
-This guide compares Flux against other languages on the same AoC task.
+This guide compares Flux against other language implementations on the same AoC task.
 
 ## Recommended Order (Compare then Profile)
 
@@ -9,18 +9,17 @@ Use this exact sequence when tuning VM performance:
 1. Build release binaries:
 
 ```bash
-cargo build --release --bin flux --bin aoc_day1_part2_rust
+cargo build --release --bin flux
 ```
 
 2. Verify all implementations return the same answer:
 
 ```bash
 ./target/release/flux examples/io/aoc_day1_part2.flx
-./target/release/aoc_day1_part2_rust examples/io/aoc_day1.txt
-python3 benchmarks/aoc/day1_part2.py examples/io/aoc_day1.txt
+python3 benchmarks/python/aoc/day1_part2.py examples/io/aoc_day1.txt
 ```
 
-Expected output for all three: `6289`.
+Expected output for both: `6289`.
 
 3. Run cross-language comparison:
 
@@ -28,8 +27,7 @@ Expected output for all three: `6289`.
 scripts/bench_cross_lang.sh --native --runs 30 --warmup 5 \
   --name-prefix aoc_day1_part2 \
   --flux-cmd './target/release/flux examples/io/aoc_day1_part2.flx' \
-  --rust-cmd './target/release/aoc_day1_part2_rust examples/io/aoc_day1.txt' \
-  --python-cmd 'python3 benchmarks/aoc/day1_part2.py examples/io/aoc_day1.txt'
+  --python-cmd 'python3 benchmarks/python/aoc/day1_part2.py examples/io/aoc_day1.txt'
 ```
 
 4. Generate VM flamegraph on a profile workload (not single-run input):
@@ -86,7 +84,7 @@ scripts/bench_cross_lang.sh \
   --warmup 3 \
   --flux-cmd 'cargo run --release -- examples/io/aoc_day1.flx' \
   --rust-cmd './target/release/day1_rust examples/io/aoc_day1.txt' \
-  --python-cmd 'python3 benchmarks/aoc/day1.py examples/io/aoc_day1.txt' \
+  --python-cmd 'python3 benchmarks/python/aoc/day1.py examples/io/aoc_day1.txt' \
   --node-cmd 'node benchmarks/aoc/day1.mjs examples/io/aoc_day1.txt'
 ```
 
@@ -96,7 +94,7 @@ scripts/bench_cross_lang.sh \
 scripts/bench_cross_lang.sh \
   --runs 50 \
   --flux-cmd 'cargo run --release -- examples/io/aoc_day1.flx' \
-  --python-cmd 'python3 benchmarks/aoc/day1.py examples/io/aoc_day1.txt'
+  --python-cmd 'python3 benchmarks/python/aoc/day1.py examples/io/aoc_day1.txt'
 ```
 
 ## Optional: Compile + Run vs Run-only

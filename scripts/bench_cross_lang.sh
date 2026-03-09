@@ -27,7 +27,7 @@ Examples:
   scripts/bench_cross_lang.sh --runs 50 --warmup 5
   scripts/bench_cross_lang.sh \
     --rust-cmd './target/release/day1_rust examples/io/aoc_day1.txt' \
-    --python-cmd 'python3 benchmarks/aoc/day1.py examples/io/aoc_day1.txt' \
+    --python-cmd 'python3 benchmarks/python/aoc/day1.py examples/io/aoc_day1.txt' \
     --node-cmd 'node benchmarks/aoc/day1.mjs examples/io/aoc_day1.txt'
 
 Notes:
@@ -129,7 +129,7 @@ fi
 DEFAULT_FLUX_NATIVE_CMD="./target/release/flux examples/io/aoc_day1.flx"
 DEFAULT_FLUX_JIT_NATIVE_CMD="./target/release/flux examples/io/aoc_day1.flx --jit"
 DEFAULT_RUST_NATIVE_CMD="./target/release/aoc_day1_rust $INPUT"
-DEFAULT_PYTHON_CMD="python3 benchmarks/aoc/day1.py $INPUT"
+DEFAULT_PYTHON_CMD="python3 benchmarks/python/aoc/day1.py $INPUT"
 
 if [[ "$NATIVE_MODE" -eq 1 ]]; then
   if [[ "$FLUX_CMD" == "$DEFAULT_FLUX_CARGO_CMD" ]]; then
