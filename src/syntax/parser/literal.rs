@@ -1,6 +1,6 @@
 use crate::{
     diagnostics::{
-        invalid_float, invalid_integer, missing_string_interpolation_close,
+        empty_string_interpolation, invalid_float, invalid_integer, missing_string_interpolation_close,
         position::{Position, Span},
         unterminated_interpolation,
     },
@@ -69,9 +69,11 @@ impl Parser {
         let mut name = self.current_token.literal.to_string();
         while self.is_peek_token(TokenType::Dot) && super::is_pascal_case_ident(&self.peek2_token) {
             self.next_token(); // consume '.'
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Ident,
-                "Expected identifier after `.` in qualified path.".to_string(),
+                "Missing Qualified Path Segment",
+                crate::diagnostics::DiagnosticCategory::ParserExpression,
+                "Qualified paths need an identifier after `.`.".to_string(),
                 "Qualified paths use `Module.Name`.".to_string(),
             ) {
                 return None;
@@ -189,10 +191,7 @@ impl Parser {
 
             // Detect empty interpolation `#{}`
             if self.current_token.token_type == TokenType::RBrace {
-                self.emit_parser_diagnostic(crate::diagnostics::unexpected_token(
-                    self.current_token.span(),
-                    "Empty interpolation `#{}` — provide an expression between the braces.",
-                ));
+                self.emit_parser_diagnostic(empty_string_interpolation(self.current_token.span()));
                 // Continue parsing the rest of the string to avoid cascade
                 // The RBrace has been consumed as current_token, so check what follows
                 if self.is_peek_token(TokenType::InterpolationStart) {

@@ -795,8 +795,10 @@ impl Parser {
         if self.is_peek_token(TokenType::Lt) {
             self.next_token(); // consume '<'
             loop {
-                if !self.expect_peek_context(
+                if !self.expect_peek_context_with_details(
                     TokenType::Ident,
+                    "Missing Generic Parameter Name",
+                    DiagnosticCategory::ParserDeclaration,
                     "Expected generic type parameter name.".to_string(),
                     "Data generics use `data Type<T, U> { ... }`.".to_string(),
                 ) {
@@ -813,8 +815,10 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Gt,
+                "Missing Generic Parameter List",
+                DiagnosticCategory::ParserDelimiter,
                 "Expected `>` to close data type parameters.".to_string(),
                 "Data generics use `data Type<T, U> { ... }`.".to_string(),
             ) {
@@ -961,8 +965,10 @@ impl Parser {
         if self.is_peek_token(TokenType::Lt) {
             self.next_token(); // consume '<'
             loop {
-                if !self.expect_peek_context(
+                if !self.expect_peek_context_with_details(
                     TokenType::Ident,
+                    "Missing Generic Parameter Name",
+                    DiagnosticCategory::ParserDeclaration,
                     "Expected generic type parameter name.".to_string(),
                     "Type generics use `type Name<T, U> = ...`.".to_string(),
                 ) {
@@ -979,8 +985,10 @@ impl Parser {
                     break;
                 }
             }
-            if !self.expect_peek_context(
+            if !self.expect_peek_context_with_details(
                 TokenType::Gt,
+                "Missing Generic Parameter List",
+                DiagnosticCategory::ParserDelimiter,
                 "Expected `>` to close type parameters.".to_string(),
                 "Type generics use `type Name<T, U> = ...`.".to_string(),
             ) {

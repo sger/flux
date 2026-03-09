@@ -979,6 +979,29 @@ pub fn orphan_constructor_pattern(span: Span, name: &str) -> Diagnostic {
     ))
 }
 
+/// Create a missing-qualified-path-segment diagnostic (E034).
+pub fn missing_qualified_path_segment(span: Span) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Qualified Path Segment",
+        DiagnosticCategory::ParserExpression,
+        "Qualified paths need an identifier after `.`.",
+        "Write qualified paths as `Module.Name`.",
+    )
+}
+
+/// Create an empty-string-interpolation diagnostic (E034).
+pub fn empty_string_interpolation(span: Span) -> Diagnostic {
+    unexpected_token_with_details(
+        span,
+        "Empty String Interpolation",
+        DiagnosticCategory::ParserExpression,
+        "Empty interpolation `#{}` needs an expression between the braces.",
+    )
+    .with_hint_text("Interpolation segments use `#{expr}` inside strings.")
+}
+
 /// Create an unexpected `end` keyword diagnostic (E034).
 pub fn unexpected_end_keyword(span: Span) -> Diagnostic {
     unexpected_token(

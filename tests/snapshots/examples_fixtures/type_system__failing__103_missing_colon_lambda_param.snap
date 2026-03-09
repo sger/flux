@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/103_missing_colon_lambda_param.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Unexpected Token
+Error[E034]: Missing Type Annotation Colon
 
 Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
 
@@ -13,6 +13,9 @@ Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
   |
 1 | let f = /x Int -> x
   |            ^^^
+
+Hint:
+  Type annotations use `name: Type`.
 
 
 Error[E034]: Missing Lambda Arrow

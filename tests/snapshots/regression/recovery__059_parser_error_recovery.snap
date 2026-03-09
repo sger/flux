@@ -29,7 +29,36 @@ This hash entry needs `:` between the key and value.
 Hint:
   Hash literals use `{key: value, ...}`.
 
-Note:
-  Suppressed 2 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 
-Found 2 errors.
+Error[E034]: Invalid Match Arm Separator
+
+Match arms are separated by `,` in Flux, not `|`.
+
+  tests/fixtures/recovery/059_parser_error_recovery.flx:2:18
+  |
+2 | match x { 0 -> 1 | 1 -> 2 }
+  |                  ^
+
+Hint:
+  Replace `|` with `,`.
+
+Note:
+  while parsing `match` expression
+
+
+Error[E034]: Missing Match Arm Arrow
+
+This match arm needs `->`, not `=>`.
+
+  tests/fixtures/recovery/059_parser_error_recovery.flx:3:13
+  |
+3 | match y { 0 => 0, _ -> 1 }
+  |             ^
+
+Note:
+  while parsing `match` expression
+
+Help:
+  Replace `=>` with `->`.
+
+Found 4 errors.

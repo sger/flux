@@ -799,7 +799,15 @@ impl Parser {
             )
         };
         self.errors
-            .push(unexpected_token(self.peek_token.span(), message));
+            .push(
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Missing Type Annotation Colon",
+                    DiagnosticCategory::ParserSeparator,
+                    message,
+                )
+                .with_hint_text("Type annotations use `name: Type`."),
+            );
 
         self.next_token(); // move to start of type expression
         match self.parse_type_expr() {
@@ -1597,7 +1605,16 @@ impl Parser {
             };
             if !self.push_followup_unless_structural_root(
                 construct_checkpoint,
-                unexpected_token(self.peek_token.span(), message),
+                unexpected_token_with_details(
+                    self.peek_token.span(),
+                    "Missing Collection Separator",
+                    DiagnosticCategory::ParserSeparator,
+                    message,
+                )
+                .with_hint_text(format!(
+                    "Separate items with `,` and close this collection with `{}`.",
+                    end
+                )),
             ) {
                 return Some(list);
             }
