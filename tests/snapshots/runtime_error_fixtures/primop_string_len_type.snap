@@ -1,0 +1,32 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/primop_string_len_type.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/primop_string_len_type.flx
+Error[E1004]: primop string_len expected String, got Int
+
+  examples/runtime_errors/primop_string_len_type.flx:2:19
+  |
+2 |     let ignored = string_len(1)
+  |                   ^^^^^^^^^^^^^
+
+Stack trace:
+  at main (examples/runtime_errors/primop_string_len_type.flx:2:19)
+  at <main>
+== jit ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/primop_string_len_type.flx
+Error[E1004]: primop string_len expected String, got Int
+
+  examples/runtime_errors/primop_string_len_type.flx:2:19
+  |
+2 |     let ignored = string_len(1)
+  |                   ^^^^^^^^^^^^^

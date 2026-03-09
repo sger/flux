@@ -1,0 +1,23 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_list_comprehension_generator.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Missing Generator Name
+
+Expected generator identifier before `<-` in list comprehension.
+
+  examples/parser_errors/missing_list_comprehension_generator.flx:3:20
+  |
+3 |     print([x * 2 | <- nums])
+  |                    ^^
+
+Hint:
+  List comprehensions use `[expr | name <- source, ...]`.
+
+Note:
+  while parsing function `main`
+== stdout ==
+<not executed>

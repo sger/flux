@@ -61,6 +61,21 @@ pub struct JitFunctionEntry {
 }
 
 impl JitContext {
+    fn span_from_1_based(
+        &self,
+        start_line: usize,
+        start_column_1_based: usize,
+        end_line: usize,
+        end_column_1_based: usize,
+    ) -> Span {
+        let start_col0 = start_column_1_based.saturating_sub(1);
+        let end_col0 = end_column_1_based.saturating_sub(1);
+        Span::new(
+            Position::new(start_line, start_col0),
+            Position::new(end_line, end_col0),
+        )
+    }
+
     pub(crate) fn render_runtime_type_error(
         &self,
         expected: &str,
@@ -82,11 +97,17 @@ impl JitContext {
         expected: &str,
         actual: &str,
         value_preview: Option<&str>,
-        line: usize,
-        column_1_based: usize,
+        start_line: usize,
+        start_column_1_based: usize,
+        end_line: usize,
+        end_column_1_based: usize,
     ) -> String {
-        let col0 = column_1_based.saturating_sub(1);
-        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        let span = self.span_from_1_based(
+            start_line,
+            start_column_1_based,
+            end_line,
+            end_column_1_based,
+        );
         self.render_runtime_type_error(expected, actual, value_preview, Some(span))
     }
 
@@ -98,21 +119,73 @@ impl JitContext {
         code: &str,
         title: &str,
         message: &str,
-        line: usize,
-        column: usize,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
     ) -> String {
         let file = self
             .source_file
             .clone()
             .unwrap_or_else(|| "<jit>".to_string());
-        let col0 = column.saturating_sub(1);
-        let span = Span::new(Position::new(line, col0), Position::new(line, col0));
+        let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
         let diag = Diagnostic::make_error_dynamic(
             code,
             title,
             ErrorType::Runtime,
             message,
             None,
+            file.clone(),
+            span,
+        )
+        .with_phase(DiagnosticPhase::Runtime);
+        render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
+    }
+
+    pub(crate) fn render_runtime_error_message(
+        &self,
+        code: &str,
+        message: &str,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> String {
+        let (title, details) = split_first_line(message);
+        self.render_runtime_error(
+            code,
+            title.trim(),
+            details.trim(),
+            start_line,
+            start_column,
+            end_line,
+            end_column,
+        )
+    }
+
+    pub(crate) fn render_runtime_error_from_string(
+        &self,
+        message: &str,
+        start_line: usize,
+        start_column: usize,
+        end_line: usize,
+        end_column: usize,
+    ) -> String {
+        let (message, hint) = split_hint(message);
+        let (title, details) = split_first_line(message);
+        let code = classify_runtime_error_code(title);
+
+        let file = self
+            .source_file
+            .clone()
+            .unwrap_or_else(|| "<jit>".to_string());
+        let span = self.span_from_1_based(start_line, start_column, end_line, end_column);
+        let diag = Diagnostic::make_error_dynamic(
+            code,
+            title.trim(),
+            ErrorType::Runtime,
+            details.trim(),
+            hint.map(|h| h.trim().to_string()),
             file.clone(),
             span,
         )
@@ -202,6 +275,36 @@ impl JitContext {
     pub fn set_source_context(&mut self, file: Option<String>, source: Option<String>) {
         self.source_file = file;
         self.source_text = source;
+    }
+}
+
+fn split_first_line(message: &str) -> (&str, &str) {
+    if let Some((title, rest)) = message.split_once('\n') {
+        (title, rest)
+    } else {
+        (message, "")
+    }
+}
+
+fn split_hint(message: &str) -> (&str, Option<&str>) {
+    if let Some((body, hint)) = message.split_once("\n\nHint:\n") {
+        (body, Some(hint))
+    } else {
+        (message, None)
+    }
+}
+
+fn classify_runtime_error_code(title: &str) -> &'static str {
+    if title.contains("wrong number of arguments") {
+        "E1000"
+    } else if title.contains("division by zero") {
+        "E1008"
+    } else if title.contains("not a function") {
+        "E1001"
+    } else if title.contains("expected") || title.contains("expects") {
+        "E1004"
+    } else {
+        "E1009"
     }
 }
 

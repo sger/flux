@@ -1,6 +1,5 @@
 ---
 source: tests/runtime_error_fixtures_snapshots.rs
-assertion_line: 107
 ---
 Fixture: examples/runtime_errors/boundary_return_string_as_int.flx
 == vm ==
@@ -8,7 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error  examples/runtime_errors/boundary_return_string_as_int.flx
+• 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
 Error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
@@ -38,7 +37,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error  examples/runtime_errors/boundary_return_string_as_int.flx
+• 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
 Error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
@@ -46,8 +45,8 @@ I found a value with the wrong runtime type.
   examples/runtime_errors/boundary_return_string_as_int.flx:7:1
   |
 7 | bad()
-  | ^
-  | - this value has runtime type `String`
+  | ^^^^^
+  | ----- this value has runtime type `String`
 
 Note:
   expected type: Int

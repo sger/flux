@@ -447,6 +447,10 @@ pub extern "C" fn rt_call_base_function(
     base_fn_index: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let base_fn = match get_base_function_by_index(base_fn_index as usize) {
@@ -471,7 +475,13 @@ pub extern "C" fn rt_call_base_function(
     match (base_fn.func)(ctx, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }
@@ -483,6 +493,10 @@ pub extern "C" fn rt_call_primop(
     primop_id: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
 
@@ -507,7 +521,14 @@ pub extern "C" fn rt_call_primop(
     match execute_primop(ctx, op, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_message(
+                "E1004",
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }
@@ -574,8 +595,10 @@ pub extern "C" fn rt_check_jit_contract_call(
     function_index: i64,
     args_ptr: *const *mut Value,
     nargs: i64,
-    line: i64,
-    column: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> i64 {
     let ctx = unsafe { ctx_ref(ctx) };
     for i in 0..nargs as usize {
@@ -591,8 +614,10 @@ pub extern "C" fn rt_check_jit_contract_call(
                 &expected,
                 &actual,
                 Some(&preview),
-                line as usize,
-                column as usize,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
             ));
             return 0;
         }
@@ -605,8 +630,10 @@ pub extern "C" fn rt_check_jit_contract_return(
     ctx: *mut JitContext,
     function_index: i64,
     value: *mut Value,
-    line: i64,
-    column: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     if value.is_null() {
@@ -619,8 +646,10 @@ pub extern "C" fn rt_check_jit_contract_return(
             &expected,
             &actual,
             Some(&preview),
-            line as usize,
-            column as usize,
+            start_line as usize,
+            start_column as usize,
+            end_line as usize,
+            end_column as usize,
         ));
         return ptr::null_mut();
     }
@@ -1163,6 +1192,8 @@ pub extern "C" fn rt_perform(
                     &format!("unhandled operation: {}.{}", effect_name, op_name),
                     line,
                     column,
+                    line,
+                    column,
                 ));
                 return ptr::null_mut();
             }
@@ -1177,6 +1208,8 @@ pub extern "C" fn rt_perform(
                         "unhandled effect: {} (no matching handle block)",
                         effect_name
                     ),
+                    line,
+                    column,
                     line,
                     column,
                 ));

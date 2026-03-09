@@ -1,6 +1,5 @@
 ---
 source: tests/runtime_error_fixtures_snapshots.rs
-assertion_line: 107
 ---
 Fixture: examples/runtime_errors/list_boundary_string_into_list.flx
 == vm ==
@@ -8,7 +7,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error  examples/runtime_errors/list_boundary_string_into_list.flx
+• 1 error • examples/runtime_errors/list_boundary_string_into_list.flx
 Error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
@@ -34,7 +33,7 @@ status: 1
 stdout:
 <empty>
 stderr:
-• 1 error  examples/runtime_errors/list_boundary_string_into_list.flx
+• 1 error • examples/runtime_errors/list_boundary_string_into_list.flx
 Error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
@@ -42,8 +41,8 @@ I found a value with the wrong runtime type.
   examples/runtime_errors/list_boundary_string_into_list.flx:8:1
   |
 8 | sum_list(dynamic)
-  | ^
-  | - this value has runtime type `String`
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- this value has runtime type `String`
 
 Note:
   expected type: List<Int>

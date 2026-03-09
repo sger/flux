@@ -158,6 +158,60 @@ fn vm_and_jit_match_phase2_primop_errors() {
 }
 
 #[test]
+fn jit_primop_type_errors_render_e1004_diagnostics() {
+    for input in ["array_len(1)", "string_len(1)"] {
+        let jit_err = run_jit(input).expect_err("JIT should fail");
+        assert!(
+            jit_err.contains("Error[E1004]: primop"),
+            "expected rendered E1004 diagnostic for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            jit_err.contains("primop"),
+            "expected primop-specific detail for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            !jit_err.trim().eq("primop array_len expected Array, got Int")
+                && !jit_err.trim().eq("primop string_len expected String, got Int"),
+            "expected formatted diagnostic instead of raw helper string for `{input}`; got:\n{jit_err}"
+        );
+    }
+}
+
+#[test]
+fn jit_base_runtime_errors_render_diagnostics() {
+    for (input, expected_code, expected_title) in [
+        (
+            "map(#[1], concat)",
+            "Error[E1000]: map: callback error at index 0: wrong number of arguments",
+            "map: callback error at index 0: wrong number of arguments",
+        ),
+        (
+            "flat_map(#[1], \\x -> x)",
+            "Error[E1009]: flat_map: callback must return an Array when input is Array, got Int",
+            "flat_map: callback must return an Array when input is Array, got Int",
+        ),
+    ] {
+        let jit_err = run_jit(input).expect_err("JIT should fail");
+        assert!(
+            jit_err.contains(expected_code),
+            "expected rendered diagnostic for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            jit_err.contains(expected_title),
+            "expected Base-specific title for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            jit_err.contains("<jit>:1:1"),
+            "expected source location for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            !jit_err.trim().eq(expected_title),
+            "expected formatted diagnostic instead of raw Base error for `{input}`; got:\n{jit_err}"
+        );
+    }
+}
+
+#[test]
 fn vm_and_jit_match_effectful_read_file_primop_value() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

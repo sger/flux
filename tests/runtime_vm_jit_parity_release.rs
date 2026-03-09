@@ -201,6 +201,31 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 }
 
+fn assert_file_cli_runtime_highlight_contains(file: &str, roots: &[&str], caret_fragment: &str) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
+
+    let (vm_status, _vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, false);
+    let (jit_status, _jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, true);
+
+    assert_ne!(vm_status, 0, "expected runtime failure for `{file}` in VM");
+    assert_ne!(jit_status, 0, "expected runtime failure for `{file}` in JIT");
+    assert!(
+        vm_stderr.contains(caret_fragment),
+        "expected VM stderr for `{file}` to contain {:?}; got:\n{}",
+        caret_fragment,
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains(caret_fragment),
+        "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
+        caret_fragment,
+        jit_stderr
+    );
+}
+
 #[test]
 fn release_runtime_parity_module_qualified_typed_flow() {
     assert_vm_jit_value(
@@ -249,6 +274,24 @@ fn release_runtime_parity_effectful_error_signature() {
     assert_vm_jit_error_signature_contains(
         r#"panic("release parity panic")"#,
         "panic: release parity panic",
+    );
+}
+
+#[test]
+fn release_jit_base_runtime_errors_use_full_span_highlights() {
+    assert_file_cli_runtime_highlight_contains(
+        "examples/runtime_errors/base_flat_map_return_shape.flx",
+        &[],
+        "^^^^^^^^^^^^^^^^^^^^^^^",
+    );
+}
+
+#[test]
+fn release_jit_primop_runtime_errors_use_full_span_highlights() {
+    assert_file_cli_runtime_highlight_contains(
+        "examples/runtime_errors/primop_array_len_type.flx",
+        &[],
+        "^^^^^^^^^^^^",
     );
 }
 
