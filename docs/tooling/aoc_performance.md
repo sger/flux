@@ -28,8 +28,7 @@ Track these metrics per day:
 scripts/bench_cross_lang.sh --native --runs 30 --warmup 5 \
   --name-prefix aoc_day1_part2 \
   --flux-cmd './target/release/flux examples/io/aoc_day1_part2.flx' \
-  --rust-cmd './target/release/aoc_day1_part2_rust examples/io/aoc_day1.txt' \
-  --python-cmd 'python3 benchmarks/aoc/day1_part2.py examples/io/aoc_day1.txt'
+  --python-cmd 'python3 benchmarks/python/aoc/day1_part2.py examples/io/aoc_day1.txt'
 ```
 
 2. Then profile VM hotspots:
@@ -74,7 +73,7 @@ cp -r target/criterion baseline_criterion
 ```
 
 3. Re-run benchmark after changes.
-4. Compare with your existing bench report tooling (`scripts/bench_report.rs`).
+4. Compare with your existing bench report tooling (`scripts/bench_report.rs`) or Criterion baselines directly.
 
 ## Suggested Targets (starting point)
 

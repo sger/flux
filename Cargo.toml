@@ -89,16 +89,20 @@ harness = false
 
 [[bin]]
 name = "aoc_day1_rust"
-path = "benchmarks/aoc/day1_rust.rs"
+path = "benchmarks/rust/aoc/day1_rust.rs"
 
 [[bin]]
 name = "aoc_day1_part2_rust"
-path = "benchmarks/aoc/day1_part2_rust.rs"
+path = "benchmarks/rust/aoc/day1_part2_rust.rs"
 
 [[bin]]
 name = "aoc_day2_part1_rust"
-path = "benchmarks/aoc/day2_part1_rust.rs"
+path = "benchmarks/rust/aoc/day2_part1_rust.rs"
 
 [[bin]]
 name = "aoc_day2_part2_rust"
-path = "benchmarks/aoc/day2_part2_rust.rs"
+path = "benchmarks/rust/aoc/day2_part2_rust.rs"
+
+[[bin]]
+name = "binarytrees_rust"
+path = "benchmarks/rust/binarytrees.rs"

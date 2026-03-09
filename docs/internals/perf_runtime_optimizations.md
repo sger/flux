@@ -81,8 +81,8 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
 ## Recommended Regression Workflow
 
 1. Save baseline after stable run:
-   - `scripts/bench_aoc.sh save perf-optimized`
+   - `cargo bench --bench aoc_day1_bench -- --save-baseline perf-optimized`
 2. Compare after each runtime change:
-   - `scripts/bench_aoc.sh compare perf-optimized`
+   - `cargo bench --bench aoc_day1_bench -- --baseline perf-optimized`
 3. Use no-shell/run-only comparisons for cross-language checks:
    - `scripts/bench_cross_lang.sh --native --runs 30 --warmup 5`

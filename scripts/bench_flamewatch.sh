@@ -14,11 +14,10 @@ Runs a full performance workflow:
   5) Flamewatch: top aggregated hotspots from flamegraph.svg
 
 Options:
-  --input <path>             Input file for Rust/Python tools (default: examples/io/aoc_day1.txt)
+  --input <path>             Input file for Python tools (default: examples/io/aoc_day1.txt)
   --flux <path>              Flux program for cross-lang benchmark (default: examples/io/aoc_day1_part2.flx)
   --profile <path>           Flux profiling workload for flamegraph (default: examples/io/aoc_day1_part2_profile.flx)
-  --rust-bin <name>          Rust binary name (default: aoc_day1_part2_rust)
-  --python <path>            Python benchmark script (default: benchmarks/aoc/day1_part2.py)
+  --python <path>            Python benchmark script (default: benchmarks/python/aoc/day1_part2.py)
   --name-prefix <label>      Benchmark name prefix (default: aoc_day1_part2)
   --runs <n>                 Cross-language runs (default: 60)
   --warmup <n>               Cross-language warmup (default: 15)
@@ -34,16 +33,14 @@ Example:
     --input examples/io/aoc_day1.txt \
     --flux examples/io/aoc_day1_part2.flx \
     --profile examples/io/aoc_day1_part2_profile.flx \
-    --rust-bin aoc_day1_part2_rust \
-    --python benchmarks/aoc/day1_part2.py
+    --python benchmarks/python/aoc/day1_part2.py
 USAGE
 }
 
 INPUT="examples/io/aoc_day1.txt"
 FLUX_PROGRAM="examples/io/aoc_day1_part2.flx"
 PROFILE_PROGRAM="examples/io/aoc_day1_part2_profile.flx"
-RUST_BIN="aoc_day1_part2_rust"
-PYTHON_SCRIPT="benchmarks/aoc/day1_part2.py"
+PYTHON_SCRIPT="benchmarks/python/aoc/day1_part2.py"
 NAME_PREFIX="aoc_day1_part2"
 RUNS=60
 WARMUP=15
@@ -65,10 +62,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       PROFILE_PROGRAM="$2"
-      shift 2
-      ;;
-    --rust-bin)
-      RUST_BIN="$2"
       shift 2
       ;;
     --python)
@@ -133,13 +126,12 @@ done
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "== Build release binaries =="
-  cargo build --release --features jit --bin flux --bin "$RUST_BIN"
+  cargo build --release --features jit --bin flux
   echo
 fi
 
 FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
 FLUX_JIT_CMD="./target/release/flux $FLUX_PROGRAM --jit"
-RUST_CMD="./target/release/$RUST_BIN $INPUT"
 PYTHON_CMD="python3 $PYTHON_SCRIPT $INPUT"
 
 echo "== Flux-only stability benchmark =="
@@ -154,7 +146,6 @@ scripts/bench_cross_lang.sh --native --runs "$RUNS" --warmup "$WARMUP" \
   --name-prefix "$NAME_PREFIX" \
   --flux-cmd "$FLUX_CMD" \
   --flux-jit-cmd "$FLUX_JIT_CMD" \
-  --rust-cmd "$RUST_CMD" \
   --python-cmd "$PYTHON_CMD"
 echo
 

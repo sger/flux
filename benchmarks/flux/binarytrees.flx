@@ -1,0 +1,69 @@
+// Binary Trees benchmark, adapted from the Koka benchmark-game variant.
+//
+// Flux does not currently expose command-line args to programs, so `n` is a
+// fixed benchmark parameter here. Keep the other language versions on the same
+// default for like-for-like comparisons.
+
+type Tree = Node(Tree, Tree) | Tip
+
+fn max_int(a: Int, b: Int) -> Int {
+    if a > b { a } else { b }
+}
+
+fn pow2(exp: Int, acc: Int) -> Int {
+    if exp <= 0 {
+        acc
+    } else {
+        pow2(exp - 1, acc * 2)
+    }
+}
+
+fn make_tree(depth: Int) -> Tree {
+    if depth > 0 {
+        Node(make_tree(depth - 1), make_tree(depth - 1))
+    } else {
+        Node(Tip, Tip)
+    }
+}
+
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+
+fn sum_trees(iterations: Int, depth: Int, acc: Int) -> Int {
+    if iterations <= 0 {
+        acc
+    } else {
+        let tree = make_tree(depth)
+        sum_trees(iterations - 1, depth, acc + check_tree(tree))
+    }
+}
+
+fn run_depths(depth: Int, max_depth: Int, min_depth: Int) with IO {
+    if depth > max_depth {
+        ()
+    } else {
+        let iterations = pow2(max_depth + min_depth - depth, 1)
+        let total = sum_trees(iterations, depth, 0)
+        print("#{iterations}\t trees of depth #{depth}\t check: #{total}")
+        run_depths(depth + 2, max_depth, min_depth)
+    }
+}
+
+fn main() with IO {
+    let n = 21
+    let min_depth = 4
+    let max_depth = max_int(min_depth + 2, n)
+    let stretch_depth = max_depth + 1
+
+    print("stretch tree of depth #{stretch_depth}\t check: #{check_tree(make_tree(stretch_depth))}")
+
+    let long_lived_tree = make_tree(max_depth)
+
+    run_depths(min_depth, max_depth, min_depth)
+
+    print("long lived tree of depth #{max_depth}\t check: #{check_tree(long_lived_tree)}")
+}
