@@ -5,7 +5,7 @@ Fixture: examples/functions/test_duplicate_declaration_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E001]: Duplicate Name
+error[E001]: Duplicate Name
 
 Duplicate binding: `b` is already defined.
 

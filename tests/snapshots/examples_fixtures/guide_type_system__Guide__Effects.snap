@@ -5,7 +5,7 @@ Fixture: examples/guide_type_system/Guide/Effects.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Guide.Effects` doesn't match file path `examples/guide_type_system/Guide/Effects.flx`.
 

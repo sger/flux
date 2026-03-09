@@ -5,7 +5,7 @@ Fixture: examples/namespaces/qualified_collision_ok.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Foo.List` to import.
 
@@ -19,7 +19,7 @@ Hint:
   Looked for module `Modules.Foo.List` under roots: examples/namespaces, src (imported from examples/namespaces/qualified_collision_ok.flx).
 
 
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Bar.List` to import.
 

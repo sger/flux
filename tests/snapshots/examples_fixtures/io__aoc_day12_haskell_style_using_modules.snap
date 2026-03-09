@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day12_haskell_style_using_modules.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Day12Solver` to import.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/74_hm_index_non_indexable_compile_mismatch
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

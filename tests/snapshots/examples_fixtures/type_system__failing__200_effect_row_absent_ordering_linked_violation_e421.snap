@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/200_effect_row_absent_ordering_linked_viol
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E421]: Effect Requirement Mismatch
+error[E421]: Effect Requirement Mismatch
 
 I cannot subtract effect `IO` from this effect row.
 

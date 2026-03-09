@@ -5,7 +5,7 @@ Fixture: examples/roots/root_a/Dup/Mod.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Dup.Mod` doesn't match file path `examples/roots/root_a/Dup/Mod.flx`.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/159_match_nested_tuple_mixed_shape_non_exh
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
-Error[E083]: Non-Exhaustive ADT Match
+error[E083]: Non-Exhaustive ADT Match
 
 Match is non-exhaustive: nested tuple patterns under constructor `W` field #1 are mixed-shape and cannot be proven exhaustive conservatively.
 

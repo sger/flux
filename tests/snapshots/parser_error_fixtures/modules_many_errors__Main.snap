@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/modules_many_errors/Main.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E034]: Missing Effect Operation Colon
+error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
@@ -18,7 +18,7 @@ Note:
   while parsing module `BrokenEffect` > effect `Console`
 
 
-Error[E034]: Invalid Effect Operation
+error[E034]: Invalid Effect Operation
 
 I was expecting an operation name in this `effect` declaration, but I found `,`.
 
@@ -31,7 +31,7 @@ Note:
   while parsing module `BrokenEffect` > effect `Console`
 
 
-Error[E034]: Missing Function Body
+error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
@@ -50,7 +50,7 @@ Help:
   Try adding `{` after the function signature.
 
 
-Error[E034]: Missing Function Body
+error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
@@ -69,7 +69,7 @@ Help:
   Try adding `{` after the function signature.
 
 
-Error[E034]: Missing Match Arm Arrow
+error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 

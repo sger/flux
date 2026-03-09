@@ -5,7 +5,7 @@ Fixture: examples/imports/alias_invalid_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E026]: Invalid Module Alias
+error[E026]: Invalid Module Alias
 
 Invalid module alias: `myfile`.
 

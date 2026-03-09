@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/28_adt_nested_guard_non_exhaustive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E083]: Non-Exhaustive ADT Match
+error[E083]: Non-Exhaustive ADT Match
 
 Match on `Wrap` is missing constructors: Boxed.
 

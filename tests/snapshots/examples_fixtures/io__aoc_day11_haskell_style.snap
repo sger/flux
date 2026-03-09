@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day11_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `paths_to`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let paths_to = ...;
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `paths_to2`.
 

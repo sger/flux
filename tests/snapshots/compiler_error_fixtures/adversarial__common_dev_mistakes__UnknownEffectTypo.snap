@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectT
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E407]: Unknown Effect
+error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 

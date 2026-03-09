@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

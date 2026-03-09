@@ -2,7 +2,7 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 

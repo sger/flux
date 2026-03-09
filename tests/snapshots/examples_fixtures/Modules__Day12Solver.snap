@@ -5,7 +5,7 @@ Fixture: examples/Modules/Day12Solver.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Day12Solver` doesn't match file path `examples/Modules/Day12Solver.flx`.
 

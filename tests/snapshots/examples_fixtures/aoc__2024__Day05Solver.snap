@@ -5,7 +5,7 @@ Fixture: examples/aoc/2024/Day05Solver.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `reverse_list`.
 
@@ -76,7 +76,7 @@ Help:
   Pass a `List<(Option<Int>, Option<Int>)>` value as the 1st argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `update_is_valid`.
 
@@ -239,7 +239,7 @@ Help:
   Pass a `List<(Int, Int)>` value as the 2nd argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `update_is_valid`.
 
@@ -417,7 +417,7 @@ Help:
   Pass a `List<(Int, Int)>` value as the 2nd argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `sort_update_by_rules`.
 

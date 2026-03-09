@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/152_array_literal_callarg_conflict_prefers
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

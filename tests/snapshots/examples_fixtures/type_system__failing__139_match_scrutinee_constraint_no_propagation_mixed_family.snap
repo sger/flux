@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/139_match_scrutinee_constraint_no_propagat
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 

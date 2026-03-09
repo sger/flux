@@ -5,7 +5,7 @@ Fixture: examples/Modules/pipe_with_modules.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
@@ -19,7 +19,7 @@ Hint:
   Looked for module `Modules.Math` under roots: examples/Modules, src (imported from examples/Modules/pipe_with_modules.flx).
 
 
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.StringUtils` to import.
 

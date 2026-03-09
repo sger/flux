@@ -5,7 +5,7 @@ Fixture: examples/aoc/2024/Day03Solver.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

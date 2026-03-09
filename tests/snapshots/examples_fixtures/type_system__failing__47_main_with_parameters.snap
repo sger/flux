@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/47_main_with_parameters.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E411]: Invalid Main Signature
+error[E411]: Invalid Main Signature
 
 `fn main` cannot take parameters.
 

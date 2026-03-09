@@ -121,7 +121,7 @@ fn runtime_boundary_errors_do_not_double_wrap_e1004_in_vm() {
     );
 
     assert!(
-        vm_stderr.contains("Error[E1004]: Type Error"),
+        vm_stderr.contains("error[E1004]: Type Error"),
         "expected VM stderr to render E1004 directly, got:\n{vm_stderr}"
     );
     assert!(

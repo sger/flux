@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/modules_all_files_broken/BrokenFn.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Function Body
+error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 

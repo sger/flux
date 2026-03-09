@@ -523,7 +523,7 @@ fn ensure_section_spacing(out: &mut String) {
 
 fn header_label(severity: Severity) -> &'static str {
     match severity {
-        Severity::Error => "Error",
+        Severity::Error => "error",
         Severity::Warning => "Warning",
         Severity::Note => "Note",
         Severity::Help => "Help",

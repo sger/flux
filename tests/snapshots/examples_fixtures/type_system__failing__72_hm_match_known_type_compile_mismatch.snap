@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/72_hm_match_known_type_compile_mismatch.fl
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `expect_int`.
 

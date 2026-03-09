@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatc
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

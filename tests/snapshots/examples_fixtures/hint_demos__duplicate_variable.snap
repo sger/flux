@@ -5,7 +5,7 @@ Fixture: examples/hint_demos/duplicate_variable.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E001]: Duplicate Name
+error[E001]: Duplicate Name
 
 Duplicate binding: `x` is already defined.
 

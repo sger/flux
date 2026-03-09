@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day1_timed.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -26,7 +26,7 @@ Help:
   adjust operand types or add explicit conversion
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
 
@@ -42,7 +42,7 @@ Help:
   Did you mean `parse_rotation`?
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `solve_steps`.
 
@@ -55,7 +55,7 @@ Hint:
   Define it first: let solve_steps = ...;
 
 
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `time` function takes 0 arguments, but 1 were provided.
 

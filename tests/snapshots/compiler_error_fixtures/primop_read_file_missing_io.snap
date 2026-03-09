@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/primop_read_file_missing_io.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E400]: Missing Ambient Effect
+error[E400]: Missing Ambient Effect
 
 Call to `read_file` requires effect `IO` in this function signature.
 

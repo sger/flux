@@ -5,7 +5,7 @@ Fixture: examples/ModuleGraph/ConstStringOrdering.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ConstStringOrdering` doesn't match file path `examples/ModuleGraph/ConstStringOrdering.flx`.
 

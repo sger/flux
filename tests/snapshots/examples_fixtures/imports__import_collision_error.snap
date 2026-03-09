@@ -5,7 +5,7 @@ Fixture: examples/imports/import_collision_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E017]: Import Scope
+error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 

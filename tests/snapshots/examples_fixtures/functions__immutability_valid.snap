@@ -5,7 +5,7 @@ Fixture: examples/functions/immutability_valid.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E001]: Duplicate Name
+error[E001]: Duplicate Name
 
 Duplicate binding: `counter` is already defined.
 
@@ -24,7 +24,7 @@ Hint:
    |     ^^^^^^^^^^^^^^^^
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `double`.
 

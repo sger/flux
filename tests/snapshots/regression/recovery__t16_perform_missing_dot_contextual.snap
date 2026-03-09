@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/t16_perform_missing_dot_contextual.flx
 exit_code: 1
 
-Error[E034]: Missing Effect Operation Separator
+error[E034]: Missing Effect Operation Separator
 
 This `perform` expression needs `.` between the effect and operation.
 

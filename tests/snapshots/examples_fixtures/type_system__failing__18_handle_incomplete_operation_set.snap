@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/18_handle_incomplete_operation_set.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E402]: Missing Effect Handler Arm
+error[E402]: Missing Effect Handler Arm
 
 Handler for `Console` is missing operations: read.
 

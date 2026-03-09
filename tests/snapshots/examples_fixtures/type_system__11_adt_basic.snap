@@ -5,7 +5,7 @@ Fixture: examples/type_system/11_adt_basic.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
@@ -26,7 +26,7 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
@@ -47,7 +47,7 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `Circle`.
 
@@ -63,7 +63,7 @@ Help:
   Did you mean `c`?
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `Rectangle`.
 
@@ -79,7 +79,7 @@ Help:
   Did you mean `r`?
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `Point`.
 

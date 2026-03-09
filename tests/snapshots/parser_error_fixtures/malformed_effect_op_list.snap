@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/malformed_effect_op_list.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Invalid Effect Operation
+error[E034]: Invalid Effect Operation
 
 I was expecting an operation name in this `effect` declaration, but I found `,`.
 

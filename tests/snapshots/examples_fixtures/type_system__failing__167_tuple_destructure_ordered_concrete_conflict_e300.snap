@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/167_tuple_destructure_ordered_concrete_con
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

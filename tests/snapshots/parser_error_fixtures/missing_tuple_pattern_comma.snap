@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_tuple_pattern_comma.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 Expected `,` in tuple pattern.
 
@@ -21,7 +21,7 @@ Note:
   while parsing function `main` > `match` expression
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 Tuple patterns require a comma, for example `(x, y)`.
 
@@ -34,7 +34,7 @@ Note:
   while parsing function `main` > `match` expression
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `->`.
 

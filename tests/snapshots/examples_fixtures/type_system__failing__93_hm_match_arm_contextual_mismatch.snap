@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/93_hm_match_arm_contextual_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Match Arm Type Mismatch
+error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 

@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day3_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `best_with_digit`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let best_with_digit = ...;
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `try_occurrences`.
 
@@ -31,7 +31,7 @@ Hint:
   Define it first: let try_occurrences = ...;
 
 
-Error[E300]: Branch Type Mismatch
+error[E300]: Branch Type Mismatch
 
 The branches of this `if` expression do not agree on a type.
 

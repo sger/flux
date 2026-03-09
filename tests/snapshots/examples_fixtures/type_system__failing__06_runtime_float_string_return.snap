@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/06_runtime_float_string_return.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `compute_rate` does not match its declared return type.
 

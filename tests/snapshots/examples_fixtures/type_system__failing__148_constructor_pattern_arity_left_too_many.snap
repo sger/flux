@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/148_constructor_pattern_arity_left_too_man
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E085]: Constructor Pattern Arity Mismatch
+error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `LeftI` expects 1 argument(s) but got 3.
 

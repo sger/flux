@@ -5,7 +5,7 @@ Fixture: examples/errors/pattern_validation_error_path.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -24,7 +24,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E414]: Missing Main Function
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
@@ -43,7 +43,7 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -62,7 +62,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E016]: Invalid Pattern
+error[E016]: Invalid Pattern
 
 Catch-all patterns must be the final match arm.
 
@@ -75,7 +75,7 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -94,7 +94,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -113,7 +113,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 
@@ -132,7 +132,7 @@ Hint:
   Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -146,7 +146,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -160,7 +160,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E014]: Empty Match
+error[E014]: Empty Match
 
 Match expression must have at least one arm.
 
@@ -173,7 +173,7 @@ Hint:
   Add at least one pattern match arm: match value { pattern -> expr; }
 
 
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive without an unguarded catch-all arm.
 

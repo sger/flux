@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_fold_callback_arity.flx
-Error[E1000]: fold: callback error at index 0: wrong number of arguments
+error[E1000]: fold: callback error at index 0: wrong number of arguments
 
 function: len/1
   expected: 1
@@ -31,7 +31,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_fold_callback_arity.flx
-Error[E1000]: fold: callback error at index 0: wrong number of arguments
+error[E1000]: fold: callback error at index 0: wrong number of arguments
 
 function: len/1
   expected: 1

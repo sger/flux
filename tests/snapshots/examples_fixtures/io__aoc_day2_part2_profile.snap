@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day2_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `solve_parsed_ranges`.
 
@@ -18,7 +18,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `parse_ranges`.
 
@@ -31,7 +31,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
@@ -45,7 +45,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E414]: Missing Main Function
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
@@ -59,7 +59,7 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `Time` but the enclosing context does not provide it
 
@@ -73,7 +73,7 @@ Hint:
   annotate the enclosing function with `with Time`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
 
@@ -87,7 +87,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `Time` but the enclosing context does not provide it
 
@@ -101,7 +101,7 @@ Hint:
   annotate the enclosing function with `with Time`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -115,7 +115,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -129,7 +129,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -143,7 +143,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -157,7 +157,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -171,7 +171,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -185,7 +185,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -199,7 +199,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -213,7 +213,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -227,7 +227,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -241,7 +241,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -255,7 +255,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 

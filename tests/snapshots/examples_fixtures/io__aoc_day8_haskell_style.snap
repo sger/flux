@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day8_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `dsu_state`.
 
@@ -119,7 +119,7 @@ Help:
   Pass a `Int` value as the 1st argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `dsu_state`.
 

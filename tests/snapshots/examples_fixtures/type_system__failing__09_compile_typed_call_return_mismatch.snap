@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/09_compile_typed_call_return_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `n` does not match its type annotation.
 

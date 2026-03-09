@@ -5,7 +5,7 @@ Fixture: examples/imports/except/import_except_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E012]: Unknown Module Member
+error[E012]: Unknown Module Member
 
 Module `Lib` has no member named `drop`.
 

@@ -5,7 +5,7 @@ Fixture: examples/base/base_directives_ok.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -19,7 +19,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 

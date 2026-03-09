@@ -5,7 +5,7 @@ Fixture: examples/Modules/UserUtils.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Modules.UserUtils` doesn't match file path `examples/Modules/UserUtils.flx`.
 

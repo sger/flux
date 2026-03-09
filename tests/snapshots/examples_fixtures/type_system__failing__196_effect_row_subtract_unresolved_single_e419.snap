@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/196_effect_row_subtract_unresolved_single_
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E419]: Unresolved Effect Row
+error[E419]: Unresolved Effect Row
 
 I cannot resolve the effect variable `e` introduced by this call.
 

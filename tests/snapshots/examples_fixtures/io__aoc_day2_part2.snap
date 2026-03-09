@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day2_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `solve_file`.
 

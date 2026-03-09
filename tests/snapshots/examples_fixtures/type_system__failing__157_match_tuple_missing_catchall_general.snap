@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/157_match_tuple_missing_catchall_general.f
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match over tuple domains is conservatively non-exhaustive without an unguarded catch-all arm.
 

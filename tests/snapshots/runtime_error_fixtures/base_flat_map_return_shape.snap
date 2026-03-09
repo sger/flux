@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-Error[E1009]: flat_map: callback must return an Array when input is Array, got Int
+error[E1009]: flat_map: callback must return an Array when input is Array, got Int
 
   examples/runtime_errors/base_flat_map_return_shape.flx:2:19
   |
@@ -24,7 +24,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_flat_map_return_shape.flx
-Error[E1009]: flat_map: callback must return an Array when input is Array, got Int
+error[E1009]: flat_map: callback must return an Array when input is Array, got Int
 
   examples/runtime_errors/base_flat_map_return_shape.flx:2:19
   |

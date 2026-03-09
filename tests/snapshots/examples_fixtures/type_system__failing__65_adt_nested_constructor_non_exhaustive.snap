@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/65_adt_nested_constructor_non_exhaustive.f
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E083]: Non-Exhaustive ADT Match
+error[E083]: Non-Exhaustive ADT Match
 
 Match is non-exhaustive: nested `ResultI` patterns under constructor `Boxed` field #1 miss constructors: ErrI.
 

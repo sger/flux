@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
-Error[E1004]: Type Error
+error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 
@@ -34,7 +34,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
-Error[E1004]: Type Error
+error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 

@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_lambda_arrow.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Lambda Arrow
+error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found an identifier.
 

@@ -5,7 +5,7 @@ Fixture: examples/errors/private_member_multiline_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E023]: Multiple Modules
+error[E023]: Multiple Modules
 
 File contains multiple module declarations.
 
