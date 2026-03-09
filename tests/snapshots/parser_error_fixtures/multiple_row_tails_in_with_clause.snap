@@ -1,0 +1,23 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/multiple_row_tails_in_with_clause.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E034]: Unexpected Token
+
+Effect expressions can contain only one row variable tail.
+
+  examples/parser_errors/multiple_row_tails_in_with_clause.flx:1:28
+  |
+1 | fn main() -> Int with IO | e | t {
+  |                            ^
+
+Hint:
+  Use a single tail variable, for example `with |e`.
+
+Note:
+  while parsing function `main`
+== stdout ==
+<not executed>

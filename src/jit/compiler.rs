@@ -2073,6 +2073,7 @@ fn compile_expression(
                 ctx_val,
                 return_block,
                 tail_call,
+                *span,
                 function,
                 arguments,
                 interner,
@@ -3859,6 +3860,7 @@ fn compile_generic_call(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
+    call_span: crate::diagnostics::position::Span,
     function: &Expression,
     arguments: &[Expression],
     interner: &Interner,
@@ -3903,10 +3905,28 @@ fn compile_generic_call(
 
     let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
-    let call_value = get_helper_func_ref(module, helpers, builder, "rt_call_value");
-    let call = builder
+    let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let start_col_val = builder
         .ins()
-        .call(call_value, &[ctx_val, callee, args_ptr, nargs_val]);
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let end_line_val = builder.ins().iconst(PTR_TYPE, call_span.end.line as i64);
+    let end_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
+    let call_value = get_helper_func_ref(module, helpers, builder, "rt_call_value");
+    let call = builder.ins().call(
+        call_value,
+        &[
+            ctx_val,
+            callee,
+            args_ptr,
+            nargs_val,
+            start_line_val,
+            start_col_val,
+            end_line_val,
+            end_col_val,
+        ],
+    );
     Ok(builder.inst_results(call)[0])
 }
 
@@ -4722,7 +4742,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         (
             "rt_call_value",
             HelperSig {
-                num_params: 4,
+                num_params: 8,
                 has_return: true,
             },
         ),

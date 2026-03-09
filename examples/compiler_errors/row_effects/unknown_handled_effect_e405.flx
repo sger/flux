@@ -1,0 +1,6 @@
+fn main() -> Unit with IO {
+    let _ = 1 handle Console {
+        print(resume, _msg) -> resume(())
+    };
+    print("done")
+}

@@ -212,6 +212,36 @@ fn jit_base_runtime_errors_render_diagnostics() {
 }
 
 #[test]
+fn jit_indirect_call_runtime_errors_render_diagnostics() {
+    for (input, expected_header, expected_message) in [
+        (
+            "fn add(a, b) { a + b }\nfn main() {\n    let f = add\n    let ignored = f(1)\n}\n",
+            "Error[E1000]: wrong number of arguments: want=2, got=1",
+            "wrong number of arguments: want=2, got=1",
+        ),
+        (
+            "fn main() {\n    let f = 1\n    let ignored = f(2)\n}\n",
+            "Error[E1001]: Not A Function",
+            "Cannot call non-function value (got Int).",
+        ),
+    ] {
+        let jit_err = run_jit(input).expect_err("JIT should fail");
+        assert!(
+            jit_err.contains(expected_header),
+            "expected rendered indirect-call diagnostic for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            jit_err.contains(expected_message),
+            "expected indirect-call detail for `{input}`; got:\n{jit_err}"
+        );
+        assert!(
+            !jit_err.trim().eq(expected_message),
+            "expected formatted diagnostic instead of raw indirect-call error for `{input}`; got:\n{jit_err}"
+        );
+    }
+}
+
+#[test]
 fn vm_and_jit_match_effectful_read_file_primop_value() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

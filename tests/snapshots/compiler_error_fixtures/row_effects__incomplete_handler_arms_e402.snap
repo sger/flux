@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/row_effects/incomplete_handler_arms_e402.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E402]: Missing Effect Handler Arm
+
+Handler for `Console` is missing operations: read.
+
+  examples/compiler_errors/row_effects/incomplete_handler_arms_e402.flx:7:5
+  |
+7 |     perform Console.print("hello") handle Console {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ------------------------------ handled expression
+
+Hint:
+  Add handler arms for all declared operations of the effect.
+== stdout ==
+<not executed>
