@@ -1,0 +1,24 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/row_effects/unhandled_root_effect_e406.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Error[E406]: Unhandled Root Effect
+
+`fn main` has undischarged effects: Console.
+
+  examples/compiler_errors/row_effects/unhandled_root_effect_e406.flx:9:32
+   |
+ 9 | fn main() -> Unit with Console {
+   |                                ^
+10 |     log("x");
+   | ^^^^^^^^^^^^^
+11 | }
+   | ^
+
+Hint:
+  Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
+== stdout ==
+<not executed>

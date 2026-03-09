@@ -540,6 +540,10 @@ pub extern "C" fn rt_call_value(
     callee: *mut Value,
     args_ptr: *const *mut Value,
     nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let callee_value = unsafe { (*callee).clone() };
@@ -556,7 +560,13 @@ pub extern "C" fn rt_call_value(
     match crate::runtime::RuntimeContext::invoke_value(ctx, callee_value, args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
-            ctx.error = Some(msg);
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
             ptr::null_mut()
         }
     }

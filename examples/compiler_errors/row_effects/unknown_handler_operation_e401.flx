@@ -1,0 +1,9 @@
+effect Console {
+    print: String -> ()
+}
+
+fn main() with Console {
+    perform Console.print("hello") handle Console {
+        read(resume) -> resume("x")
+    }
+}
