@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/92_hm_if_branch_contextual_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Branch Type Mismatch
+error[E300]: Branch Type Mismatch
 
 The branches of this `if` expression do not agree on a type.
 

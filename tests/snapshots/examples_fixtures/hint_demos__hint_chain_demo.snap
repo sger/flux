@@ -5,7 +5,7 @@ Fixture: examples/hint_demos/hint_chain_demo.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

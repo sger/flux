@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/broken_import_alias.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Import Alias
+error[E034]: Missing Import Alias
 
 This import alias needs a name after `as`.
 

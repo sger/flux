@@ -5,7 +5,7 @@ Fixture: examples/error_messages/outer_assignment.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E003]: Outer Assignment
+error[E003]: Outer Assignment
 
 Cannot assign to variable `x` from outer scope.
 

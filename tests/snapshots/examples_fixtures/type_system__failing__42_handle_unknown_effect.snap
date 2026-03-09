@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/42_handle_unknown_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E405]: Unknown Effect
+error[E405]: Unknown Effect
 
 Effect `Console` is not declared for this handle block.
 

@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/malformed_handle_arm_arrow.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Handle Arm Arrow
+error[E034]: Missing Handle Arm Arrow
 
 Expected `->` in handle arm.
 
@@ -21,7 +21,7 @@ Note:
   while parsing function `main` > `handle` expression
 
 
-Error[E034]: Unexpected Closing Delimiter
+error[E034]: Unexpected Closing Delimiter
 
 Unexpected `}` outside of a block.
 

@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectO
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E404]: Unknown Effect Operation
+error[E404]: Unknown Effect Operation
 
 Effect `Console` has no declared operation `prnit`.
 

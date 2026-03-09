@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.BoundaryUnknown` to import.
 

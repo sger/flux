@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/169_match_disagreement_first_arm_unresolve
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
-Error[E300]: Match Arm Type Mismatch
+error[E300]: Match Arm Type Mismatch
 
 The arms of this `match` expression do not agree on a type.
 

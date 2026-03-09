@@ -5,7 +5,7 @@ Fixture: examples/base/BaseExamples/ExceptInModule.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `BaseExamples.ExceptInModule` doesn't match file path `examples/base/BaseExamples/ExceptInModule.flx`.
 

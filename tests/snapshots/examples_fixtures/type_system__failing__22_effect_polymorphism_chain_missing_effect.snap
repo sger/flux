@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/22_effect_polymorphism_chain_missing_effec
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E400]: Missing Ambient Effect
+error[E400]: Missing Ambient Effect
 
 Call to `wrap_apply` requires effect `IO` in this function signature.
 

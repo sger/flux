@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/98_hm_fun_arity_mismatch_contextual.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Wrong Number Of Arguments
+error[E300]: Wrong Number Of Arguments
 
 I am applying a function to too many arguments.
 

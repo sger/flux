@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/50_invalid_main_signature_no_root_discharg
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E412]: Invalid Main Return Type
+error[E412]: Invalid Main Return Type
 
 `fn main` must return `Unit` (or omit return type).
 

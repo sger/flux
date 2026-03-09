@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/MultiImportKeywordErrors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Import Path
+error[E034]: Missing Import Path
 
 This import needs a module path after `import`.
 
@@ -21,7 +21,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Import Alias
+error[E034]: Missing Import Alias
 
 This import alias needs a name after `as`.
 
@@ -37,7 +37,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Import Except List
+error[E034]: Missing Import Except List
 
 Expected `[` after `except` in import.
 
@@ -53,7 +53,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
@@ -69,7 +69,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -85,7 +85,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `var`. Flux uses `let` for bindings.
 
@@ -101,7 +101,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 

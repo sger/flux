@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/error_limit_missing_commas.flx
 exit_code: 1
 
-Error[E076]: Missing Closing Delimiter
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.
 
@@ -20,7 +20,7 @@ note: Expected `)` before this token.
   |   ^^
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -33,7 +33,7 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -46,7 +46,7 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -59,7 +59,7 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `)`.
 
@@ -69,7 +69,7 @@ Expected expression, found `)`.
   | ^
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `;`.
 

@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E420]: Unresolved Effect Row
+error[E420]: Unresolved Effect Row
 
 I cannot determine which effects this call should carry because these effect variables stay ambiguous: e, t.
 

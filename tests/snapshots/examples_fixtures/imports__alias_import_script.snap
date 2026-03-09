@@ -5,7 +5,7 @@ Fixture: examples/imports/alias_import_script.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.MyFile` to import.
 

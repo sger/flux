@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/115_keyword_alias_elif.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
 
@@ -22,7 +22,7 @@ Note:
   while parsing `if` expression
 
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `elif`. Flux uses `else if` for chained conditionals.
 

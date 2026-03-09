@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/109_fun_return_bool_vs_unit.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `bad_bool` does not match its declared return type.
 
@@ -25,7 +25,7 @@ Help:
   Booleans are not numeric in Flux. Use `true` or `false` here.
 
 
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 

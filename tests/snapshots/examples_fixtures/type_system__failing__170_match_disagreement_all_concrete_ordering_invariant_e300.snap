@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/170_match_disagreement_all_concrete_orderi
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 

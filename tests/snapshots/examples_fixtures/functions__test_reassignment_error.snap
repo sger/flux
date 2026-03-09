@@ -5,7 +5,7 @@ Fixture: examples/functions/test_reassignment_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E002]: Immutable Binding
+error[E002]: Immutable Binding
 
 Cannot reassign to immutable variable `a`.
 

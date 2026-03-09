@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/27_adt_wildcard_guard_not_catchall.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.
 

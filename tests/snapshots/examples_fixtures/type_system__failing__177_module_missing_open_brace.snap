@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/177_module_missing_open_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Module Body
+error[E034]: Missing Module Body
 
 This module body needs to start with `{`.
 

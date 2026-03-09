@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatc
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

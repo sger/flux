@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/MultiDeclarationErrors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Constructor Field Separator
+error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 
@@ -18,7 +18,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
-Error[E034]: Invalid Data Constructor
+error[E034]: Invalid Data Constructor
 
 I was expecting a constructor name in this `data` declaration, but I found an integer literal.
 
@@ -31,7 +31,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
-Error[E034]: Missing Effect Operation Colon
+error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
@@ -44,7 +44,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 Expected `:` after effect operation name.
 
@@ -60,7 +60,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
-Error[E034]: Missing Constructor Field Separator
+error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 

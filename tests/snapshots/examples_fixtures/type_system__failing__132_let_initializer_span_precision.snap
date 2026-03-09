@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/132_let_initializer_span_precision.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 

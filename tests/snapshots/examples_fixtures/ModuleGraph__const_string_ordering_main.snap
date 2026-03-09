@@ -5,7 +5,7 @@ Fixture: examples/ModuleGraph/const_string_ordering_main.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ConstStringOrdering` to import.
 

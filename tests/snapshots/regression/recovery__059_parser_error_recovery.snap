@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/059_parser_error_recovery.flx
 exit_code: 1
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
@@ -17,7 +17,7 @@ Hint:
   Did you mean `fn`?
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -30,7 +30,7 @@ Hint:
   Hash literals use `{key: value, ...}`.
 
 
-Error[E034]: Invalid Match Arm Separator
+error[E034]: Invalid Match Arm Separator
 
 Match arms are separated by `,` in Flux, not `|`.
 
@@ -46,7 +46,7 @@ Note:
   while parsing `match` expression
 
 
-Error[E034]: Missing Match Arm Arrow
+error[E034]: Missing Match Arm Arrow
 
 This match arm needs `->`, not `=>`.
 

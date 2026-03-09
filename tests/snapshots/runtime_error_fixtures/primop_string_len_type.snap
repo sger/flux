@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-Error[E1004]: primop string_len expected String, got Int
+error[E1004]: primop string_len expected String, got Int
 
   examples/runtime_errors/primop_string_len_type.flx:2:19
   |
@@ -24,7 +24,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/primop_string_len_type.flx
-Error[E1004]: primop string_len expected String, got Int
+error[E1004]: primop string_len expected String, got Int
 
   examples/runtime_errors/primop_string_len_type.flx:2:19
   |

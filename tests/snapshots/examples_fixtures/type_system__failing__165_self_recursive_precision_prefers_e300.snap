@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/165_self_recursive_precision_prefers_e300.
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 

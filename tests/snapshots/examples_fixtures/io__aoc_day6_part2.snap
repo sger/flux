@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day6_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 4th argument to `col_value`.
 
@@ -39,7 +39,7 @@ Help:
   Wrap this value in `Some(...)` or return `None`.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 4th argument to `col_value`.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/189_contextual_boundary_unresolved_strict_
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.HmGenericModule` to import.
 

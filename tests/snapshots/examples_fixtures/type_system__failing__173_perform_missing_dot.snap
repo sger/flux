@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/173_perform_missing_dot.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Effect Operation Separator
+error[E034]: Missing Effect Operation Separator
 
 This `perform` expression needs `.` between the effect and operation.
 

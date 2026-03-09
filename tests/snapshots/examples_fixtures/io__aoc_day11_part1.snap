@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day11_part1.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -26,7 +26,7 @@ Help:
   These two types are not compatible.
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `dfs_count`.
 

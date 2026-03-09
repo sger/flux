@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day1_part2_profile.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `solve`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let solve = ...;
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `count_zeros_right`.
 
@@ -57,7 +57,7 @@ Help:
   This value might be `None`. Use `match` to unwrap it before using it here.
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -78,7 +78,7 @@ Help:
   This value might be `None`. Use `match` to unwrap it before using it here.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `count_zeros_left`.
 

@@ -115,10 +115,12 @@ impl VM {
                 let has_code = normalized.contains("[E") || normalized.contains("[e");
                 let looks_formatted = has_code
                     && (normalized.starts_with("Error[")
+                        || normalized.starts_with("error[")
                         || normalized.starts_with("Warning[")
                         || normalized.starts_with("Note[")
                         || normalized.starts_with("Help[")
                         || normalized.contains("\nError[")
+                        || normalized.contains("\nerror[")
                         || normalized.contains("\nWarning[")
                         || normalized.contains("\nNote[")
                         || normalized.contains("\nHelp["));

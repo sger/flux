@@ -5,7 +5,7 @@ Fixture: examples/imports/import_semicolon_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `;`.
 

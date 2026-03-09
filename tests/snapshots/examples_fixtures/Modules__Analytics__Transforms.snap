@@ -5,7 +5,7 @@ Fixture: examples/Modules/Analytics/Transforms.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Analytics.Transforms` doesn't match file path `examples/Modules/Analytics/Transforms.flx`.
 

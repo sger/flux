@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/105_unknown_effect_suggestion.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E407]: Unknown Effect
+error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 

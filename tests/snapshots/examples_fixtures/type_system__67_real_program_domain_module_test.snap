@@ -5,7 +5,7 @@ Fixture: examples/type_system/67_real_program_domain_module_test.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Flow.FTest` to import.
 

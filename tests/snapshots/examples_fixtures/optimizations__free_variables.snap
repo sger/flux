@@ -5,7 +5,7 @@ Fixture: examples/optimizations/free_variables.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `undefined_var`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let undefined_var = ...;
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `missing`.
 
@@ -34,7 +34,7 @@ Help:
   Did you mean `is_int`?
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `unknown`.
 

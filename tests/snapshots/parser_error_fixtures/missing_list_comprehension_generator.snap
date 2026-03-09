@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_list_comprehension_generator.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Generator Name
+error[E034]: Missing Generator Name
 
 Expected generator identifier before `<-` in list comprehension.
 

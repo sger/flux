@@ -5,7 +5,7 @@ Fixture: examples/errors/ModuleScriptCodeError.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Errors.ModuleScriptCodeError` doesn't match file path `examples/errors/ModuleScriptCodeError.flx`.
 
@@ -18,7 +18,7 @@ Hint:
   Rename the module or move the file to match.
 
 
-Error[E028]: Invalid Module File
+error[E028]: Invalid Module File
 
 Invalid module file: Module files may only contain imports and a single module declaration.
 

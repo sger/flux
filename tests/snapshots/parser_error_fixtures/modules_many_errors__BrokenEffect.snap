@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/modules_many_errors/BrokenEffect.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Effect Operation Colon
+error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
@@ -18,7 +18,7 @@ Note:
   while parsing module `BrokenEffect` > effect `Console`
 
 
-Error[E034]: Invalid Effect Operation
+error[E034]: Invalid Effect Operation
 
 I was expecting an operation name in this `effect` declaration, but I found `,`.
 

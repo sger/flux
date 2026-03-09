@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/103_missing_colon_lambda_param.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
 
@@ -18,7 +18,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Missing Lambda Arrow
+error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found the end of the file.
 

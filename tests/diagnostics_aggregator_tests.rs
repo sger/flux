@@ -349,7 +349,7 @@ fn aggregator_suppresses_nearby_duplicate_e300_same_message() {
     let d3 = mk(11, 2, 6); // adjacent line to retained span
 
     let output = render_diagnostics_multi(&[d1, d2, d3], Some(50));
-    assert_eq!(output.matches("Error[E300]").count(), 1);
+    assert_eq!(output.matches("error[E300]").count(), 1);
     assert!(output.contains("Suppressed 2 nearby duplicate E300 diagnostic(s)."));
 }
 
@@ -381,7 +381,7 @@ fn aggregator_does_not_suppress_e300_with_different_messages() {
     .with_primary_label(s2, "arg");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("Error[E300]").count(), 2);
+    assert_eq!(output.matches("error[E300]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -412,7 +412,7 @@ fn aggregator_does_not_suppress_e300_across_files() {
     .with_primary_label(s, "b");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("Error[E300]").count(), 2);
+    assert_eq!(output.matches("error[E300]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -444,7 +444,7 @@ fn aggregator_does_not_suppress_non_e300() {
     .with_primary_label(s2, "e2");
 
     let output = render_diagnostics_multi(&[d1, d2], Some(50));
-    assert_eq!(output.matches("Error[E031]").count(), 2);
+    assert_eq!(output.matches("error[E031]").count(), 2);
     assert!(!output.contains("Suppressed "));
 }
 
@@ -484,9 +484,9 @@ fn aggregator_stage_filtering_parse_suppresses_type_and_effect() {
     .with_phase(DiagnosticPhase::Effect);
 
     let output = DiagnosticsAggregator::new(&[parse, ty, eff]).render();
-    assert!(output.contains("Error[E071]"));
-    assert!(!output.contains("Error[E300]"));
-    assert!(!output.contains("Error[E407]"));
+    assert!(output.contains("error[E071]"));
+    assert!(!output.contains("error[E300]"));
+    assert!(!output.contains("error[E407]"));
     assert!(output.contains("Downstream Errors Suppressed"));
     assert!(!output.contains(":0:1"));
 }
@@ -517,8 +517,8 @@ fn aggregator_stage_filtering_type_suppresses_effect() {
     .with_phase(DiagnosticPhase::Effect);
 
     let output = DiagnosticsAggregator::new(&[ty, eff]).render();
-    assert!(output.contains("Error[E300]"));
-    assert!(!output.contains("Error[E407]"));
+    assert!(output.contains("error[E300]"));
+    assert!(!output.contains("error[E407]"));
     assert!(output.contains("Downstream Errors Suppressed"));
     assert!(!output.contains(":0:1"));
 }
@@ -551,8 +551,8 @@ fn aggregator_stage_filtering_can_be_disabled() {
     let output = DiagnosticsAggregator::new(&[parse, ty])
         .with_stage_filtering(false)
         .render();
-    assert!(output.contains("Error[E071]"));
-    assert!(output.contains("Error[E300]"));
+    assert!(output.contains("error[E071]"));
+    assert!(output.contains("error[E300]"));
     assert!(!output.contains("Downstream Errors Suppressed"));
 }
 
@@ -592,9 +592,9 @@ fn aggregator_stage_filtering_is_scoped_per_file() {
     .with_phase(DiagnosticPhase::Effect);
 
     let output = DiagnosticsAggregator::new(&[parse, ty_other_file, eff_other_file]).render();
-    assert!(output.contains("Error[E071]"));
-    assert!(output.contains("Error[E300]"));
-    assert!(!output.contains("Error[E407]"));
+    assert!(output.contains("error[E071]"));
+    assert!(output.contains("error[E300]"));
+    assert!(!output.contains("error[E407]"));
     assert_eq!(output.matches("Downstream Errors Suppressed").count(), 1);
 }
 
@@ -634,8 +634,8 @@ fn aggregator_collapses_parser_cascades() {
     .with_phase(DiagnosticPhase::Parse);
 
     let output = DiagnosticsAggregator::new(&[root, cascade_1, cascade_2]).render();
-    assert_eq!(output.matches("Error[E034]").count(), 0);
-    assert_eq!(output.matches("Error[E076]").count(), 1);
+    assert_eq!(output.matches("error[E034]").count(), 0);
+    assert_eq!(output.matches("error[E076]").count(), 1);
     assert!(output.contains("cascading parser diagnostic"));
 }
 
@@ -691,10 +691,10 @@ fn aggregator_does_not_collapse_named_parser_diagnostics_as_cascades() {
     .with_phase(DiagnosticPhase::Parse);
 
     let output = DiagnosticsAggregator::new(&[root, missing_hash_colon, missing_comma, missing_else]).render();
-    assert_eq!(output.matches("Error[E076]").count(), 1);
-    assert_eq!(output.matches("Error[E034]: Missing Hash Colon").count(), 1);
-    assert_eq!(output.matches("Error[E073]: Missing Comma").count(), 1);
-    assert_eq!(output.matches("Error[E034]: Missing Else Body").count(), 1);
+    assert_eq!(output.matches("error[E076]").count(), 1);
+    assert_eq!(output.matches("error[E034]: Missing Hash Colon").count(), 1);
+    assert_eq!(output.matches("error[E073]: Missing Comma").count(), 1);
+    assert_eq!(output.matches("error[E034]: Missing Else Body").count(), 1);
     assert!(!output.contains("cascading parser diagnostic"));
 }
 
@@ -721,7 +721,7 @@ fn aggregator_compresses_repeated_parser_errors_per_file() {
         .collect::<Vec<_>>();
 
     let output = render_diagnostics_multi(&repeated, Some(50));
-    assert_eq!(output.matches("Error[E034]: Missing Hash Colon").count(), 3);
+    assert_eq!(output.matches("error[E034]: Missing Hash Colon").count(), 3);
     assert!(output.contains("Repeated Parser Diagnostics Suppressed"));
     assert!(output.contains("I hid 2 additional repeated parser diagnostic(s) for \"Missing Hash Colon\""));
     assert!(output.contains("• 5 errors, 1 note • a.flx"));
@@ -835,7 +835,7 @@ fn aggregator_does_not_compress_non_parser_diagnostics() {
         .collect::<Vec<_>>();
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert_eq!(output.matches("Error[E301]").count(), 5);
+    assert_eq!(output.matches("error[E301]").count(), 5);
     assert!(!output.contains("Repeated Parser Diagnostics Suppressed"));
 }
 
@@ -863,7 +863,7 @@ fn aggregator_repeated_parser_compression_can_be_disabled() {
     let output = DiagnosticsAggregator::new(&diags)
         .with_stage_filtering(false)
         .render();
-    assert_eq!(output.matches("Error[E073]: Missing Comma").count(), 5);
+    assert_eq!(output.matches("error[E073]: Missing Comma").count(), 5);
     assert!(!output.contains("Repeated Parser Diagnostics Suppressed"));
     assert!(output.contains("Found 5 errors."));
 }

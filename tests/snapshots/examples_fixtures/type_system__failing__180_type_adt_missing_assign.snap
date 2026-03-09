@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/180_type_adt_missing_assign.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Type Definition
+error[E034]: Missing Type Definition
 
 Expected `=` after type declaration name.
 
@@ -18,7 +18,7 @@ Hint:
   ADT sugar uses `type Name = Ctor(...) | Other`.
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `|`.
 

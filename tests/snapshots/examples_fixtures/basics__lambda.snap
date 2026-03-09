@@ -5,7 +5,7 @@ Fixture: examples/basics/lambda.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Parameter Type Mismatch
+error[E300]: Parameter Type Mismatch
 
 Parameter 2 has the wrong type.
 

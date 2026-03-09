@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/UnknownBaseMem
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E080]: Unknown Base Member
+error[E080]: Unknown Base Member
 
 Base has no member named `prnit`.
 

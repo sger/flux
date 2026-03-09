@@ -5,7 +5,7 @@ Fixture: examples/Modules/Analytics/Rules.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Analytics.Rules` doesn't match file path `examples/Modules/Analytics/Rules.flx`.
 

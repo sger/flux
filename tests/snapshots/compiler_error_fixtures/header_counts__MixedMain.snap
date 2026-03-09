@@ -18,7 +18,7 @@ Hint:
   Prefer module `public fn` factory/accessor API for cross-module usage.
 
 
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 

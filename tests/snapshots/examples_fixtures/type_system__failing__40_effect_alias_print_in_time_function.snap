@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/40_effect_alias_print_in_time_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E400]: Missing Ambient Effect
+error[E400]: Missing Ambient Effect
 
 Call to `p` requires effect `IO` in this function signature.
 

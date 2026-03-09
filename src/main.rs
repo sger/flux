@@ -1335,10 +1335,18 @@ fn parse_rendered_runtime_diagnostic(err: &str) -> Option<Diagnostic> {
         return None;
     }
 
-    let error_line = lines.find(|line| line.trim_start().starts_with("Error["))?;
+    let error_line = lines.find(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("Error[") || trimmed.starts_with("error[")
+    })?;
     let error_line = error_line.trim();
     let code_end = error_line.find(']')?;
-    let code = error_line.get("Error[".len()..code_end)?;
+    let prefix_len = if error_line.starts_with("Error[") {
+        "Error[".len()
+    } else {
+        "error[".len()
+    };
+    let code = error_line.get(prefix_len..code_end)?;
     let title = error_line.get(code_end + 1..)?.trim().strip_prefix(": ")?;
 
     let mut message_lines = Vec::new();

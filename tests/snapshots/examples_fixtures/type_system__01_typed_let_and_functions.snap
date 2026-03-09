@@ -5,7 +5,7 @@ Fixture: examples/type_system/01_typed_let_and_functions.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E071]: Unterminated String
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
@@ -18,7 +18,7 @@ Hint:
   Add a closing " at the end of the string.
 
 
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `point: Type`.
 
@@ -31,7 +31,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Empty String Interpolation
+error[E034]: Empty String Interpolation
 
 Empty interpolation `#{}` needs an expression between the braces.
 
@@ -47,7 +47,7 @@ Note:
   while parsing function `distance_tag`
 
 
-Error[E076]: Missing Closing Delimiter
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `}` to match this opening `{` in function `main`.
 

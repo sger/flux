@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Parameter Type Mismatch
+error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 

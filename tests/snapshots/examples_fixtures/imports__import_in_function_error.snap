@@ -5,7 +5,7 @@ Fixture: examples/imports/import_in_function_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E017]: Import Scope
+error[E017]: Import Scope
 
 Import statements must be at the top of the file.
 
@@ -18,7 +18,7 @@ Hint:
   Move all import statements before any other declarations.
 
 
-Error[E013]: Module Not Imported
+error[E013]: Module Not Imported
 
 Module `Math` is not imported.
 

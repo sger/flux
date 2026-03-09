@@ -2,7 +2,7 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 

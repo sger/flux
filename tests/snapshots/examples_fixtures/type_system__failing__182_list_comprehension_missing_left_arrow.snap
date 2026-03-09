@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/182_list_comprehension_missing_left_arrow.
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Generator Name
+error[E034]: Missing Generator Name
 
 Expected generator identifier before `<-` in list comprehension.
 

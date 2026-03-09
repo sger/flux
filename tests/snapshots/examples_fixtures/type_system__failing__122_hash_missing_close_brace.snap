@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/122_hash_missing_close_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Closing Delimiter
+error[E034]: Missing Closing Delimiter
 
 Expected `}` to close hash literal.
 

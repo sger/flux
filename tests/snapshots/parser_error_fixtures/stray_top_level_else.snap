@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/stray_top_level_else.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `else`.
 
@@ -15,7 +15,7 @@ Expected expression, found `else`.
   | ^^^^
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `->`.
 

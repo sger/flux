@@ -5,7 +5,7 @@ Fixture: examples/imports/import_collision_ok.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 

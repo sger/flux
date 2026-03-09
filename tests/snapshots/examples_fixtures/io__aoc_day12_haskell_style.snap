@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day12_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `str_at`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let str_at = ...;
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -39,7 +39,7 @@ Help:
   These two types are not compatible.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `weighted_sum`.
 

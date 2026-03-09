@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/eof_after_else.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 

@@ -5,7 +5,7 @@ Fixture: examples/errors/Aurora.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E007]: Duplicate Parameter
+error[E007]: Duplicate Parameter
 
 Duplicate parameter name: `x`.
 

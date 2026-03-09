@@ -5,7 +5,7 @@ Fixture: examples/basics/strings.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `substring` function takes 3 arguments, but 2 were provided.
 

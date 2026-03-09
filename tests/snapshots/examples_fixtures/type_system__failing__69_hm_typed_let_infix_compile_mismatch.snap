@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 

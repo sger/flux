@@ -5,7 +5,7 @@ Fixture: examples/imports/import_script_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Errors.ScriptOnly` to import.
 

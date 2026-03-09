@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/invalid_pipe_target.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E040]: Pipe Target Error
+error[E040]: Pipe Target Error
 
 Pipe operator expects a function or function call.
 

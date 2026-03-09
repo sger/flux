@@ -5,7 +5,7 @@ Fixture: examples/errors/invalid_pattern_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E016]: Invalid Pattern
+error[E016]: Invalid Pattern
 
 Catch-all patterns must be the final match arm.
 
@@ -18,7 +18,7 @@ Hint:
   Move `_` or the binding pattern to the last arm.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -32,7 +32,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E414]: Missing Main Function
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
@@ -46,7 +46,7 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 

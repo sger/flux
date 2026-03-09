@@ -5,7 +5,7 @@ Fixture: examples/errors/invalid_pattern_syntax_error.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E020]: Invalid Pattern
+error[E020]: Invalid Pattern
 
 Expected a pattern, found `+`.
 
@@ -18,7 +18,7 @@ Note:
   while parsing `match` expression
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `;`.
 

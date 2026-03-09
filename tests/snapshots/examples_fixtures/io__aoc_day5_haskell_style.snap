@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day5_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E400]: Missing Ambient Effect
+error[E400]: Missing Ambient Effect
 
 Call to `read_lines` requires effect `IO` in this function signature.
 

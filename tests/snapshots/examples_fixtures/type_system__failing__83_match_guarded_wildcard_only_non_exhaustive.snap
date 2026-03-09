@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/83_match_guarded_wildcard_only_non_exhaust
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.
 

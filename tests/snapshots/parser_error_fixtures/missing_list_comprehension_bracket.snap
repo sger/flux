@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_list_comprehension_bracket.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Closing Delimiter
+error[E034]: Missing Closing Delimiter
 
 Expected `]` to close list comprehension.
 

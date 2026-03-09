@@ -259,7 +259,7 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         default_text
     );
     assert!(
-        default_text.contains("Error[E300]"),
+        default_text.contains("error[E300]"),
         "expected type diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
@@ -277,7 +277,7 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         all_text
     );
     assert!(
-        all_text.contains("Error[E300]"),
+        all_text.contains("error[E300]"),
         "expected downstream type diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
@@ -296,7 +296,7 @@ fn jit_runtime_error_json_matches_text_metadata() {
         text
     );
     assert!(
-        text.contains("Error[E1000]: wrong number of arguments: want=2, got=1"),
+        text.contains("error[E1000]: wrong number of arguments: want=2, got=1"),
         "expected structured text diagnostic, output:\n{}",
         text
     );
@@ -350,7 +350,7 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
         normal_text
     );
     assert!(
-        normal_text.contains("Error[E071]") || normal_text.contains("Error[E076]"),
+        normal_text.contains("error[E071]") || normal_text.contains("error[E076]"),
         "expected parse diagnostics in test mode, output:\n{}",
         normal_text
     );
@@ -363,7 +363,7 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
         all_text
     );
     assert!(
-        all_text.contains("Error[E071]") || all_text.contains("Error[E076]"),
+        all_text.contains("error[E071]") || all_text.contains("error[E076]"),
         "expected parse diagnostics in test mode with --all-errors, output:\n{}",
         all_text
     );
@@ -386,12 +386,12 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         default_text
     );
     assert!(
-        default_text.contains("Error[E300]: Annotation Type Mismatch"),
+        default_text.contains("error[E300]: Annotation Type Mismatch"),
         "expected visible type diagnostic in default mode, output:\n{}",
         default_text
     );
     assert!(
-        default_text.contains("Error[E400]: Missing Ambient Effect"),
+        default_text.contains("error[E400]: Missing Ambient Effect"),
         "expected effect diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
@@ -409,12 +409,12 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         all_text
     );
     assert!(
-        all_text.contains("Error[E300]: Annotation Type Mismatch"),
+        all_text.contains("error[E300]: Annotation Type Mismatch"),
         "expected type diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
     assert!(
-        all_text.contains("Error[E400]: Missing Ambient Effect"),
+        all_text.contains("error[E400]: Missing Ambient Effect"),
         "expected effect diagnostic visible with --all-errors, output:\n{}",
         all_text
     );

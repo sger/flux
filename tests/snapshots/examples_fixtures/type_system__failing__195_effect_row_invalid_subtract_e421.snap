@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Parameter Type Mismatch
+error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 

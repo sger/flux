@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/46_duplicate_main_function.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E410]: Duplicate Main Function
+error[E410]: Duplicate Main Function
 
 Program can contain only one top-level `fn main`.
 
