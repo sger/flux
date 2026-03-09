@@ -1,0 +1,4 @@
+fn main() {
+    let f = 1
+    let ignored = f(2)
+}

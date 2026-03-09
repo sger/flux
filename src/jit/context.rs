@@ -171,8 +171,23 @@ impl JitContext {
         end_line: usize,
         end_column: usize,
     ) -> String {
+        if is_rendered_runtime_diagnostic(message) {
+            return message.to_string();
+        }
+
         let (message, hint) = split_hint(message);
         let (title, details) = split_first_line(message);
+        if let Some(actual) = title.strip_prefix("not callable: ") {
+            return self.render_runtime_error(
+                "E1001",
+                "Not A Function",
+                &format!("Cannot call non-function value (got {}).", actual.trim()),
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            );
+        }
         let code = classify_runtime_error_code(title);
 
         let file = self
@@ -294,12 +309,16 @@ fn split_hint(message: &str) -> (&str, Option<&str>) {
     }
 }
 
+fn is_rendered_runtime_diagnostic(message: &str) -> bool {
+    message.starts_with("• ") || message.starts_with("Error[")
+}
+
 fn classify_runtime_error_code(title: &str) -> &'static str {
     if title.contains("wrong number of arguments") {
         "E1000"
     } else if title.contains("division by zero") {
         "E1008"
-    } else if title.contains("not a function") {
+    } else if title.contains("not a function") || title.contains("not callable") {
         "E1001"
     } else if title.contains("expected") || title.contains("expects") {
         "E1004"
@@ -400,7 +419,7 @@ impl RuntimeContext for JitContext {
                 }
                 Ok(result)
             }
-            _ => Err(format!("JIT invoke_value: cannot call {}", callee)),
+            _ => Err(format!("not callable: {}", callee.type_name())),
         }
     }
 

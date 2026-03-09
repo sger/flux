@@ -283,6 +283,61 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
     );
 }
 
+#[cfg(feature = "jit")]
+#[test]
+fn jit_runtime_error_json_matches_text_metadata() {
+    let file = example_path("runtime_errors/indirect_call_wrong_arity.flx");
+
+    let text_output = run_flux(&["--no-cache", file.to_str().unwrap(), "--jit"]);
+    let text = combined_output(&text_output);
+    assert!(
+        !text_output.status.success(),
+        "expected JIT text run to fail, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("Error[E1000]: wrong number of arguments: want=2, got=1"),
+        "expected structured text diagnostic, output:\n{}",
+        text
+    );
+
+    let json_output = run_flux(&[
+        "--no-cache",
+        file.to_str().unwrap(),
+        "--jit",
+        "--format",
+        "json",
+    ]);
+    let json_text = combined_output(&json_output);
+    assert!(
+        !json_output.status.success(),
+        "expected JIT json run to fail, output:\n{}",
+        json_text
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json_text).expect("expected valid JSON diagnostics output");
+    let first = parsed
+        .as_array()
+        .and_then(|arr| arr.first())
+        .expect("expected at least one runtime diagnostic");
+
+    assert_eq!(first.get("code").and_then(|v| v.as_str()), Some("E1000"));
+    assert_eq!(first.get("phase").and_then(|v| v.as_str()), Some("runtime"));
+    assert_eq!(
+        first.get("category").and_then(|v| v.as_str()),
+        Some("runtime_execution")
+    );
+    assert_eq!(
+        first.get("title").and_then(|v| v.as_str()),
+        Some("wrong number of arguments: want=2, got=1")
+    );
+    assert_eq!(
+        first.get("file").and_then(|v| v.as_str()),
+        Some("examples/runtime_errors/indirect_call_wrong_arity.flx")
+    );
+}
+
 #[test]
 fn test_mode_parse_errors_exit_early_even_with_all_errors() {
     let file = fixture_path("parse_error.flx");

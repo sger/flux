@@ -296,6 +296,16 @@ fn release_jit_primop_runtime_errors_use_full_span_highlights() {
 }
 
 #[test]
+fn release_jit_indirect_call_wrong_arity_renders_runtime_signature() {
+    assert_file_cli_outcome_parity("examples/runtime_errors/indirect_call_wrong_arity.flx", &[]);
+}
+
+#[test]
+fn release_jit_indirect_call_not_callable_renders_runtime_signature() {
+    assert_file_cli_outcome_parity("examples/runtime_errors/indirect_call_not_callable.flx", &[]);
+}
+
+#[test]
 fn release_runtime_parity_aoc_day04_output() {
     assert_file_cli_outcome_parity("examples/aoc/2024/day04.flx", &["examples/aoc/2024"]);
 }

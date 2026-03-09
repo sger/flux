@@ -1,0 +1,8 @@
+fn unresolved(x: Int) -> Int with |e - IO {
+    x
+}
+
+fn main() -> Unit {
+    unresolved(1)
+    None
+}
