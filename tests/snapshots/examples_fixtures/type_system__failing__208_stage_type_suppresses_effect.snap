@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/208_stage_type_suppresses_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E406]: Unhandled Root Effect
+error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Mystery.
 
@@ -24,7 +24,7 @@ Hint:
   Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 

@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day8_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `dsu_state`.
 

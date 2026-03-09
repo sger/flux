@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/03_runtime_return_violation.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 

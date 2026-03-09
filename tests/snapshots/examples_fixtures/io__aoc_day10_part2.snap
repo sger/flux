@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day10_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `iter_free_bounded`.
 
@@ -21,7 +21,7 @@ Help:
   Did you mean one of: `search_free_bounded`, `search_free_bounded`?
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `ge_step`.
 
@@ -341,7 +341,7 @@ Help:
   Pass a `Array<Int>` value as the 1st argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `button_at`.
 
@@ -984,7 +984,7 @@ Help:
   Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `solve_machine`.
 

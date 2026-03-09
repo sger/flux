@@ -5,7 +5,7 @@ Fixture: examples/basics/mini_database.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -27,7 +27,7 @@ Help:
   Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -49,7 +49,7 @@ Help:
   Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -70,7 +70,7 @@ Help:
   index only arrays, lists, tuples, or maps
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

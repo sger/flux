@@ -6,7 +6,7 @@ Fixture: examples/parser_errors/missing_fn_generic_param.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Generic Parameter Name
+error[E034]: Missing Generic Parameter Name
 
 Expected generic type parameter name.
 
@@ -22,7 +22,7 @@ Note:
   while parsing function `identity`
 
 
-Error[E031]: Expected Expression
+error[E031]: Expected Expression
 
 Expected expression, found `->`.
 

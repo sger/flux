@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of this function does not match its return type.
 

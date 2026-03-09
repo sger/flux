@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
-Error[E1000]: map: callback error at index 0: wrong number of arguments
+error[E1000]: map: callback error at index 0: wrong number of arguments
 
 function: concat/2
   expected: 2
@@ -31,7 +31,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/base_map_callback_arity.flx
-Error[E1000]: map: callback error at index 0: wrong number of arguments
+error[E1000]: map: callback error at index 0: wrong number of arguments
 
 function: concat/2
   expected: 2

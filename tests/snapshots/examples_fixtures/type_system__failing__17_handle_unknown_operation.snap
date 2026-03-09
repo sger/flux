@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/17_handle_unknown_operation.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E401]: Unknown Effect Operation
+error[E401]: Unknown Effect Operation
 
 Handler for `Console` includes unknown operation `read`.
 

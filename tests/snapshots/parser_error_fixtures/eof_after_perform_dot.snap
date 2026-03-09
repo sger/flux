@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/eof_after_perform_dot.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Effect Operation Name
+error[E034]: Missing Effect Operation Name
 
 Expected operation name after `perform Effect.`.
 

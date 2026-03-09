@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/119_fn_missing_parens.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Function Parameter List
+error[E034]: Missing Function Parameter List
 
 This function declaration needs a parameter list after `foo`.
 

@@ -178,12 +178,12 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 
     assert!(
-        vm_stderr.contains("Error[E1004]: Type Error"),
+        vm_stderr.contains("error[E1004]: Type Error"),
         "expected VM runtime E1004 for `{file}`; got:\n{}",
         vm_stderr
     );
     assert!(
-        jit_stderr.contains("Error[E1004]: Type Error"),
+        jit_stderr.contains("error[E1004]: Type Error"),
         "expected JIT runtime E1004 for `{file}`; got:\n{}",
         jit_stderr
     );

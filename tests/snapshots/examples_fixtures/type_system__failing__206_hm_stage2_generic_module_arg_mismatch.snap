@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.HmGenericModule` to import.
 

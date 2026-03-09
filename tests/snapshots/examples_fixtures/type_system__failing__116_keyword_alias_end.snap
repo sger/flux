@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/116_keyword_alias_end.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 

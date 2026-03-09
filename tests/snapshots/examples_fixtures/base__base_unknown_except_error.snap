@@ -5,7 +5,7 @@ Fixture: examples/base/base_unknown_except_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E080]: Unknown Base Member
+error[E080]: Unknown Base Member
 
 Base has no member named `does_not_exist`.
 

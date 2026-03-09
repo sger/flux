@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/row_effects/unknown_performed_operation_e404.f
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E404]: Unknown Effect Operation
+error[E404]: Unknown Effect Operation
 
 Effect `Console` has no declared operation `read`.
 

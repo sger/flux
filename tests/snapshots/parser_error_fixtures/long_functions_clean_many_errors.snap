@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/long_functions_clean_many_errors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -21,7 +21,7 @@ Note:
   while parsing function `first_clean_long_function`
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -37,7 +37,7 @@ Note:
   while parsing function `first_clean_long_function`
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 
@@ -54,7 +54,7 @@ Help:
   Try adding `{` after `else`.
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -70,7 +70,7 @@ Note:
   while parsing function `first_clean_long_function`
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -86,7 +86,7 @@ Note:
   while parsing function `first_clean_long_function`
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 
@@ -103,7 +103,7 @@ Help:
   Try adding `{` after `else`.
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -119,7 +119,7 @@ Note:
   while parsing function `second_clean_long_function`
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -135,7 +135,7 @@ Note:
   while parsing function `second_clean_long_function`
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 
@@ -152,7 +152,7 @@ Help:
   Try adding `{` after `else`.
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -168,7 +168,7 @@ Note:
   while parsing function `second_clean_long_function`
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -184,7 +184,7 @@ Note:
   while parsing function `second_clean_long_function`
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 

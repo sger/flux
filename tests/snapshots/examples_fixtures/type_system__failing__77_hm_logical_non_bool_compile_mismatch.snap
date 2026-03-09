@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.fl
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

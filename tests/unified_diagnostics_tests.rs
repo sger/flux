@@ -313,7 +313,7 @@ fn parser_example_max_error_cap_enforcement() {
         rendered
     );
     assert_eq!(
-        rendered.matches("Error[E034]").count(),
+        rendered.matches("error[E034]").count(),
         DEFAULT_MAX_ERRORS,
         "expected exactly {} rendered parser errors before truncation, got:\n{}",
         DEFAULT_MAX_ERRORS,
@@ -353,7 +353,7 @@ fn effect_example_max_error_cap_enforcement() {
         rendered
     );
     assert_eq!(
-        rendered.matches("Error[E400]").count(),
+        rendered.matches("error[E400]").count(),
         DEFAULT_MAX_ERRORS,
         "expected exactly {} rendered E400 diagnostics before truncation, got:\n{}",
         DEFAULT_MAX_ERRORS,
@@ -392,10 +392,10 @@ fn pass2_multi_error_continuation_ordering() {
     );
 
     let e002_idx = rendered
-        .find("Error[E002]")
+        .find("error[E002]")
         .expect("expected rendered E002 in unified output");
     let e300_idx = rendered
-        .find("Error[E300]")
+        .find("error[E300]")
         .expect("expected rendered E300 in unified output");
     assert!(
         e002_idx < e300_idx,
@@ -434,10 +434,10 @@ fn adversarial_compiler_fixture_reports_multiple_independent_errors() {
         "expected an E400 effect diagnostic before rendering-stage filtering, got {:?}",
         errors.iter().map(|d| d.code()).collect::<Vec<_>>()
     );
-    assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
-    assert!(rendered.contains("Error[E056]: Wrong Number Of Arguments"));
+    assert!(rendered.contains("error[E300]: Annotation Type Mismatch"));
+    assert!(rendered.contains("error[E056]: Wrong Number Of Arguments"));
     assert!(
-        !rendered.contains("Error[E400]: Missing Ambient Effect"),
+        !rendered.contains("error[E400]: Missing Ambient Effect"),
         "expected same-module effect diagnostic to stay suppressed in rendered output:\n{}",
         rendered
     );
@@ -473,8 +473,8 @@ fn stage_filtering_suppresses_effects_but_all_errors_preserves_them() {
         diags.iter().any(|d| d.code() == Some("E400")),
         "expected downstream effect error in raw diagnostics"
     );
-    assert!(rendered.contains("Error[E300]: Annotation Type Mismatch"));
-    assert!(rendered.contains("Error[E400]: Missing Ambient Effect"));
+    assert!(rendered.contains("error[E300]: Annotation Type Mismatch"));
+    assert!(rendered.contains("error[E400]: Missing Ambient Effect"));
     assert!(
         !rendered.contains("Downstream Errors Suppressed"),
         "did not expect cross-module suppression in rendered output:\n{}",

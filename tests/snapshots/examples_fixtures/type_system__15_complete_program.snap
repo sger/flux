@@ -5,7 +5,7 @@ Fixture: examples/type_system/15_complete_program.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `map_list`.
 
@@ -18,7 +18,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `summarize`.
 
@@ -31,7 +31,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `score_to_grade`.
 
@@ -44,7 +44,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `grade_to_string`.
 
@@ -57,7 +57,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -71,7 +71,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E414]: Missing Main Function
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
@@ -85,7 +85,7 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -99,7 +99,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -113,7 +113,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -127,7 +127,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -141,7 +141,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -155,7 +155,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `fold_list`.
 
@@ -168,7 +168,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -182,7 +182,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -196,7 +196,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -210,7 +210,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -224,7 +224,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `summary_print`.
 
@@ -237,7 +237,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `keep_above`.
 
@@ -250,7 +250,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `keep_below`.
 
@@ -263,7 +263,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -277,7 +277,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -291,7 +291,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `list_len`.
 
@@ -304,7 +304,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -318,7 +318,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -332,7 +332,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `list_len`.
 
@@ -345,7 +345,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -359,7 +359,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -373,7 +373,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -387,7 +387,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -401,7 +401,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `rank`.
 
@@ -414,7 +414,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `fold_list`.
 
@@ -427,7 +427,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -441,7 +441,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -455,7 +455,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -469,7 +469,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -483,7 +483,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `grade_distribution`.
 
@@ -496,7 +496,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -510,7 +510,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -524,7 +524,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -538,7 +538,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -552,7 +552,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -566,7 +566,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -580,7 +580,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -594,7 +594,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -608,7 +608,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -622,7 +622,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -636,7 +636,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -650,7 +650,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -664,7 +664,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -678,7 +678,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -692,7 +692,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `fold_list`.
 

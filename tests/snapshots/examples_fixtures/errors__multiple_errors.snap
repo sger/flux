@@ -5,7 +5,7 @@ Fixture: examples/errors/multiple_errors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E076]: Missing Closing Delimiter
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.
 

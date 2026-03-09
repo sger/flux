@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
-Error[E1004]: Type Error
+error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 
@@ -38,7 +38,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/boundary_return_string_as_int.flx
-Error[E1004]: Type Error
+error[E1004]: Type Error
 
 I found a value with the wrong runtime type.
 

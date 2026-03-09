@@ -5,7 +5,7 @@ Fixture: examples/ModuleGraph/ModuleGraphA.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ModuleGraphA` doesn't match file path `examples/ModuleGraph/ModuleGraphA.flx`.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/146_constructor_pattern_arity_some_too_man
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E085]: Constructor Pattern Arity Mismatch
+error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `BoxI` expects 1 argument(s) but got 2.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/137_tuple_projection_unresolved_path_uncha
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery`.
 

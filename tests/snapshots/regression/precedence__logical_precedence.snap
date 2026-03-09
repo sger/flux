@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/precedence/logical_precedence.flx
 exit_code: 1
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -18,7 +18,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E414]: Missing Main Function
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
@@ -32,7 +32,7 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 
@@ -46,7 +46,7 @@ Hint:
   annotate the enclosing function with `with IO`
 
 
-Error[E413]: Top-Level Effect
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
@@ -60,7 +60,7 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 

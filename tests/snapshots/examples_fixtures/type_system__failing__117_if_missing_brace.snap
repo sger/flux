@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/117_if_missing_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing If Body
+error[E034]: Missing If Body
 
 This `if` branch needs to start with `{`.
 

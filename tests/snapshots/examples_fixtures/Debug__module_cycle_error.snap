@@ -5,7 +5,7 @@ Fixture: examples/Debug/module_cycle_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Debug.ModuleGraphCycleA` to import.
 

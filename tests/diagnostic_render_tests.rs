@@ -291,7 +291,7 @@ fn runtime_render_includes_file_header_for_real_source_files() {
         out.starts_with("• 1 error • test.flx\n"),
         "expected file header, got:\n{out}"
     );
-    assert!(out.contains("Error[E1004]: Runtime Type Error"));
+    assert!(out.contains("error[E1004]: Runtime Type Error"));
 }
 
 #[test]

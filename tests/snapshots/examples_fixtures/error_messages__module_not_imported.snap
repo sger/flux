@@ -5,7 +5,7 @@ Fixture: examples/error_messages/module_not_imported.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E013]: Module Not Imported
+error[E013]: Module Not Imported
 
 Module `MyModule` is not imported.
 

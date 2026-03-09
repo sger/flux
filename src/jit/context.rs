@@ -310,7 +310,7 @@ fn split_hint(message: &str) -> (&str, Option<&str>) {
 }
 
 fn is_rendered_runtime_diagnostic(message: &str) -> bool {
-    message.starts_with("• ") || message.starts_with("Error[")
+    message.starts_with("• ") || message.starts_with("Error[") || message.starts_with("error[")
 }
 
 fn classify_runtime_error_code(title: &str) -> &'static str {

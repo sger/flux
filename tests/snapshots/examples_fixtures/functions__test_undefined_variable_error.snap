@@ -5,7 +5,7 @@ Fixture: examples/functions/test_undefined_variable_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `c`.
 

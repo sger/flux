@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/88_effect_op_signature_argument_mismatch.f
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

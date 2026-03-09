@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/t16_module_missing_lbrace_contextual.flx
 exit_code: 1
 
-Error[E034]: Missing Module Body
+error[E034]: Missing Module Body
 
 This module body needs to start with `{`.
 

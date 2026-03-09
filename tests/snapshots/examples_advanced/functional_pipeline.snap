@@ -5,7 +5,7 @@ Fixture: examples/advanced/functional_pipeline.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `upper`.
 
@@ -24,7 +24,7 @@ Help:
   This value might be `None`. Use `match` to unwrap it before using it here.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `upper`.
 

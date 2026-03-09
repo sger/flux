@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/210_stage_all_errors_flag.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E071]: Unterminated String
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 

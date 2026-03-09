@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/modules_all_files_broken/BrokenMatch.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Match Arm Arrow
+error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 

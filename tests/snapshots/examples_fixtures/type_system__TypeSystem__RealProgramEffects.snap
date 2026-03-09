@@ -5,7 +5,7 @@ Fixture: examples/type_system/TypeSystem/RealProgramEffects.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E024]: Module Path Mismatch
+error[E024]: Module Path Mismatch
 
 Module name `TypeSystem.RealProgramEffects` doesn't match file path `examples/type_system/TypeSystem/RealProgramEffects.flx`.
 

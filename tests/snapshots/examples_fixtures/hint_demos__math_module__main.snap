@@ -5,7 +5,7 @@ Fixture: examples/hint_demos/math_module/main.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `add`.
 
@@ -18,7 +18,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `average`.
 

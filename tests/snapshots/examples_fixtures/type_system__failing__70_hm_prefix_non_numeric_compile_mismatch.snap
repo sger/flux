@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/70_hm_prefix_non_numeric_compile_mismatch.
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 

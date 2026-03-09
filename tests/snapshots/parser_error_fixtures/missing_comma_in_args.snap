@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_comma_in_args.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 

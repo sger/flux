@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/adversarial/common_dev_mistakes/Main.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `sum`.
 
@@ -39,7 +39,7 @@ I skipped module `examples/compiler_errors/adversarial/common_dev_mistakes/Main.
   |
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `secret`.
 
@@ -52,7 +52,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `_private_secret`.
 
@@ -65,7 +65,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E080]: Unknown Base Member
+error[E080]: Unknown Base Member
 
 Base has no member named `prnit`.
 
@@ -78,7 +78,7 @@ Hint:
   Check the Base surface or remove this name from `except`.
 
 
-Error[E407]: Unknown Effect
+error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 
@@ -92,7 +92,7 @@ Hint:
   did you mean `IO`?
 
 
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `prnit`.
 
@@ -108,7 +108,7 @@ Help:
   Did you mean `print`?
 
 
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 

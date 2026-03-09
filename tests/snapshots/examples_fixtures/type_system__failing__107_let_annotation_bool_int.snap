@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/107_let_annotation_bool_int.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `flag` does not match its type annotation.
 

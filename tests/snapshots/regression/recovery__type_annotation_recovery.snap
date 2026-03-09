@@ -4,7 +4,7 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/recovery/type_annotation_recovery.flx
 exit_code: 1
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 I was expecting a type here, but I found `=`.
 
@@ -14,7 +14,7 @@ I was expecting a type here, but I found `=`.
   |        ^
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 I was expecting a type here, but I found `{`.
 
@@ -27,7 +27,7 @@ Note:
   while parsing function `g`
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 I was expecting a type here, but I found `->`.
 

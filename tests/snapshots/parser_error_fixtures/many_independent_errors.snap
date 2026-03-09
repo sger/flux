@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/many_independent_errors.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Function Body
+error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
@@ -24,7 +24,7 @@ Help:
   Try adding `{` after the function signature.
 
 
-Error[E034]: Missing Match Arm Arrow
+error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 
@@ -40,7 +40,7 @@ Help:
   Write match arms as `match x { pattern -> body, ... }`.
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 

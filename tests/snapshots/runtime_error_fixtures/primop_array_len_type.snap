@@ -8,7 +8,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/primop_array_len_type.flx
-Error[E1004]: primop array_len expected Array, got Int
+error[E1004]: primop array_len expected Array, got Int
 
   examples/runtime_errors/primop_array_len_type.flx:2:19
   |
@@ -24,7 +24,7 @@ stdout:
 <empty>
 stderr:
 • 1 error • examples/runtime_errors/primop_array_len_type.flx
-Error[E1004]: primop array_len expected Array, got Int
+error[E1004]: primop array_len expected Array, got Int
 
   examples/runtime_errors/primop_array_len_type.flx:2:19
   |

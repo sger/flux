@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/MultiModuleErrorsMain.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `name: Type`.
 
@@ -18,7 +18,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Missing Return Type Arrow
+error[E034]: Missing Return Type Arrow
 
 Missing `->` before function return type. Write it as `fn name(...) -> Type { ... }`.
 
@@ -31,7 +31,7 @@ Note:
   while parsing module `MultiAnnotationErrors` > function `bad_return`
 
 
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `value: Type`.
 
@@ -44,7 +44,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `x: Type`.
 
@@ -57,7 +57,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Missing Type Annotation Colon
+error[E034]: Missing Type Annotation Colon
 
 Missing `:` in function parameter type annotation. Write it as `y: Type`.
 
@@ -70,7 +70,7 @@ Hint:
   Type annotations use `name: Type`.
 
 
-Error[E034]: Missing If Body
+error[E034]: Missing If Body
 
 This `if` branch needs to start with `{`.
 
@@ -87,7 +87,7 @@ Help:
   Try adding `{` after the `if` condition.
 
 
-Error[E034]: Missing Else Body
+error[E034]: Missing Else Body
 
 This `else` branch needs to start with `{`.
 
@@ -104,7 +104,7 @@ Help:
   Try adding `{` after `else`.
 
 
-Error[E034]: Missing Match Arm Arrow
+error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 
@@ -120,7 +120,7 @@ Help:
   Write match arms as `match x { pattern -> body, ... }`.
 
 
-Error[E034]: Missing Handle Arm Arrow
+error[E034]: Missing Handle Arm Arrow
 
 Expected `->` in handle arm.
 
@@ -136,7 +136,7 @@ Note:
   while parsing module `MultiControlFlowErrors` > function `flow` > `handle` expression
 
 
-Error[E034]: Missing Lambda Arrow
+error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found an identifier.
 
@@ -153,7 +153,7 @@ Help:
   Use `/x -> expr` or `/(x, y) -> expr`.
 
 
-Error[E034]: Unexpected Closing Delimiter
+error[E034]: Unexpected Closing Delimiter
 
 Unexpected `}` outside of a block.
 
@@ -163,7 +163,7 @@ Unexpected `}` outside of a block.
   | ^
 
 
-Error[E034]: Missing Constructor Field Separator
+error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 
@@ -176,7 +176,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
-Error[E034]: Invalid Data Constructor
+error[E034]: Invalid Data Constructor
 
 I was expecting a constructor name in this `data` declaration, but I found an integer literal.
 
@@ -189,7 +189,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > data declaration `Pair`
 
 
-Error[E034]: Missing Effect Operation Colon
+error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
@@ -202,7 +202,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 Expected `:` after effect operation name.
 
@@ -218,7 +218,7 @@ Note:
   while parsing module `MultiDeclarationErrors` > effect `Console`
 
 
-Error[E034]: Missing Constructor Field Separator
+error[E034]: Missing Constructor Field Separator
 
 I was expecting `,` or `)` between constructor fields, but I found an identifier.
 
@@ -231,7 +231,7 @@ Note:
   while parsing module `MultiDeclarationErrors`
 
 
-Error[E034]: Missing Closing Delimiter
+error[E034]: Missing Closing Delimiter
 
 Expected `)` to close this tuple literal.
 
@@ -247,7 +247,7 @@ Note:
   while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
-Error[E076]: Missing Closing Delimiter
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `]` to match this opening `[`.
 
@@ -266,7 +266,7 @@ note: Expected `]` before this token.
   |         ^^^
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -282,7 +282,7 @@ Note:
   while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
-Error[E073]: Missing Comma
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
@@ -298,7 +298,7 @@ Note:
   while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
-Error[E034]: Missing Closing Delimiter
+error[E034]: Missing Closing Delimiter
 
 Expected `)` to close this grouped expression.
 
@@ -314,7 +314,7 @@ Note:
   while parsing module `MultiDelimiterErrors` > function `delimiters`
 
 
-Error[E034]: Missing Import Path
+error[E034]: Missing Import Path
 
 This import needs a module path after `import`.
 
@@ -330,7 +330,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Import Alias
+error[E034]: Missing Import Alias
 
 This import alias needs a name after `as`.
 
@@ -346,7 +346,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Import Except List
+error[E034]: Missing Import Except List
 
 Expected `[` after `except` in import.
 
@@ -362,7 +362,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
@@ -378,7 +378,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Missing Hash Colon
+error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
@@ -394,7 +394,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `var`. Flux uses `let` for bindings.
 
@@ -410,7 +410,7 @@ Note:
   while parsing module `MultiImportKeywordErrors`
 
 
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 

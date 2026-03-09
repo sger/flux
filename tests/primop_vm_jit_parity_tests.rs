@@ -162,7 +162,7 @@ fn jit_primop_type_errors_render_e1004_diagnostics() {
     for input in ["array_len(1)", "string_len(1)"] {
         let jit_err = run_jit(input).expect_err("JIT should fail");
         assert!(
-            jit_err.contains("Error[E1004]: primop"),
+            jit_err.contains("error[E1004]: primop"),
             "expected rendered E1004 diagnostic for `{input}`; got:\n{jit_err}"
         );
         assert!(
@@ -182,12 +182,12 @@ fn jit_base_runtime_errors_render_diagnostics() {
     for (input, expected_code, expected_title) in [
         (
             "map(#[1], concat)",
-            "Error[E1000]: map: callback error at index 0: wrong number of arguments",
+            "error[E1000]: map: callback error at index 0: wrong number of arguments",
             "map: callback error at index 0: wrong number of arguments",
         ),
         (
             "flat_map(#[1], \\x -> x)",
-            "Error[E1009]: flat_map: callback must return an Array when input is Array, got Int",
+            "error[E1009]: flat_map: callback must return an Array when input is Array, got Int",
             "flat_map: callback must return an Array when input is Array, got Int",
         ),
     ] {
@@ -216,12 +216,12 @@ fn jit_indirect_call_runtime_errors_render_diagnostics() {
     for (input, expected_header, expected_message) in [
         (
             "fn add(a, b) { a + b }\nfn main() {\n    let f = add\n    let ignored = f(1)\n}\n",
-            "Error[E1000]: wrong number of arguments: want=2, got=1",
+            "error[E1000]: wrong number of arguments: want=2, got=1",
             "wrong number of arguments: want=2, got=1",
         ),
         (
             "fn main() {\n    let f = 1\n    let ignored = f(2)\n}\n",
-            "Error[E1001]: Not A Function",
+            "error[E1001]: Not A Function",
             "Cannot call non-function value (got Int).",
         ),
     ] {

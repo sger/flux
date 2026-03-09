@@ -5,7 +5,7 @@ Fixture: examples/error_messages/immutable_binding.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E002]: Immutable Binding
+error[E002]: Immutable Binding
 
 Cannot reassign to immutable variable `count`.
 

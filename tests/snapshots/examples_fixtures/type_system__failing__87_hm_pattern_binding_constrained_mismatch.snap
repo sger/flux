@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Return Type Mismatch
+error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 

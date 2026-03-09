@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/header_counts/ErrorNoteMain.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 

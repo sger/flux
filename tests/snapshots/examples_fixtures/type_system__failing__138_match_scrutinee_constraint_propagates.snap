@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/138_match_scrutinee_constraint_propagates.
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
@@ -18,7 +18,7 @@ Hint:
   Define it first: let mystery_value = ...;
 
 
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 

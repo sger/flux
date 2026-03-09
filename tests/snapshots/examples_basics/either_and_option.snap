@@ -5,7 +5,7 @@ Fixture: examples/basics/either_and_option.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `findInArray`.
 
@@ -31,7 +31,7 @@ Help:
   Suppressed 1 nearby duplicate E300 diagnostic(s).
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `findInArray`.
 

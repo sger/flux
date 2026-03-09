@@ -616,7 +616,8 @@ fn parse_diagnostic_tuples(output: &str) -> Vec<DiagnosticTuple> {
 
 fn parse_diagnostic_header(line: &str) -> Option<(String, String)> {
     for marker in [
-        "Error[",
+        "error[",
+        "error[",
         "Warning[",
         "Note[",
         "Help[",

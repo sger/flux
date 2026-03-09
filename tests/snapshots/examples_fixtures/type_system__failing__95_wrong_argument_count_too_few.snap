@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/95_wrong_argument_count_too_few.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 

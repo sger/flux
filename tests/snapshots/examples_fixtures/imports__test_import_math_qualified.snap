@@ -5,7 +5,7 @@ Fixture: examples/imports/test_import_math_qualified.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 

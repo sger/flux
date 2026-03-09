@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 

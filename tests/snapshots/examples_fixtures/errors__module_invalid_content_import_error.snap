@@ -5,7 +5,7 @@ Fixture: examples/errors/module_invalid_content_import_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `Errors.ModuleInvalidContentError` to import.
 

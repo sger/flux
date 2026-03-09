@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/row_effects/unknown_handler_operation_e401.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E401]: Unknown Effect Operation
+error[E401]: Unknown Effect Operation
 
 Handler for `Console` includes unknown operation `read`.
 

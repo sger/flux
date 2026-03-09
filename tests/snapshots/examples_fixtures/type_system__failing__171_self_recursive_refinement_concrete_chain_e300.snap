@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/171_self_recursive_refinement_concrete_cha
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 

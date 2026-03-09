@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_effect_list_comma.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Function Body
+error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 

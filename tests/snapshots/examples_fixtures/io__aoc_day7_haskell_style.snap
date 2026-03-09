@@ -5,7 +5,7 @@ Fixture: examples/io/aoc_day7_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 5th argument to `simulate_a`.
 
@@ -24,7 +24,7 @@ Help:
   Pass a `Array<Int>` value as the 5th argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `step_a_split`.
 
@@ -78,7 +78,7 @@ Help:
   Pass a `Map<String, Int>` value as the 1st argument.
 
 
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -99,7 +99,7 @@ Help:
   adjust operand types or add explicit conversion
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 6th argument to `process_cols_b`.
 
@@ -150,7 +150,7 @@ Help:
   Pass a `Array<Int>` value as the 6th argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `step_b_done`.
 
@@ -209,7 +209,7 @@ Help:
   Pass a `Map<String, Int>` value as the 1st argument.
 
 
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 5th argument to `simulate_a`.
 

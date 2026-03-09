@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/114_keyword_alias_case.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E030]: Unknown Keyword
+error[E030]: Unknown Keyword
 
 Unknown keyword `case`. Flux uses `match` for pattern matching.
 

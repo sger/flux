@@ -5,7 +5,7 @@ Fixture: examples/guide_type_system/11_match_non_exhaustive_fail.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E015]: Non-Exhaustive Match
+error[E015]: Non-Exhaustive Match
 
 Match is non-exhaustive: missing Bool case(s): false.
 

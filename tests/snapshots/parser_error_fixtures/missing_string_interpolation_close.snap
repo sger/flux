@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/missing_string_interpolation_close.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Missing Closing Delimiter
+error[E034]: Missing Closing Delimiter
 
 Expected `}` to close string interpolation.
 
@@ -18,7 +18,7 @@ Hint:
   Interpolation segments use `#{expr}` inside strings.
 
 
-Error[E071]: Unterminated String
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
@@ -31,7 +31,7 @@ Hint:
   Add a closing " at the end of the string.
 
 
-Error[E071]: Unterminated String
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 

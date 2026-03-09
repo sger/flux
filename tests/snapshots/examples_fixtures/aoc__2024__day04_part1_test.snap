@@ -5,7 +5,7 @@ Fixture: examples/aoc/2024/day04_part1_test.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -18,7 +18,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -31,7 +31,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -44,7 +44,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -57,7 +57,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -70,7 +70,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -83,7 +83,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_memory`.
 
@@ -96,7 +96,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04a_from_lines`.
 
@@ -109,7 +109,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04b_from_lines`.
 
@@ -122,7 +122,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04b_from_lines`.
 
@@ -135,7 +135,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04b_from_lines`.
 
@@ -148,7 +148,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04b_from_memory`.
 
@@ -161,7 +161,7 @@ Hint:
   Private members can only be accessed within the same module. Use `public fn` to export a function.
 
 
-Error[E011]: Private Member
+error[E011]: Private Member
 
 Cannot access private member `day04b_from_lines`.
 

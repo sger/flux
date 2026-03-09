@@ -5,7 +5,7 @@ Fixture: examples/compiler_errors/adversarial/multi_independent_errors.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `first` does not match its type annotation.
 
@@ -25,7 +25,7 @@ Help:
   Change `first` to a `Int` value or update the annotation.
 
 
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 1 were provided.
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/131_call_arg_span_precision.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Argument Type Mismatch
+error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `pair`.
 

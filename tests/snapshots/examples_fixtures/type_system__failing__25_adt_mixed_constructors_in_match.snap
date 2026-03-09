@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/25_adt_mixed_constructors_in_match.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E300]: Type Mismatch
+error[E300]: Type Mismatch
 
 I found a type mismatch.
 
@@ -29,7 +29,7 @@ Help:
   These two types are not compatible.
 
 
-Error[E083]: Non-Exhaustive ADT Match
+error[E083]: Non-Exhaustive ADT Match
 
 Match arms mix constructors from different ADTs: `A` and `B`.
 

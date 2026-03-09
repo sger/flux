@@ -5,7 +5,7 @@ Fixture: examples/errors/module_scope_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E025]: Module Scope
+error[E025]: Module Scope
 
 Module declaration must be at the top of the file.
 

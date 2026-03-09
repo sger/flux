@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/32_direct_time_hof_missing_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E056]: Wrong Number Of Arguments
+error[E056]: Wrong Number Of Arguments
 
 The `time` function takes 0 arguments, but 1 were provided.
 
@@ -22,7 +22,7 @@ Help:
   Remove 1 extra argument(s), for example: `time()`.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `Time` but the enclosing context does not provide it
 

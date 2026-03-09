@@ -5,7 +5,7 @@ Fixture: examples/parser_errors/multiple_row_tails_in_with_clause.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Unexpected Token
+error[E034]: Unexpected Token
 
 Effect expressions can contain only one row variable tail.
 

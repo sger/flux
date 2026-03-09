@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/166_self_recursive_guard_stable_unresolved
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E004]: Undefined Variable
+error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 

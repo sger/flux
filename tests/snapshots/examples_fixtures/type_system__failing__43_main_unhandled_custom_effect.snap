@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/43_main_unhandled_custom_effect.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E406]: Unhandled Root Effect
+error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Console.
 

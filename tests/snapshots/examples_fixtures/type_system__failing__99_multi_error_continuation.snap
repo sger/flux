@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/99_multi_error_continuation.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E002]: Immutable Binding
+error[E002]: Immutable Binding
 
 Cannot reassign to immutable variable `x`.
 
@@ -18,7 +18,7 @@ Hint:
   In Flux, bindings are immutable. Compute a new value with a new binding name (for example: `let next_x = ...`).
 
 
-Error[E300]: Annotation Type Mismatch
+error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 

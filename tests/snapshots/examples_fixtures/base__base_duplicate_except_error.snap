@@ -5,7 +5,7 @@ Fixture: examples/base/base_duplicate_except_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Error[E079]: Invalid Base Directive
+error[E079]: Invalid Base Directive
 
 Duplicate Base exclusion `print`.
 
@@ -18,7 +18,7 @@ Hint:
   Each name in `import Base except [...]` must appear only once.
 
 
-Error[E400]: Missing Effect
+error[E400]: Missing Effect
 
 requires effect `IO` but the enclosing context does not provide it
 

@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/33_module_qualified_effect_propagation_mis
 == compile ==
 failed (module)
 == diagnostics ==
-Error[E018]: Import Not Found
+error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.EffectsChain` to import.
 
