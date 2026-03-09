@@ -15,6 +15,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 
 use crate::ast::free_vars::collect_free_vars;
+use crate::diagnostics::position::Span;
 use crate::primop::{PrimOp, resolve_primop_call};
 use crate::runtime::base::{BaseModule, is_base_fastcall_allowlisted};
 use crate::runtime::{function_contract::FunctionContract, runtime_type::RuntimeType};
@@ -1967,6 +1968,7 @@ fn compile_expression(
                     return_block,
                     tail_call,
                     primop,
+                    *span,
                     arguments,
                     interner,
                 );
@@ -2056,6 +2058,7 @@ fn compile_expression(
                         ctx_val,
                         return_block,
                         tail_call,
+                        *span,
                         base_idx,
                         arguments,
                         interner,
@@ -3553,6 +3556,7 @@ fn compile_base_function_call(
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
+    call_span: crate::diagnostics::position::Span,
     base_idx: usize,
     arguments: &[Expression],
     interner: &Interner,
@@ -3589,11 +3593,29 @@ fn compile_base_function_call(
     let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
     let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let start_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let end_line_val = builder.ins().iconst(PTR_TYPE, call_span.end.line as i64);
+    let end_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
 
     let call_base = get_helper_func_ref(module, helpers, builder, "rt_call_base_function");
-    let call = builder
-        .ins()
-        .call(call_base, &[ctx_val, idx_val, args_ptr, nargs_val]);
+    let call = builder.ins().call(
+        call_base,
+        &[
+            ctx_val,
+            idx_val,
+            args_ptr,
+            nargs_val,
+            start_line_val,
+            start_col_val,
+            end_line_val,
+            end_col_val,
+        ],
+    );
     Ok(builder.inst_results(call)[0])
 }
 
@@ -3606,6 +3628,7 @@ fn compile_primop_call(
     return_block: Option<cranelift_codegen::ir::Block>,
     tail_call: Option<&TailCallContext>,
     primop: PrimOp,
+    span: Span,
     arguments: &[Expression],
     interner: &Interner,
 ) -> Result<CraneliftValue, String> {
@@ -3640,10 +3663,30 @@ fn compile_primop_call(
     let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
     let primop_val = builder.ins().iconst(PTR_TYPE, primop.id() as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+    let start_line_val = builder.ins().iconst(PTR_TYPE, span.start.line as i64);
+    let start_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (span.start.column + 1) as i64);
+    let end_line_val = builder.ins().iconst(PTR_TYPE, span.end.line as i64);
+    let end_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (span.end.column + 1) as i64);
     let call_primop = get_helper_func_ref(module, helpers, builder, "rt_call_primop");
     let call = builder
         .ins()
-        .call(call_primop, &[ctx_val, primop_val, args_ptr, nargs_val]);
+        .call(
+            call_primop,
+            &[
+                ctx_val,
+                primop_val,
+                args_ptr,
+                nargs_val,
+                start_line_val,
+                start_col_val,
+                end_line_val,
+                end_col_val,
+            ],
+        );
     Ok(builder.inst_results(call)[0])
 }
 
@@ -3739,15 +3782,28 @@ fn compile_user_function_call(
     let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
     let zero = builder.ins().iconst(PTR_TYPE, 0);
     let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
-    let line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
-    let col_val = builder
+    let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
+    let start_col_val = builder
         .ins()
         .iconst(PTR_TYPE, (call_span.start.column + 1) as i64);
+    let end_line_val = builder.ins().iconst(PTR_TYPE, call_span.end.line as i64);
+    let end_col_val = builder
+        .ins()
+        .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
 
     let check_call = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
     let call_ok = builder.ins().call(
         check_call,
-        &[ctx_val, fn_index, args_ptr, nargs_val, line_val, col_val],
+        &[
+            ctx_val,
+            fn_index,
+            args_ptr,
+            nargs_val,
+            start_line_val,
+            start_col_val,
+            end_line_val,
+            end_col_val,
+        ],
     );
     let call_ok_val = builder.inst_results(call_ok)[0];
     let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
@@ -3774,7 +3830,15 @@ fn compile_user_function_call(
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
     let checked_ret_call = builder.ins().call(
         check_ret,
-        &[ctx_val, fn_index, raw_result, line_val, col_val],
+        &[
+            ctx_val,
+            fn_index,
+            raw_result,
+            start_line_val,
+            start_col_val,
+            end_line_val,
+            end_col_val,
+        ],
     );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
     let ok_args = [BlockArg::Value(checked_ret)];
@@ -4644,14 +4708,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         (
             "rt_call_base_function",
             HelperSig {
-                num_params: 4,
+                num_params: 8,
                 has_return: true,
             },
         ),
         (
             "rt_call_primop",
             HelperSig {
-                num_params: 4,
+                num_params: 8,
                 has_return: true,
             },
         ),
@@ -4686,14 +4750,14 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         (
             "rt_check_jit_contract_call",
             HelperSig {
-                num_params: 6,
+                num_params: 8,
                 has_return: true,
             },
         ),
         (
             "rt_check_jit_contract_return",
             HelperSig {
-                num_params: 5,
+                num_params: 7,
                 has_return: true,
             },
         ),

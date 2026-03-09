@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/invalid_pipe_target.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+Error[E040]: Pipe Target Error
+
+Pipe operator expects a function or function call.
+
+  examples/parser_errors/invalid_pipe_target.flx:2:10
+  |
+2 |     1 |> 2
+  |          ^
+
+Hint:
+  Use `value |> func` or `value |> func(arg)`
+== stdout ==
+<not executed>
