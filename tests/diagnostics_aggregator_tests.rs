@@ -1,7 +1,8 @@
 mod diagnostics_env;
 
 use flux::diagnostics::{
-    Diagnostic, DiagnosticBuilder, DiagnosticPhase, DiagnosticsAggregator, ErrorType,
+    Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
+    ErrorType,
     RelatedDiagnostic,
     position::{Position, Span},
     render_diagnostics_multi,
@@ -636,6 +637,235 @@ fn aggregator_collapses_parser_cascades() {
     assert_eq!(output.matches("Error[E034]").count(), 0);
     assert_eq!(output.matches("Error[E076]").count(), 1);
     assert!(output.contains("cascading parser diagnostic"));
+}
+
+#[test]
+fn aggregator_does_not_collapse_named_parser_diagnostics_as_cascades() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let root = Diagnostic::make_error_dynamic(
+        "E076",
+        "UNCLOSED DELIMITER",
+        ErrorType::Compiler,
+        "missing `}`",
+        None,
+        "a.flx",
+        span(10, 1),
+    )
+    .with_phase(DiagnosticPhase::Parse);
+    let missing_hash_colon = Diagnostic::make_error_dynamic(
+        "E034",
+        "UNEXPECTED TOKEN",
+        ErrorType::Compiler,
+        "This hash entry needs `:` between the key and value.",
+        None,
+        "a.flx",
+        span(11, 1),
+    )
+    .with_display_title("Missing Hash Colon")
+    .with_category(DiagnosticCategory::ParserSeparator)
+    .with_phase(DiagnosticPhase::Parse);
+    let missing_comma = Diagnostic::make_error_dynamic(
+        "E073",
+        "MISSING COMMA",
+        ErrorType::Compiler,
+        "Missing comma between arguments.",
+        None,
+        "a.flx",
+        span(12, 1),
+    )
+    .with_display_title("Missing Comma")
+    .with_category(DiagnosticCategory::ParserSeparator)
+    .with_phase(DiagnosticPhase::Parse);
+    let missing_else = Diagnostic::make_error_dynamic(
+        "E034",
+        "UNEXPECTED TOKEN",
+        ErrorType::Compiler,
+        "This `else` branch needs to start with `{`.",
+        None,
+        "a.flx",
+        span(13, 1),
+    )
+    .with_display_title("Missing Else Body")
+    .with_category(DiagnosticCategory::ParserDeclaration)
+    .with_phase(DiagnosticPhase::Parse);
+
+    let output = DiagnosticsAggregator::new(&[root, missing_hash_colon, missing_comma, missing_else]).render();
+    assert_eq!(output.matches("Error[E076]").count(), 1);
+    assert_eq!(output.matches("Error[E034]: Missing Hash Colon").count(), 1);
+    assert_eq!(output.matches("Error[E073]: Missing Comma").count(), 1);
+    assert_eq!(output.matches("Error[E034]: Missing Else Body").count(), 1);
+    assert!(!output.contains("cascading parser diagnostic"));
+}
+
+#[test]
+fn aggregator_compresses_repeated_parser_errors_per_file() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let repeated = [1usize, 5, 9, 13, 17]
+        .into_iter()
+        .map(|line| {
+            Diagnostic::make_error_dynamic(
+                "E034",
+                "UNEXPECTED TOKEN",
+                ErrorType::Compiler,
+                "This hash entry needs `:` between the key and value.",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Hash Colon")
+            .with_category(DiagnosticCategory::ParserSeparator)
+            .with_phase(DiagnosticPhase::Parse)
+        })
+        .collect::<Vec<_>>();
+
+    let output = render_diagnostics_multi(&repeated, Some(50));
+    assert_eq!(output.matches("Error[E034]: Missing Hash Colon").count(), 3);
+    assert!(output.contains("Repeated Parser Diagnostics Suppressed"));
+    assert!(output.contains("I hid 2 additional repeated parser diagnostic(s) for \"Missing Hash Colon\""));
+    assert!(output.contains("• 5 errors, 1 note • a.flx"));
+    assert!(output.contains("Found 5 errors and 1 note."));
+}
+
+#[test]
+fn aggregator_compresses_repeated_parser_errors_separately_per_fingerprint() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let mut diags = Vec::new();
+    for line in [1usize, 5, 9, 13, 17] {
+        diags.push(
+            Diagnostic::make_error_dynamic(
+                "E034",
+                "UNEXPECTED TOKEN",
+                ErrorType::Compiler,
+                "This hash entry needs `:` between the key and value.",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Hash Colon")
+            .with_category(DiagnosticCategory::ParserSeparator)
+            .with_phase(DiagnosticPhase::Parse),
+        );
+    }
+    for line in [30usize, 34, 38, 42, 46] {
+        diags.push(
+            Diagnostic::make_error_dynamic(
+                "E073",
+                "MISSING COMMA",
+                ErrorType::Compiler,
+                "Missing comma between arguments.",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Comma")
+            .with_category(DiagnosticCategory::ParserSeparator)
+            .with_phase(DiagnosticPhase::Parse),
+        );
+    }
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
+    assert!(output.contains("\"Missing Hash Colon\""));
+    assert!(output.contains("\"Missing Comma\""));
+    assert!(output.contains("Found 10 errors and 2 notes."));
+}
+
+#[test]
+fn aggregator_repeated_parser_compression_is_scoped_per_file() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let mut diags = Vec::new();
+    for line in [1usize, 5, 9, 13] {
+        diags.push(
+            Diagnostic::make_error_dynamic(
+                "E034",
+                "UNEXPECTED TOKEN",
+                ErrorType::Compiler,
+                "This `else` branch needs to start with `{`.",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Else Body")
+            .with_category(DiagnosticCategory::ParserDeclaration)
+            .with_phase(DiagnosticPhase::Parse),
+        );
+        diags.push(
+            Diagnostic::make_error_dynamic(
+                "E034",
+                "UNEXPECTED TOKEN",
+                ErrorType::Compiler,
+                "This `else` branch needs to start with `{`.",
+                None,
+                "b.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Else Body")
+            .with_category(DiagnosticCategory::ParserDeclaration)
+            .with_phase(DiagnosticPhase::Parse),
+        );
+    }
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
+    assert!(output.contains("• 4 errors, 1 note • a.flx"));
+    assert!(output.contains("• 4 errors, 1 note • b.flx"));
+}
+
+#[test]
+fn aggregator_does_not_compress_non_parser_diagnostics() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let diags = (1..=5)
+        .map(|line| {
+            Diagnostic::make_error_dynamic(
+                "E301",
+                "OCCURS CHECK FAILURE",
+                ErrorType::Compiler,
+                "infinite type",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_phase(DiagnosticPhase::TypeInference)
+        })
+        .collect::<Vec<_>>();
+
+    let output = render_diagnostics_multi(&diags, Some(50));
+    assert_eq!(output.matches("Error[E301]").count(), 5);
+    assert!(!output.contains("Repeated Parser Diagnostics Suppressed"));
+}
+
+#[test]
+fn aggregator_repeated_parser_compression_can_be_disabled() {
+    let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
+
+    let diags = (1..=5)
+        .map(|line| {
+            Diagnostic::make_error_dynamic(
+                "E073",
+                "MISSING COMMA",
+                ErrorType::Compiler,
+                "Missing comma between arguments.",
+                None,
+                "a.flx",
+                span(line, 1),
+            )
+            .with_display_title("Missing Comma")
+            .with_category(DiagnosticCategory::ParserSeparator)
+            .with_phase(DiagnosticPhase::Parse)
+        })
+        .collect::<Vec<_>>();
+
+    let output = DiagnosticsAggregator::new(&diags)
+        .with_stage_filtering(false)
+        .render();
+    assert_eq!(output.matches("Error[E073]: Missing Comma").count(), 5);
+    assert!(!output.contains("Repeated Parser Diagnostics Suppressed"));
+    assert!(output.contains("Found 5 errors."));
 }
 
 /// T1 acceptance: every diagnostic emitted from a real multi-error compilation

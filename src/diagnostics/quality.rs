@@ -435,3 +435,24 @@ pub fn downstream_errors_suppressed_note(
     .with_category(DiagnosticCategory::Orchestration)
     .with_phase(DiagnosticPhase::Validation)
 }
+
+/// Build a note summarizing repeated parser diagnostics compressed in one file.
+pub fn repeated_parser_diagnostics_suppressed_note(
+    file: impl Into<Rc<str>>,
+    display_title: impl Into<String>,
+    suppressed_count: usize,
+) -> Diagnostic {
+    let display_title = display_title.into();
+    Diagnostic::make_note(
+        "REPEATED PARSER DIAGNOSTICS SUPPRESSED",
+        format!(
+            "I hid {} additional repeated parser diagnostic(s) for \"{}\" in this file. Use `--all-errors` to see every occurrence.",
+            suppressed_count, display_title,
+        ),
+        file,
+        Span::default(),
+    )
+    .with_display_title("Repeated Parser Diagnostics Suppressed")
+    .with_category(DiagnosticCategory::Orchestration)
+    .with_phase(DiagnosticPhase::Validation)
+}

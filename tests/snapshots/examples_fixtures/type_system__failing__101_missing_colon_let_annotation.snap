@@ -5,7 +5,7 @@ Fixture: examples/type_system/failing/101_missing_colon_let_annotation.flx
 == compile ==
 failed (parse)
 == diagnostics ==
-Error[E034]: Unexpected Token
+Error[E034]: Missing Type Annotation Colon
 
 Missing `:` in let binding type annotation. Write it as `x: Type`.
 
@@ -13,5 +13,8 @@ Missing `:` in let binding type annotation. Write it as `x: Type`.
   |
 1 | let x Int = 1
   |       ^^^
+
+Hint:
+  Type annotations use `name: Type`.
 == stdout ==
 <not executed>
