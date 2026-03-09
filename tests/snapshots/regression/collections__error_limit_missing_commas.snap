@@ -20,6 +20,45 @@ note: Expected `)` before this token.
   |   ^^
 
 
+Error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:5
+  |
+3 |   1 2 3 4 5 6 7 8 9 10
+  |     ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+Error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:7
+  |
+3 |   1 2 3 4 5 6 7 8 9 10
+  |       ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
+Error[E073]: Missing Comma
+
+Missing comma between arguments.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:9
+  |
+3 |   1 2 3 4 5 6 7 8 9 10
+  |         ^
+
+Hint:
+  Add a comma between items, e.g. `f(a, b)`.
+
+
 Error[E031]: Expected Expression
 
 Expected expression, found `)`.
@@ -39,7 +78,13 @@ Expected expression, found `;`.
 9 | );
   |  ^
 
-Note:
-  Suppressed 9 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 
-Found 3 errors.
+Note: Repeated Parser Diagnostics Suppressed
+
+I hid 6 additional repeated parser diagnostic(s) for "Missing Comma" in this file. Use `--all-errors` to see every occurrence.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:0:1
+  |
+... and 6 more errors not shown (use --max-errors to increase).
+
+Found 12 errors and 1 note.

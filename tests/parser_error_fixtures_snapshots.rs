@@ -17,9 +17,6 @@ fn parser_error_fixtures_snapshot() {
         !case.snapshot_name.contains("max_errors")
             && !case.snapshot_name.contains("kitchen_sink_many_errors")
             && !case.snapshot_name.contains("long_functions_many_errors")
-            && !case
-                .snapshot_name
-                .contains("long_functions_clean_many_errors")
     }) {
         insta::with_settings!({
             snapshot_path => "snapshots/parser_error_fixtures",
