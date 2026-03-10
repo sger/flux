@@ -83,6 +83,43 @@ forty_two()
 }
 
 #[test]
+fn jit_infix_integer_arithmetic_and_comparison_work() {
+    let result = run_jit(
+        r#"
+let x = 7 + 5
+if x == 12 { x * 2 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(24));
+}
+
+#[test]
+fn jit_infix_float_arithmetic_and_comparison_work() {
+    let result = run_jit(
+        r#"
+let x = 1.5 + 2.5
+if x > 3.0 { x / 2.0 } else { 0.0 }
+"#,
+    );
+    assert_eq!(result, Value::Float(2.0));
+}
+
+#[test]
+fn jit_numeric_primops_lower_correctly() {
+    let result = run_jit("iadd(imul(3, 4), 5)");
+    assert_eq!(result, Value::Integer(17));
+
+    let result = run_jit("fdiv(fadd(1.5, 2.5), 2.0)");
+    assert_eq!(result, Value::Float(2.0));
+}
+
+#[test]
+fn jit_integer_division_by_zero_from_primop_errors() {
+    let err = run_jit_err("idiv(10, 0)");
+    assert!(err.contains("division by zero"), "{err}");
+}
+
+#[test]
 fn jit_arity5_function_keeps_array_abi() {
     let result = run_jit(
         r#"

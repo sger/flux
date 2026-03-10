@@ -2,19 +2,16 @@
 
 //! Runtime helper functions callable from JIT-compiled code.
 //!
-//! All functions use `extern "C"` ABI and operate on `*mut Value` pointers.
+//! All functions use `extern "C"` ABI and operate on JIT tagged values.
 //! They receive a `*mut JitContext` as their first argument for arena allocation
 //! and error reporting.
-//!
-//! Convention: return `std::ptr::null_mut()` on error with message stored in
-//! `ctx.error`.
 
 use std::ptr;
 use std::rc::Rc;
 use std::slice::from_raw_parts;
 use std::str::from_utf8_unchecked;
 
-use crate::jit::context::{JitHandlerArm, JitHandlerFrame};
+use crate::jit::context::{JitHandlerArm, JitHandlerFrame, JitTaggedValue};
 use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::RuntimeContext;
 use crate::runtime::{
@@ -28,7 +25,7 @@ use crate::runtime::{
     value::{AdtFields, Value},
 };
 
-use super::context::JitContext;
+use super::context::{JitContext, JIT_TAG_PTR};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,31 +36,33 @@ unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
 }
 
-fn clone_value_arg(
+fn clone_tagged_arg(
     ctx: &mut JitContext,
-    value: *mut Value,
+    value: JitTaggedValue,
     label: &str,
     index: usize,
 ) -> Option<Value> {
-    match unsafe { value.as_ref() } {
-        Some(value) => Some(value.clone()),
+    match ctx.clone_from_tagged(value) {
+        Some(value) => Some(value),
         None => {
-            ctx.error = Some(format!("{label} received null value pointer at index {index}"));
+            if ctx.error.is_none() {
+                ctx.error = Some(format!("{label} received invalid tagged value at index {index}"));
+            }
             None
         }
     }
 }
 
-fn clone_values_from_ptrs(
+fn clone_values_from_tagged_ptrs(
     ctx: &mut JitContext,
-    values_ptr: *const *mut Value,
+    values_ptr: *const JitTaggedValue,
     len: usize,
     label: &str,
 ) -> Option<Vec<Value>> {
     let mut values = Vec::with_capacity(len);
     for i in 0..len {
-        let value_ptr = unsafe { *values_ptr.add(i) };
-        values.push(clone_value_arg(ctx, value_ptr, label, i)?);
+        let tagged = unsafe { *values_ptr.add(i) };
+        values.push(clone_tagged_arg(ctx, tagged, label, i)?);
     }
     Some(values)
 }
@@ -90,35 +89,55 @@ pub extern "C" fn rt_division_by_zero(ctx: *mut JitContext) {
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_integer(ctx: *mut JitContext, value: i64) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::Integer(value))
+pub extern "C" fn rt_make_integer(_ctx: *mut JitContext, value: i64) -> JitTaggedValue {
+    JitTaggedValue::int(value)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_float(ctx: *mut JitContext, bits: i64) -> *mut Value {
-    let value = f64::from_bits(bits as u64);
-    unsafe { ctx_ref(ctx) }.alloc(Value::Float(value))
+pub extern "C" fn rt_make_float(_ctx: *mut JitContext, bits: i64) -> JitTaggedValue {
+    JitTaggedValue::float_bits(bits)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_bool(ctx: *mut JitContext, value: i64) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::Boolean(value != 0))
+pub extern "C" fn rt_make_bool(_ctx: *mut JitContext, value: i64) -> JitTaggedValue {
+    JitTaggedValue::bool(value != 0)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> *mut Value {
-    unsafe { ctx_ref(ctx) }.alloc(Value::None)
+pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    JitTaggedValue::ptr(ctx.alloc(Value::None))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_force_boxed(ctx: *mut JitContext, value: JitTaggedValue) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let boxed = ctx.tagged_to_boxed(value);
+    if boxed.is_null() {
+        JitTaggedValue::none()
+    } else {
+        JitTaggedValue::ptr(boxed)
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_push_gc_roots(
     ctx: *mut JitContext,
-    values_ptr: *const *mut Value,
+    values_ptr: *const JitTaggedValue,
     len: i64,
 ) {
     let ctx = unsafe { ctx_ref(ctx) };
-    let roots = unsafe { from_raw_parts(values_ptr, len as usize) };
-    ctx.push_gc_roots(roots);
+    let values = unsafe { from_raw_parts(values_ptr, len as usize) };
+    let mut roots = Vec::new();
+    for value in values {
+        if value.tag == JIT_TAG_PTR {
+            let ptr = value.as_ptr();
+            if !ptr.is_null() {
+                roots.push(ptr);
+            }
+        }
+    }
+    ctx.push_gc_roots(&roots);
 }
 
 #[unsafe(no_mangle)]
@@ -147,12 +166,12 @@ pub extern "C" fn rt_make_base_function(ctx: *mut JitContext, base_fn_index: i64
 pub extern "C" fn rt_make_jit_closure(
     ctx: *mut JitContext,
     function_index: i64,
-    captures_ptr: *const *mut Value,
+    captures_ptr: *const JitTaggedValue,
     ncaptures: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let Some(captures) =
-        clone_values_from_ptrs(ctx, captures_ptr, ncaptures as usize, "jit closure construction")
+        clone_values_from_tagged_ptrs(ctx, captures_ptr, ncaptures as usize, "jit closure construction")
     else {
         return ptr::null_mut();
     };
@@ -240,16 +259,31 @@ pub extern "C" fn rt_cons_tail(ctx: *mut JitContext, value: *mut Value) -> *mut 
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_add(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_add(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l + r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l + r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 + r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l + *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l + *r),
+        (Value::Float(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((l + r).to_bits() as i64)
+        }
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 + *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l + *r as f64).to_bits() as i64)
+        }
         (Value::String(l), Value::String(r)) => {
-            ctx.alloc(Value::String(format!("{}{}", l, r).into()))
+            JitTaggedValue::ptr(ctx.alloc(Value::String(format!("{}{}", l, r).into())))
         }
         _ => {
             ctx.error = Some(format!(
@@ -257,95 +291,155 @@ pub extern "C" fn rt_add(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> 
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_sub(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_sub(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l - r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l - r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 - r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l - *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l - *r),
+        (Value::Float(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((l - r).to_bits() as i64)
+        }
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 - *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l - *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot subtract {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_mul(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_mul(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l * r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l * r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 * r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l * *r as f64)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l * *r),
+        (Value::Float(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((l * r).to_bits() as i64)
+        }
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 * *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l * *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot multiply {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_div(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_div(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
         (Value::Integer(_), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
             ctx.error = Some("division by zero".to_string());
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l / r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l / r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 / r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l / *r as f64)),
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l / *r),
+        (Value::Float(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((l / r).to_bits() as i64)
+        }
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 / *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l / *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot divide {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_mod(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_mod(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
         (Value::Integer(_), Value::Integer(0)) | (Value::Float(_), Value::Integer(0)) => {
             ctx.error = Some("division by zero".to_string());
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Integer(l % r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Float(l % r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Float(*l as f64 % r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Float(l % *r as f64)),
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::int(*l % *r),
+        (Value::Float(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((l % r).to_bits() as i64)
+        }
+        (Value::Integer(l), Value::Float(r)) => {
+            JitTaggedValue::float_bits((*l as f64 % *r).to_bits() as i64)
+        }
+        (Value::Float(l), Value::Integer(r)) => {
+            JitTaggedValue::float_bits((l % *r as f64).to_bits() as i64)
+        }
         _ => {
             ctx.error = Some(format!(
                 "cannot modulo {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -355,43 +449,53 @@ pub extern "C" fn rt_mod(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> 
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_negate(ctx: *mut JitContext, a: *mut Value) -> *mut Value {
-    let a = unsafe { &*a };
+pub extern "C" fn rt_negate(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
     match a {
-        Value::Integer(v) => ctx.alloc(Value::Integer(-v)),
-        Value::Float(v) => ctx.alloc(Value::Float(-v)),
+        Value::Integer(v) => JitTaggedValue::int(-v),
+        Value::Float(v) => JitTaggedValue::float_bits((-v).to_bits() as i64),
         _ => {
             ctx.error = Some(format!("cannot negate {}", a.type_name()));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_not(ctx: *mut JitContext, a: *mut Value) -> *mut Value {
-    let a = unsafe { &*a };
+pub extern "C" fn rt_not(ctx: *mut JitContext, a: JitTaggedValue) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
     match a {
-        Value::Boolean(v) => ctx.alloc(Value::Boolean(!v)),
+        Value::Boolean(v) => JitTaggedValue::bool(!v),
         _ => {
             ctx.error = Some(format!("cannot apply ! to {}", a.type_name()));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
-    let a = unsafe { &*a };
-    if a.is_truthy() { 1 } else { 0 }
+pub extern "C" fn rt_is_truthy(ctx: *mut JitContext, a: JitTaggedValue) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match ctx.clone_from_tagged(a) {
+        Some(a) => i64::from(a.is_truthy()),
+        None => 0,
+    }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_bool_value(_ctx: *mut JitContext, a: *mut Value) -> i64 {
-    let a = unsafe { &*a };
+pub extern "C" fn rt_bool_value(ctx: *mut JitContext, a: JitTaggedValue) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return 0;
+    };
     match a {
-        Value::Boolean(v) => i64::from(*v),
+        Value::Boolean(v) => i64::from(v),
         _ => {
             if a.is_truthy() {
                 1
@@ -407,19 +511,37 @@ pub extern "C" fn rt_bool_value(_ctx: *mut JitContext, a: *mut Value) -> i64 {
 // ---------------------------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_equal(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(ctx, a, b);
-    ctx.alloc(Value::Boolean(result))
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    let result = values_equal(ctx, &a, &b);
+    JitTaggedValue::bool(result)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_not_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+pub extern "C" fn rt_not_equal(
+    ctx: *mut JitContext,
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(ctx, a, b);
-    ctx.alloc(Value::Boolean(!result))
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    let result = values_equal(ctx, &a, &b);
+    JitTaggedValue::bool(!result)
 }
 
 fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
@@ -466,24 +588,29 @@ fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_greater_than(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l > r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l > r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 > *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l > *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l > r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l > r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l > r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) > *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l > *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l > r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -491,24 +618,29 @@ pub extern "C" fn rt_greater_than(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_less_than_or_equal(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l <= r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l <= r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 <= *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l <= *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l <= r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l <= r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l <= r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) <= *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l <= *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l <= r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -516,24 +648,29 @@ pub extern "C" fn rt_less_than_or_equal(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_greater_than_or_equal(
     ctx: *mut JitContext,
-    a: *mut Value,
-    b: *mut Value,
-) -> *mut Value {
-    let (a, b) = unsafe { (&*a, &*b) };
+    a: JitTaggedValue,
+    b: JitTaggedValue,
+) -> JitTaggedValue {
     let ctx = unsafe { ctx_ref(ctx) };
-    match (a, b) {
-        (Value::Integer(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(l >= r)),
-        (Value::Float(l), Value::Float(r)) => ctx.alloc(Value::Boolean(l >= r)),
-        (Value::Integer(l), Value::Float(r)) => ctx.alloc(Value::Boolean(*l as f64 >= *r)),
-        (Value::Float(l), Value::Integer(r)) => ctx.alloc(Value::Boolean(*l >= *r as f64)),
-        (Value::String(l), Value::String(r)) => ctx.alloc(Value::Boolean(l >= r)),
+    let Some(a) = ctx.clone_from_tagged(a) else {
+        return JitTaggedValue::none();
+    };
+    let Some(b) = ctx.clone_from_tagged(b) else {
+        return JitTaggedValue::none();
+    };
+    match (&a, &b) {
+        (Value::Integer(l), Value::Integer(r)) => JitTaggedValue::bool(l >= r),
+        (Value::Float(l), Value::Float(r)) => JitTaggedValue::bool(l >= r),
+        (Value::Integer(l), Value::Float(r)) => JitTaggedValue::bool((*l as f64) >= *r),
+        (Value::Float(l), Value::Integer(r)) => JitTaggedValue::bool(*l >= *r as f64),
+        (Value::String(l), Value::String(r)) => JitTaggedValue::bool(l >= r),
         _ => {
             ctx.error = Some(format!(
                 "cannot compare {} and {}",
                 a.type_name(),
                 b.type_name()
             ));
-            ptr::null_mut()
+            JitTaggedValue::none()
         }
     }
 }
@@ -1026,14 +1163,15 @@ pub extern "C" fn rt_values_equal(_ctx: *mut JitContext, a: *mut Value, b: *mut 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_array(
     ctx: *mut JitContext,
-    elements_ptr: *const *mut Value,
+    elements_ptr: *const JitTaggedValue,
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     if len == 0 {
         return ctx.alloc(Value::Array(Rc::new(vec![])));
     }
-    let Some(elements) = clone_values_from_ptrs(ctx, elements_ptr, len as usize, "array construction")
+    let Some(elements) =
+        clone_values_from_tagged_ptrs(ctx, elements_ptr, len as usize, "array construction")
     else {
         return ptr::null_mut();
     };
@@ -1043,11 +1181,12 @@ pub extern "C" fn rt_make_array(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_tuple(
     ctx: *mut JitContext,
-    elements_ptr: *const *mut Value,
+    elements_ptr: *const JitTaggedValue,
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let Some(elements) = clone_values_from_ptrs(ctx, elements_ptr, len as usize, "tuple construction")
+    let Some(elements) =
+        clone_values_from_tagged_ptrs(ctx, elements_ptr, len as usize, "tuple construction")
     else {
         return ptr::null_mut();
     };
@@ -1057,16 +1196,18 @@ pub extern "C" fn rt_make_tuple(
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_hash(
     ctx: *mut JitContext,
-    pairs_ptr: *const *mut Value,
+    pairs_ptr: *const JitTaggedValue,
     npairs: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
     let mut root = hamt_empty(&mut ctx.gc_heap);
     for i in 0..npairs as usize {
-        let Some(key) = clone_value_arg(ctx, unsafe { *pairs_ptr.add(i * 2) }, "hash construction", i * 2) else {
+        let Some(key) =
+            clone_tagged_arg(ctx, unsafe { *pairs_ptr.add(i * 2) }, "hash construction", i * 2)
+        else {
             return ptr::null_mut();
         };
-        let Some(value) = clone_value_arg(
+        let Some(value) = clone_tagged_arg(
             ctx,
             unsafe { *pairs_ptr.add(i * 2 + 1) },
             "hash construction",
@@ -1244,7 +1385,7 @@ pub extern "C" fn rt_make_adt(
     ctx: *mut JitContext,
     constructor_ptr: *const u8,
     constructor_len: i64,
-    fields_ptr: *const *mut Value,
+    fields_ptr: *const JitTaggedValue,
     arity: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
@@ -1259,7 +1400,8 @@ pub extern "C" fn rt_make_adt(
 
     // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
     // The helper assumes each pointer is non-null and points to a live Value.
-    let Some(fields) = clone_values_from_ptrs(ctx, fields_ptr, arity as usize, "adt construction")
+    let Some(fields) =
+        clone_values_from_tagged_ptrs(ctx, fields_ptr, arity as usize, "adt construction")
     else {
         return ptr::null_mut();
     };
@@ -1665,6 +1807,8 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_float", rt_make_float as *const u8),
         ("rt_make_bool", rt_make_bool as *const u8),
         ("rt_make_none", rt_make_none as *const u8),
+        ("rt_division_by_zero", rt_division_by_zero as *const u8),
+        ("rt_force_boxed", rt_force_boxed as *const u8),
         ("rt_push_gc_roots", rt_push_gc_roots as *const u8),
         ("rt_pop_gc_roots", rt_pop_gc_roots as *const u8),
         ("rt_make_empty_list", rt_make_empty_list as *const u8),
