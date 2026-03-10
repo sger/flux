@@ -13,7 +13,7 @@ use crate::syntax::{interner::Interner, program::Program};
 use crate::bytecode::compiler::Compiler;
 
 use compiler::JitCompiler;
-use context::JitContext;
+use context::{JitContext, JitTaggedValue, JIT_TAG_PTR};
 
 /// Runtime options for JIT execution.
 #[derive(Default)]
@@ -77,20 +77,23 @@ pub fn jit_compile(
 
 /// Execute a previously compiled JIT program.
 pub fn jit_execute(mut compiled: JitCompiledProgram) -> Result<(Value, JitContext), String> {
-    let result_ptr: *mut Value = unsafe {
-        let func: unsafe extern "C" fn(*mut JitContext) -> *mut Value =
+    let result: JitTaggedValue = unsafe {
+        let func: unsafe extern "C" fn(*mut JitContext) -> JitTaggedValue =
             std::mem::transmute(compiled.main_ptr);
         func(&mut compiled.ctx as *mut JitContext)
     };
 
-    if result_ptr.is_null() {
+    if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
         return Err(compiled
             .ctx
             .take_error()
             .unwrap_or_else(|| "unknown JIT error".to_string()));
     }
 
-    let result = unsafe { (*result_ptr).clone() };
+    let result = compiled
+        .ctx
+        .clone_from_tagged(result)
+        .ok_or_else(|| "unknown JIT error".to_string())?;
     Ok((result, compiled.ctx))
 }
 
