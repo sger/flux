@@ -5,6 +5,40 @@ use crate::{bytecode::op_code::OpCode, runtime::value::Value};
 use super::VM;
 
 impl VM {
+    fn adt_values_equal(&self, left: &Value, right: &Value) -> bool {
+        match (left.as_adt(&self.gc_heap), right.as_adt(&self.gc_heap)) {
+            (Some(left_adt), Some(right_adt)) => {
+                if left_adt.constructor() != right_adt.constructor() {
+                    return false;
+                }
+                let left_fields = left_adt.fields();
+                let right_fields = right_adt.fields();
+                if left_fields.len() != right_fields.len() {
+                    return false;
+                }
+                for i in 0..left_fields.len() {
+                    if !self.adt_or_value_equal(&left_fields[i], &right_fields[i]) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn adt_or_value_equal(&self, left: &Value, right: &Value) -> bool {
+        if left.type_name() == "Adt" && right.type_name() == "Adt" {
+            match (left, right) {
+                (Value::AdtUnit(l), Value::AdtUnit(r)) => l == r,
+                (Value::AdtUnit(_), _) | (_, Value::AdtUnit(_)) => false,
+                _ => self.adt_values_equal(left, right),
+            }
+        } else {
+            left == right
+        }
+    }
+
     pub(super) fn compare_values(
         &self,
         left: &Value,
@@ -22,6 +56,7 @@ impl VM {
                 (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
                 (Value::Gc(l), Value::Gc(r)) => l == r,
+                (Value::GcAdt(l), Value::GcAdt(r)) => l == r,
                 _ => false,
             };
             if ptr_eq {
@@ -110,6 +145,25 @@ impl VM {
                 OpCode::OpEqual => Ok(l == r),
                 OpCode::OpNotEqual => Ok(l != r),
                 _ => Err(format!("cannot compare Right with {:?}", opcode)),
+            },
+            (Value::AdtUnit(_), Value::AdtUnit(_))
+            | (Value::Adt(_), Value::Adt(_))
+            | (Value::GcAdt(_), Value::GcAdt(_))
+            | (Value::Adt(_), Value::GcAdt(_))
+            | (Value::GcAdt(_), Value::Adt(_)) => match opcode {
+                OpCode::OpEqual => Ok(self.adt_or_value_equal(left, right)),
+                OpCode::OpNotEqual => Ok(!self.adt_or_value_equal(left, right)),
+                _ => Err(format!("cannot compare Adt with {:?}", opcode)),
+            },
+            (Value::AdtUnit(_), _)
+            | (_, Value::AdtUnit(_))
+            | (Value::Adt(_), _)
+            | (_, Value::Adt(_))
+            | (Value::GcAdt(_), _)
+            | (_, Value::GcAdt(_)) => match opcode {
+                OpCode::OpEqual => Ok(false),
+                OpCode::OpNotEqual => Ok(true),
+                _ => Err(format!("cannot compare Adt with {:?}", opcode)),
             },
             (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => match opcode {
                 OpCode::OpEqual => Ok(false),

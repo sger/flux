@@ -187,18 +187,18 @@ Latest report:
 <!-- cfold-report:start -->
 # Constant Folding Benchmark Report
 
-- Generated: 2026-03-10 10:23:36 UTC
+- Generated: 2026-03-10 11:02:10 UTC
 - Runs: 10
 - Warmup: 2
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cfold/flux` | 74.8 ± 40.9 | 33.6 | 168.3 | 3.08 ± 1.84 |
-| `cfold/flux-jit` | 69.7 ± 33.9 | 38.6 | 153.6 | 2.87 ± 1.55 |
-| `cfold/rust` | 24.3 ± 5.7 | 15.6 | 32.8 | 1.00 |
-| `cfold/python` | 103.3 ± 47.1 | 60.2 | 229.7 | 4.26 ± 2.18 |
-| `cfold/haskell` | 36.9 ± 10.2 | 24.9 | 53.6 | 1.52 ± 0.55 |
-| `cfold/ocaml` | 35.1 ± 22.2 | 16.6 | 94.4 | 1.45 ± 0.98 |
+| `cfold/flux` | 67.6 ± 25.2 | 30.4 | 113.3 | 1.69 ± 2.15 |
+| `cfold/flux-jit` | 83.6 ± 25.4 | 38.2 | 123.7 | 2.09 ± 2.63 |
+| `cfold/rust` | 118.6 ± 55.9 | 10.8 | 179.0 | 2.97 ± 3.87 |
+| `cfold/python` | 259.8 ± 179.1 | 72.7 | 540.7 | 6.50 ± 9.10 |
+| `cfold/haskell` | 56.8 ± 35.6 | 23.0 | 127.5 | 1.42 ± 1.95 |
+| `cfold/ocaml` | 40.0 ± 48.7 | 5.2 | 152.9 | 1.00 |
 <!-- cfold-report:end -->
 
 ## Symbolic Differentiation
@@ -353,7 +353,18 @@ Latest report:
 <!-- qsort-report:start -->
 # Quicksort Benchmark Report
 
-_Run `scripts/bench.sh qsort` to generate this report._
+- Generated: 2026-03-10 10:52:37 UTC
+- Runs: 10
+- Warmup: 2
+
+| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
+|:---|---:|---:|---:|---:|
+| `qsort/flux` | 132.7 ± 37.3 | 92.5 | 193.1 | 2.44 ± 1.78 |
+| `qsort/flux-jit` | 112.2 ± 38.9 | 85.5 | 209.7 | 2.07 ± 1.56 |
+| `qsort/rust` | 169.5 ± 193.4 | 7.2 | 659.4 | 3.12 ± 4.13 |
+| `qsort/python` | 191.9 ± 79.7 | 101.1 | 364.6 | 3.53 ± 2.79 |
+| `qsort/haskell` | 122.0 ± 63.3 | 48.0 | 221.4 | 2.25 ± 1.91 |
+| `qsort/ocaml` | 54.3 ± 36.5 | 9.1 | 127.9 | 1.00 |
 <!-- qsort-report:end -->
 
 ## Red-Black Tree
@@ -430,7 +441,17 @@ Latest report:
 <!-- rbtree-report:start -->
 # Red-Black Tree Insert Benchmark Report
 
-_Run `scripts/bench.sh rbtree` to generate this report._
+- Generated: 2026-03-10 13:39:20 UTC
+- Runs: 10
+- Warmup: 2
+
+| Command | Mean [s] | Min [s] | Max [s] | Relative |
+|:---|---:|---:|---:|---:|
+| `rbtree/flux` | 4.614 ± 0.383 | 4.399 | 5.689 | 134.69 ± 21.54 |
+| `rbtree/rust` | 0.145 ± 0.013 | 0.126 | 0.167 | 4.22 ± 0.68 |
+| `rbtree/python` | 0.851 ± 0.080 | 0.717 | 1.032 | 24.83 ± 4.12 |
+| `rbtree/haskell` | 0.056 ± 0.008 | 0.047 | 0.068 | 1.65 ± 0.32 |
+| `rbtree/ocaml` | 0.034 ± 0.005 | 0.027 | 0.041 | 1.00 |
 <!-- rbtree-report:end -->
 
 ## Red-Black Tree 2

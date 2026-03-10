@@ -42,6 +42,7 @@ struct JitFunctionMeta {
     num_params: usize,
     call_abi: JitCallAbi,
     function_index: usize,
+    has_contract: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -676,6 +677,7 @@ impl JitCompiler {
                         effects,
                         interner,
                     );
+                    let has_contract = contract.is_some();
                     self.jit_functions.push(JitFunctionCompileEntry {
                         id,
                         num_params: parameters.len(),
@@ -689,6 +691,7 @@ impl JitCompiler {
                             num_params: parameters.len(),
                             call_abi,
                             function_index,
+                            has_contract,
                         },
                     );
                 }
@@ -734,6 +737,7 @@ impl JitCompiler {
                             effects,
                             interner,
                         );
+                        let has_contract = contract.is_some();
                         self.jit_functions.push(JitFunctionCompileEntry {
                             id,
                             num_params: parameters.len(),
@@ -747,6 +751,7 @@ impl JitCompiler {
                                 num_params: parameters.len(),
                                 call_abi,
                                 function_index,
+                                has_contract,
                             },
                         );
                     }
@@ -1261,6 +1266,7 @@ impl JitCompiler {
                 &[],
                 interner,
             );
+            let has_contract = contract.is_some();
             self.jit_functions.push(JitFunctionCompileEntry {
                 id,
                 num_params: spec.parameters.len(),
@@ -1274,6 +1280,7 @@ impl JitCompiler {
                     num_params: spec.parameters.len(),
                     call_abi,
                     function_index,
+                    has_contract,
                 },
             );
             scope
@@ -2336,25 +2343,95 @@ fn compile_expression(
                     ));
                 }
 
-                let n = arg_vals.len();
-                let slot = builder.create_sized_stack_slot(StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (n as u32).max(1) * 8,
-                    3,
-                ));
+                emit_push_gc_roots(module, helpers, builder, ctx_val, &arg_vals);
 
-                for (i, value) in arg_vals.iter().enumerate() {
-                    builder.ins().stack_store(*value, slot, (i * 8) as i32);
-                }
-
-                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
-                let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
-                let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
-
-                let call = builder.ins().call(
-                    make_adt,
-                    &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
-                );
+                // Use specialized helpers for arity 1-5 to avoid stack-slot + loop overhead.
+                let call = match arity {
+                    1 => {
+                        let make_adt1 =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt1");
+                        builder
+                            .ins()
+                            .call(make_adt1, &[ctx_val, name_ptr, name_len, arg_vals[0]])
+                    }
+                    2 => {
+                        let make_adt2 =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt2");
+                        builder.ins().call(
+                            make_adt2,
+                            &[ctx_val, name_ptr, name_len, arg_vals[0], arg_vals[1]],
+                        )
+                    }
+                    3 => {
+                        let make_adt3 =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt3");
+                        builder.ins().call(
+                            make_adt3,
+                            &[
+                                ctx_val,
+                                name_ptr,
+                                name_len,
+                                arg_vals[0],
+                                arg_vals[1],
+                                arg_vals[2],
+                            ],
+                        )
+                    }
+                    4 => {
+                        let make_adt4 =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt4");
+                        builder.ins().call(
+                            make_adt4,
+                            &[
+                                ctx_val,
+                                name_ptr,
+                                name_len,
+                                arg_vals[0],
+                                arg_vals[1],
+                                arg_vals[2],
+                                arg_vals[3],
+                            ],
+                        )
+                    }
+                    5 => {
+                        let make_adt5 =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt5");
+                        builder.ins().call(
+                            make_adt5,
+                            &[
+                                ctx_val,
+                                name_ptr,
+                                name_len,
+                                arg_vals[0],
+                                arg_vals[1],
+                                arg_vals[2],
+                                arg_vals[3],
+                                arg_vals[4],
+                            ],
+                        )
+                    }
+                    _ => {
+                        // Fallback for arity 0 and arity >= 6: use generic rt_make_adt.
+                        let n = arg_vals.len();
+                        let slot = builder.create_sized_stack_slot(StackSlotData::new(
+                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                            (n as u32).max(1) * 8,
+                            3,
+                        ));
+                        for (i, value) in arg_vals.iter().enumerate() {
+                            builder.ins().stack_store(*value, slot, (i * 8) as i32);
+                        }
+                        let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                        let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
+                        let make_adt =
+                            get_helper_func_ref(module, helpers, builder, "rt_make_adt");
+                        builder.ins().call(
+                            make_adt,
+                            &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
+                        )
+                    }
+                };
+                emit_pop_gc_roots(module, helpers, builder, ctx_val);
 
                 return Ok(JitValue::boxed(builder.inst_results(call)[0]));
             }
@@ -4308,6 +4385,56 @@ fn compile_user_function_call(
 
     let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
     let zero = builder.ins().iconst(PTR_TYPE, 0);
+
+    // Fast path: skip all contract checks for unannotated JIT-to-JIT calls.
+    // HM inference already proved type correctness; runtime re-checking is redundant.
+    if !meta.has_contract {
+        let callee_ref = module.declare_func_in_func(meta.id, builder.func);
+        let call = match meta.call_abi {
+            JitCallAbi::Array => {
+                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                    (nargs as u32).max(1) * 8,
+                    3,
+                ));
+                for (i, val) in arg_vals.iter().enumerate() {
+                    builder.ins().stack_store(*val, slot, (i * 8) as i32);
+                }
+                let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+                builder
+                    .ins()
+                    .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
+            }
+            JitCallAbi::Reg1 => builder
+                .ins()
+                .call(callee_ref, &[ctx_val, arg_vals[0], null_ptr, zero]),
+            JitCallAbi::Reg2 => builder.ins().call(
+                callee_ref,
+                &[ctx_val, arg_vals[0], arg_vals[1], null_ptr, zero],
+            ),
+            JitCallAbi::Reg3 => builder.ins().call(
+                callee_ref,
+                &[ctx_val, arg_vals[0], arg_vals[1], arg_vals[2], null_ptr, zero],
+            ),
+            JitCallAbi::Reg4 => builder.ins().call(
+                callee_ref,
+                &[
+                    ctx_val,
+                    arg_vals[0],
+                    arg_vals[1],
+                    arg_vals[2],
+                    arg_vals[3],
+                    null_ptr,
+                    zero,
+                ],
+            ),
+        };
+        let raw_result = builder.inst_results(call)[0];
+        emit_return_on_null_value(builder, raw_result);
+        return Ok(JitValue::boxed(raw_result));
+    }
+
     let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
     let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
     let start_col_val = builder
@@ -4675,6 +4802,37 @@ fn get_helper_func_ref(
 ) -> cranelift_codegen::ir::FuncRef {
     let func_id = helpers.ids[name];
     module.declare_func_in_func(func_id, builder.func)
+}
+
+fn emit_push_gc_roots(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    roots: &[CraneliftValue],
+) {
+    let push = get_helper_func_ref(module, helpers, builder, "rt_push_gc_roots");
+    let len = builder.ins().iconst(PTR_TYPE, roots.len() as i64);
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (roots.len() as u32).max(1) * 8,
+        3,
+    ));
+    for (i, value) in roots.iter().enumerate() {
+        builder.ins().stack_store(*value, slot, (i * 8) as i32);
+    }
+    let roots_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    builder.ins().call(push, &[ctx_val, roots_ptr, len]);
+}
+
+fn emit_pop_gc_roots(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+) {
+    let pop = get_helper_func_ref(module, helpers, builder, "rt_pop_gc_roots");
+    builder.ins().call(pop, &[ctx_val]);
 }
 
 fn register_base_functions(scope: &mut Scope, interner: &Interner) {
@@ -5244,6 +5402,20 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             },
         ),
         (
+            "rt_push_gc_roots",
+            HelperSig {
+                num_params: 3,
+                has_return: false,
+            },
+        ),
+        (
+            "rt_pop_gc_roots",
+            HelperSig {
+                num_params: 1,
+                has_return: false,
+            },
+        ),
+        (
             "rt_make_empty_list",
             HelperSig {
                 num_params: 1,
@@ -5630,6 +5802,46 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt",
             HelperSig {
                 num_params: 5,
+                has_return: true,
+            },
+        ),
+        // rt_make_adt1(ctx, constructor_ptr, constructor_len, f0) -> *mut Value
+        (
+            "rt_make_adt1",
+            HelperSig {
+                num_params: 4,
+                has_return: true,
+            },
+        ),
+        // rt_make_adt2(ctx, constructor_ptr, constructor_len, f0, f1) -> *mut Value
+        (
+            "rt_make_adt2",
+            HelperSig {
+                num_params: 5,
+                has_return: true,
+            },
+        ),
+        // rt_make_adt3(ctx, constructor_ptr, constructor_len, f0, f1, f2) -> *mut Value
+        (
+            "rt_make_adt3",
+            HelperSig {
+                num_params: 6,
+                has_return: true,
+            },
+        ),
+        // rt_make_adt4(ctx, constructor_ptr, constructor_len, f0, f1, f2, f3) -> *mut Value
+        (
+            "rt_make_adt4",
+            HelperSig {
+                num_params: 7,
+                has_return: true,
+            },
+        ),
+        // rt_make_adt5(ctx, constructor_ptr, constructor_len, f0, f1, f2, f3, f4) -> *mut Value
+        (
+            "rt_make_adt5",
+            HelperSig {
+                num_params: 8,
                 has_return: true,
             },
         ),

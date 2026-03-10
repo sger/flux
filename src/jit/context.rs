@@ -91,6 +91,9 @@ pub struct JitContext {
     pub error: Option<String>,
     /// Active effect handlers pushed by `rt_push_handler` / popped by `rt_pop_handler`.
     pub handler_stack: Vec<JitHandlerFrame>,
+    /// Explicit GC shadow roots pushed around helper safepoints.
+    pub shadow_roots: Vec<*mut Value>,
+    pub shadow_frames: Vec<usize>,
     /// Function index of the JIT-compiled identity closure used as the `resume`
     /// value passed to handler arms (shallow handlers: resume returns its argument).
     pub identity_fn_index: usize,
@@ -309,6 +312,8 @@ impl JitContext {
             source_text: None,
             error: None,
             handler_stack: Vec::new(),
+            shadow_roots: Vec::new(),
+            shadow_frames: Vec::new(),
             identity_fn_index: usize::MAX,
         }
     }
@@ -334,6 +339,39 @@ impl JitContext {
     pub fn set_source_context(&mut self, file: Option<String>, source: Option<String>) {
         self.source_file = file;
         self.source_text = source;
+    }
+
+    pub fn push_gc_roots(&mut self, ptrs: &[*mut Value]) {
+        self.shadow_frames.push(self.shadow_roots.len());
+        self.shadow_roots.extend_from_slice(ptrs);
+    }
+
+    pub fn pop_gc_roots(&mut self) {
+        if let Some(start) = self.shadow_frames.pop() {
+            self.shadow_roots.truncate(start);
+        }
+    }
+
+    pub fn collect_gc(&mut self) {
+        let mut roots: Vec<Value> = Vec::with_capacity(
+            self.shadow_roots.len()
+                + self.globals.len()
+                + self.constants.len()
+                + self.handler_stack.len(),
+        );
+        for ptr in &self.shadow_roots {
+            if let Some(value) = unsafe { ptr.as_ref() } {
+                roots.push(value.clone());
+            }
+        }
+        roots.extend(self.globals.iter().cloned());
+        roots.extend(self.constants.iter().cloned());
+        for frame in &self.handler_stack {
+            for arm in &frame.arms {
+                roots.push(arm.closure.clone());
+            }
+        }
+        self.gc_heap.collect_roots(roots.iter());
     }
 }
 
@@ -573,5 +611,44 @@ impl RuntimeContext for JitContext {
             Value::Closure(closure) => closure.function.contract.as_ref(),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use super::JitContext;
+    use crate::runtime::{
+        gc::heap_object::HeapObject,
+        value::{AdtFields, Value},
+    };
+
+    #[test]
+    fn collect_gc_preserves_shadow_rooted_gc_adt() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::from("Node"),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+        ctx.push_gc_roots(&[root]);
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(unsafe { &*root }.adt_constructor(&ctx.gc_heap), Some("Node"));
+
+        ctx.pop_gc_roots();
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 0);
     }
 }

@@ -34,6 +34,13 @@ pub(super) fn base_len_borrowed(
             HeapObject::HamtNode { .. } | HeapObject::HamtCollision { .. } => {
                 Ok(Value::Integer(hamt_len(ctx.gc_heap(), *h) as i64))
             }
+            HeapObject::Adt { .. } => Err(type_error(
+                "len",
+                "argument",
+                "String, Array, Tuple, List, or Map",
+                "Adt",
+                "len(value)",
+            )),
         },
         other => Err(type_error(
             "len",
