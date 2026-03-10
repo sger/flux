@@ -102,6 +102,38 @@ pub enum OpCode {
     /// Pops `arity` arguments from the stack, searches handler_stack for a matching handler,
     /// captures a continuation, and calls the matching handler arm.
     OpPerform = 69,
+    /// Call the current frame's closure directly with `arity` arguments.
+    /// Unlike `OpCall`, no callee value is read from the stack.
+    OpCallSelf = 70,
+    /// Consume local 0 by moving it out of the current frame slot.
+    OpConsumeLocal0 = 71,
+    /// Consume local 1 by moving it out of the current frame slot.
+    OpConsumeLocal1 = 72,
+    /// Compare top two stack values with `==` and jump if the result is falsy.
+    OpCmpEqJumpNotTruthy = 73,
+    /// Compare top two stack values with `!=` and jump if the result is falsy.
+    OpCmpNeJumpNotTruthy = 74,
+    /// Compare top two stack values with `>` and jump if the result is falsy.
+    OpCmpGtJumpNotTruthy = 75,
+    /// Compare top two stack values with `<=` and jump if the result is falsy.
+    OpCmpLeJumpNotTruthy = 76,
+    /// Compare top two stack values with `>=` and jump if the result is falsy.
+    OpCmpGeJumpNotTruthy = 77,
+    /// Peek at TOS; if it is a `Value::Adt` or `Value::AdtUnit` with a matching constructor,
+    /// fall through (ADT stays on stack). Otherwise jump to `jump_offset` (ADT stays on stack).
+    /// Operands: `[const_idx: u16, jump_offset: u16]`.
+    /// `constants[const_idx]` must be a `Value::String` containing the constructor name.
+    OpIsAdtJump = 78,
+    /// Pop TOS (must be `Value::Adt` with exactly 2 fields), push `fields[0]` then `fields[1]`.
+    /// No operands.
+    OpAdtFields2 = 79,
+    /// Peek at a local slot (no stack push); if it is a matching ADT constructor, fall through.
+    /// Otherwise jump to `jump_offset`. The local slot is always left unchanged — the matching
+    /// arm must follow with `OpConsumeLocal` to move the value onto the stack before field
+    /// extraction, keeping `Rc` strong_count == 1 so that `Rc::try_unwrap` succeeds in
+    /// `OpAdtFields2` / `OpAdtField`.
+    /// Operands: `[local_idx: u8, const_idx: u16, jump_offset: u16]`.
+    OpIsAdtJumpLocal = 80,
 }
 
 impl From<u8> for OpCode {
@@ -177,6 +209,17 @@ impl From<u8> for OpCode {
             67 => OpCode::OpHandle,
             68 => OpCode::OpEndHandle,
             69 => OpCode::OpPerform,
+            70 => OpCode::OpCallSelf,
+            71 => OpCode::OpConsumeLocal0,
+            72 => OpCode::OpConsumeLocal1,
+            73 => OpCode::OpCmpEqJumpNotTruthy,
+            74 => OpCode::OpCmpNeJumpNotTruthy,
+            75 => OpCode::OpCmpGtJumpNotTruthy,
+            76 => OpCode::OpCmpLeJumpNotTruthy,
+            77 => OpCode::OpCmpGeJumpNotTruthy,
+            78 => OpCode::OpIsAdtJump,
+            79 => OpCode::OpAdtFields2,
+            80 => OpCode::OpIsAdtJumpLocal,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -194,6 +237,11 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpJump
         | OpCode::OpJumpNotTruthy
         | OpCode::OpJumpTruthy
+        | OpCode::OpCmpEqJumpNotTruthy
+        | OpCode::OpCmpNeJumpNotTruthy
+        | OpCode::OpCmpGtJumpNotTruthy
+        | OpCode::OpCmpLeJumpNotTruthy
+        | OpCode::OpCmpGeJumpNotTruthy
         | OpCode::OpGetGlobal
         | OpCode::OpSetGlobal
         | OpCode::OpArray
@@ -206,6 +254,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpConsumeLocal
         | OpCode::OpSetLocal
         | OpCode::OpCall
+        | OpCode::OpCallSelf
         | OpCode::OpTailCall
         | OpCode::OpGetFree
         | OpCode::OpGetBase
@@ -218,10 +267,14 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpMakeAdt => vec![2, 1], // const_idx: u16, arity: u8
         OpCode::OpIsAdt => vec![2],      // const_idx: u16
         OpCode::OpAdtField => vec![1],   // field_idx: u8
+        OpCode::OpIsAdtJump => vec![2, 2], // const_idx: u16, jump_offset: u16
+        OpCode::OpIsAdtJumpLocal => vec![1, 2, 2], // local_idx: u8, const_idx: u16, jump_offset: u16
+        // OpAdtFields2: no operands, covered by _ => vec![]
         // Effect handler opcodes
         OpCode::OpHandle => vec![1],     // const_idx: u8
         OpCode::OpEndHandle => vec![],   // no operands
         OpCode::OpPerform => vec![1, 1], // const_idx: u8, arity: u8
+        OpCode::OpConsumeLocal0 | OpCode::OpConsumeLocal1 => vec![],
         _ => vec![],
     }
 }

@@ -1,0 +1,108 @@
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+let limit = 100000
+
+fn count_true(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, left, _, value, right) ->
+            count_true(left) + (if value { 1 } else { 0 }) + count_true(right),
+    }
+}
+
+fn is_red(tree: Tree) -> Bool {
+    match tree {
+        Node(Red, _, _, _, _) -> true,
+        _ -> false,
+    }
+}
+
+fn balance1(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, Node(Red, l, kx, vx, r1), ky, vy, r2) ->
+                Node(Red, Node(Black, l, kx, vx, r1), ky, vy, Node(Black, r2, kv, vv, tail)),
+            Node(_, l1, ky, vy, Node(Red, l2, kx, vx, r)) ->
+                Node(Red, Node(Black, l1, ky, vy, l2), kx, vx, Node(Black, r, kv, vv, tail)),
+            Node(_, l, ky, vy, r) ->
+                Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, tree0, kv, vv, _) -> match right_tree {
+            Node(_, Node(Red, l, kx1, vx1, r1), ky, vy, r2) ->
+                Node(Red, Node(Black, tree0, kv, vv, l), kx1, vx1, Node(Black, r1, ky, vy, r2)),
+            Node(_, l1, ky, vy, Node(Red, l2, kx2, vx2, r2)) ->
+                Node(Red, Node(Black, tree0, kv, vv, l1), ky, vy, Node(Black, l2, kx2, vx2, r2)),
+            Node(_, l, ky, vy, r) ->
+                Node(Black, tree0, kv, vv, Node(Red, l, ky, vy, r)),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn ins(tree: Tree, kx: Int, vx: Bool) -> Tree {
+    match tree {
+        Leaf -> Node(Red, Leaf, kx, vx, Leaf),
+        Node(Red, a, ky, vy, b) ->
+            if kx < ky {
+                Node(Red, ins(a, kx, vx), ky, vy, b)
+            } else if ky < kx {
+                Node(Red, a, ky, vy, ins(b, kx, vx))
+            } else {
+                Node(Red, a, kx, vx, b)
+            },
+        Node(Black, a, ky, vy, b) ->
+            if kx < ky {
+                if is_red(a) {
+                    balance1(Node(Black, Leaf, ky, vy, b), ins(a, kx, vx))
+                } else {
+                    Node(Black, ins(a, kx, vx), ky, vy, b)
+                }
+            } else if ky < kx {
+                if is_red(b) {
+                    balance2(Node(Black, a, ky, vy, Leaf), ins(b, kx, vx))
+                } else {
+                    Node(Black, a, ky, vy, ins(b, kx, vx))
+                }
+            } else {
+                Node(Black, a, kx, vx, b)
+            },
+    }
+}
+
+fn set_black(tree: Tree) -> Tree {
+    match tree {
+        Node(_, left, key, value, right) -> Node(Black, left, key, value, right),
+        other -> other,
+    }
+}
+
+fn insert(tree: Tree, key: Int, value: Bool) -> Tree {
+    if is_red(tree) {
+        set_black(ins(tree, key, value))
+    } else {
+        ins(tree, key, value)
+    }
+}
+
+fn mk_map_aux(n: Int, tree: Tree) -> Tree {
+    if n == 0 {
+        tree
+    } else {
+        let n1 = n - 1
+        let next = insert(tree, n1, n1 % 10 == 0)
+        mk_map_aux(n1, next)
+    }
+}
+
+fn main() with IO {
+    print("#{count_true(mk_map_aux(limit, Leaf))}")
+}

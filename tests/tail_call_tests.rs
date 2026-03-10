@@ -112,6 +112,11 @@ fn test_non_tail_recursion_still_works() {
 
     let result = run(input);
     assert_eq!(result, Value::Integer(55));
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 1);
+    assert!(asm.contains("OpCallSelf"), "expected OpCallSelf:\n{asm}");
+    assert!(!asm.contains("OpTailCall"), "unexpected tail call:\n{asm}");
 }
 
 #[test]
@@ -134,6 +139,26 @@ fn test_tail_call_in_if_branches() {
 
     let result = run(input);
     assert_eq!(result, Value::String("even".into()));
+}
+
+#[test]
+fn test_indirect_self_call_stays_generic_call() {
+    let input = r#"
+        fn recur(n) {
+            let f = recur;
+            if n <= 1 {
+                n
+            } else {
+                f(n - 1)
+            }
+        }
+        recur(3);
+    "#;
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 1);
+    assert!(!asm.contains("OpCallSelf"), "unexpected OpCallSelf:\n{asm}");
+    assert!(asm.contains("OpCall 1"), "expected generic call:\n{asm}");
 }
 
 #[test]
@@ -318,7 +343,7 @@ fn test_phase2_does_not_consume_captured_accumulator_parameter() {
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 2);
     assert!(
-        !asm.contains("OpConsumeLocal"),
+        !asm.contains("OpConsumeLocal1"),
         "unexpected consume:\n{asm}"
     );
     assert!(asm.contains("OpGetLocal"));
@@ -341,6 +366,66 @@ fn test_phase2_still_consumes_when_nested_function_does_not_capture_accumulator(
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 2);
     assert!(asm.contains("OpConsumeLocal"), "missing consume:\n{asm}");
+}
+
+#[test]
+fn test_block_level_consumes_unique_local_read() {
+    let input = r#"
+        fn use_once(x) {
+            let y = x + 1;
+            y
+        }
+        use_once(2);
+    "#;
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 1);
+    assert!(
+        asm.contains("OpConsumeLocal0") || asm.contains("OpConsumeLocal"),
+        "missing consume:\n{asm}"
+    );
+}
+
+#[test]
+fn test_block_level_does_not_consume_repeated_local_reads() {
+    let input = r#"
+        fn use_twice(x) {
+            x + x
+        }
+        use_twice(2);
+    "#;
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 1);
+    assert!(
+        !asm.contains("OpConsumeLocal"),
+        "unexpected consume:\n{asm}"
+    );
+    assert!(
+        asm.contains("OpGetLocal0"),
+        "missing ordinary local read:\n{asm}"
+    );
+}
+
+#[test]
+fn test_block_level_fuses_consumed_return_local() {
+    let input = r#"
+        fn echo(x) {
+            x
+        }
+        echo(2);
+    "#;
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 1);
+    assert!(
+        asm.contains("OpReturnLocal 0"),
+        "missing fused return:\n{asm}"
+    );
+    assert!(
+        !asm.contains("OpConsumeLocal"),
+        "unexpected standalone consume:\n{asm}"
+    );
 }
 
 #[test]

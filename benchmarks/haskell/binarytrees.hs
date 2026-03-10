@@ -1,11 +1,3 @@
---
--- The Computer Language Benchmarks Game
--- https://salsa.debian.org/benchmarksgame-team/benchmarksgame/
---
--- Contributed by Don Stewart
--- Basic parallelization by Roman Kashitsyn
--- Tail call optimizations by Izaak Weiss
---
 {-# LANGUAGE BangPatterns #-}
 
 import Data.Bits

@@ -291,6 +291,9 @@ impl GcHeap {
                             i += 1;
                         }
                     }
+                    Value::AdtUnit(_) => {
+                        // No fields to trace.
+                    }
                     Value::Continuation(cont_rc) => {
                         let cont = cont_rc.borrow();
                         // Trace captured stack values

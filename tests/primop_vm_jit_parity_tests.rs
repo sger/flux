@@ -170,8 +170,12 @@ fn jit_primop_type_errors_render_e1004_diagnostics() {
             "expected primop-specific detail for `{input}`; got:\n{jit_err}"
         );
         assert!(
-            !jit_err.trim().eq("primop array_len expected Array, got Int")
-                && !jit_err.trim().eq("primop string_len expected String, got Int"),
+            !jit_err
+                .trim()
+                .eq("primop array_len expected Array, got Int")
+                && !jit_err
+                    .trim()
+                    .eq("primop string_len expected String, got Int"),
             "expected formatted diagnostic instead of raw helper string for `{input}`; got:\n{jit_err}"
         );
     }

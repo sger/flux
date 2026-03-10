@@ -24,7 +24,7 @@ use crate::runtime::{
         heap_object::HeapObject,
     },
     jit_closure::JitClosure,
-    value::{AdtValue, Value},
+    value::{AdtFields, AdtValue, Value},
 };
 
 use super::context::JitContext;
@@ -36,6 +36,46 @@ use super::context::JitContext;
 /// Safely dereference a JitContext pointer. Returns None if null.
 unsafe fn ctx_ref<'a>(ctx: *mut JitContext) -> &'a mut JitContext {
     unsafe { &mut *ctx }
+}
+
+fn clone_value_arg(
+    ctx: &mut JitContext,
+    value: *mut Value,
+    label: &str,
+    index: usize,
+) -> Option<Value> {
+    match unsafe { value.as_ref() } {
+        Some(value) => Some(value.clone()),
+        None => {
+            ctx.error = Some(format!("{label} received null value pointer at index {index}"));
+            None
+        }
+    }
+}
+
+fn clone_values_from_ptrs(
+    ctx: &mut JitContext,
+    values_ptr: *const *mut Value,
+    len: usize,
+    label: &str,
+) -> Option<Vec<Value>> {
+    let mut values = Vec::with_capacity(len);
+    for i in 0..len {
+        let value_ptr = unsafe { *values_ptr.add(i) };
+        values.push(clone_value_arg(ctx, value_ptr, label, i)?);
+    }
+    Some(values)
+}
+
+// ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
+
+/// Lightweight helper for inline div/mod: sets "division by zero" error on
+/// the JIT context. The JIT emits a null return immediately after this call.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_division_by_zero(ctx: *mut JitContext) {
+    unsafe { ctx_ref(ctx) }.error = Some("division by zero".to_string());
 }
 
 // ---------------------------------------------------------------------------
@@ -87,11 +127,14 @@ pub extern "C" fn rt_make_jit_closure(
     captures_ptr: *const *mut Value,
     ncaptures: i64,
 ) -> *mut Value {
-    let captures: Vec<Value> = (0..ncaptures as usize)
-        .map(|i| unsafe { (*captures_ptr.add(i)).as_ref().unwrap().clone() })
-        .collect();
+    let ctx = unsafe { ctx_ref(ctx) };
+    let Some(captures) =
+        clone_values_from_ptrs(ctx, captures_ptr, ncaptures as usize, "jit closure construction")
+    else {
+        return ptr::null_mut();
+    };
     let closure = JitClosure::new(function_index as usize, captures);
-    unsafe { ctx_ref(ctx) }.alloc(Value::JitClosure(Rc::new(closure)))
+    ctx.alloc(Value::JitClosure(Rc::new(closure)))
 }
 
 #[unsafe(no_mangle)]
@@ -453,26 +496,27 @@ pub extern "C" fn rt_call_base_function(
     end_column: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let base_fn = match get_base_function_by_index(base_fn_index as usize) {
-        Some(b) => b,
+    match get_base_function_by_index(base_fn_index as usize) {
+        Some(_) => {}
         None => {
             ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
             return ptr::null_mut();
         }
-    };
+    }
 
-    // Collect arguments from pointer array
-    let mut args: Vec<Value> = Vec::with_capacity(nargs as usize);
+    // Collect borrowed arguments from the pointer array. Borrow-capable Base
+    // functions can use them directly; owned-only ones fall back to cloning.
+    let mut args: Vec<&Value> = Vec::with_capacity(nargs as usize);
     for i in 0..nargs as usize {
         let arg_ptr = unsafe { *args_ptr.add(i) };
         if arg_ptr.is_null() {
             ctx.error = Some(format!("base function arg {} evaluated to null", i));
             return ptr::null_mut();
         }
-        args.push(unsafe { (*arg_ptr).clone() });
+        args.push(unsafe { &*arg_ptr });
     }
 
-    match (base_fn.func)(ctx, args) {
+    match ctx.invoke_base_function_borrowed(base_fn_index as usize, &args) {
         Ok(result) => ctx.alloc(result),
         Err(msg) => {
             ctx.error = Some(ctx.render_runtime_error_from_string(
@@ -633,6 +677,132 @@ pub extern "C" fn rt_check_jit_contract_call(
         }
     }
     1
+}
+
+fn check_jit_contract_call_args(
+    ctx: &mut JitContext,
+    function_index: usize,
+    args: &[*mut Value],
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) -> i64 {
+    for (i, arg_ptr) in args.iter().copied().enumerate() {
+        if arg_ptr.is_null() {
+            ctx.error = Some(format!("call arg {} evaluated to null", i));
+            return 0;
+        }
+        let arg = unsafe { &*arg_ptr };
+        if let Err((expected, actual)) = ctx.check_contract_arg(function_index, i, arg) {
+            let preview = arg.to_string();
+            ctx.error = Some(ctx.render_runtime_type_error_at(
+                &expected,
+                &actual,
+                Some(&preview),
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+            ));
+            return 0;
+        }
+    }
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call1(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call2(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call3(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    arg2: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1, arg2],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_check_jit_contract_call4(
+    ctx: *mut JitContext,
+    function_index: i64,
+    arg0: *mut Value,
+    arg1: *mut Value,
+    arg2: *mut Value,
+    arg3: *mut Value,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> i64 {
+    let ctx = unsafe { ctx_ref(ctx) };
+    check_jit_contract_call_args(
+        ctx,
+        function_index as usize,
+        &[arg0, arg1, arg2, arg3],
+        start_line as usize,
+        start_column as usize,
+        end_line as usize,
+        end_column as usize,
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -799,11 +969,10 @@ pub extern "C" fn rt_make_array(
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let mut elements = Vec::with_capacity(len as usize);
-    for i in 0..len as usize {
-        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
-        elements.push(elem);
-    }
+    let Some(elements) = clone_values_from_ptrs(ctx, elements_ptr, len as usize, "array construction")
+    else {
+        return ptr::null_mut();
+    };
     ctx.alloc(Value::Array(Rc::new(elements)))
 }
 
@@ -814,11 +983,10 @@ pub extern "C" fn rt_make_tuple(
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
-    let mut elements = Vec::with_capacity(len as usize);
-    for i in 0..len as usize {
-        let elem = unsafe { (*elements_ptr.add(i)).as_ref().unwrap().clone() };
-        elements.push(elem);
-    }
+    let Some(elements) = clone_values_from_ptrs(ctx, elements_ptr, len as usize, "tuple construction")
+    else {
+        return ptr::null_mut();
+    };
     ctx.alloc(Value::Tuple(Rc::new(elements)))
 }
 
@@ -831,8 +999,17 @@ pub extern "C" fn rt_make_hash(
     let ctx = unsafe { ctx_ref(ctx) };
     let mut root = hamt_empty(&mut ctx.gc_heap);
     for i in 0..npairs as usize {
-        let key = unsafe { (*pairs_ptr.add(i * 2)).as_ref().unwrap().clone() };
-        let value = unsafe { (*pairs_ptr.add(i * 2 + 1)).as_ref().unwrap().clone() };
+        let Some(key) = clone_value_arg(ctx, unsafe { *pairs_ptr.add(i * 2) }, "hash construction", i * 2) else {
+            return ptr::null_mut();
+        };
+        let Some(value) = clone_value_arg(
+            ctx,
+            unsafe { *pairs_ptr.add(i * 2 + 1) },
+            "hash construction",
+            i * 2 + 1,
+        ) else {
+            return ptr::null_mut();
+        };
         let hash_key = match key.to_hash_key() {
             Some(k) => k,
             None => {
@@ -1005,6 +1182,7 @@ pub extern "C" fn rt_make_adt(
     fields_ptr: *const *mut Value,
     arity: i64,
 ) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
     // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
     let constructor: Rc<str> = {
         let s = unsafe {
@@ -1015,15 +1193,21 @@ pub extern "C" fn rt_make_adt(
 
     // Fields arrive as raw `*mut Value` pointers; clone into owned runtime values.
     // The helper assumes each pointer is non-null and points to a live Value.
-    let fields: Vec<Value> = (0..arity as usize)
-        .map(|i| unsafe { (*fields_ptr.add(i)).as_ref().unwrap().clone() })
-        .collect();
+    let Some(fields) = clone_values_from_ptrs(ctx, fields_ptr, arity as usize, "adt construction")
+    else {
+        return ptr::null_mut();
+    };
 
     // Allocate ADT object in the JIT context arena and return the boxed runtime pointer.
-    unsafe { ctx_ref(ctx) }.alloc(Value::Adt(Rc::new(AdtValue {
-        constructor,
-        fields,
-    })))
+    // Nullary constructors use the lighter `AdtUnit` representation.
+    if fields.is_empty() {
+        ctx.alloc(Value::AdtUnit(constructor))
+    } else {
+        ctx.alloc(Value::Adt(Rc::new(AdtValue {
+            constructor,
+            fields: AdtFields::from_vec(fields),
+        })))
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1047,6 +1231,13 @@ pub extern "C" fn rt_is_adt_constructor(
         Value::Adt(adt) => {
             // Constructor comparison is a tag-name equality check.
             if adt.constructor.as_ref() == expected {
+                1
+            } else {
+                0
+            }
+        }
+        Value::AdtUnit(name) => {
+            if name.as_ref() == expected {
                 1
             } else {
                 0
@@ -1088,6 +1279,13 @@ pub extern "C" fn rt_adt_field(
                 ));
                 ptr::null_mut()
             }
+        }
+        Value::AdtUnit(name) => {
+            ctx.error = Some(format!(
+                "adt field index {} out of bounds (AdtUnit '{}' has 0 fields)",
+                field_idx, name
+            ));
+            ptr::null_mut()
         }
         _ => {
             // Accessing fields on non-ADT values is a type error.
@@ -1301,6 +1499,22 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         (
             "rt_check_jit_contract_call",
             rt_check_jit_contract_call as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call1",
+            rt_check_jit_contract_call1 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call2",
+            rt_check_jit_contract_call2 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call3",
+            rt_check_jit_contract_call3 as *const u8,
+        ),
+        (
+            "rt_check_jit_contract_call4",
+            rt_check_jit_contract_call4 as *const u8,
         ),
         (
             "rt_check_jit_contract_return",

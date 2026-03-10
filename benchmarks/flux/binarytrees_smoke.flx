@@ -1,8 +1,3 @@
-// Binary Trees smoke benchmark.
-//
-// Same implementation as binarytrees.flx, but with a smaller fixed `n` so the
-// VM/JIT benchmark loop completes quickly enough for interactive timing runs.
-
 type Tree = Node(Tree, Tree) | Tip
 
 fn max_int(a: Int, b: Int) -> Int {

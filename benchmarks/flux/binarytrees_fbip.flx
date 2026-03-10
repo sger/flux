@@ -1,9 +1,3 @@
-// Binary Trees benchmark translated from the Koka benchmark-game variant.
-//
-// Flux does not currently expose command-line args or task/await primitives in
-// user programs, so this version keeps the builder/visitor structure from the
-// Koka source but runs sequentially with a fixed `n`.
-
 type Tree = Node(Tree, Tree) | Tip
 
 type Builder = Top | BuildRight(Int, Builder) | BuildNode(Tree, Builder)

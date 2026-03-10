@@ -801,6 +801,14 @@ mod tests {
             Err("invoke_value is not used by these primop tests".to_string())
         }
 
+        fn invoke_base_function_borrowed(
+            &mut self,
+            _base_fn_index: usize,
+            _args: &[&Value],
+        ) -> Result<Value, String> {
+            Err("borrowed base dispatch is not used by these primop tests".to_string())
+        }
+
         fn gc_heap(&self) -> &GcHeap {
             &self.heap
         }

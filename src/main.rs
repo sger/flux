@@ -8,6 +8,11 @@ use std::{
 };
 
 #[cfg(feature = "jit")]
+use flux::diagnostics::{
+    ErrorType,
+    position::{Position, Span},
+};
+#[cfg(feature = "jit")]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -32,11 +37,6 @@ use flux::{
         formatter::format_source, interner::Interner, lexer::Lexer, linter::Linter,
         module_graph::ModuleGraph, parser::Parser,
     },
-};
-#[cfg(feature = "jit")]
-use flux::diagnostics::{
-    ErrorType,
-    position::{Position, Span},
 };
 #[cfg(feature = "jit")]
 use flux::{

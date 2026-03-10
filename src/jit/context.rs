@@ -12,6 +12,49 @@ use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JitCallAbi {
+    Array,
+    Reg1,
+    Reg2,
+    Reg3,
+    Reg4,
+}
+
+impl JitCallAbi {
+    pub fn from_arity(arity: usize) -> Self {
+        match arity {
+            1 => Self::Reg1,
+            2 => Self::Reg2,
+            3 => Self::Reg3,
+            4 => Self::Reg4,
+            _ => Self::Array,
+        }
+    }
+
+    pub fn uses_array_args(self) -> bool {
+        matches!(self, Self::Array)
+    }
+
+    pub fn direct_arg_count(self) -> usize {
+        match self {
+            Self::Array => 0,
+            Self::Reg1 => 1,
+            Self::Reg2 => 2,
+            Self::Reg3 => 3,
+            Self::Reg4 => 4,
+        }
+    }
+
+    pub fn captures_param_index(self) -> usize {
+        1 + self.direct_arg_count() + usize::from(self.uses_array_args()) * 2
+    }
+
+    pub fn ncaptures_param_index(self) -> usize {
+        self.captures_param_index() + 1
+    }
+}
+
 /// A single arm of a JIT handler: maps an effect operation symbol ID to its arm closure.
 #[derive(Clone)]
 pub struct JitHandlerArm {
@@ -57,6 +100,7 @@ pub struct JitContext {
 pub struct JitFunctionEntry {
     pub ptr: *const u8,
     pub num_params: usize,
+    pub call_abi: JitCallAbi,
     pub contract: Option<FunctionContract>,
 }
 
@@ -341,7 +385,7 @@ impl RuntimeContext for JitContext {
             Value::BaseFunction(idx) => {
                 let base = get_base_function_by_index(idx as usize)
                     .ok_or_else(|| format!("unknown Base function index: {}", idx))?;
-                (base.func)(self, args)
+                base.call_owned(self, args)
             }
             Value::JitClosure(closure) => {
                 let entry = self
@@ -381,21 +425,98 @@ impl RuntimeContext for JitContext {
                     capture_ptrs.push(self.alloc(v.clone()));
                 }
 
-                let func: unsafe extern "C" fn(
-                    *mut JitContext,
-                    *const *mut Value,
-                    i64,
-                    *const *mut Value,
-                    i64,
-                ) -> *mut Value = unsafe { std::mem::transmute(entry.ptr) };
                 let result_ptr = unsafe {
-                    func(
-                        self as *mut JitContext,
-                        arg_ptrs.as_ptr(),
-                        arg_ptrs.len() as i64,
-                        capture_ptrs.as_ptr(),
-                        capture_ptrs.len() as i64,
-                    )
+                    match entry.call_abi {
+                        JitCallAbi::Array => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *const *mut Value,
+                                i64,
+                                *const *mut Value,
+                                i64,
+                            )
+                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_ptrs.as_ptr(),
+                                arg_ptrs.len() as i64,
+                                capture_ptrs.as_ptr(),
+                                capture_ptrs.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg1 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *mut Value,
+                                *const *mut Value,
+                                i64,
+                            )
+                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_ptrs[0],
+                                capture_ptrs.as_ptr(),
+                                capture_ptrs.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg2 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *mut Value,
+                                *mut Value,
+                                *const *mut Value,
+                                i64,
+                            )
+                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_ptrs[0],
+                                arg_ptrs[1],
+                                capture_ptrs.as_ptr(),
+                                capture_ptrs.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg3 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *mut Value,
+                                *mut Value,
+                                *mut Value,
+                                *const *mut Value,
+                                i64,
+                            )
+                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_ptrs[0],
+                                arg_ptrs[1],
+                                arg_ptrs[2],
+                                capture_ptrs.as_ptr(),
+                                capture_ptrs.len() as i64,
+                            )
+                        }
+                        JitCallAbi::Reg4 => {
+                            let func: unsafe extern "C" fn(
+                                *mut JitContext,
+                                *mut Value,
+                                *mut Value,
+                                *mut Value,
+                                *mut Value,
+                                *const *mut Value,
+                                i64,
+                            )
+                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            func(
+                                self as *mut JitContext,
+                                arg_ptrs[0],
+                                arg_ptrs[1],
+                                arg_ptrs[2],
+                                arg_ptrs[3],
+                                capture_ptrs.as_ptr(),
+                                capture_ptrs.len() as i64,
+                            )
+                        }
+                    }
                 };
                 if result_ptr.is_null() {
                     return Err(self
@@ -421,6 +542,18 @@ impl RuntimeContext for JitContext {
             }
             _ => Err(format!("not callable: {}", callee.type_name())),
         }
+    }
+
+    fn invoke_base_function_borrowed(
+        &mut self,
+        base_fn_index: usize,
+        args: &[&Value],
+    ) -> Result<Value, String> {
+        use crate::runtime::base::get_base_function_by_index;
+
+        let base = get_base_function_by_index(base_fn_index)
+            .ok_or_else(|| format!("unknown Base function index: {}", base_fn_index))?;
+        base.call_borrowed(self, args)
     }
 
     fn gc_heap(&self) -> &GcHeap {

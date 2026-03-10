@@ -1,0 +1,38 @@
+type Solution = Nil | Cons(Int, Solution)
+
+fn safe(queen: Int, diag: Int, xs: Solution) -> Bool {
+    match xs {
+        Nil -> true,
+        Cons(q, tail) ->
+            queen != q &&
+            queen != q + diag &&
+            queen != q - diag &&
+            safe(queen, diag + 1, tail),
+    }
+}
+
+fn place(n: Int, row: Int, soln: Solution) -> Int {
+    if row == 0 {
+        1
+    } else {
+        try_col(n, row, soln, n)
+    }
+}
+
+fn try_col(n: Int, row: Int, soln: Solution, col: Int) -> Int {
+    if col <= 0 {
+        0
+    } else if safe(col, 1, soln) {
+        place(n, row - 1, Cons(col, soln)) + try_col(n, row, soln, col - 1)
+    } else {
+        try_col(n, row, soln, col - 1)
+    }
+}
+
+fn queens(n: Int) -> Int {
+    place(n, n, Nil)
+}
+
+fn main() with IO {
+    print("#{queens(13)}")
+}

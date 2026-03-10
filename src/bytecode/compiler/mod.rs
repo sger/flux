@@ -121,6 +121,8 @@ pub struct Compiler {
     pub free_vars: HashSet<Symbol>,
     // Program-level tail-position analysis result for the latest optimized compile pass.
     pub tail_calls: Vec<TailCall>,
+    // Conservative per-block local-use counts used to emit consume-style local reads.
+    pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
     pub module_contracts: ModuleContractTable,
     pub(super) module_function_visibility: HashMap<(Symbol, Symbol), bool>,
@@ -185,6 +187,7 @@ impl Compiler {
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
+            consumable_local_use_counts: Vec::new(),
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
             module_function_visibility: HashMap::new(),
@@ -2345,13 +2348,19 @@ impl Compiler {
         // pop_pos (which would land on the operand byte after fusion).
         let adjacent = match prev_op {
             Some(OpCode::OpGetLocal) => prev_pos + 2 == pop_pos,
-            Some(OpCode::OpGetLocal0 | OpCode::OpGetLocal1) => prev_pos + 1 == pop_pos,
+            Some(
+                OpCode::OpGetLocal0
+                | OpCode::OpGetLocal1
+                | OpCode::OpConsumeLocal0
+                | OpCode::OpConsumeLocal1,
+            ) => prev_pos + 1 == pop_pos,
+            Some(OpCode::OpConsumeLocal) => prev_pos + 2 == pop_pos,
             _ => false,
         };
 
         if adjacent && !self.has_jump_target_at(pop_pos) {
             match prev_op {
-                Some(OpCode::OpGetLocal) => {
+                Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
                     let local_idx =
                         self.scopes[self.scope_index].instructions[prev_pos + 1] as usize;
                     self.replace_instruction(prev_pos, make(OpCode::OpReturnLocal, &[local_idx]));
@@ -2368,7 +2377,7 @@ impl Compiler {
                     self.scopes[self.scope_index].last_instruction.position = prev_pos;
                     return;
                 }
-                Some(OpCode::OpGetLocal0) => {
+                Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
                     self.scopes[self.scope_index].instructions[prev_pos] =
                         OpCode::OpReturnLocal as u8;
                     self.scopes[self.scope_index].instructions[pop_pos] = 0u8;
@@ -2377,7 +2386,7 @@ impl Compiler {
                     self.scopes[self.scope_index].last_instruction.position = prev_pos;
                     return;
                 }
-                Some(OpCode::OpGetLocal1) => {
+                Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
                     self.scopes[self.scope_index].instructions[prev_pos] =
                         OpCode::OpReturnLocal as u8;
                     self.scopes[self.scope_index].instructions[pop_pos] = 1u8;
@@ -2395,6 +2404,41 @@ impl Compiler {
         self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnValue);
     }
 
+    pub(super) fn replace_last_local_read_with_return(&mut self) -> bool {
+        let last = self.scopes[self.scope_index].last_instruction.clone();
+        let pos = last.position;
+
+        match last.opcode {
+            Some(OpCode::OpGetLocal | OpCode::OpConsumeLocal) => {
+                let local_idx = self.scopes[self.scope_index].instructions[pos + 1] as usize;
+                self.replace_instruction(pos, make(OpCode::OpReturnLocal, &[local_idx]));
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            Some(OpCode::OpGetLocal0 | OpCode::OpConsumeLocal0) => {
+                self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
+                if self.scopes[self.scope_index].instructions.len() == pos + 1 {
+                    self.scopes[self.scope_index].instructions.push(0u8);
+                } else {
+                    self.scopes[self.scope_index].instructions[pos + 1] = 0u8;
+                }
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            Some(OpCode::OpGetLocal1 | OpCode::OpConsumeLocal1) => {
+                self.scopes[self.scope_index].instructions[pos] = OpCode::OpReturnLocal as u8;
+                if self.scopes[self.scope_index].instructions.len() == pos + 1 {
+                    self.scopes[self.scope_index].instructions.push(1u8);
+                } else {
+                    self.scopes[self.scope_index].instructions[pos + 1] = 1u8;
+                }
+                self.scopes[self.scope_index].last_instruction.opcode = Some(OpCode::OpReturnLocal);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Scans the current scope's instruction stream for jump instructions
     /// targeting `target_pos`. Used by the superinstruction peephole to verify
     /// that fusing instructions at a position won't break jump targets.
@@ -2405,7 +2449,14 @@ impl Compiler {
         while ip < instructions.len() {
             let op = OpCode::from(instructions[ip]);
             match op {
-                OpCode::OpJump | OpCode::OpJumpNotTruthy | OpCode::OpJumpTruthy => {
+                OpCode::OpJump
+                | OpCode::OpJumpNotTruthy
+                | OpCode::OpJumpTruthy
+                | OpCode::OpCmpEqJumpNotTruthy
+                | OpCode::OpCmpNeJumpNotTruthy
+                | OpCode::OpCmpGtJumpNotTruthy
+                | OpCode::OpCmpLeJumpNotTruthy
+                | OpCode::OpCmpGeJumpNotTruthy => {
                     let target = read_u16(instructions, ip + 1) as usize;
                     if target == target_pos {
                         return true;
@@ -2481,6 +2532,24 @@ impl Compiler {
         result
     }
 
+    pub(super) fn with_consumable_local_use_counts<F, R>(
+        &mut self,
+        counts: HashMap<Symbol, usize>,
+        f: F,
+    ) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.consumable_local_use_counts.push(counts);
+        let result = f(self);
+        self.consumable_local_use_counts.pop();
+        result
+    }
+
+    pub(super) fn current_consumable_local_use_counts(&self) -> Option<&HashMap<Symbol, usize>> {
+        self.consumable_local_use_counts.last()
+    }
+
     pub(super) fn with_function_context_with_param_effect_rows<F, R>(
         &mut self,
         num_params: usize,
@@ -2506,10 +2575,6 @@ impl Compiler {
         self.function_effects.pop();
         self.function_param_counts.pop();
         result
-    }
-
-    pub(super) fn current_function_param_count(&self) -> Option<usize> {
-        self.function_param_counts.last().copied()
     }
 
     pub(super) fn current_function_effects(&self) -> Option<&[Symbol]> {

@@ -99,7 +99,8 @@ fn single_parser_context_keeps_single_breadcrumb() {
 fn nested_parser_contexts_render_outer_to_inner_chain() {
     let lexer = Lexer::new("let x = 1");
     let mut parser = Parser::new(lexer);
-    let _fn_context = parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
+    let _fn_context =
+        parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
     let _lambda_context = parser.enter_parser_context(super::ParserContext::Lambda);
     let _match_context = parser.enter_parser_context(super::ParserContext::MatchExpression);
 
@@ -115,7 +116,8 @@ fn deep_parser_contexts_truncate_middle_of_breadcrumb_chain() {
     let mut parser = Parser::new(lexer);
     let _module_context =
         parser.enter_parser_context(super::ParserContext::Module("Outer".to_string()));
-    let _fn_context = parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
+    let _fn_context =
+        parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
     let _lambda_context = parser.enter_parser_context(super::ParserContext::Lambda);
     let _match_context = parser.enter_parser_context(super::ParserContext::MatchExpression);
 
