@@ -36,6 +36,17 @@ impl ValueArena {
         ptr
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &Value> {
+        self.chunks.iter().enumerate().flat_map(|(chunk_idx, chunk)| {
+            let len = if chunk_idx + 1 == self.chunks.len() {
+                self.offset
+            } else {
+                CHUNK_SIZE
+            };
+            chunk[..len].iter()
+        })
+    }
+
     /// Reset the arena, allowing all memory to be reused.
     /// Existing pointers become invalid after this call.
     pub fn reset(&mut self) {
