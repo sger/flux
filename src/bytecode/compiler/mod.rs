@@ -255,6 +255,41 @@ impl Compiler {
         self.strict_require_main = strict_require_main;
     }
 
+    /// Run HM inference for the provided program and return the final expression type map.
+    ///
+    /// This is intended for non-bytecode backends that still need the same HM
+    /// view of the final AST allocation used during code generation.
+    pub fn infer_expr_types_for_program(&mut self, program: &Program) -> HashMap<ExprId, InferType> {
+        self.file_scope_symbols.clear();
+        self.imported_modules.clear();
+        self.import_aliases.clear();
+        self.imported_module_exclusions.clear();
+        self.current_module_prefix = None;
+        self.current_span = None;
+        self.excluded_base_symbols.clear();
+        self.static_type_scopes.clear();
+        self.static_type_scopes.push(HashMap::new());
+        self.effect_alias_scopes.clear();
+        self.effect_alias_scopes.push(HashMap::new());
+        self.module_contracts.clear();
+        self.module_function_visibility.clear();
+        self.module_adt_constructors.clear();
+        self.type_env = TypeEnv::new();
+        self.hm_expr_types.clear();
+        self.effect_ops_registry.clear();
+        self.effect_op_signatures.clear();
+
+        self.collect_module_function_visibility(program);
+        self.collect_module_contracts(program);
+        self.collect_effect_declarations(program);
+
+        let hm_config = self.build_infer_config(program);
+        let hm = infer_program(program, &self.interner, hm_config);
+        self.type_env = hm.type_env;
+        self.hm_expr_types = hm.expr_types;
+        self.hm_expr_types.clone()
+    }
+
     pub fn take_warnings(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.warnings)
     }
