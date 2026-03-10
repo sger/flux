@@ -354,11 +354,13 @@ impl JitContext {
 
     pub fn collect_gc(&mut self) {
         let mut roots: Vec<Value> = Vec::with_capacity(
-            self.shadow_roots.len()
+            self.arena.iter().count()
+                + self.shadow_roots.len()
                 + self.globals.len()
                 + self.constants.len()
                 + self.handler_stack.len(),
         );
+        roots.extend(self.arena.iter().cloned());
         for ptr in &self.shadow_roots {
             if let Some(value) = unsafe { ptr.as_ref() } {
                 roots.push(value.clone());
@@ -650,5 +652,28 @@ mod tests {
         ctx.pop_gc_roots();
         ctx.collect_gc();
         assert_eq!(ctx.gc_heap.live_count(), 0);
+    }
+
+    #[test]
+    fn collect_gc_preserves_arena_rooted_gc_adt_without_shadow_roots() {
+        let mut ctx = JitContext::new();
+        let list = ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(1),
+            tail: Value::None,
+        });
+        let adt = ctx.gc_heap.alloc(HeapObject::Adt {
+            constructor: Rc::from("Node"),
+            fields: AdtFields::from_vec(vec![Value::Gc(list)]),
+        });
+        let root = ctx.alloc(Value::GcAdt(adt));
+
+        ctx.gc_heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        ctx.collect_gc();
+        assert_eq!(ctx.gc_heap.live_count(), 2);
+        assert_eq!(unsafe { &*root }.adt_constructor(&ctx.gc_heap), Some("Node"));
     }
 }

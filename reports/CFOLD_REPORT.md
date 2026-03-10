@@ -1,14 +1,13 @@
 # Constant Folding Benchmark Report
 
-- Generated: 2026-03-10 11:02:10 UTC
+- Generated: 2026-03-10 15:36:02 UTC
 - Runs: 10
 - Warmup: 2
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `cfold/flux` | 67.6 ± 25.2 | 30.4 | 113.3 | 1.69 ± 2.15 |
-| `cfold/flux-jit` | 83.6 ± 25.4 | 38.2 | 123.7 | 2.09 ± 2.63 |
-| `cfold/rust` | 118.6 ± 55.9 | 10.8 | 179.0 | 2.97 ± 3.87 |
-| `cfold/python` | 259.8 ± 179.1 | 72.7 | 540.7 | 6.50 ± 9.10 |
-| `cfold/haskell` | 56.8 ± 35.6 | 23.0 | 127.5 | 1.42 ± 1.95 |
-| `cfold/ocaml` | 40.0 ± 48.7 | 5.2 | 152.9 | 1.00 |
+| `cfold/flux` | 13.6 ± 0.4 | 13.1 | 14.3 | 7.35 ± 0.80 |
+| `cfold/flux-jit` | 32.6 ± 1.3 | 30.9 | 34.8 | 17.65 ± 2.00 |
+| `cfold/rust` | 1.8 ± 0.2 | 1.6 | 2.1 | 1.00 |
+| `cfold/python` | 14.3 ± 0.4 | 13.9 | 15.0 | 7.72 ± 0.84 |
+| `cfold/haskell` | 10.9 ± 0.2 | 10.8 | 11.2 | 5.89 ± 0.63 |
