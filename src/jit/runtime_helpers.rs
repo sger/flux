@@ -387,6 +387,21 @@ pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
     if a.is_truthy() { 1 } else { 0 }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_bool_value(_ctx: *mut JitContext, a: *mut Value) -> i64 {
+    let a = unsafe { &*a };
+    match a {
+        Value::Boolean(v) => i64::from(*v),
+        _ => {
+            if a.is_truthy() {
+                1
+            } else {
+                0
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Comparisons
 // ---------------------------------------------------------------------------
@@ -1668,6 +1683,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_negate", rt_negate as *const u8),
         ("rt_not", rt_not as *const u8),
         ("rt_is_truthy", rt_is_truthy as *const u8),
+        ("rt_bool_value", rt_bool_value as *const u8),
         ("rt_equal", rt_equal as *const u8),
         ("rt_not_equal", rt_not_equal as *const u8),
         ("rt_greater_than", rt_greater_than as *const u8),

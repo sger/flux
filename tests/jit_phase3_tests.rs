@@ -493,6 +493,17 @@ if b { 1 } else { 0 }
 }
 
 #[test]
+fn jit_boxed_bool_if_condition_uses_boolean_semantics() {
+    let result = run_jit(
+        r#"
+fn is_zero(n) { n == 0 }
+if is_zero(0) { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
 fn jit_truthy_short_circuit_with_non_boolean_values_stays_boxed() {
     let result = run_jit(
         r#"
@@ -505,11 +516,60 @@ x + y
 }
 
 #[test]
+fn jit_non_bool_if_condition_still_uses_runtime_truthiness() {
+    let result = run_jit(
+        r#"
+if None { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(0));
+}
+
+#[test]
 fn jit_boolean_boxes_when_crossing_collection_boundary() {
     let result = run_jit(
         r#"
 let xs = [if 1 < 2 { true } else { false }]
 if first(xs) { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
+fn jit_boxed_bool_match_guard_uses_boolean_semantics() {
+    let result = run_jit(
+        r#"
+fn is_target(n) { n == 1 }
+match list(1, 2) {
+    [h | t] if is_target(h) -> 42,
+    _ -> 0
+}
+"#,
+    );
+    assert_eq!(result, Value::Integer(42));
+}
+
+#[test]
+fn jit_non_bool_match_guard_still_uses_runtime_truthiness() {
+    let result = run_jit(
+        r#"
+match list(1, 2) {
+    [h | t] if None -> 99,
+    _ -> 42
+}
+"#,
+    );
+    assert_eq!(result, Value::Integer(42));
+}
+
+#[test]
+fn jit_boxed_bool_short_circuit_uses_boolean_semantics() {
+    let result = run_jit(
+        r#"
+fn yes() { true }
+let b = yes() && true
+if b { 1 } else { 0 }
 "#,
     );
     assert_eq!(result, Value::Integer(1));

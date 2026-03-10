@@ -2,7 +2,10 @@
 
 //! AST → Cranelift IR compiler (Phase 1: expressions, let bindings, calls).
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use cranelift_codegen::ir::StackSlotData;
 use cranelift_codegen::ir::{
@@ -24,6 +27,7 @@ use crate::syntax::{
     Identifier, block::Block, expression::Expression, expression::Pattern, interner::Interner,
     program::Program, statement::Statement, type_expr::TypeExpr,
 };
+use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
 use super::context::{JitCallAbi, JitFunctionEntry};
 use super::runtime_helpers::rt_symbols;
@@ -184,10 +188,12 @@ struct Scope {
     adt_constructor_owner: HashMap<Identifier, Identifier>,
     /// Maps ADT name → constructor names.
     adt_variants: HashMap<Identifier, Vec<Identifier>>,
+    /// HM expression types for the final AST allocation used during JIT codegen.
+    hm_expr_types: Rc<HashMap<ExprId, InferType>>,
 }
 
 impl Scope {
-    fn new() -> Self {
+    fn new(hm_expr_types: Rc<HashMap<ExprId, InferType>>) -> Self {
         Self {
             locals: HashMap::new(),
             globals: HashMap::new(),
@@ -202,6 +208,7 @@ impl Scope {
             adt_constructors: HashMap::new(),
             adt_constructor_owner: HashMap::new(),
             adt_variants: HashMap::new(),
+            hm_expr_types,
         }
     }
 }
@@ -286,6 +293,40 @@ fn emit_return_on_null_jit_value(
     }
 }
 
+fn compile_truthiness_condition(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    scope: &Scope,
+    ctx_val: CraneliftValue,
+    expr: &Expression,
+    value: JitValue,
+) -> CraneliftValue {
+    let truthy_i64 = if expr_has_known_bool_type(scope, expr) {
+        match value.kind {
+            JitValueKind::Bool => value.value,
+            JitValueKind::Boxed => {
+                let bool_value = get_helper_func_ref(module, helpers, builder, "rt_bool_value");
+                let call = builder.ins().call(bool_value, &[ctx_val, value.value]);
+                builder.inst_results(call)[0]
+            }
+            JitValueKind::Int => {
+                let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
+                let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
+                let call = builder.ins().call(is_truthy, &[ctx_val, boxed]);
+                builder.inst_results(call)[0]
+            }
+        }
+    } else {
+        let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
+        let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
+        let call = builder.ins().call(is_truthy, &[ctx_val, boxed]);
+        builder.inst_results(call)[0]
+    };
+
+    builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
+}
+
 fn jit_value_type(kind: JitValueKind) -> types::Type {
     match kind {
         JitValueKind::Boxed => PTR_TYPE,
@@ -325,12 +366,20 @@ fn bind_branch_block_params(
     }
 }
 
+fn expr_has_known_bool_type(scope: &Scope, expr: &Expression) -> bool {
+    matches!(
+        scope.hm_expr_types.get(&expr.expr_id()),
+        Some(InferType::Con(TypeConstructor::Bool))
+    )
+}
+
 pub struct JitCompiler {
     pub module: JITModule,
     builder_ctx: FunctionBuilderContext,
     helpers: HelperFuncs,
     jit_functions: Vec<JitFunctionCompileEntry>,
     named_functions: HashMap<String, usize>,
+    hm_expr_types: Rc<HashMap<ExprId, InferType>>,
     /// Index in `jit_functions` of the compiled identity function used as
     /// the `resume` value for shallow JIT handlers.
     pub identity_fn_index: usize,
@@ -344,7 +393,7 @@ struct JitFunctionCompileEntry {
 }
 
 impl JitCompiler {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(hm_expr_types: HashMap<ExprId, InferType>) -> Result<Self, String> {
         let mut flag_builder = settings::builder();
         flag_builder
             .set("use_colocated_libcalls", "false")
@@ -377,6 +426,7 @@ impl JitCompiler {
             },
             jit_functions: Vec::new(),
             named_functions: HashMap::new(),
+            hm_expr_types: Rc::new(hm_expr_types),
             identity_fn_index: usize::MAX,
         };
 
@@ -425,7 +475,7 @@ impl JitCompiler {
 
         let mut func = Function::with_name_signature(UserFuncName::default(), sig.clone());
 
-        let mut scope = Scope::new();
+        let mut scope = Scope::new(Rc::clone(&self.hm_expr_types));
 
         // Register base_functions
         register_base_functions(&mut scope, interner);
@@ -3268,15 +3318,15 @@ fn compile_match_expression(
                 guard_expr,
                 interner,
             )?;
-            let cond = if guard_val.kind == JitValueKind::Bool {
-                builder.ins().icmp_imm(IntCC::NotEqual, guard_val.value, 0)
-            } else {
-                let guard_val = box_jit_value(module, helpers, builder, ctx_val, guard_val);
-                let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-                let truthy_call = builder.ins().call(is_truthy, &[ctx_val, guard_val]);
-                let truthy_i64 = builder.inst_results(truthy_call)[0];
-                builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
-            };
+            let cond = compile_truthiness_condition(
+                module,
+                helpers,
+                builder,
+                &arm_scope,
+                ctx_val,
+                guard_expr,
+                guard_val,
+            );
             let fail_block = match next_test {
                 Some(next) => next,
                 None => {
@@ -3881,16 +3931,8 @@ fn compile_if_expression(
         condition,
         interner,
     )?;
-    // Fast path: Bool values are already i64 (0/1), skip rt_is_truthy call.
-    let cond_b1 = if cond_val.kind == JitValueKind::Bool {
-        builder.ins().icmp_imm(IntCC::NotEqual, cond_val.value, 0)
-    } else {
-        let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-        let cond_val = box_jit_value(module, helpers, builder, ctx_val, cond_val);
-        let truthy_call = builder.ins().call(is_truthy, &[ctx_val, cond_val]);
-        let truthy_i64 = builder.inst_results(truthy_call)[0];
-        builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
-    };
+    let cond_b1 =
+        compile_truthiness_condition(module, helpers, builder, scope, ctx_val, condition, cond_val);
 
     let then_block = builder.create_block();
     let else_block = builder.create_block();
@@ -4049,17 +4091,11 @@ fn compile_short_circuit_expression(
         left,
         interner,
     )?;
-    // Fast path: Bool values are already i64 (0/1), skip rt_is_truthy call.
-    let (cond_b1, short_value) = if lhs.kind == JitValueKind::Bool {
-        let cond = builder.ins().icmp_imm(IntCC::NotEqual, lhs.value, 0);
-        (cond, lhs)
+    let cond_b1 = compile_truthiness_condition(module, helpers, builder, scope, ctx_val, left, lhs);
+    let short_value = if expr_has_known_bool_type(scope, left) {
+        lhs
     } else {
-        let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-        let lhs_boxed = box_jit_value(module, helpers, builder, ctx_val, lhs);
-        let truthy_call = builder.ins().call(is_truthy, &[ctx_val, lhs_boxed]);
-        let truthy_i64 = builder.inst_results(truthy_call)[0];
-        let cond = builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0);
-        (cond, JitValue::boxed(lhs_boxed))
+        JitValue::boxed(box_jit_value(module, helpers, builder, ctx_val, lhs))
     };
 
     let short_block = builder.create_block();
@@ -5503,6 +5539,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
         ),
         (
             "rt_is_truthy",
+            HelperSig {
+                num_params: 2,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_bool_value",
             HelperSig {
                 num_params: 2,
                 has_return: true,

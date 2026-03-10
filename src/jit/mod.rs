@@ -10,6 +10,7 @@ pub mod value_arena;
 
 use crate::runtime::value::Value;
 use crate::syntax::{interner::Interner, program::Program};
+use crate::bytecode::compiler::Compiler;
 
 use compiler::JitCompiler;
 use context::JitContext;
@@ -42,7 +43,13 @@ pub fn jit_compile(
     interner: &Interner,
     options: &JitOptions,
 ) -> Result<JitCompiledProgram, String> {
-    let mut compiler = JitCompiler::new()?;
+    let mut hm_compiler = Compiler::new_with_interner(
+        options.source_file.clone().unwrap_or_default(),
+        interner.clone(),
+    );
+    let hm_expr_types = hm_compiler.infer_expr_types_for_program(program);
+
+    let mut compiler = JitCompiler::new(hm_expr_types)?;
     let main_id = compiler.compile_program(program, interner)?;
     compiler.finalize();
 

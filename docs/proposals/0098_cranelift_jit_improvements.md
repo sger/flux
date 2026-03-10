@@ -1,7 +1,7 @@
 - Feature Name: Cranelift JIT Improvements & Flux IR Layer
 - Start Date: 2026-03-10
 - Completion Date: pending
-- Status: Draft
+- Status: In Progress (Proposal 1 implemented)
 - Proposal PR: pending
 - Flux Issue: pending
 - Depends on: 0031 (cranelift jit backend), 0077 (type-informed optimization), 0086 (backend-neutral core ir)
@@ -62,7 +62,7 @@ derivative computation) and in programs that construct option/result variants in
 
 ## Reference-level explanation
 
-### Proposal 1 — Skip `rt_is_truthy` for known-Bool conditions
+### Proposal 1 — Skip `rt_is_truthy` for known-Bool conditions ✓ IMPLEMENTED
 
 **Problem:** Every `if` condition emits a call to `rt_is_truthy` (an `extern "C"` helper)
 regardless of the condition's inferred type.
@@ -79,6 +79,12 @@ jump else_block
 ```
 
 **Affected file:** `src/jit/compiler.rs` — `compile_if_expr`
+
+**Implementation notes:** Implemented via `compile_truthiness_condition` (compiler.rs:296) and
+`expr_has_known_bool_type` (compiler.rs:369). When the HM type is `Bool` and the `JitValueKind`
+is `Bool` (unboxed), the raw `i64` value is used directly — no helper call. For the boxed-Bool
+case, `rt_bool_value` extracts the payload (avoiding the heavier `rt_is_truthy`). Also applied
+to short-circuit `&&`/`||` in the same function.
 
 ---
 
@@ -108,6 +114,7 @@ For comparisons (`<`, `>`, `==`) where operands are `Int`, emit `icmp` and write
 `Value::Bool`. Apply the same pattern for `Float` using `fadd`/`fsub`/`fmul`/`fdiv`.
 
 **Affected files:**
+
 - `src/jit/compiler.rs` — `compile_primop_call` / binary op dispatch
 - `src/jit/context.rs` — expose `ExprTypeMap` reference to compiler
 
@@ -156,6 +163,7 @@ let ptr_val = builder.ins().iconst(types::I64, const_val as i64);
 This is safe because ADT values are immutable and the arena is never compacted.
 
 **Affected files:**
+
 - `src/jit/context.rs` — `intern_unit_adt` map
 - `src/jit/compiler.rs` — ADT construction lowering
 
@@ -173,6 +181,7 @@ known. Pass `i64` payloads in registers up to arity 4 (matching the existing
 `print_int` and `print_float` as proof-of-concept since they appear in every benchmark.
 
 **Affected files:**
+
 - `src/jit/runtime_helpers.rs` — typed shim variants
 - `src/jit/compiler.rs` — call-site routing
 - `src/runtime/base/` — corresponding unboxed entry points
@@ -201,6 +210,7 @@ Detection: in tail position, if the callee is a known JIT function (not a closur
 non-tail calls.
 
 **Affected files:**
+
 - `src/jit/context.rs` — trampoline loop in `invoke_value`
 - `src/jit/compiler.rs` — tail-call detection, thunk emission
 - `src/jit/value_arena.rs` — `Value::Thunk` variant
@@ -279,11 +289,13 @@ Optimization passes on Flux IR (before Cranelift lowering):
 Proposals 1–5 become IR-level passes rather than ad-hoc patches to `compiler.rs`.
 
 **New files:**
+
 - `src/ir/mod.rs` — IR type definitions
 - `src/ir/lower.rs` — AST → Flux IR lowering
 - `src/ir/passes/` — optimization pass modules
 
 **Modified files:**
+
 - `src/jit/compiler.rs` — consumes Flux IR instead of AST directly
 - `src/jit/mod.rs` — pipeline: AST → IR → optimize → Cranelift
 
@@ -322,7 +334,7 @@ same direction within the current `Value` layout.
 ## Prior art
 
 - **LuaJIT** inlines arithmetic for typed integer/float traces using a similar type-check
-  + inline IR approach. The tracing model differs but the "skip the C helper when the type
+  - inline IR approach. The tracing model differs but the "skip the C helper when the type
   is known" pattern is the same.
 - **GHC's Cmm IR** is a typed, low-level IR between STG and native codegen that serves
   the same structural role as the proposed Flux IR.
