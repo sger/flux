@@ -1,6 +1,6 @@
 # Base Function HM Signatures (Internal Reference)
 
-> **Proposal:** [0074](../proposals/0074_base_signature_tightening.md)
+> **Proposal:** [0074](../proposals/implemented/0074_base_signature_tightening.md)
 > **Source:** `src/runtime/base/helpers.rs` — `signature_for_id`
 
 This document is the canonical reference for the `BaseHmSignature` registry — the declarative type/effect signatures used by the HM inference engine for all 77 built-in base functions.

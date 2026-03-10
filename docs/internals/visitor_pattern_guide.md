@@ -638,4 +638,4 @@ The visitor pattern gives you:
 - `src/ast/visit.rs` - Full visitor implementation
 - `src/ast/fold.rs` - Folder pattern for transformations
 - `src/syntax/pattern_validate.rs` - Production visitor example
-- `docs/proposals/0007_visitor_pattern.md` - Original design proposal
+- `docs/proposals/implemented/0007_visitor_pattern.md` - Original design proposal

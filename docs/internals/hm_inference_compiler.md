@@ -6,7 +6,7 @@ This document explains how Hindley-Milner (HM) inference is wired into Flux comp
 
 Canonical companions:
 - `docs/internals/type_system_effects.md` (semantics + diagnostics contract)
-- `docs/proposals/0046_typed_ast_hm_architecture.md` (design history)
+- `docs/proposals/implemented/0046_typed_ast_hm_architecture.md` (design history)
 
 ## Purpose
 

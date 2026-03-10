@@ -242,7 +242,7 @@ impl<'a> AdtRef<'a> {
 /// Using `Rc<str>` instead of `Rc<String>` avoids double indirection.
 /// Using `Rc<Vec<Value>>` and `Rc<HashMap<...>>` makes cloning O(1) instead of O(n).
 ///
-/// See [Proposal 0019](../../docs/proposals/0019_zero_copy_value_passing.md) for details.
+/// See [Proposal 0019](../../docs/proposals/implemented/0019_zero_copy_value_passing.md) for details.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// Internal VM stack sentinel for uninitialized/inactive slots.

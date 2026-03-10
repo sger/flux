@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+assertion_line: 141
+---
+Fixture: examples/compiler_errors/ExtraModuleCode.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E028]: Invalid Module File
+
+Invalid module file: Module files may only contain imports and a single module declaration.
+
+  examples/compiler_errors/ExtraModuleCode.flx:7:1
+  |
+7 | fn stray() -> Int {
+  | ^
+
+Hint:
+  Module files must have .flx extension and valid Flux code.
+== stdout ==
+<not executed>

@@ -98,7 +98,7 @@ Total: 11 weeks (2.75 months)
 
 ### M1: Complete Error Code Registry
 **Priority:** CRITICAL | **Effort:** Small (2-3 days) | **Risk:** Low
-**Proposal:** [0002_error_code_registry.md](../proposals/0002_error_code_registry.md) (Enum-Based approach)
+**Proposal:** [0002_error_code_registry.md](../proposals/implemented/0002_error_code_registry.md) (Enum-Based approach)
 
 **Goal:** Complete the centralized error code registry to prevent duplicates and improve maintainability.
 
@@ -546,7 +546,7 @@ match tuple {
 
 ### Phase 1.5: Code Organization (Weeks 3-5) 🆕
 **Focus:** Module split for maintainability
-**Proposal:** [0006_phase1_module_split_plan.md](../proposals/0006_phase1_module_split_plan.md)
+**Proposal:** [0006_phase1_module_split_plan.md](../proposals/implemented/0006_phase1_module_split_plan.md)
 
 **Goal:** Split large files into focused modules before adding complexity.
 
@@ -574,8 +574,8 @@ match tuple {
 **Deliverable:** Clean, modular codebase ready for rapid feature development
 
 **Related Proposals:**
-- [Proposal 0007: Visitor Pattern](../proposals/0007_visitor_pattern.md) - Future multi-pass compilation
-- [Proposal 0008: Base Functions Module Architecture](../proposals/0008_builtins_module_architecture.md) - Future base organization
+- [Proposal 0007: Visitor Pattern](../proposals/implemented/0007_visitor_pattern.md) - Future multi-pass compilation
+- [Proposal 0008: Base Functions Module Architecture](../proposals/implemented/0008_builtins_module_architecture.md) - Future base organization
 
 ---
 
@@ -843,7 +843,7 @@ This updated plan for v0.0.3 balances:
 2. Implement Macro System to transform Flux architecture
 
 **Related Proposals:**
-- [0006_phase1_module_split_plan.md](../proposals/0006_phase1_module_split_plan.md) - Module organization
-- [0007_visitor_pattern.md](../proposals/0007_visitor_pattern.md) - Multi-pass compilation (future)
-- [0008_builtins_module_architecture.md](../proposals/0008_builtins_module_architecture.md) - Base organization (future)
+- [0006_phase1_module_split_plan.md](../proposals/implemented/0006_phase1_module_split_plan.md) - Module organization
+- [0007_visitor_pattern.md](../proposals/implemented/0007_visitor_pattern.md) - Multi-pass compilation (future)
+- [0008_builtins_module_architecture.md](../proposals/implemented/0008_builtins_module_architecture.md) - Base organization (future)
 - [0040_macro_system.md](../proposals/0040_macro_system.md) - Metaprogramming foundation (future)
