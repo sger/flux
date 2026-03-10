@@ -97,7 +97,11 @@ impl JitCallAbi {
     }
 
     pub fn captures_param_index(self) -> usize {
-        1 + self.direct_arg_count() + usize::from(self.uses_array_args()) * 2
+        if self.uses_array_args() {
+            3
+        } else {
+            1 + self.direct_arg_count() * 2
+        }
     }
 
     pub fn ncaptures_param_index(self) -> usize {

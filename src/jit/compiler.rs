@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use cranelift_codegen::ir::StackSlotData;
+use cranelift_codegen::ir::{StackSlot, StackSlotData};
 use cranelift_codegen::ir::{
     AbiParam, BlockArg, Function, InstBuilder, MemFlags, UserFuncName, Value as CraneliftValue,
     condcodes::IntCC, types,
@@ -115,6 +115,16 @@ struct LiteralFunctionSpec {
     body: Block,
     captures: Vec<Identifier>,
     self_name: Option<Identifier>,
+}
+
+struct CompiledFunctionSpec<'a> {
+    meta: JitFunctionMeta,
+    parameters: &'a [Identifier],
+    body: &'a Block,
+    captures: &'a [Identifier],
+    self_name: Option<Identifier>,
+    function_name: Option<Identifier>,
+    local_functions: &'a [(Identifier, JitFunctionMeta)],
 }
 
 /// Tracks variables in the current scope.
@@ -595,6 +605,10 @@ impl JitCompiler {
             builder.seal_block(entry_block);
 
             let ctx_val = builder.block_params(entry_block)[0];
+            let top_level_compiler = FunctionCompiler::new(
+                &mut builder,
+                max_boxed_array_len_in_statements(&program.statements),
+            );
 
             // Compile each statement
             let mut last_val = None;
@@ -606,6 +620,7 @@ impl JitCompiler {
                     module,
                     helpers,
                     &mut builder,
+                    &top_level_compiler,
                     &mut scope,
                     ctx_val,
                     None,
@@ -644,6 +659,7 @@ impl JitCompiler {
                     module,
                     helpers,
                     &mut builder,
+                    &top_level_compiler,
                     &mut scope,
                     ctx_val,
                     None,
@@ -997,187 +1013,20 @@ impl JitCompiler {
             let Some(meta) = scope.functions.get(name).copied() else {
                 continue;
             };
-
-            let sig = self.user_function_signature(meta.call_abi);
-            let mut func = Function::with_name_signature(UserFuncName::default(), sig);
-            {
-                let module = &mut self.module;
-                let helpers = &self.helpers;
-                let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
-                let mut fn_scope = scope.clone();
-                fn_scope.locals.clear();
-
-                let entry = builder.create_block();
-                let init_block = builder.create_block();
-                let body_block = builder.create_block();
-                let arity_fail = builder.create_block();
-                let return_block = builder.create_block();
-                append_return_block_params(&mut builder, return_block);
-                builder.append_block_params_for_function_params(entry);
-                builder.switch_to_block(entry);
-                builder.seal_block(entry);
-
-                let entry_params = builder.block_params(entry).to_vec();
-                let ctx_val = entry_params[0];
-                let args_ptr = if meta.call_abi.uses_array_args() {
-                    Some(entry_params[1])
-                } else {
-                    None
-                };
-
-                if args_ptr.is_some() {
-                    let nargs = entry_params[2];
-                    let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
-                    let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
-                    builder
-                        .ins()
-                        .brif(arity_ok, init_block, &[], arity_fail, &[]);
-
-                    builder.switch_to_block(arity_fail);
-                    let set_arity_error =
-                        get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
-                    builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                    emit_return_null_tagged(&mut builder);
-                    builder.seal_block(arity_fail);
-                } else {
-                    builder.ins().jump(init_block, &[]);
-                    builder.seal_block(arity_fail);
-                }
-
-                builder.switch_to_block(init_block);
-                let mut param_bindings: Vec<(Identifier, Variable)> =
-                    Vec::with_capacity(parameters.len());
-                for (idx, ident) in parameters.iter().enumerate() {
-                    let arg_ptr = match args_ptr {
-                        Some(args_ptr) => {
-                            let tag = builder.ins().load(
-                                types::I64,
-                                MemFlags::new(),
-                                args_ptr,
-                                (idx * 16) as i32,
-                            );
-                            let payload = builder.ins().load(
-                                PTR_TYPE,
-                                MemFlags::new(),
-                                args_ptr,
-                                (idx * 16 + 8) as i32,
-                            );
-                            boxed_value_from_tagged_parts(
-                                module, helpers, &mut builder, ctx_val, tag, payload,
-                            )
-                        }
-                        None => {
-                            let base = 1 + idx * 2;
-                            let tag = entry_params[base];
-                            let payload = entry_params[base + 1];
-                            boxed_value_from_tagged_parts(
-                                module, helpers, &mut builder, ctx_val, tag, payload,
-                            )
-                        }
-                    };
-                    let binding = LocalBinding {
-                        var: declare_local(&mut builder, JitValueKind::Boxed),
-                        kind: JitValueKind::Boxed,
-                    };
-                    builder.def_var(binding.var, arg_ptr);
-                    fn_scope.locals.insert(*ident, binding.clone());
-                    param_bindings.push((*ident, binding.var));
-                }
-                builder.ins().jump(body_block, &[]);
-                builder.seal_block(init_block);
-
-                let tail_ctx = TailCallContext {
+            self.compile_function_body(
+                scope,
+                CompiledFunctionSpec {
+                    meta,
+                    parameters,
+                    body,
+                    captures: &[],
+                    self_name: None,
                     function_name: Some(*name),
-                    loop_block: body_block,
-                    params: param_bindings,
-                };
-
-                builder.switch_to_block(body_block);
-
-                let mut last_val = None;
-                let mut returned = false;
-                let last_index = body.statements.len().saturating_sub(1);
-                for (idx, body_stmt) in body.statements.iter().enumerate() {
-                    if idx == last_index
-                        && let Some(outcome) = try_compile_tail_expression_statement(
-                            module,
-                            helpers,
-                            &mut builder,
-                            &mut fn_scope,
-                            ctx_val,
-                            Some(return_block),
-                            &tail_ctx,
-                            body_stmt,
-                            interner,
-                        )?
-                    {
-                        match outcome {
-                            StmtOutcome::Returned => {
-                                returned = true;
-                                break;
-                            }
-                            StmtOutcome::Value(v) => {
-                                last_val = Some(v);
-                                continue;
-                            }
-                            StmtOutcome::None => continue,
-                        }
-                    }
-                    let outcome = compile_statement(
-                        module,
-                        helpers,
-                        &mut builder,
-                        &mut fn_scope,
-                        ctx_val,
-                        Some(return_block),
-                        Some(&tail_ctx),
-                        false,
-                        body_stmt,
-                        interner,
-                    )?;
-                    match outcome {
-                        StmtOutcome::Value(v) => last_val = Some(v),
-                        StmtOutcome::Returned => {
-                            returned = true;
-                            break;
-                        }
-                        StmtOutcome::None => {}
-                    }
-                }
-
-                if !returned {
-                    let ret = match last_val {
-                        Some(v) => v,
-                        None => {
-                            let make_none =
-                                get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
-                            let call = builder.ins().call(make_none, &[ctx_val]);
-                            JitValue::boxed(builder.inst_results(call)[1])
-                        }
-                    };
-                    jump_with_jit_value(&mut builder, return_block, ret);
-                }
-                builder.seal_block(body_block);
-                builder.switch_to_block(return_block);
-                let ret_tag = builder.block_params(return_block)[0];
-                let ret_payload = builder.block_params(return_block)[1];
-                builder.ins().return_(&[ret_tag, ret_payload]);
-                builder.seal_block(return_block);
-                builder.finalize();
-            }
-
-            let mut ctx = cranelift_codegen::Context::new();
-            ctx.func = func;
-            self.module
-                .define_function(meta.id, &mut ctx)
-                .map_err(|e| {
-                    format!(
-                        "define function {}: {} ({:?})",
-                        interner.resolve(*name),
-                        e,
-                        e
-                    )
-                })?;
+                    local_functions: &[],
+                },
+                interner,
+                &format!("define function {}", interner.resolve(*name)),
+            )?;
         }
 
         for stmt in &program.statements {
@@ -1204,203 +1053,31 @@ impl JitCompiler {
                 let Some(meta) = scope.module_functions.get(&(*module_name, *name)).copied() else {
                     continue;
                 };
-
-                let sig = self.user_function_signature(meta.call_abi);
-                let mut func = Function::with_name_signature(UserFuncName::default(), sig);
-                {
-                    let module = &mut self.module;
-                    let helpers = &self.helpers;
-                    let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
-                    let mut fn_scope = scope.clone();
-                    fn_scope.locals.clear();
-                    for ((mod_name, member_name), member_meta) in &scope.module_functions {
-                        if *mod_name == *module_name {
-                            fn_scope.functions.insert(*member_name, *member_meta);
-                        }
-                    }
-
-                    let entry = builder.create_block();
-                    let init_block = builder.create_block();
-                    let body_block = builder.create_block();
-                    let arity_fail = builder.create_block();
-                    let return_block = builder.create_block();
-                    append_return_block_params(&mut builder, return_block);
-                    builder.append_block_params_for_function_params(entry);
-                    builder.switch_to_block(entry);
-                    builder.seal_block(entry);
-
-                    let entry_params = builder.block_params(entry).to_vec();
-                    let ctx_val = entry_params[0];
-                    let args_ptr = if meta.call_abi.uses_array_args() {
-                        Some(entry_params[1])
-                    } else {
-                        None
-                    };
-                    if args_ptr.is_some() {
-                        let nargs = entry_params[2];
-                        let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
-                        let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
-                        builder
-                            .ins()
-                            .brif(arity_ok, init_block, &[], arity_fail, &[]);
-
-                        builder.switch_to_block(arity_fail);
-                        let set_arity_error = get_helper_func_ref(
-                            module,
-                            helpers,
-                            &mut builder,
-                            "rt_set_arity_error",
-                        );
-                        builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                        emit_return_null_tagged(&mut builder);
-                        builder.seal_block(arity_fail);
-                    } else {
-                        builder.ins().jump(init_block, &[]);
-                        builder.seal_block(arity_fail);
-                    }
-
-                    builder.switch_to_block(init_block);
-                    let mut param_bindings: Vec<(Identifier, Variable)> =
-                        Vec::with_capacity(parameters.len());
-                    for (idx, ident) in parameters.iter().enumerate() {
-                        let arg_ptr = match args_ptr {
-                            Some(args_ptr) => {
-                                let tag = builder.ins().load(
-                                    types::I64,
-                                    MemFlags::new(),
-                                    args_ptr,
-                                    (idx * 16) as i32,
-                                );
-                                let payload = builder.ins().load(
-                                    PTR_TYPE,
-                                    MemFlags::new(),
-                                    args_ptr,
-                                    (idx * 16 + 8) as i32,
-                                );
-                                boxed_value_from_tagged_parts(
-                                    module, helpers, &mut builder, ctx_val, tag, payload,
-                                )
-                            }
-                            None => {
-                                let base = 1 + idx * 2;
-                                boxed_value_from_tagged_parts(
-                                    module,
-                                    helpers,
-                                    &mut builder,
-                                    ctx_val,
-                                    entry_params[base],
-                                    entry_params[base + 1],
-                                )
-                            }
-                        };
-                        let binding = LocalBinding {
-                            var: declare_local(&mut builder, JitValueKind::Boxed),
-                            kind: JitValueKind::Boxed,
-                        };
-                        builder.def_var(binding.var, arg_ptr);
-                        fn_scope.locals.insert(*ident, binding.clone());
-                        param_bindings.push((*ident, binding.var));
-                    }
-                    builder.ins().jump(body_block, &[]);
-                    builder.seal_block(init_block);
-
-                    let tail_ctx = TailCallContext {
+                let local_functions = scope
+                    .module_functions
+                    .iter()
+                    .filter_map(|((mod_name, member_name), member_meta)| {
+                        (*mod_name == *module_name).then_some((*member_name, *member_meta))
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_function_body(
+                    scope,
+                    CompiledFunctionSpec {
+                        meta,
+                        parameters,
+                        body,
+                        captures: &[],
+                        self_name: None,
                         function_name: Some(*name),
-                        loop_block: body_block,
-                        params: param_bindings,
-                    };
-
-                    builder.switch_to_block(body_block);
-
-                    let mut last_val = None;
-                    let mut returned = false;
-                    let last_index = body.statements.len().saturating_sub(1);
-                    for (idx, body_stmt) in body.statements.iter().enumerate() {
-                        if idx == last_index
-                            && let Some(outcome) = try_compile_tail_expression_statement(
-                                module,
-                                helpers,
-                                &mut builder,
-                                &mut fn_scope,
-                                ctx_val,
-                                Some(return_block),
-                                &tail_ctx,
-                                body_stmt,
-                                interner,
-                            )?
-                        {
-                            match outcome {
-                                StmtOutcome::Returned => {
-                                    returned = true;
-                                    break;
-                                }
-                                StmtOutcome::Value(v) => {
-                                    last_val = Some(v);
-                                    continue;
-                                }
-                                StmtOutcome::None => continue,
-                            }
-                        }
-                        let outcome = compile_statement(
-                            module,
-                            helpers,
-                            &mut builder,
-                            &mut fn_scope,
-                            ctx_val,
-                            Some(return_block),
-                            Some(&tail_ctx),
-                            false,
-                            body_stmt,
-                            interner,
-                        )?;
-                        match outcome {
-                            StmtOutcome::Value(v) => last_val = Some(v),
-                            StmtOutcome::Returned => {
-                                returned = true;
-                                break;
-                            }
-                            StmtOutcome::None => {}
-                        }
-                    }
-
-                    if !returned {
-                        let ret = match last_val {
-                            Some(v) => v,
-                            None => {
-                            let make_none = get_helper_func_ref(
-                                module,
-                                helpers,
-                                &mut builder,
-                                "rt_make_none",
-                            );
-                            let call = builder.ins().call(make_none, &[ctx_val]);
-                            JitValue::boxed(builder.inst_results(call)[1])
-                        }
-                    };
-                        jump_with_jit_value(&mut builder, return_block, ret);
-                    }
-                    builder.seal_block(body_block);
-                    builder.switch_to_block(return_block);
-                    let ret_tag = builder.block_params(return_block)[0];
-                    let ret_payload = builder.block_params(return_block)[1];
-                    builder.ins().return_(&[ret_tag, ret_payload]);
-                    builder.seal_block(return_block);
-                    builder.finalize();
-                }
-
-                let mut ctx = cranelift_codegen::Context::new();
-                ctx.func = func;
-                self.module
-                    .define_function(meta.id, &mut ctx)
-                    .map_err(|e| {
-                        format!(
-                            "define module function {}.{}: {} ({:?})",
-                            interner.resolve(*module_name),
-                            interner.resolve(*name),
-                            e,
-                            e
-                        )
-                    })?;
+                        local_functions: &local_functions,
+                    },
+                    interner,
+                    &format!(
+                        "define module function {}.{}",
+                        interner.resolve(*module_name),
+                        interner.resolve(*name)
+                    ),
+                )?;
             }
         }
         Ok(())
@@ -1476,7 +1153,6 @@ impl JitCompiler {
             let Some(meta) = scope.literal_functions.get(&spec.key).copied() else {
                 continue;
             };
-
             let sig = self.user_function_signature(meta.call_abi);
             let mut func = Function::with_name_signature(UserFuncName::default(), sig);
             {
@@ -1528,7 +1204,6 @@ impl JitCompiler {
                 let mut param_bindings: Vec<(Identifier, Variable)> =
                     Vec::with_capacity(spec.parameters.len());
 
-                // Bind captures first; params may shadow them.
                 for (idx, ident) in spec.captures.iter().enumerate() {
                     let cap_tag = builder.ins().load(
                         types::I64,
@@ -1612,6 +1287,8 @@ impl JitCompiler {
                 builder.ins().jump(body_block, &[]);
                 builder.seal_block(init_block);
 
+                let function_compiler =
+                    FunctionCompiler::new(&mut builder, max_boxed_array_len_in_block(&spec.body));
                 let tail_ctx = TailCallContext {
                     function_name: spec.self_name,
                     loop_block: body_block,
@@ -1629,6 +1306,7 @@ impl JitCompiler {
                             module,
                             helpers,
                             &mut builder,
+                            &function_compiler,
                             &mut fn_scope,
                             ctx_val,
                             Some(return_block),
@@ -1653,6 +1331,7 @@ impl JitCompiler {
                         module,
                         helpers,
                         &mut builder,
+                        &function_compiler,
                         &mut fn_scope,
                         ctx_val,
                         Some(return_block),
@@ -1701,6 +1380,251 @@ impl JitCompiler {
         Ok(())
     }
 
+    fn compile_function_body(
+        &mut self,
+        scope: &Scope,
+        spec: CompiledFunctionSpec<'_>,
+        interner: &Interner,
+        define_error_prefix: &str,
+    ) -> Result<(), String> {
+        let sig = self.user_function_signature(spec.meta.call_abi);
+        let mut func = Function::with_name_signature(UserFuncName::default(), sig);
+        {
+            let module = &mut self.module;
+            let helpers = &self.helpers;
+            let mut builder = FunctionBuilder::new(&mut func, &mut self.builder_ctx);
+            let mut fn_scope = scope.clone();
+            fn_scope.locals.clear();
+            for (name, meta) in spec.local_functions {
+                fn_scope.functions.insert(*name, *meta);
+            }
+
+            let entry = builder.create_block();
+            let init_block = builder.create_block();
+            let body_block = builder.create_block();
+            let arity_fail = builder.create_block();
+            let return_block = builder.create_block();
+            append_return_block_params(&mut builder, return_block);
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let entry_params = builder.block_params(entry).to_vec();
+            let ctx_val = entry_params[0];
+            let args_ptr = if spec.meta.call_abi.uses_array_args() {
+                Some(entry_params[1])
+            } else {
+                None
+            };
+            let captures_ptr = (!spec.captures.is_empty() || spec.self_name.is_some())
+                .then(|| entry_params[spec.meta.call_abi.captures_param_index()]);
+            let ncaptures = captures_ptr
+                .map(|_| entry_params[spec.meta.call_abi.ncaptures_param_index()]);
+
+            if args_ptr.is_some() {
+                let nargs = entry_params[2];
+                let want = builder.ins().iconst(PTR_TYPE, spec.parameters.len() as i64);
+                let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
+                builder
+                    .ins()
+                    .brif(arity_ok, init_block, &[], arity_fail, &[]);
+
+                builder.switch_to_block(arity_fail);
+                let set_arity_error =
+                    get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
+                builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
+                emit_return_null_tagged(&mut builder);
+                builder.seal_block(arity_fail);
+            } else {
+                builder.ins().jump(init_block, &[]);
+                builder.seal_block(arity_fail);
+            }
+
+            builder.switch_to_block(init_block);
+            let mut param_bindings: Vec<(Identifier, Variable)> =
+                Vec::with_capacity(spec.parameters.len());
+
+            if let Some(captures_ptr) = captures_ptr {
+                for (idx, ident) in spec.captures.iter().enumerate() {
+                    let cap_tag = builder.ins().load(
+                        types::I64,
+                        MemFlags::new(),
+                        captures_ptr,
+                        (idx * 16) as i32,
+                    );
+                    let cap_payload = builder.ins().load(
+                        PTR_TYPE,
+                        MemFlags::new(),
+                        captures_ptr,
+                        (idx * 16 + 8) as i32,
+                    );
+                    let cap_ptr = boxed_value_from_tagged_parts(
+                        module, helpers, &mut builder, ctx_val, cap_tag, cap_payload,
+                    );
+                    let binding = LocalBinding {
+                        var: declare_local(&mut builder, JitValueKind::Boxed),
+                        kind: JitValueKind::Boxed,
+                    };
+                    builder.def_var(binding.var, cap_ptr);
+                    fn_scope.locals.insert(*ident, binding);
+                }
+            }
+
+            for (idx, ident) in spec.parameters.iter().enumerate() {
+                let arg_ptr = match args_ptr {
+                    Some(args_ptr) => {
+                        let tag = builder.ins().load(
+                            types::I64,
+                            MemFlags::new(),
+                            args_ptr,
+                            (idx * 16) as i32,
+                        );
+                        let payload = builder.ins().load(
+                            PTR_TYPE,
+                            MemFlags::new(),
+                            args_ptr,
+                            (idx * 16 + 8) as i32,
+                        );
+                        boxed_value_from_tagged_parts(
+                            module, helpers, &mut builder, ctx_val, tag, payload,
+                        )
+                    }
+                    None => {
+                        let base = 1 + idx * 2;
+                        boxed_value_from_tagged_parts(
+                            module,
+                            helpers,
+                            &mut builder,
+                            ctx_val,
+                            entry_params[base],
+                            entry_params[base + 1],
+                        )
+                    }
+                };
+                let binding = LocalBinding {
+                    var: declare_local(&mut builder, JitValueKind::Boxed),
+                    kind: JitValueKind::Boxed,
+                };
+                builder.def_var(binding.var, arg_ptr);
+                fn_scope.locals.insert(*ident, binding.clone());
+                param_bindings.push((*ident, binding.var));
+            }
+
+            if let (Some(self_name), Some(captures_ptr), Some(ncaptures)) =
+                (spec.self_name, captures_ptr, ncaptures)
+            {
+                let make_jit_closure =
+                    get_helper_func_ref(module, helpers, &mut builder, "rt_make_jit_closure");
+                let fn_idx = builder.ins().iconst(PTR_TYPE, spec.meta.function_index as i64);
+                let call = builder
+                    .ins()
+                    .call(make_jit_closure, &[ctx_val, fn_idx, captures_ptr, ncaptures]);
+                let closure = builder.inst_results(call)[0];
+                let binding = LocalBinding {
+                    var: declare_local(&mut builder, JitValueKind::Boxed),
+                    kind: JitValueKind::Boxed,
+                };
+                builder.def_var(binding.var, closure);
+                fn_scope.locals.insert(self_name, binding);
+            }
+
+            builder.ins().jump(body_block, &[]);
+            builder.seal_block(init_block);
+
+            let function_compiler = FunctionCompiler::new(
+                &mut builder,
+                max_boxed_array_len_in_block(spec.body),
+            );
+            let tail_ctx = TailCallContext {
+                function_name: spec.function_name,
+                loop_block: body_block,
+                params: param_bindings,
+            };
+
+            builder.switch_to_block(body_block);
+
+            let mut last_val = None;
+            let mut returned = false;
+            let last_index = spec.body.statements.len().saturating_sub(1);
+            for (idx, body_stmt) in spec.body.statements.iter().enumerate() {
+                if idx == last_index
+                    && let Some(outcome) = try_compile_tail_expression_statement(
+                        module,
+                        helpers,
+                        &mut builder,
+                        &function_compiler,
+                        &mut fn_scope,
+                        ctx_val,
+                        Some(return_block),
+                        &tail_ctx,
+                        body_stmt,
+                        interner,
+                    )?
+                {
+                    match outcome {
+                        StmtOutcome::Returned => {
+                            returned = true;
+                            break;
+                        }
+                        StmtOutcome::Value(v) => {
+                            last_val = Some(v);
+                            continue;
+                        }
+                        StmtOutcome::None => continue,
+                    }
+                }
+                let outcome = compile_statement(
+                    module,
+                    helpers,
+                    &mut builder,
+                    &function_compiler,
+                    &mut fn_scope,
+                    ctx_val,
+                    Some(return_block),
+                    Some(&tail_ctx),
+                    false,
+                    body_stmt,
+                    interner,
+                )?;
+                match outcome {
+                    StmtOutcome::Value(v) => last_val = Some(v),
+                    StmtOutcome::Returned => {
+                        returned = true;
+                        break;
+                    }
+                    StmtOutcome::None => {}
+                }
+            }
+
+            if !returned {
+                let ret = match last_val {
+                    Some(v) => v,
+                    None => {
+                        let make_none =
+                            get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
+                        let call = builder.ins().call(make_none, &[ctx_val]);
+                        JitValue::boxed(builder.inst_results(call)[1])
+                    }
+                };
+                jump_with_jit_value(&mut builder, return_block, ret);
+            }
+            builder.seal_block(body_block);
+            builder.switch_to_block(return_block);
+            let ret_tag = builder.block_params(return_block)[0];
+            let ret_payload = builder.block_params(return_block)[1];
+            builder.ins().return_(&[ret_tag, ret_payload]);
+            builder.seal_block(return_block);
+            builder.finalize();
+        }
+
+        let mut ctx = cranelift_codegen::Context::new();
+        ctx.func = func;
+        self.module
+            .define_function(spec.meta.id, &mut ctx)
+            .map_err(|e| format!("{define_error_prefix}: {} ({:?})", e, e))?;
+        Ok(())
+    }
+
     /// Finalize all functions and make them callable.
     pub fn finalize(&mut self) {
         self.module.finalize_definitions().unwrap();
@@ -1732,6 +1656,7 @@ fn compile_statement(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -1746,6 +1671,7 @@ fn compile_statement(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -1775,6 +1701,7 @@ fn compile_statement(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -1816,6 +1743,7 @@ fn compile_statement(
                         module,
                         helpers,
                         builder,
+                        function_compiler,
                         scope,
                         ctx_val,
                         return_block,
@@ -1836,6 +1764,7 @@ fn compile_statement(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -1855,6 +1784,7 @@ fn compile_statement(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -1900,6 +1830,7 @@ fn compile_statement(
                         module,
                         helpers,
                         builder,
+                        function_compiler,
                         scope,
                         ctx_val,
                         return_block,
@@ -1920,6 +1851,7 @@ fn compile_statement(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -1959,7 +1891,13 @@ fn compile_statement(
                 id: ExprId::UNSET,
             };
             let fn_val = compile_function_literal(
-                module, helpers, builder, scope, ctx_val, &expr, interner,
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                &expr,
+                interner,
             )?;
             bind_local(builder, scope, *name, JitValue::boxed(fn_val));
             Ok(StmtOutcome::None)
@@ -2013,6 +1951,7 @@ fn try_compile_tail_expression_statement(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -2047,6 +1986,7 @@ fn try_compile_tail_expression_statement(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -2067,6 +2007,7 @@ fn compile_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -2120,6 +2061,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2127,20 +2069,11 @@ fn compile_expression(
                     elem,
                     interner,
                 )?;
-                elem_vals.push(box_and_guard_jit_value(
-                    module, helpers, builder, ctx_val, val,
-                ));
+                emit_return_on_null_jit_value(module, helpers, builder, ctx_val, val);
+                elem_vals.push(val);
             }
             let len = elem_vals.len();
-            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (len as u32).max(1) * 8,
-                3,
-            ));
-            for (i, val) in elem_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 8) as i32);
-            }
-            let elems_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let (_slot, elems_ptr) = emit_tagged_stack_array(builder, &elem_vals);
             let len_val = builder.ins().iconst(PTR_TYPE, len as i64);
             let make_tuple = get_helper_func_ref(module, helpers, builder, "rt_make_tuple");
             let call = builder
@@ -2153,6 +2086,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2213,13 +2147,7 @@ fn compile_expression(
                 let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
                 let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
 
-                let empty_slot = builder.create_sized_stack_slot(StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    8,
-                    3,
-                ));
-
-                let fields_ptr = builder.ins().stack_addr(PTR_TYPE, empty_slot, 0);
+                let (_slot, fields_ptr) = emit_tagged_stack_array(builder, &[]);
                 let zero = builder.ins().iconst(PTR_TYPE, 0);
                 let make_adt = get_helper_func_ref(module, helpers, builder, "rt_make_adt");
                 let call = builder
@@ -2291,6 +2219,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2338,6 +2267,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2352,6 +2282,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2363,6 +2294,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                    function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2529,6 +2461,7 @@ fn compile_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -2543,6 +2476,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2577,6 +2511,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2612,6 +2547,7 @@ fn compile_expression(
                         module,
                         helpers,
                         builder,
+                        function_compiler,
                         scope,
                         ctx_val,
                         return_block,
@@ -2619,12 +2555,16 @@ fn compile_expression(
                         arg,
                         interner,
                     )?;
-                    arg_vals.push(box_and_guard_jit_value(
-                        module, helpers, builder, ctx_val, value,
-                    ));
+                    emit_return_on_null_jit_value(module, helpers, builder, ctx_val, value);
+                    arg_vals.push(value);
                 }
 
-                emit_push_gc_roots(module, helpers, builder, ctx_val, &arg_vals);
+                let boxed_arg_vals: Vec<_> = arg_vals
+                    .iter()
+                    .map(|value| box_jit_value(module, helpers, builder, ctx_val, *value))
+                    .collect();
+
+                emit_push_gc_roots(module, helpers, builder, ctx_val, &boxed_arg_vals);
 
                 // Use specialized helpers for arity 1-5 to avoid stack-slot + loop overhead.
                 let call = match arity {
@@ -2633,14 +2573,20 @@ fn compile_expression(
                             get_helper_func_ref(module, helpers, builder, "rt_make_adt1");
                         builder
                             .ins()
-                            .call(make_adt1, &[ctx_val, name_ptr, name_len, arg_vals[0]])
+                            .call(make_adt1, &[ctx_val, name_ptr, name_len, boxed_arg_vals[0]])
                     }
                     2 => {
                         let make_adt2 =
                             get_helper_func_ref(module, helpers, builder, "rt_make_adt2");
                         builder.ins().call(
                             make_adt2,
-                            &[ctx_val, name_ptr, name_len, arg_vals[0], arg_vals[1]],
+                            &[
+                                ctx_val,
+                                name_ptr,
+                                name_len,
+                                boxed_arg_vals[0],
+                                boxed_arg_vals[1],
+                            ],
                         )
                     }
                     3 => {
@@ -2652,9 +2598,9 @@ fn compile_expression(
                                 ctx_val,
                                 name_ptr,
                                 name_len,
-                                arg_vals[0],
-                                arg_vals[1],
-                                arg_vals[2],
+                                boxed_arg_vals[0],
+                                boxed_arg_vals[1],
+                                boxed_arg_vals[2],
                             ],
                         )
                     }
@@ -2667,10 +2613,10 @@ fn compile_expression(
                                 ctx_val,
                                 name_ptr,
                                 name_len,
-                                arg_vals[0],
-                                arg_vals[1],
-                                arg_vals[2],
-                                arg_vals[3],
+                                boxed_arg_vals[0],
+                                boxed_arg_vals[1],
+                                boxed_arg_vals[2],
+                                boxed_arg_vals[3],
                             ],
                         )
                     }
@@ -2683,26 +2629,17 @@ fn compile_expression(
                                 ctx_val,
                                 name_ptr,
                                 name_len,
-                                arg_vals[0],
-                                arg_vals[1],
-                                arg_vals[2],
-                                arg_vals[3],
-                                arg_vals[4],
+                                boxed_arg_vals[0],
+                                boxed_arg_vals[1],
+                                boxed_arg_vals[2],
+                                boxed_arg_vals[3],
+                                boxed_arg_vals[4],
                             ],
                         )
                     }
                     _ => {
                         // Fallback for arity 0 and arity >= 6: use generic rt_make_adt.
-                        let n = arg_vals.len();
-                        let slot = builder.create_sized_stack_slot(StackSlotData::new(
-                            cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                            (n as u32).max(1) * 8,
-                            3,
-                        ));
-                        for (i, value) in arg_vals.iter().enumerate() {
-                            builder.ins().stack_store(*value, slot, (i * 8) as i32);
-                        }
-                        let fields_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                        let (_slot, fields_ptr) = emit_tagged_stack_array(builder, &arg_vals);
                         let arity_value = builder.ins().iconst(PTR_TYPE, arity as i64);
                         let make_adt =
                             get_helper_func_ref(module, helpers, builder, "rt_make_adt");
@@ -2723,6 +2660,7 @@ fn compile_expression(
                         module,
                         helpers,
                         builder,
+                        function_compiler,
                         scope,
                         ctx_val,
                         return_block,
@@ -2740,6 +2678,7 @@ fn compile_expression(
                         module,
                         helpers,
                         builder,
+                        function_compiler,
                         scope,
                         ctx_val,
                         return_block,
@@ -2755,6 +2694,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2774,6 +2714,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2785,6 +2726,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2806,6 +2748,7 @@ fn compile_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -2820,6 +2763,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2837,6 +2781,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2854,6 +2799,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2873,6 +2819,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2880,20 +2827,11 @@ fn compile_expression(
                     elem,
                     interner,
                 )?;
-                elem_vals.push(box_and_guard_jit_value(
-                    module, helpers, builder, ctx_val, val,
-                ));
+                emit_return_on_null_jit_value(module, helpers, builder, ctx_val, val);
+                elem_vals.push(val);
             }
             let len = elem_vals.len();
-            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (len as u32).max(1) * 8,
-                3,
-            ));
-            for (i, val) in elem_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 8) as i32);
-            }
-            let elems_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let (_slot, elems_ptr) = emit_tagged_stack_array(builder, &elem_vals);
             let len_val = builder.ins().iconst(PTR_TYPE, len as i64);
             let make_array = get_helper_func_ref(module, helpers, builder, "rt_make_array");
             let call = builder
@@ -2912,6 +2850,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2933,6 +2872,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2944,6 +2884,7 @@ fn compile_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -2951,23 +2892,12 @@ fn compile_expression(
                     value,
                     interner,
                 )?;
-                pair_vals.push(box_and_guard_jit_value(
-                    module, helpers, builder, ctx_val, k,
-                ));
-                pair_vals.push(box_and_guard_jit_value(
-                    module, helpers, builder, ctx_val, v,
-                ));
+                emit_return_on_null_jit_value(module, helpers, builder, ctx_val, k);
+                emit_return_on_null_jit_value(module, helpers, builder, ctx_val, v);
+                pair_vals.push(k);
+                pair_vals.push(v);
             }
-            let slot_size = (npairs as u32 * 2).max(1) * 8;
-            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                slot_size,
-                3,
-            ));
-            for (i, val) in pair_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 8) as i32);
-            }
-            let pairs_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let (_slot, pairs_ptr) = emit_tagged_stack_array(builder, &pair_vals);
             let npairs_val = builder.ins().iconst(PTR_TYPE, npairs as i64);
             let make_hash = get_helper_func_ref(module, helpers, builder, "rt_make_hash");
             let call = builder
@@ -2980,6 +2910,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -2991,6 +2922,7 @@ fn compile_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 return_block,
@@ -3035,6 +2967,7 @@ fn compile_expression(
                             module,
                             helpers,
                             builder,
+                            function_compiler,
                             scope,
                             ctx_val,
                             return_block,
@@ -3078,6 +3011,7 @@ fn compile_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -3094,6 +3028,7 @@ fn compile_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -3112,6 +3047,7 @@ fn compile_jit_perform(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -3128,6 +3064,7 @@ fn compile_jit_perform(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -3194,6 +3131,7 @@ fn compile_jit_handle(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -3258,15 +3196,7 @@ fn compile_jit_handle(
     let ops_ptr = builder.ins().stack_addr(PTR_TYPE, ops_slot, 0);
 
     // Store closures in a stack slot
-    let cls_slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (num_arms.max(1) as u32) * 8,
-        3,
-    ));
-    for (i, cv) in closure_vals.iter().enumerate() {
-        builder.ins().stack_store(*cv, cls_slot, (i * 8) as i32);
-    }
-    let closures_ptr = builder.ins().stack_addr(PTR_TYPE, cls_slot, 0);
+    let closures_ptr = function_compiler.emit_boxed_array(builder, &closure_vals);
 
     let effect_val = builder.ins().iconst(PTR_TYPE, effect.as_u32() as i64);
     let narms_val = builder.ins().iconst(PTR_TYPE, num_arms as i64);
@@ -3281,6 +3211,7 @@ fn compile_jit_handle(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -3333,6 +3264,7 @@ fn compile_match_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -3353,6 +3285,7 @@ fn compile_match_expression(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -3461,6 +3394,7 @@ fn compile_match_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     return_block,
@@ -3489,6 +3423,7 @@ fn compile_match_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     &mut test_scope,
                     ctx_val,
                     &arm.pattern,
@@ -3511,6 +3446,7 @@ fn compile_match_expression(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     &mut test_scope,
                     ctx_val,
                     &arm.pattern,
@@ -3542,6 +3478,7 @@ fn compile_match_expression(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 &mut arm_scope,
                 ctx_val,
                 return_block,
@@ -3575,6 +3512,7 @@ fn compile_match_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             &mut arm_scope,
             ctx_val,
             return_block,
@@ -3855,6 +3793,7 @@ fn emit_pattern_check(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     pattern: &Pattern,
@@ -3914,6 +3853,7 @@ fn emit_pattern_check(
                 module,
                 helpers,
                 builder,
+                function_compiler,
                 scope,
                 ctx_val,
                 None,
@@ -3952,7 +3892,16 @@ fn emit_pattern_check(
                 let elem_val = builder.inst_results(elem_call)[0];
                 let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
                 emit_pattern_check(
-                    module, helpers, builder, scope, ctx_val, element, elem_val, next, fail_block,
+                    module,
+                    helpers,
+                    builder,
+                    function_compiler,
+                    scope,
+                    ctx_val,
+                    element,
+                    elem_val,
+                    next,
+                    fail_block,
                     interner,
                 )?;
             }
@@ -3992,6 +3941,7 @@ fn emit_pattern_check(
                     module,
                     helpers,
                     builder,
+                    function_compiler,
                     scope,
                     ctx_val,
                     field_pattern,
@@ -4103,6 +4053,7 @@ fn compile_block_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4117,6 +4068,7 @@ fn compile_block_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             &mut block_scope,
             ctx_val,
             return_block,
@@ -4142,6 +4094,7 @@ fn compile_if_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4155,6 +4108,7 @@ fn compile_if_expression(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -4189,6 +4143,7 @@ fn compile_if_expression(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -4207,6 +4162,7 @@ fn compile_if_expression(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -4302,6 +4258,7 @@ fn compile_short_circuit_expression(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4315,6 +4272,7 @@ fn compile_short_circuit_expression(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -4377,6 +4335,7 @@ fn compile_short_circuit_expression(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -4430,6 +4389,7 @@ fn compile_base_function_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4446,6 +4406,7 @@ fn compile_base_function_call(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -4460,17 +4421,7 @@ fn compile_base_function_call(
 
     // Store argument pointers in a stack slot array
     let nargs = arg_vals.len();
-    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (nargs as u32) * 8, // 8 bytes per pointer
-        3,                  // align to 8 bytes (2^3)
-    ));
-
-    for (i, val) in arg_vals.iter().enumerate() {
-        builder.ins().stack_store(*val, slot, (i * 8) as i32);
-    }
-
-    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let args_ptr = function_compiler.emit_boxed_array(builder, &arg_vals);
     let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
@@ -4505,6 +4456,7 @@ fn compile_primop_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4520,6 +4472,7 @@ fn compile_primop_call(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -4627,17 +4580,7 @@ fn compile_primop_call(
     }
 
     let nargs = arg_vals.len();
-    let slot = builder.create_sized_stack_slot(StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (nargs as u32) * 8,
-        3,
-    ));
-
-    for (i, val) in arg_vals.iter().enumerate() {
-        builder.ins().stack_store(*val, slot, (i * 8) as i32);
-    }
-
-    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let args_ptr = function_compiler.emit_boxed_array(builder, &arg_vals);
     let primop_val = builder.ins().iconst(PTR_TYPE, primop.id() as i64);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let start_line_val = builder.ins().iconst(PTR_TYPE, span.start.line as i64);
@@ -4710,6 +4653,7 @@ fn compile_user_function_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -4725,6 +4669,7 @@ fn compile_user_function_call(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -4816,15 +4761,7 @@ fn compile_user_function_call(
 
     let call_ok = match meta.call_abi {
         JitCallAbi::Array => {
-            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (nargs as u32) * 8,
-                3,
-            ));
-            for (i, val) in boxed_arg_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 8) as i32);
-            }
-            let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let args_ptr = function_compiler.emit_boxed_array(builder, &boxed_arg_vals);
             let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
             let check_call =
                 get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
@@ -5006,6 +4943,7 @@ fn compile_generic_call(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    function_compiler: &FunctionCompiler,
     scope: &mut Scope,
     ctx_val: CraneliftValue,
     return_block: Option<cranelift_codegen::ir::Block>,
@@ -5019,6 +4957,7 @@ fn compile_generic_call(
         module,
         helpers,
         builder,
+        function_compiler,
         scope,
         ctx_val,
         return_block,
@@ -5034,6 +4973,7 @@ fn compile_generic_call(
             module,
             helpers,
             builder,
+            function_compiler,
             scope,
             ctx_val,
             return_block,
@@ -5047,16 +4987,7 @@ fn compile_generic_call(
     }
 
     let nargs = arg_vals.len();
-    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (nargs as u32) * 8,
-        3,
-    ));
-    for (i, val) in arg_vals.iter().enumerate() {
-        builder.ins().stack_store(*val, slot, (i * 8) as i32);
-    }
-
-    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let args_ptr = function_compiler.emit_boxed_array(builder, &arg_vals);
     let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let start_line_val = builder.ins().iconst(PTR_TYPE, call_span.start.line as i64);
     let start_col_val = builder
@@ -5720,6 +5651,187 @@ struct TailCallContext {
     function_name: Option<Identifier>,
     loop_block: cranelift_codegen::ir::Block,
     params: Vec<(Identifier, Variable)>,
+}
+
+struct FunctionCompiler {
+    boxed_array_slot: Option<StackSlot>,
+    boxed_array_capacity: usize,
+}
+
+impl FunctionCompiler {
+    fn new(
+        builder: &mut FunctionBuilder,
+        boxed_array_capacity: usize,
+    ) -> Self {
+        let boxed_array_slot = (boxed_array_capacity > 0).then(|| {
+            builder.create_sized_stack_slot(StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                boxed_array_capacity as u32 * 8,
+                3,
+            ))
+        });
+        Self {
+            boxed_array_slot,
+            boxed_array_capacity,
+        }
+    }
+
+    fn emit_boxed_array(
+        &self,
+        builder: &mut FunctionBuilder,
+        values: &[CraneliftValue],
+    ) -> CraneliftValue {
+        debug_assert!(values.len() <= self.boxed_array_capacity);
+        let slot = self
+            .boxed_array_slot
+            .expect("boxed array slot must be preallocated");
+        for (i, value) in values.iter().enumerate() {
+            builder.ins().stack_store(*value, slot, (i * 8) as i32);
+        }
+        builder.ins().stack_addr(PTR_TYPE, slot, 0)
+    }
+}
+
+fn note_boxed_array_usage(current_max: &mut usize, len: usize) {
+    *current_max = (*current_max).max(len.max(1));
+}
+
+fn max_boxed_array_len_in_block(block: &Block) -> usize {
+    max_boxed_array_len_in_statements(&block.statements)
+}
+
+fn max_boxed_array_len_in_statements(statements: &[Statement]) -> usize {
+    let mut max_len = 0;
+    for stmt in statements {
+        scan_stmt_boxed_array_usage(stmt, &mut max_len);
+    }
+    max_len
+}
+
+fn scan_stmt_boxed_array_usage(stmt: &Statement, max_len: &mut usize) {
+    match stmt {
+        Statement::Let { value, .. }
+        | Statement::Assign { value, .. } => scan_expr_boxed_array_usage(value, max_len),
+        Statement::LetDestructure { value, .. } => scan_expr_boxed_array_usage(value, max_len),
+        Statement::Expression { expression, .. } => scan_expr_boxed_array_usage(expression, max_len),
+        Statement::Return { value, .. } => {
+            if let Some(value) = value {
+                scan_expr_boxed_array_usage(value, max_len);
+            }
+        }
+        Statement::Function { .. }
+        | Statement::Import { .. }
+        | Statement::Module { .. }
+        | Statement::Data { .. }
+        | Statement::EffectDecl { .. } => {}
+    }
+}
+
+fn scan_expr_boxed_array_usage(expr: &Expression, max_len: &mut usize) {
+    match expr {
+        Expression::Function { .. }
+        | Expression::Identifier { .. }
+        | Expression::Integer { .. }
+        | Expression::Float { .. }
+        | Expression::String { .. }
+        | Expression::Boolean { .. }
+        | Expression::EmptyList { .. }
+        | Expression::None { .. } => {}
+        Expression::Prefix { right, .. } => scan_expr_boxed_array_usage(right, max_len),
+        Expression::Infix { left, right, .. }
+        | Expression::Cons {
+            head: left,
+            tail: right,
+            ..
+        } => {
+            scan_expr_boxed_array_usage(left, max_len);
+            scan_expr_boxed_array_usage(right, max_len);
+        }
+        Expression::If {
+            condition,
+            consequence,
+            alternative,
+            ..
+        } => {
+            scan_expr_boxed_array_usage(condition, max_len);
+            for stmt in &consequence.statements {
+                scan_stmt_boxed_array_usage(stmt, max_len);
+            }
+            if let Some(alternative) = alternative {
+                for stmt in &alternative.statements {
+                    scan_stmt_boxed_array_usage(stmt, max_len);
+                }
+            }
+        }
+        Expression::DoBlock { block, .. } => {
+            for stmt in &block.statements {
+                scan_stmt_boxed_array_usage(stmt, max_len);
+            }
+        }
+        Expression::Call {
+            function,
+            arguments,
+            ..
+        } => {
+            note_boxed_array_usage(max_len, arguments.len());
+            scan_expr_boxed_array_usage(function, max_len);
+            for arg in arguments {
+                scan_expr_boxed_array_usage(arg, max_len);
+            }
+        }
+        Expression::ListLiteral { elements, .. }
+        | Expression::ArrayLiteral { elements, .. }
+        | Expression::TupleLiteral { elements, .. } => {
+            for element in elements {
+                scan_expr_boxed_array_usage(element, max_len);
+            }
+        }
+        Expression::Index { left, index, .. } => {
+            scan_expr_boxed_array_usage(left, max_len);
+            scan_expr_boxed_array_usage(index, max_len);
+        }
+        Expression::Hash { pairs, .. } => {
+            for (key, value) in pairs {
+                scan_expr_boxed_array_usage(key, max_len);
+                scan_expr_boxed_array_usage(value, max_len);
+            }
+        }
+        Expression::MemberAccess { object, .. }
+        | Expression::TupleFieldAccess { object, .. } => {
+            scan_expr_boxed_array_usage(object, max_len);
+        }
+        Expression::Match {
+            scrutinee, arms, ..
+        } => {
+            scan_expr_boxed_array_usage(scrutinee, max_len);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    scan_expr_boxed_array_usage(guard, max_len);
+                }
+                scan_expr_boxed_array_usage(&arm.body, max_len);
+            }
+        }
+        Expression::Some { value, .. }
+        | Expression::Left { value, .. }
+        | Expression::Right { value, .. } => scan_expr_boxed_array_usage(value, max_len),
+        Expression::InterpolatedString { parts, .. } => {
+            for part in parts {
+                if let crate::syntax::expression::StringPart::Interpolation(expr) = part {
+                    scan_expr_boxed_array_usage(expr, max_len);
+                }
+            }
+        }
+        Expression::Perform { args, .. } => {
+            note_boxed_array_usage(max_len, args.len());
+            for arg in args {
+                scan_expr_boxed_array_usage(arg, max_len);
+            }
+        }
+        Expression::Handle { expr, arms, .. } => {
+            note_boxed_array_usage(max_len, arms.len());
+            scan_expr_boxed_array_usage(expr, max_len);
+        }
+    }
 }
 
 fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
