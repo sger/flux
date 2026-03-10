@@ -12,6 +12,56 @@ use std::collections::HashMap;
 
 use super::value_arena::ValueArena;
 
+pub const JIT_TAG_INT: i64 = 1;
+pub const JIT_TAG_FLOAT: i64 = 2;
+pub const JIT_TAG_BOOL: i64 = 3;
+pub const JIT_TAG_PTR: i64 = 4;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JitTaggedValue {
+    pub tag: i64,
+    pub payload: i64,
+}
+
+impl JitTaggedValue {
+    pub const fn int(value: i64) -> Self {
+        Self {
+            tag: JIT_TAG_INT,
+            payload: value,
+        }
+    }
+
+    pub const fn float_bits(bits: i64) -> Self {
+        Self {
+            tag: JIT_TAG_FLOAT,
+            payload: bits,
+        }
+    }
+
+    pub const fn bool(value: bool) -> Self {
+        Self {
+            tag: JIT_TAG_BOOL,
+            payload: value as i64,
+        }
+    }
+
+    pub fn ptr(ptr: *mut Value) -> Self {
+        Self {
+            tag: JIT_TAG_PTR,
+            payload: ptr as i64,
+        }
+    }
+
+    pub fn none() -> Self {
+        Self::ptr(std::ptr::null_mut())
+    }
+
+    pub fn as_ptr(self) -> *mut Value {
+        self.payload as *mut Value
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JitCallAbi {
     Array,
@@ -323,6 +373,48 @@ impl JitContext {
         self.arena.alloc(value)
     }
 
+    pub fn boxed_to_tagged(&mut self, value: Value) -> JitTaggedValue {
+        match value {
+            Value::Integer(v) => JitTaggedValue::int(v),
+            Value::Float(v) => JitTaggedValue::float_bits(v.to_bits() as i64),
+            Value::Boolean(v) => JitTaggedValue::bool(v),
+            other => JitTaggedValue::ptr(self.alloc(other)),
+        }
+    }
+
+    pub fn boxed_ptr_to_tagged(&mut self, value: *mut Value) -> JitTaggedValue {
+        match unsafe { value.as_ref() } {
+            Some(value) => self.boxed_to_tagged(value.clone()),
+            None => JitTaggedValue::none(),
+        }
+    }
+
+    pub fn tagged_to_boxed(&mut self, value: JitTaggedValue) -> *mut Value {
+        match value.tag {
+            JIT_TAG_INT => self.alloc(Value::Integer(value.payload)),
+            JIT_TAG_FLOAT => self.alloc(Value::Float(f64::from_bits(value.payload as u64))),
+            JIT_TAG_BOOL => self.alloc(Value::Boolean(value.payload != 0)),
+            JIT_TAG_PTR => value.as_ptr(),
+            _ => {
+                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                std::ptr::null_mut()
+            }
+        }
+    }
+
+    pub fn clone_from_tagged(&mut self, value: JitTaggedValue) -> Option<Value> {
+        match value.tag {
+            JIT_TAG_INT => Some(Value::Integer(value.payload)),
+            JIT_TAG_FLOAT => Some(Value::Float(f64::from_bits(value.payload as u64))),
+            JIT_TAG_BOOL => Some(Value::Boolean(value.payload != 0)),
+            JIT_TAG_PTR => unsafe { value.as_ptr().as_ref().cloned() },
+            _ => {
+                self.error = Some(format!("unknown JIT tagged value tag: {}", value.tag));
+                None
+            }
+        }
+    }
+
     /// Take the stored error message, if any.
     pub fn take_error(&mut self) -> Option<String> {
         self.error.take()
@@ -456,109 +548,105 @@ impl RuntimeContext for JitContext {
                     }
                 }
 
-                let mut arg_ptrs: Vec<*mut Value> = Vec::with_capacity(args.len());
+                let mut arg_values: Vec<JitTaggedValue> = Vec::with_capacity(args.len());
                 for v in args {
-                    arg_ptrs.push(self.alloc(v));
+                    arg_values.push(self.boxed_to_tagged(v));
                 }
-                let mut capture_ptrs: Vec<*mut Value> = Vec::with_capacity(closure.captures.len());
+                let mut capture_values: Vec<JitTaggedValue> =
+                    Vec::with_capacity(closure.captures.len());
                 for v in &closure.captures {
-                    capture_ptrs.push(self.alloc(v.clone()));
+                    capture_values.push(self.boxed_to_tagged(v.clone()));
                 }
 
-                let result_ptr = unsafe {
+                let result = unsafe {
                     match entry.call_abi {
                         JitCallAbi::Array => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                *const *mut Value,
+                                *const JitTaggedValue,
                                 i64,
-                                *const *mut Value,
+                                *const JitTaggedValue,
                                 i64,
-                            )
-                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_ptrs.as_ptr(),
-                                arg_ptrs.len() as i64,
-                                capture_ptrs.as_ptr(),
-                                capture_ptrs.len() as i64,
+                                arg_values.as_ptr(),
+                                arg_values.len() as i64,
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
                             )
                         }
                         JitCallAbi::Reg1 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                *mut Value,
-                                *const *mut Value,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
                                 i64,
-                            )
-                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_ptrs[0],
-                                capture_ptrs.as_ptr(),
-                                capture_ptrs.len() as i64,
+                                arg_values[0],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
                             )
                         }
                         JitCallAbi::Reg2 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                *mut Value,
-                                *mut Value,
-                                *const *mut Value,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
                                 i64,
-                            )
-                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_ptrs[0],
-                                arg_ptrs[1],
-                                capture_ptrs.as_ptr(),
-                                capture_ptrs.len() as i64,
+                                arg_values[0],
+                                arg_values[1],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
                             )
                         }
                         JitCallAbi::Reg3 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                *mut Value,
-                                *mut Value,
-                                *mut Value,
-                                *const *mut Value,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
                                 i64,
-                            )
-                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_ptrs[0],
-                                arg_ptrs[1],
-                                arg_ptrs[2],
-                                capture_ptrs.as_ptr(),
-                                capture_ptrs.len() as i64,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
                             )
                         }
                         JitCallAbi::Reg4 => {
                             let func: unsafe extern "C" fn(
                                 *mut JitContext,
-                                *mut Value,
-                                *mut Value,
-                                *mut Value,
-                                *mut Value,
-                                *const *mut Value,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                JitTaggedValue,
+                                *const JitTaggedValue,
                                 i64,
-                            )
-                                -> *mut Value = std::mem::transmute(entry.ptr);
+                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
-                                arg_ptrs[0],
-                                arg_ptrs[1],
-                                arg_ptrs[2],
-                                arg_ptrs[3],
-                                capture_ptrs.as_ptr(),
-                                capture_ptrs.len() as i64,
+                                arg_values[0],
+                                arg_values[1],
+                                arg_values[2],
+                                arg_values[3],
+                                capture_values.as_ptr(),
+                                capture_values.len() as i64,
                             )
                         }
                     }
                 };
-                if result_ptr.is_null() {
+                if result.tag == JIT_TAG_PTR && result.as_ptr().is_null() {
                     return Err(self
                         .take_error()
                         .unwrap_or_else(|| "unknown JIT call error".to_string()));
@@ -566,7 +654,9 @@ impl RuntimeContext for JitContext {
                 if let Some(err) = self.take_error() {
                     return Err(err);
                 }
-                let result = unsafe { (*result_ptr).clone() };
+                let result = self
+                    .clone_from_tagged(result)
+                    .ok_or_else(|| "unknown JIT call error".to_string())?;
                 if let Err((expected, actual)) =
                     self.check_contract_return(closure.function_index, &result)
                 {

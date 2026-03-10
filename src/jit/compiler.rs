@@ -29,7 +29,7 @@ use crate::syntax::{
 };
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
-use super::context::{JitCallAbi, JitFunctionEntry};
+use super::context::{JitCallAbi, JitFunctionEntry, JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR};
 use super::runtime_helpers::rt_symbols;
 
 /// Pointer type used for all Value pointers in JIT code.
@@ -128,6 +128,7 @@ struct LocalBinding {
 enum JitValueKind {
     Boxed,
     Int,
+    Float,
     Bool,
 }
 
@@ -149,6 +150,13 @@ impl JitValue {
         Self {
             value,
             kind: JitValueKind::Int,
+        }
+    }
+
+    fn float(value: CraneliftValue) -> Self {
+        Self {
+            value,
+            kind: JitValueKind::Float,
         }
     }
 
@@ -216,7 +224,7 @@ impl Scope {
 fn declare_local(builder: &mut FunctionBuilder, kind: JitValueKind) -> Variable {
     let ty = match kind {
         JitValueKind::Boxed => PTR_TYPE,
-        JitValueKind::Int | JitValueKind::Bool => types::I64,
+        JitValueKind::Int | JitValueKind::Float | JitValueKind::Bool => types::I64,
     };
     builder.declare_var(ty)
 }
@@ -242,8 +250,19 @@ fn use_local(builder: &mut FunctionBuilder, binding: LocalBinding) -> JitValue {
     match binding.kind {
         JitValueKind::Boxed => JitValue::boxed(value),
         JitValueKind::Int => JitValue::int(value),
+        JitValueKind::Float => JitValue::float(value),
         JitValueKind::Bool => JitValue::bool(value),
     }
+}
+
+fn jit_value_tag(builder: &mut FunctionBuilder, kind: JitValueKind) -> CraneliftValue {
+    let tag = match kind {
+        JitValueKind::Boxed => JIT_TAG_PTR,
+        JitValueKind::Int => JIT_TAG_INT,
+        JitValueKind::Float => JIT_TAG_FLOAT,
+        JitValueKind::Bool => JIT_TAG_BOOL,
+    };
+    builder.ins().iconst(types::I64, tag)
 }
 
 fn box_jit_value(
@@ -256,14 +275,22 @@ fn box_jit_value(
     match value.kind {
         JitValueKind::Boxed => value.value,
         JitValueKind::Int => {
-            let make_int = get_helper_func_ref(module, helpers, builder, "rt_make_integer");
-            let call = builder.ins().call(make_int, &[ctx_val, value.value]);
-            builder.inst_results(call)[0]
+            let box_value = get_helper_func_ref(module, helpers, builder, "rt_force_boxed");
+            let tag = jit_value_tag(builder, value.kind);
+            let call = builder.ins().call(box_value, &[ctx_val, tag, value.value]);
+            builder.inst_results(call)[1]
+        }
+        JitValueKind::Float => {
+            let box_value = get_helper_func_ref(module, helpers, builder, "rt_force_boxed");
+            let tag = jit_value_tag(builder, value.kind);
+            let call = builder.ins().call(box_value, &[ctx_val, tag, value.value]);
+            builder.inst_results(call)[1]
         }
         JitValueKind::Bool => {
-            let make_bool = get_helper_func_ref(module, helpers, builder, "rt_make_bool");
-            let call = builder.ins().call(make_bool, &[ctx_val, value.value]);
-            builder.inst_results(call)[0]
+            let box_value = get_helper_func_ref(module, helpers, builder, "rt_force_boxed");
+            let tag = jit_value_tag(builder, value.kind);
+            let call = builder.ins().call(box_value, &[ctx_val, tag, value.value]);
+            builder.inst_results(call)[1]
         }
     }
 }
@@ -278,6 +305,65 @@ fn box_and_guard_jit_value(
     let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
     emit_return_on_null_value(builder, boxed);
     boxed
+}
+
+fn boxed_value_from_tagged_parts(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    tag: CraneliftValue,
+    payload: CraneliftValue,
+) -> CraneliftValue {
+    let box_value = get_helper_func_ref(module, helpers, builder, "rt_force_boxed");
+    let call = builder.ins().call(box_value, &[ctx_val, tag, payload]);
+    builder.inst_results(call)[1]
+}
+
+fn emit_return_null_tagged(builder: &mut FunctionBuilder) {
+    let null_tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+    builder.ins().return_(&[null_tag, null_ptr]);
+}
+
+fn jit_value_to_tag_payload(
+    builder: &mut FunctionBuilder,
+    value: JitValue,
+) -> (CraneliftValue, CraneliftValue) {
+    (jit_value_tag(builder, value.kind), value.value)
+}
+
+fn append_return_block_params(builder: &mut FunctionBuilder, block: cranelift_codegen::ir::Block) {
+    builder.append_block_param(block, types::I64);
+    builder.append_block_param(block, PTR_TYPE);
+}
+
+fn jump_with_jit_value(
+    builder: &mut FunctionBuilder,
+    block: cranelift_codegen::ir::Block,
+    value: JitValue,
+) {
+    let (tag, payload) = jit_value_to_tag_payload(builder, value);
+    let args = [BlockArg::Value(tag), BlockArg::Value(payload)];
+    builder.ins().jump(block, &args);
+}
+
+fn emit_tagged_stack_array(
+    builder: &mut FunctionBuilder,
+    values: &[JitValue],
+) -> (cranelift_codegen::ir::StackSlot, CraneliftValue) {
+    let slot = builder.create_sized_stack_slot(StackSlotData::new(
+        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+        (values.len().max(1) as u32) * 16,
+        3,
+    ));
+    for (i, value) in values.iter().enumerate() {
+        let (tag, payload) = jit_value_to_tag_payload(builder, *value);
+        builder.ins().stack_store(tag, slot, (i * 16) as i32);
+        builder.ins().stack_store(payload, slot, (i * 16 + 8) as i32);
+    }
+    let ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    (slot, ptr)
 }
 
 fn emit_return_on_null_jit_value(
@@ -307,20 +393,23 @@ fn compile_truthiness_condition(
             JitValueKind::Bool => value.value,
             JitValueKind::Boxed => {
                 let bool_value = get_helper_func_ref(module, helpers, builder, "rt_bool_value");
-                let call = builder.ins().call(bool_value, &[ctx_val, value.value]);
+                let tag = jit_value_tag(builder, value.kind);
+                let call = builder.ins().call(bool_value, &[ctx_val, tag, value.value]);
                 builder.inst_results(call)[0]
             }
-            JitValueKind::Int => {
+            JitValueKind::Int | JitValueKind::Float => {
                 let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
                 let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-                let call = builder.ins().call(is_truthy, &[ctx_val, boxed]);
+                let tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+                let call = builder.ins().call(is_truthy, &[ctx_val, tag, boxed]);
                 builder.inst_results(call)[0]
             }
         }
     } else {
         let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
         let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-        let call = builder.ins().call(is_truthy, &[ctx_val, boxed]);
+        let tag = builder.ins().iconst(types::I64, JIT_TAG_PTR);
+        let call = builder.ins().call(is_truthy, &[ctx_val, tag, boxed]);
         builder.inst_results(call)[0]
     };
 
@@ -330,13 +419,13 @@ fn compile_truthiness_condition(
 fn jit_value_type(kind: JitValueKind) -> types::Type {
     match kind {
         JitValueKind::Boxed => PTR_TYPE,
-        JitValueKind::Int | JitValueKind::Bool => types::I64,
+        JitValueKind::Int | JitValueKind::Float | JitValueKind::Bool => types::I64,
     }
 }
 
 fn merged_jit_value_kind(left: JitValue, right: JitValue) -> JitValueKind {
-    if left.kind == JitValueKind::Bool && right.kind == JitValueKind::Bool {
-        JitValueKind::Bool
+    if left.kind == right.kind {
+        left.kind
     } else {
         JitValueKind::Boxed
     }
@@ -443,7 +532,7 @@ impl JitCompiler {
             for _ in 0..sig_spec.num_params {
                 sig.params.push(AbiParam::new(PTR_TYPE));
             }
-            if sig_spec.has_return {
+            for _ in 0..sig_spec.num_returns {
                 sig.returns.push(AbiParam::new(PTR_TYPE));
             }
 
@@ -463,10 +552,11 @@ impl JitCompiler {
         program: &Program,
         interner: &Interner,
     ) -> Result<FuncId, String> {
-        // main signature: (ctx: i64) -> i64
+        // main signature: (ctx: i64) -> (tag: i64, payload: i64)
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(PTR_TYPE)); // ctx
-        sig.returns.push(AbiParam::new(PTR_TYPE)); // result
+        sig.returns.push(AbiParam::new(PTR_TYPE)); // result tag
+        sig.returns.push(AbiParam::new(PTR_TYPE)); // result payload
 
         let main_id = self
             .module
@@ -573,11 +663,11 @@ impl JitCompiler {
                     let make_none =
                         get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
-                    JitValue::boxed(builder.inst_results(call)[0])
+                    JitValue::boxed(builder.inst_results(call)[1])
                 }
             };
-            let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
-            builder.ins().return_(&[ret]);
+            let (ret_tag, ret_payload) = jit_value_to_tag_payload(&mut builder, ret);
+            builder.ins().return_(&[ret_tag, ret_payload]);
             builder.finalize();
         }
 
@@ -594,7 +684,7 @@ impl JitCompiler {
         Ok(main_id)
     }
 
-    /// Compile a trivial `identity(ctx, args_ptr, nargs, captures_ptr, ncaptures) -> args_ptr[0]`
+    /// Compile a trivial identity closure that returns its first argument unchanged.
     /// JIT function. Its function_index is stored in `self.identity_fn_index` and exposed
     /// to the JIT context so `rt_perform` can build a callable `resume` closure.
     fn compile_identity_function(&mut self) -> Result<usize, String> {
@@ -612,12 +702,10 @@ impl JitCompiler {
             builder.switch_to_block(entry);
             builder.seal_block(entry);
 
-            // args_ptr is the second parameter (index 1). Load args_ptr[0].
-            let args_ptr = builder.block_params(entry)[1];
-            let first_arg = builder
-                .ins()
-                .load(PTR_TYPE, MemFlags::trusted(), args_ptr, 0);
-            builder.ins().return_(&[first_arg]);
+            let entry_params = builder.block_params(entry).to_vec();
+            let tag = entry_params[1];
+            let payload = entry_params[2];
+            builder.ins().return_(&[tag, payload]);
             builder.finalize();
         }
 
@@ -669,27 +757,30 @@ impl JitCompiler {
                 sig.params.push(AbiParam::new(PTR_TYPE)); // nargs
             }
             JitCallAbi::Reg1 => {
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0 tag
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0 payload
             }
             JitCallAbi::Reg2 => {
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0 tag
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0 payload
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1 tag
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1 payload
             }
             JitCallAbi::Reg3 => {
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg2
+                for _ in 0..6 {
+                    sig.params.push(AbiParam::new(PTR_TYPE));
+                }
             }
             JitCallAbi::Reg4 => {
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg2
-                sig.params.push(AbiParam::new(PTR_TYPE)); // arg3
+                for _ in 0..8 {
+                    sig.params.push(AbiParam::new(PTR_TYPE));
+                }
             }
         }
         sig.params.push(AbiParam::new(PTR_TYPE)); // captures ptr
         sig.params.push(AbiParam::new(PTR_TYPE)); // ncaptures
-        sig.returns.push(AbiParam::new(PTR_TYPE)); // result
+        sig.returns.push(AbiParam::new(PTR_TYPE)); // result tag
+        sig.returns.push(AbiParam::new(PTR_TYPE)); // result payload
         sig
     }
 
@@ -921,7 +1012,7 @@ impl JitCompiler {
                 let body_block = builder.create_block();
                 let arity_fail = builder.create_block();
                 let return_block = builder.create_block();
-                builder.append_block_param(return_block, PTR_TYPE);
+                append_return_block_params(&mut builder, return_block);
                 builder.append_block_params_for_function_params(entry);
                 builder.switch_to_block(entry);
                 builder.seal_block(entry);
@@ -946,8 +1037,7 @@ impl JitCompiler {
                     let set_arity_error =
                         get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
                     builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                    builder.ins().return_(&[null_ptr]);
+                    emit_return_null_tagged(&mut builder);
                     builder.seal_block(arity_fail);
                 } else {
                     builder.ins().jump(init_block, &[]);
@@ -959,13 +1049,31 @@ impl JitCompiler {
                     Vec::with_capacity(parameters.len());
                 for (idx, ident) in parameters.iter().enumerate() {
                     let arg_ptr = match args_ptr {
-                        Some(args_ptr) => builder.ins().load(
-                            PTR_TYPE,
-                            MemFlags::new(),
-                            args_ptr,
-                            (idx * 8) as i32,
-                        ),
-                        None => entry_params[1 + idx],
+                        Some(args_ptr) => {
+                            let tag = builder.ins().load(
+                                types::I64,
+                                MemFlags::new(),
+                                args_ptr,
+                                (idx * 16) as i32,
+                            );
+                            let payload = builder.ins().load(
+                                PTR_TYPE,
+                                MemFlags::new(),
+                                args_ptr,
+                                (idx * 16 + 8) as i32,
+                            );
+                            boxed_value_from_tagged_parts(
+                                module, helpers, &mut builder, ctx_val, tag, payload,
+                            )
+                        }
+                        None => {
+                            let base = 1 + idx * 2;
+                            let tag = entry_params[base];
+                            let payload = entry_params[base + 1];
+                            boxed_value_from_tagged_parts(
+                                module, helpers, &mut builder, ctx_val, tag, payload,
+                            )
+                        }
                     };
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -1044,17 +1152,16 @@ impl JitCompiler {
                             let make_none =
                                 get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                             let call = builder.ins().call(make_none, &[ctx_val]);
-                            JitValue::boxed(builder.inst_results(call)[0])
+                            JitValue::boxed(builder.inst_results(call)[1])
                         }
                     };
-                    let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
-                    let args = [BlockArg::Value(ret)];
-                    builder.ins().jump(return_block, &args);
+                    jump_with_jit_value(&mut builder, return_block, ret);
                 }
                 builder.seal_block(body_block);
                 builder.switch_to_block(return_block);
-                let ret = builder.block_params(return_block)[0];
-                builder.ins().return_(&[ret]);
+                let ret_tag = builder.block_params(return_block)[0];
+                let ret_payload = builder.block_params(return_block)[1];
+                builder.ins().return_(&[ret_tag, ret_payload]);
                 builder.seal_block(return_block);
                 builder.finalize();
             }
@@ -1117,7 +1224,7 @@ impl JitCompiler {
                     let body_block = builder.create_block();
                     let arity_fail = builder.create_block();
                     let return_block = builder.create_block();
-                    builder.append_block_param(return_block, PTR_TYPE);
+                    append_return_block_params(&mut builder, return_block);
                     builder.append_block_params_for_function_params(entry);
                     builder.switch_to_block(entry);
                     builder.seal_block(entry);
@@ -1145,8 +1252,7 @@ impl JitCompiler {
                             "rt_set_arity_error",
                         );
                         builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                        builder.ins().return_(&[null_ptr]);
+                        emit_return_null_tagged(&mut builder);
                         builder.seal_block(arity_fail);
                     } else {
                         builder.ins().jump(init_block, &[]);
@@ -1158,13 +1264,34 @@ impl JitCompiler {
                         Vec::with_capacity(parameters.len());
                     for (idx, ident) in parameters.iter().enumerate() {
                         let arg_ptr = match args_ptr {
-                            Some(args_ptr) => builder.ins().load(
-                                PTR_TYPE,
-                                MemFlags::new(),
-                                args_ptr,
-                                (idx * 8) as i32,
-                            ),
-                            None => entry_params[1 + idx],
+                            Some(args_ptr) => {
+                                let tag = builder.ins().load(
+                                    types::I64,
+                                    MemFlags::new(),
+                                    args_ptr,
+                                    (idx * 16) as i32,
+                                );
+                                let payload = builder.ins().load(
+                                    PTR_TYPE,
+                                    MemFlags::new(),
+                                    args_ptr,
+                                    (idx * 16 + 8) as i32,
+                                );
+                                boxed_value_from_tagged_parts(
+                                    module, helpers, &mut builder, ctx_val, tag, payload,
+                                )
+                            }
+                            None => {
+                                let base = 1 + idx * 2;
+                                boxed_value_from_tagged_parts(
+                                    module,
+                                    helpers,
+                                    &mut builder,
+                                    ctx_val,
+                                    entry_params[base],
+                                    entry_params[base + 1],
+                                )
+                            }
                         };
                         let binding = LocalBinding {
                             var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -1240,24 +1367,23 @@ impl JitCompiler {
                         let ret = match last_val {
                             Some(v) => v,
                             None => {
-                                let make_none = get_helper_func_ref(
-                                    module,
-                                    helpers,
-                                    &mut builder,
-                                    "rt_make_none",
-                                );
-                                let call = builder.ins().call(make_none, &[ctx_val]);
-                                JitValue::boxed(builder.inst_results(call)[0])
-                            }
-                        };
-                        let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
-                        let args = [BlockArg::Value(ret)];
-                        builder.ins().jump(return_block, &args);
+                            let make_none = get_helper_func_ref(
+                                module,
+                                helpers,
+                                &mut builder,
+                                "rt_make_none",
+                            );
+                            let call = builder.ins().call(make_none, &[ctx_val]);
+                            JitValue::boxed(builder.inst_results(call)[1])
+                        }
+                    };
+                        jump_with_jit_value(&mut builder, return_block, ret);
                     }
                     builder.seal_block(body_block);
                     builder.switch_to_block(return_block);
-                    let ret = builder.block_params(return_block)[0];
-                    builder.ins().return_(&[ret]);
+                    let ret_tag = builder.block_params(return_block)[0];
+                    let ret_payload = builder.block_params(return_block)[1];
+                    builder.ins().return_(&[ret_tag, ret_payload]);
                     builder.seal_block(return_block);
                     builder.finalize();
                 }
@@ -1365,7 +1491,7 @@ impl JitCompiler {
                 let body_block = builder.create_block();
                 let arity_fail = builder.create_block();
                 let return_block = builder.create_block();
-                builder.append_block_param(return_block, PTR_TYPE);
+                append_return_block_params(&mut builder, return_block);
                 builder.append_block_params_for_function_params(entry);
                 builder.switch_to_block(entry);
                 builder.seal_block(entry);
@@ -1391,8 +1517,7 @@ impl JitCompiler {
                     let set_arity_error =
                         get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
                     builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                    builder.ins().return_(&[null_ptr]);
+                    emit_return_null_tagged(&mut builder);
                     builder.seal_block(arity_fail);
                 } else {
                     builder.ins().jump(init_block, &[]);
@@ -1405,11 +1530,20 @@ impl JitCompiler {
 
                 // Bind captures first; params may shadow them.
                 for (idx, ident) in spec.captures.iter().enumerate() {
-                    let cap_ptr = builder.ins().load(
+                    let cap_tag = builder.ins().load(
+                        types::I64,
+                        MemFlags::new(),
+                        captures_ptr,
+                        (idx * 16) as i32,
+                    );
+                    let cap_payload = builder.ins().load(
                         PTR_TYPE,
                         MemFlags::new(),
                         captures_ptr,
-                        (idx * 8) as i32,
+                        (idx * 16 + 8) as i32,
+                    );
+                    let cap_ptr = boxed_value_from_tagged_parts(
+                        module, helpers, &mut builder, ctx_val, cap_tag, cap_payload,
                     );
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -1421,13 +1555,34 @@ impl JitCompiler {
 
                 for (idx, ident) in spec.parameters.iter().enumerate() {
                     let arg_ptr = match args_ptr {
-                        Some(args_ptr) => builder.ins().load(
-                            PTR_TYPE,
-                            MemFlags::new(),
-                            args_ptr,
-                            (idx * 8) as i32,
-                        ),
-                        None => entry_params[1 + idx],
+                        Some(args_ptr) => {
+                            let tag = builder.ins().load(
+                                types::I64,
+                                MemFlags::new(),
+                                args_ptr,
+                                (idx * 16) as i32,
+                            );
+                            let payload = builder.ins().load(
+                                PTR_TYPE,
+                                MemFlags::new(),
+                                args_ptr,
+                                (idx * 16 + 8) as i32,
+                            );
+                            boxed_value_from_tagged_parts(
+                                module, helpers, &mut builder, ctx_val, tag, payload,
+                            )
+                        }
+                        None => {
+                            let base = 1 + idx * 2;
+                            boxed_value_from_tagged_parts(
+                                module,
+                                helpers,
+                                &mut builder,
+                                ctx_val,
+                                entry_params[base],
+                                entry_params[base + 1],
+                            )
+                        }
                     };
                     let binding = LocalBinding {
                         var: declare_local(&mut builder, JitValueKind::Boxed),
@@ -1523,17 +1678,16 @@ impl JitCompiler {
                             let make_none =
                                 get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                             let call = builder.ins().call(make_none, &[ctx_val]);
-                            JitValue::boxed(builder.inst_results(call)[0])
+                            JitValue::boxed(builder.inst_results(call)[1])
                         }
                     };
-                    let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
-                    let args = [BlockArg::Value(ret)];
-                    builder.ins().jump(return_block, &args);
+                    jump_with_jit_value(&mut builder, return_block, ret);
                 }
                 builder.seal_block(body_block);
                 builder.switch_to_block(return_block);
-                let ret = builder.block_params(return_block)[0];
-                builder.ins().return_(&[ret]);
+                let ret_tag = builder.block_params(return_block)[0];
+                let ret_payload = builder.block_params(return_block)[1];
+                builder.ins().return_(&[ret_tag, ret_payload]);
                 builder.seal_block(return_block);
                 builder.finalize();
             }
@@ -1776,12 +1930,10 @@ fn compile_statement(
                 None => {
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
-                    JitValue::boxed(builder.inst_results(call)[0])
+                    JitValue::boxed(builder.inst_results(call)[1])
                 }
             };
-            let ret = box_jit_value(module, helpers, builder, ctx_val, ret);
-            let args = [BlockArg::Value(ret)];
-            builder.ins().jump(rb, &args);
+            jump_with_jit_value(builder, rb, ret);
             Ok(StmtOutcome::Returned)
         }
         Statement::Function { name, .. } => {
@@ -1850,8 +2002,7 @@ fn emit_return_on_null_value(builder: &mut FunctionBuilder, value_ptr: Cranelift
         .brif(is_null, null_block, &[], continue_block, &[]);
 
     builder.switch_to_block(null_block);
-    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-    builder.ins().return_(&[null_ptr]);
+    emit_return_null_tagged(builder);
     builder.seal_block(null_block);
 
     builder.switch_to_block(continue_block);
@@ -1929,10 +2080,9 @@ fn compile_expression(
             Ok(JitValue::int(builder.ins().iconst(types::I64, *value)))
         }
         Expression::Float { value, .. } => {
-            let make_float = get_helper_func_ref(module, helpers, builder, "rt_make_float");
-            let bits = builder.ins().iconst(PTR_TYPE, value.to_bits() as i64);
-            let call = builder.ins().call(make_float, &[ctx_val, bits]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            Ok(JitValue::float(
+                builder.ins().iconst(types::I64, value.to_bits() as i64),
+            ))
         }
         Expression::Boolean { value, .. } => {
             let v = builder.ins().iconst(types::I64, *value as i64);
@@ -1941,7 +2091,7 @@ fn compile_expression(
         Expression::None { .. } => {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            Ok(JitValue::boxed(builder.inst_results(call)[1]))
         }
         Expression::EmptyList { .. } => {
             let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
@@ -2161,9 +2311,19 @@ fn compile_expression(
                 _ => return Err(format!("unknown prefix operator: {}", operator)),
             };
             let func_ref = get_helper_func_ref(module, helpers, builder, helper_name);
-            let operand = box_jit_value(module, helpers, builder, ctx_val, operand);
-            let call = builder.ins().call(func_ref, &[ctx_val, operand]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            let (operand_tag, operand_payload) = jit_value_to_tag_payload(builder, operand);
+            let call = builder
+                .ins()
+                .call(func_ref, &[ctx_val, operand_tag, operand_payload]);
+            let result = boxed_value_from_tagged_parts(
+                module,
+                helpers,
+                builder,
+                ctx_val,
+                builder.inst_results(call)[0],
+                builder.inst_results(call)[1],
+            );
+            Ok(JitValue::boxed(result))
         }
 
         // --- Infix operators ---
@@ -2260,8 +2420,55 @@ fn compile_expression(
                     _ => {}
                 }
             }
-            let lhs = box_jit_value(module, helpers, builder, ctx_val, lhs);
-            let rhs = box_jit_value(module, helpers, builder, ctx_val, rhs);
+            if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float {
+                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                match operator.as_str() {
+                    "+" => {
+                        let result = builder.ins().fadd(lhsf, rhsf);
+                        let bits = builder.ins().bitcast(types::I64, MemFlags::new(), result);
+                        return Ok(JitValue::float(bits));
+                    }
+                    "-" => {
+                        let result = builder.ins().fsub(lhsf, rhsf);
+                        let bits = builder.ins().bitcast(types::I64, MemFlags::new(), result);
+                        return Ok(JitValue::float(bits));
+                    }
+                    "*" => {
+                        let result = builder.ins().fmul(lhsf, rhsf);
+                        let bits = builder.ins().bitcast(types::I64, MemFlags::new(), result);
+                        return Ok(JitValue::float(bits));
+                    }
+                    "/" => {
+                        let result = builder.ins().fdiv(lhsf, rhsf);
+                        let bits = builder.ins().bitcast(types::I64, MemFlags::new(), result);
+                        return Ok(JitValue::float(bits));
+                    }
+                    "==" | "!=" | ">" | "<" | "<=" | ">=" => {
+                        let cc = match operator.as_str() {
+                            "==" => cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                            "!=" => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
+                            ">" => cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
+                            "<" => cranelift_codegen::ir::condcodes::FloatCC::LessThan,
+                            "<=" => {
+                                cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual
+                            }
+                            ">=" => {
+                                cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual
+                            }
+                            _ => unreachable!(),
+                        };
+                        let cmp = builder.ins().fcmp(cc, lhsf, rhsf);
+                        let one = builder.ins().iconst(types::I64, 1);
+                        let zero = builder.ins().iconst(types::I64, 0);
+                        let bool_i64 = builder.ins().select(cmp, one, zero);
+                        return Ok(JitValue::bool(bool_i64));
+                    }
+                    _ => {}
+                }
+            }
+            let (lhs_tag, lhs_payload) = jit_value_to_tag_payload(builder, lhs);
+            let (rhs_tag, rhs_payload) = jit_value_to_tag_payload(builder, rhs);
             let helper_name = match operator.as_str() {
                 "+" => "rt_add",
                 "-" => "rt_sub",
@@ -2277,17 +2484,41 @@ fn compile_expression(
                     // a < b  ⟹  !(a >= b)
                     let ge_ref =
                         get_helper_func_ref(module, helpers, builder, "rt_greater_than_or_equal");
-                    let ge_call = builder.ins().call(ge_ref, &[ctx_val, lhs, rhs]);
-                    let ge_result = builder.inst_results(ge_call)[0];
+                    let ge_call = builder.ins().call(
+                        ge_ref,
+                        &[ctx_val, lhs_tag, lhs_payload, rhs_tag, rhs_payload],
+                    );
+                    let ge_tag = builder.inst_results(ge_call)[0];
+                    let ge_payload = builder.inst_results(ge_call)[1];
                     let not_ref = get_helper_func_ref(module, helpers, builder, "rt_not");
-                    let not_call = builder.ins().call(not_ref, &[ctx_val, ge_result]);
-                    return Ok(JitValue::boxed(builder.inst_results(not_call)[0]));
+                    let not_call =
+                        builder.ins().call(not_ref, &[ctx_val, ge_tag, ge_payload]);
+                    let result = boxed_value_from_tagged_parts(
+                        module,
+                        helpers,
+                        builder,
+                        ctx_val,
+                        builder.inst_results(not_call)[0],
+                        builder.inst_results(not_call)[1],
+                    );
+                    return Ok(JitValue::boxed(result));
                 }
                 _ => return Err(format!("unknown infix operator: {}", operator)),
             };
             let func_ref = get_helper_func_ref(module, helpers, builder, helper_name);
-            let call = builder.ins().call(func_ref, &[ctx_val, lhs, rhs]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            let call = builder.ins().call(
+                func_ref,
+                &[ctx_val, lhs_tag, lhs_payload, rhs_tag, rhs_payload],
+            );
+            let result = boxed_value_from_tagged_parts(
+                module,
+                helpers,
+                builder,
+                ctx_val,
+                builder.inst_results(call)[0],
+                builder.inst_results(call)[1],
+            );
+            Ok(JitValue::boxed(result))
         }
         Expression::If {
             condition,
@@ -2328,7 +2559,7 @@ fn compile_expression(
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
                     builder.seal_block(continue_block);
-                    Ok(JitValue::boxed(builder.inst_results(call)[0]))
+                    Ok(JitValue::boxed(builder.inst_results(call)[1]))
                 }
                 BlockEval::Value(v) => Ok(v),
             }
@@ -2675,7 +2906,7 @@ fn compile_expression(
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
             let none_call = builder.ins().call(make_none, &[ctx_val]);
-            let mut acc = builder.inst_results(none_call)[0];
+            let mut acc = builder.inst_results(none_call)[1];
             for elem in elements.iter().rev() {
                 let val = compile_expression(
                     module,
@@ -3113,7 +3344,7 @@ fn compile_match_expression(
     if arms.is_empty() {
         let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
         let call = builder.ins().call(make_none, &[ctx_val]);
-        return Ok(JitValue::boxed(builder.inst_results(call)[0]));
+        return Ok(JitValue::boxed(builder.inst_results(call)[1]));
     }
 
     validate_jit_match_arms(scope, arms, interner)?;
@@ -3365,7 +3596,7 @@ fn compile_match_expression(
         builder.switch_to_block(unmatched);
         let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
         let call = builder.ins().call(make_none, &[ctx_val]);
-        let fallback = builder.inst_results(call)[0];
+        let fallback = builder.inst_results(call)[1];
         let args = [BlockArg::Value(fallback)];
         builder.ins().jump(merge_block, &args);
         builder.seal_block(unmatched);
@@ -3903,7 +4134,7 @@ fn compile_block_expression(
     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
     let call = builder.ins().call(make_none, &[ctx_val]);
     Ok(BlockEval::Value(JitValue::boxed(
-        builder.inst_results(call)[0],
+        builder.inst_results(call)[1],
     )))
 }
 
@@ -3986,7 +4217,7 @@ fn compile_if_expression(
         None => BlockEval::Value({
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            JitValue::boxed(builder.inst_results(call)[0])
+            JitValue::boxed(builder.inst_results(call)[1])
         }),
     };
     let else_exit_block = builder
@@ -4030,7 +4261,7 @@ fn compile_if_expression(
         } else {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            Ok(JitValue::boxed(builder.inst_results(call)[1]))
         }
     } else {
         builder.append_block_param(merge_block, PTR_TYPE);
@@ -4062,7 +4293,7 @@ fn compile_if_expression(
         } else {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+            Ok(JitValue::boxed(builder.inst_results(call)[1]))
         }
     }
 }
@@ -4283,8 +4514,7 @@ fn compile_primop_call(
     arguments: &[Expression],
     interner: &Interner,
 ) -> Result<JitValue, String> {
-    let mut arg_vals = Vec::with_capacity(arguments.len());
-
+    let mut raw_arg_vals = Vec::with_capacity(arguments.len());
     for arg in arguments {
         let val = compile_expression(
             module,
@@ -4297,6 +4527,100 @@ fn compile_primop_call(
             arg,
             interner,
         )?;
+        raw_arg_vals.push(val);
+    }
+
+    if arguments.len() == 2 {
+        let lhs = raw_arg_vals[0];
+        let rhs = raw_arg_vals[1];
+        match primop {
+            PrimOp::IAdd => return Ok(JitValue::int(builder.ins().iadd(lhs.value, rhs.value))),
+            PrimOp::ISub => return Ok(JitValue::int(builder.ins().isub(lhs.value, rhs.value))),
+            PrimOp::IMul => return Ok(JitValue::int(builder.ins().imul(lhs.value, rhs.value))),
+            PrimOp::IDiv | PrimOp::IMod if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int => {
+                let is_zero = builder.ins().icmp_imm(IntCC::Equal, rhs.value, 0);
+                let err_block = builder.create_block();
+                let ok_block = builder.create_block();
+                builder.ins().brif(is_zero, err_block, &[], ok_block, &[]);
+                builder.switch_to_block(err_block);
+                let dbz = get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
+                builder.ins().call(dbz, &[ctx_val]);
+                emit_return_null_tagged(builder);
+                builder.seal_block(err_block);
+                builder.switch_to_block(ok_block);
+                builder.seal_block(ok_block);
+                let result = if primop == PrimOp::IDiv {
+                    builder.ins().sdiv(lhs.value, rhs.value)
+                } else {
+                    builder.ins().srem(lhs.value, rhs.value)
+                };
+                return Ok(JitValue::int(result));
+            }
+            PrimOp::ICmpEq
+            | PrimOp::ICmpNe
+            | PrimOp::ICmpLt
+            | PrimOp::ICmpLe
+            | PrimOp::ICmpGt
+            | PrimOp::ICmpGe if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int => {
+                let cc = match primop {
+                    PrimOp::ICmpEq => IntCC::Equal,
+                    PrimOp::ICmpNe => IntCC::NotEqual,
+                    PrimOp::ICmpLt => IntCC::SignedLessThan,
+                    PrimOp::ICmpLe => IntCC::SignedLessThanOrEqual,
+                    PrimOp::ICmpGt => IntCC::SignedGreaterThan,
+                    PrimOp::ICmpGe => IntCC::SignedGreaterThanOrEqual,
+                    _ => unreachable!(),
+                };
+                let cmp = builder.ins().icmp(cc, lhs.value, rhs.value);
+                let one = builder.ins().iconst(types::I64, 1);
+                let zero = builder.ins().iconst(types::I64, 0);
+                let bool_i64 = builder.ins().select(cmp, one, zero);
+                return Ok(JitValue::bool(bool_i64));
+            }
+            PrimOp::FAdd | PrimOp::FSub | PrimOp::FMul | PrimOp::FDiv
+                if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float =>
+            {
+                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let result = match primop {
+                    PrimOp::FAdd => builder.ins().fadd(lhsf, rhsf),
+                    PrimOp::FSub => builder.ins().fsub(lhsf, rhsf),
+                    PrimOp::FMul => builder.ins().fmul(lhsf, rhsf),
+                    PrimOp::FDiv => builder.ins().fdiv(lhsf, rhsf),
+                    _ => unreachable!(),
+                };
+                let bits = builder.ins().bitcast(types::I64, MemFlags::new(), result);
+                return Ok(JitValue::float(bits));
+            }
+            PrimOp::FCmpEq
+            | PrimOp::FCmpNe
+            | PrimOp::FCmpLt
+            | PrimOp::FCmpLe
+            | PrimOp::FCmpGt
+            | PrimOp::FCmpGe if lhs.kind == JitValueKind::Float && rhs.kind == JitValueKind::Float => {
+                let lhsf = builder.ins().bitcast(types::F64, MemFlags::new(), lhs.value);
+                let rhsf = builder.ins().bitcast(types::F64, MemFlags::new(), rhs.value);
+                let cc = match primop {
+                    PrimOp::FCmpEq => cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                    PrimOp::FCmpNe => cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
+                    PrimOp::FCmpLt => cranelift_codegen::ir::condcodes::FloatCC::LessThan,
+                    PrimOp::FCmpLe => cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual,
+                    PrimOp::FCmpGt => cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
+                    PrimOp::FCmpGe => cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual,
+                    _ => unreachable!(),
+                };
+                let cmp = builder.ins().fcmp(cc, lhsf, rhsf);
+                let one = builder.ins().iconst(types::I64, 1);
+                let zero = builder.ins().iconst(types::I64, 0);
+                let bool_i64 = builder.ins().select(cmp, one, zero);
+                return Ok(JitValue::bool(bool_i64));
+            }
+            _ => {}
+        }
+    }
+
+    let mut arg_vals = Vec::with_capacity(raw_arg_vals.len());
+    for val in raw_arg_vals {
         arg_vals.push(box_and_guard_jit_value(
             module, helpers, builder, ctx_val, val,
         ));
@@ -4408,8 +4732,12 @@ fn compile_user_function_call(
             arg,
             interner,
         )?;
-        arg_vals.push(box_jit_value(module, helpers, builder, ctx_val, val));
+        arg_vals.push(val);
     }
+    let boxed_arg_vals: Vec<_> = arg_vals
+        .iter()
+        .map(|value| box_jit_value(module, helpers, builder, ctx_val, *value))
+        .collect();
 
     let nargs = arg_vals.len();
     if nargs != meta.num_params {
@@ -4428,45 +4756,50 @@ fn compile_user_function_call(
         let callee_ref = module.declare_func_in_func(meta.id, builder.func);
         let call = match meta.call_abi {
             JitCallAbi::Array => {
-                let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    (nargs as u32).max(1) * 8,
-                    3,
-                ));
-                for (i, val) in arg_vals.iter().enumerate() {
-                    builder.ins().stack_store(*val, slot, (i * 8) as i32);
-                }
-                let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+                let (_slot, args_ptr) = emit_tagged_stack_array(builder, &arg_vals);
                 let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
                 builder
                     .ins()
                     .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
             }
-            JitCallAbi::Reg1 => builder
-                .ins()
-                .call(callee_ref, &[ctx_val, arg_vals[0], null_ptr, zero]),
-            JitCallAbi::Reg2 => builder.ins().call(
-                callee_ref,
-                &[ctx_val, arg_vals[0], arg_vals[1], null_ptr, zero],
-            ),
-            JitCallAbi::Reg3 => builder.ins().call(
-                callee_ref,
-                &[ctx_val, arg_vals[0], arg_vals[1], arg_vals[2], null_ptr, zero],
-            ),
-            JitCallAbi::Reg4 => builder.ins().call(
-                callee_ref,
-                &[
-                    ctx_val,
-                    arg_vals[0],
-                    arg_vals[1],
-                    arg_vals[2],
-                    arg_vals[3],
-                    null_ptr,
-                    zero,
-                ],
-            ),
+            JitCallAbi::Reg1 => {
+                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+                builder
+                    .ins()
+                    .call(callee_ref, &[ctx_val, tag0, payload0, null_ptr, zero])
+            }
+            JitCallAbi::Reg2 => {
+                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+                let args = [ctx_val, tag0, payload0, tag1, payload1, null_ptr, zero];
+                builder.ins().call(callee_ref, &args)
+            }
+            JitCallAbi::Reg3 => {
+                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+                let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
+                let args = [
+                    ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, null_ptr, zero,
+                ];
+                builder.ins().call(callee_ref, &args)
+            }
+            JitCallAbi::Reg4 => {
+                let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+                let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+                let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
+                let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
+                let args = [
+                    ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
+                    null_ptr, zero,
+                ];
+                builder.ins().call(callee_ref, &args)
+            }
         };
-        let raw_result = builder.inst_results(call)[0];
+        let raw_tag = builder.inst_results(call)[0];
+        let raw_payload = builder.inst_results(call)[1];
+        let raw_result = boxed_value_from_tagged_parts(
+            module, helpers, builder, ctx_val, raw_tag, raw_payload,
+        );
         emit_return_on_null_value(builder, raw_result);
         return Ok(JitValue::boxed(raw_result));
     }
@@ -4488,7 +4821,7 @@ fn compile_user_function_call(
                 (nargs as u32) * 8,
                 3,
             ));
-            for (i, val) in arg_vals.iter().enumerate() {
+            for (i, val) in boxed_arg_vals.iter().enumerate() {
                 builder.ins().stack_store(*val, slot, (i * 8) as i32);
             }
             let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
@@ -4517,7 +4850,7 @@ fn compile_user_function_call(
                 &[
                     ctx_val,
                     fn_index,
-                    arg_vals[0],
+                    boxed_arg_vals[0],
                     start_line_val,
                     start_col_val,
                     end_line_val,
@@ -4533,8 +4866,8 @@ fn compile_user_function_call(
                 &[
                     ctx_val,
                     fn_index,
-                    arg_vals[0],
-                    arg_vals[1],
+                    boxed_arg_vals[0],
+                    boxed_arg_vals[1],
                     start_line_val,
                     start_col_val,
                     end_line_val,
@@ -4550,9 +4883,9 @@ fn compile_user_function_call(
                 &[
                     ctx_val,
                     fn_index,
-                    arg_vals[0],
-                    arg_vals[1],
-                    arg_vals[2],
+                    boxed_arg_vals[0],
+                    boxed_arg_vals[1],
+                    boxed_arg_vals[2],
                     start_line_val,
                     start_col_val,
                     end_line_val,
@@ -4568,10 +4901,10 @@ fn compile_user_function_call(
                 &[
                     ctx_val,
                     fn_index,
-                    arg_vals[0],
-                    arg_vals[1],
-                    arg_vals[2],
-                    arg_vals[3],
+                    boxed_arg_vals[0],
+                    boxed_arg_vals[1],
+                    boxed_arg_vals[2],
+                    boxed_arg_vals[3],
                     start_line_val,
                     start_col_val,
                     end_line_val,
@@ -4600,52 +4933,50 @@ fn compile_user_function_call(
     let callee_ref = module.declare_func_in_func(meta.id, builder.func);
     let call = match meta.call_abi {
         JitCallAbi::Array => {
-            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                (nargs as u32) * 8,
-                3,
-            ));
-            for (i, val) in arg_vals.iter().enumerate() {
-                builder.ins().stack_store(*val, slot, (i * 8) as i32);
-            }
-            let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let (_slot, args_ptr) = emit_tagged_stack_array(builder, &arg_vals);
             let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
             builder
                 .ins()
                 .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
         }
-        JitCallAbi::Reg1 => builder
-            .ins()
-            .call(callee_ref, &[ctx_val, arg_vals[0], null_ptr, zero]),
-        JitCallAbi::Reg2 => builder.ins().call(
-            callee_ref,
-            &[ctx_val, arg_vals[0], arg_vals[1], null_ptr, zero],
-        ),
-        JitCallAbi::Reg3 => builder.ins().call(
-            callee_ref,
-            &[
-                ctx_val,
-                arg_vals[0],
-                arg_vals[1],
-                arg_vals[2],
-                null_ptr,
-                zero,
-            ],
-        ),
-        JitCallAbi::Reg4 => builder.ins().call(
-            callee_ref,
-            &[
-                ctx_val,
-                arg_vals[0],
-                arg_vals[1],
-                arg_vals[2],
-                arg_vals[3],
-                null_ptr,
-                zero,
-            ],
-        ),
+        JitCallAbi::Reg1 => {
+            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+            builder
+                .ins()
+                .call(callee_ref, &[ctx_val, tag0, payload0, null_ptr, zero])
+        }
+        JitCallAbi::Reg2 => {
+            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+            let args = [ctx_val, tag0, payload0, tag1, payload1, null_ptr, zero];
+            builder.ins().call(callee_ref, &args)
+        }
+        JitCallAbi::Reg3 => {
+            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+            let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
+            let args = [
+                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, null_ptr, zero,
+            ];
+            builder.ins().call(callee_ref, &args)
+        }
+        JitCallAbi::Reg4 => {
+            let (tag0, payload0) = jit_value_to_tag_payload(builder, arg_vals[0]);
+            let (tag1, payload1) = jit_value_to_tag_payload(builder, arg_vals[1]);
+            let (tag2, payload2) = jit_value_to_tag_payload(builder, arg_vals[2]);
+            let (tag3, payload3) = jit_value_to_tag_payload(builder, arg_vals[3]);
+            let args = [
+                ctx_val, tag0, payload0, tag1, payload1, tag2, payload2, tag3, payload3,
+                null_ptr, zero,
+            ];
+            builder.ins().call(callee_ref, &args)
+        }
     };
-    let raw_result = builder.inst_results(call)[0];
+    let raw_tag = builder.inst_results(call)[0];
+    let raw_payload = builder.inst_results(call)[1];
+    let raw_result = boxed_value_from_tagged_parts(
+        module, helpers, builder, ctx_val, raw_tag, raw_payload,
+    );
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
     let checked_ret_call = builder.ins().call(
         check_ret,
@@ -4773,11 +5104,11 @@ fn compile_function_literal(
         .cloned()
         .unwrap_or_default();
 
-    let mut capture_vals: Vec<CraneliftValue> = Vec::new();
+    let mut capture_vals: Vec<JitValue> = Vec::new();
     for sym in captures {
         if let Some(binding) = scope.locals.get(&sym).cloned() {
             let value = use_local(builder, binding);
-            capture_vals.push(box_jit_value(module, helpers, builder, ctx_val, value));
+            capture_vals.push(value);
             continue;
         }
         if let Some(fn_meta) = scope.functions.get(&sym).copied() {
@@ -4791,35 +5122,27 @@ fn compile_function_literal(
             let call = builder
                 .ins()
                 .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
-            capture_vals.push(builder.inst_results(call)[0]);
+            capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
         if let Some(&idx) = scope.globals.get(&sym) {
             let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
             let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
             let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
-            capture_vals.push(builder.inst_results(call)[0]);
+            capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
         if let Some(&base_idx) = scope.base_functions.get(&sym) {
             let make_base = get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
             let idx_val = builder.ins().iconst(PTR_TYPE, base_idx as i64);
             let call = builder.ins().call(make_base, &[ctx_val, idx_val]);
-            capture_vals.push(builder.inst_results(call)[0]);
+            capture_vals.push(JitValue::boxed(builder.inst_results(call)[0]));
             continue;
         }
         return Err("unsupported capture in JIT function literal".to_string());
     }
 
-    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (capture_vals.len() as u32) * 8,
-        3,
-    ));
-    for (i, val) in capture_vals.iter().enumerate() {
-        builder.ins().stack_store(*val, slot, (i * 8) as i32);
-    }
-    let captures_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+    let (_slot, captures_ptr) = emit_tagged_stack_array(builder, &capture_vals);
     let ncaptures = builder.ins().iconst(PTR_TYPE, capture_vals.len() as i64);
     let fn_idx = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
     let make_jit_closure = get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
@@ -5378,7 +5701,7 @@ fn runtime_contract_from_annotations(
 
 struct HelperSig {
     num_params: usize,
-    has_return: bool,
+    num_returns: usize,
 }
 
 enum StmtOutcome {
@@ -5406,206 +5729,213 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_integer",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 2,
             },
         ),
         (
             "rt_make_float",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 2,
             },
         ),
         (
             "rt_make_bool",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 2,
             },
         ),
         (
             "rt_division_by_zero",
             HelperSig {
                 num_params: 1,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         (
             "rt_make_none",
             HelperSig {
                 num_params: 1,
-                has_return: true,
+                num_returns: 2,
+            },
+        ),
+        (
+            "rt_force_boxed",
+            HelperSig {
+                num_params: 3,
+                num_returns: 2,
             },
         ),
         (
             "rt_push_gc_roots",
             HelperSig {
                 num_params: 3,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         (
             "rt_pop_gc_roots",
             HelperSig {
                 num_params: 1,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         (
             "rt_make_empty_list",
             HelperSig {
                 num_params: 1,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_string",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_base_function",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_jit_closure",
             HelperSig {
                 num_params: 4,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_cons",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Arithmetic
         (
             "rt_add",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_sub",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_mul",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_div",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_mod",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         // Prefix
         (
             "rt_negate",
             HelperSig {
-                num_params: 2,
-                has_return: true,
+                num_params: 3,
+                num_returns: 2,
             },
         ),
         (
             "rt_not",
             HelperSig {
-                num_params: 2,
-                has_return: true,
+                num_params: 3,
+                num_returns: 2,
             },
         ),
         (
             "rt_is_truthy",
             HelperSig {
-                num_params: 2,
-                has_return: true,
+                num_params: 3,
+                num_returns: 1,
             },
         ),
         (
             "rt_bool_value",
             HelperSig {
-                num_params: 2,
-                has_return: true,
+                num_params: 3,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_cons",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_cons_head",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_cons_tail",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Comparisons
         (
             "rt_equal",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_not_equal",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_greater_than",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_less_than_or_equal",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         (
             "rt_greater_than_or_equal",
             HelperSig {
-                num_params: 3,
-                has_return: true,
+                num_params: 5,
+                num_returns: 2,
             },
         ),
         // BaseFunctions & globals
@@ -5613,84 +5943,84 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_call_base_function",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_call_primop",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_call_value",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_get_global",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_set_global",
             HelperSig {
                 num_params: 3,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         (
             "rt_set_arity_error",
             HelperSig {
                 num_params: 3,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         (
             "rt_check_jit_contract_call",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_check_jit_contract_call1",
             HelperSig {
                 num_params: 7,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_check_jit_contract_call2",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_check_jit_contract_call3",
             HelperSig {
                 num_params: 9,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_check_jit_contract_call4",
             HelperSig {
                 num_params: 10,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_check_jit_contract_return",
             HelperSig {
                 num_params: 7,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: value wrappers (ctx, value) -> *mut Value
@@ -5698,21 +6028,21 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_some",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_left",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_right",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: pattern matching checks (ctx, value) -> i64
@@ -5720,35 +6050,35 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_is_some",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_left",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_right",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_none",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_empty_list",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: unwrap helpers (ctx, value) -> *mut Value
@@ -5756,21 +6086,21 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_unwrap_some",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_unwrap_left",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_unwrap_right",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: structural equality (ctx, a, b) -> i64
@@ -5778,7 +6108,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_values_equal",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: collections
@@ -5786,49 +6116,49 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_array",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_tuple",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_make_hash",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_index",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_is_tuple",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_tuple_len_eq",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         (
             "rt_tuple_get",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 4: string ops (ctx, value) -> *mut Value
@@ -5836,7 +6166,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_to_string",
             HelperSig {
                 num_params: 2,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Phase 5: ADT helpers
@@ -5845,7 +6175,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt",
             HelperSig {
                 num_params: 5,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_make_adt1(ctx, constructor_ptr, constructor_len, f0) -> *mut Value
@@ -5853,7 +6183,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt1",
             HelperSig {
                 num_params: 4,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_make_adt2(ctx, constructor_ptr, constructor_len, f0, f1) -> *mut Value
@@ -5861,7 +6191,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt2",
             HelperSig {
                 num_params: 5,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_make_adt3(ctx, constructor_ptr, constructor_len, f0, f1, f2) -> *mut Value
@@ -5869,7 +6199,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt3",
             HelperSig {
                 num_params: 6,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_make_adt4(ctx, constructor_ptr, constructor_len, f0, f1, f2, f3) -> *mut Value
@@ -5877,7 +6207,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt4",
             HelperSig {
                 num_params: 7,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_make_adt5(ctx, constructor_ptr, constructor_len, f0, f1, f2, f3, f4) -> *mut Value
@@ -5885,7 +6215,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_make_adt5",
             HelperSig {
                 num_params: 8,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_is_adt_constructor(ctx, value, constructor_ptr, constructor_len) -> i64
@@ -5893,7 +6223,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_is_adt_constructor",
             HelperSig {
                 num_params: 4,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // rt_adt_field(ctx, value, field_idx) -> *mut Value
@@ -5901,7 +6231,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_adt_field",
             HelperSig {
                 num_params: 3,
-                has_return: true,
+                num_returns: 1,
             },
         ),
         // Algebraic effects
@@ -5910,7 +6240,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_push_handler",
             HelperSig {
                 num_params: 5,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         // rt_pop_handler(ctx) -> void
@@ -5918,7 +6248,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_pop_handler",
             HelperSig {
                 num_params: 1,
-                has_return: false,
+                num_returns: 0,
             },
         ),
         // rt_perform(ctx, effect_id, op_id, args_ptr, nargs,
@@ -5928,7 +6258,7 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_perform",
             HelperSig {
                 num_params: 11,
-                has_return: true,
+                num_returns: 1,
             },
         ),
     ]
