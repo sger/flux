@@ -110,10 +110,10 @@ The technical details below consolidate implementation, validation, and policy n
 
 ### References
 
-- [Proposal 0005: Symbol Interning](0005_symbol_interning.md)
-- [Proposal 0006: Phase 1 Module Split](0006_phase1_module_split_plan.md)
-- [Proposal 0007: Visitor Pattern](0007_visitor_pattern.md)
-- [Proposal 0012: Phase 2 Advanced Split](0012_phase2_module_split_plan.md)
+- [Proposal 0005: Symbol Interning](implemented/0005_symbol_interning.md)
+- [Proposal 0006: Phase 1 Module Split](implemented/0006_phase1_module_split_plan.md)
+- [Proposal 0007: Visitor Pattern](implemented/0007_visitor_pattern.md)
+- [Proposal 0012: Phase 2 Advanced Split](implemented/0012_phase2_module_split_plan.md)
 - [Compiler Architecture](../architecture/compiler_architecture.md)
 - **Hindley-Milner Type Inference:** *Algorithm W*
 - **Arena Allocation:** [Rust typed-arena crate](https://crates.io/crates/typed-arena)

@@ -1,6 +1,6 @@
 # Effect Row System (Internal Reference)
 
-> **Proposals:** [0042](../proposals/0042_effect_rows_and_constraints.md) · [0049](../proposals/0049_effect_rows_completeness.md) · [0064](../proposals/0064_effect_row_variables.md)
+> **Proposals:** [0042](../proposals/implemented/0042_effect_rows_and_constraints.md) · [0049](../proposals/implemented/0049_effect_rows_completeness.md) · [0064](../proposals/implemented/0064_effect_row_variables.md)
 > **Guide:** [Chapter 10 — Effects and Purity](../guide/10_effects_and_purity.md) · [Chapter 11 — HOF and Effect Polymorphism](../guide/11_hof_effect_polymorphism.md)
 
 This document is the canonical implementation reference for the Flux effect row system as of v0.0.4.

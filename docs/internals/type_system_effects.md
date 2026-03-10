@@ -7,10 +7,10 @@ This document is the canonical implementation reference for Flux type/effect beh
 Supporting documents:
 
 - Historical semantics proposal: `docs/proposals/0032_type_system_with_effects.md`
-- Effect-row constraint solver: `docs/proposals/0042_effect_rows_and_constraints.md` ✓
-- Row-solving completeness: `docs/proposals/0049_effect_rows_completeness.md` ✓
-- Row variable (`|e`) syntax and HM integration: `docs/proposals/0064_effect_row_variables.md` ✓
-- Base function HM signature tightening: `docs/proposals/0074_base_signature_tightening.md` ✓
+- Effect-row constraint solver: `docs/proposals/implemented/0042_effect_rows_and_constraints.md` ✓
+- Row-solving completeness: `docs/proposals/implemented/0049_effect_rows_completeness.md` ✓
+- Row variable (`|e`) syntax and HM integration: `docs/proposals/implemented/0064_effect_row_variables.md` ✓
+- Base function HM signature tightening: `docs/proposals/implemented/0074_base_signature_tightening.md` ✓
 - Closure evidence and parity checklist: `docs/proposals/0043_pure_flux_checklist.md`
 - Effect row system internal spec: `docs/internals/effect_row_system.md`
 - Base HM signature registry: `docs/internals/base_hm_signatures.md`
@@ -44,7 +44,7 @@ Truth sources for this baseline:
 - Type core in `src/types/*`.
 - Fixtures in `examples/type_system/` and `examples/type_system/failing/`.
 - Roadmap orchestration/sequencing in:
-  `docs/proposals/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
+  `docs/proposals/implemented/0054_0_0_4_hm_adt_exhaustiveness_critical_path.md`.
 
 ## 2. Semantic Model (Implemented)
 
@@ -421,9 +421,9 @@ Non-goals for this spec:
 
 Tracked separately:
 
-- `docs/proposals/0042_effect_rows_and_constraints.md`
+- `docs/proposals/implemented/0042_effect_rows_and_constraints.md`
 - `docs/proposals/0026_concurrency_model.md`
-- `docs/proposals/0045_gc.md`.
+- `docs/proposals/implemented/0045_gc.md`.
 
 ## 8. v0.0.4 Release Gate Checklist (Type + Effects)
 

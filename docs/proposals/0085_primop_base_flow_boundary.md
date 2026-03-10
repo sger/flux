@@ -28,10 +28,10 @@ locks a selective promotion rule:
 > representation-aware behavior, backend parity control, or Aether-aware optimization
 > hooks that cannot be expressed cleanly at the Base or Flow layer.
 
-This proposal extends the architecture established in [0028](0028_base.md),
+This proposal extends the architecture established in [0028](implemented/0028_base.md),
 [0029](0029_base_and_flow.md),
 [0030](0030_flow.md), and
-[0034](0034_builtin_primops.md).
+[0034](implemented/0034_builtin_primops.md).
 
 ## Motivation
 [motivation]: #motivation

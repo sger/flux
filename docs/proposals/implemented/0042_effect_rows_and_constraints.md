@@ -78,13 +78,13 @@ This proposal remains the canonical row-constraint policy for current `with e` b
    - Decision: keep `with ...` surface syntax only.
 2. **Add absence constraints in v1**
    - Outcome: **Deferred (linked follow-up proposal)**.
-   - Follow-up: `docs/proposals/0049_effect_rows_completeness.md`.
+   - Follow-up: `docs/proposals/implemented/0049_effect_rows_completeness.md`.
 3. **How much row detail appears by default in diagnostics**
    - Outcome: **Accepted now**.
    - Decision: default diagnostics stay concise; internal row detail appears only when materially actionable.
 4. **Require explicit effect annotations for strict public higher-order APIs**
    - Outcome: **Deferred (linked follow-up proposal)**.
-   - Follow-up: `docs/proposals/0049_effect_rows_completeness.md` and strict-boundary policy updates.
+   - Follow-up: `docs/proposals/implemented/0049_effect_rows_completeness.md` and strict-boundary policy updates.
 
 ### Completion Criteria (March 1, 2026 closure gate)
 
