@@ -11,6 +11,28 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         // Both are empty-list sentinels — treat as equal regardless of variant.
         (Value::None | Value::EmptyList, Value::None | Value::EmptyList) => true,
+        (Value::AdtUnit(left), Value::AdtUnit(right)) => left == right,
+        (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
+            match (left.as_adt(ctx.gc_heap()), right.as_adt(ctx.gc_heap())) {
+                (Some(left_adt), Some(right_adt)) => {
+                    if left_adt.constructor() != right_adt.constructor() {
+                        return false;
+                    }
+                    let left_fields = left_adt.fields();
+                    let right_fields = right_adt.fields();
+                    if left_fields.len() != right_fields.len() {
+                        return false;
+                    }
+                    for i in 0..left_fields.len() {
+                        if !values_equal(ctx, &left_fields[i], &right_fields[i]) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
         (Value::Gc(ha), Value::Gc(hb)) => {
             if ha == hb {
                 return true; // Same heap slot — trivially equal.
@@ -36,7 +58,9 @@ fn values_equal(ctx: &dyn RuntimeContext, a: &Value, b: &Value) -> bool {
 /// `[1, 2, 3]` rather than `<gc@N>`.
 fn display_value(ctx: &dyn RuntimeContext, v: &Value) -> String {
     match v {
-        Value::Gc(_) | Value::Tuple(_) | Value::Array(_) => super::list_ops::format_value(ctx, v),
+        Value::Gc(_) | Value::GcAdt(_) | Value::Tuple(_) | Value::Array(_) | Value::Adt(_) => {
+            super::list_ops::format_value(ctx, v)
+        }
         _ => format!("{}", v),
     }
 }

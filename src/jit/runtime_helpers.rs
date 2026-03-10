@@ -19,12 +19,13 @@ use crate::primop::{PrimOp, execute_primop};
 use crate::runtime::RuntimeContext;
 use crate::runtime::{
     base::get_base_function_by_index,
+    base::list_ops::format_value,
     gc::{
         hamt::{hamt_empty, hamt_insert, hamt_lookup},
         heap_object::HeapObject,
     },
     jit_closure::JitClosure,
-    value::{AdtFields, AdtValue, Value},
+    value::{AdtFields, Value},
 };
 
 use super::context::JitContext;
@@ -67,6 +68,12 @@ fn clone_values_from_ptrs(
     Some(values)
 }
 
+fn maybe_collect_gc(ctx: &mut JitContext) {
+    if ctx.gc_heap.should_collect() {
+        ctx.collect_gc();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
@@ -101,6 +108,22 @@ pub extern "C" fn rt_make_bool(ctx: *mut JitContext, value: i64) -> *mut Value {
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_none(ctx: *mut JitContext) -> *mut Value {
     unsafe { ctx_ref(ctx) }.alloc(Value::None)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_push_gc_roots(
+    ctx: *mut JitContext,
+    values_ptr: *const *mut Value,
+    len: i64,
+) {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let roots = unsafe { from_raw_parts(values_ptr, len as usize) };
+    ctx.push_gc_roots(roots);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_pop_gc_roots(ctx: *mut JitContext) {
+    unsafe { ctx_ref(ctx) }.pop_gc_roots();
 }
 
 #[unsafe(no_mangle)]
@@ -372,7 +395,7 @@ pub extern "C" fn rt_is_truthy(_ctx: *mut JitContext, a: *mut Value) -> i64 {
 pub extern "C" fn rt_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
     let (a, b) = unsafe { (&*a, &*b) };
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(a, b);
+    let result = values_equal(ctx, a, b);
     ctx.alloc(Value::Boolean(result))
 }
 
@@ -380,11 +403,11 @@ pub extern "C" fn rt_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -
 pub extern "C" fn rt_not_equal(ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> *mut Value {
     let (a, b) = unsafe { (&*a, &*b) };
     let ctx = unsafe { ctx_ref(ctx) };
-    let result = values_equal(a, b);
+    let result = values_equal(ctx, a, b);
     ctx.alloc(Value::Boolean(!result))
 }
 
-fn values_equal(a: &Value, b: &Value) -> bool {
+fn values_equal(ctx: &JitContext, a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Integer(l), Value::Integer(r)) => l == r,
         (Value::Float(l), Value::Float(r)) => l == r,
@@ -398,6 +421,28 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Left(l), Value::Left(r)) => l == r,
         (Value::Right(l), Value::Right(r)) => l == r,
         (Value::Tuple(l), Value::Tuple(r)) => l == r,
+        (Value::AdtUnit(l), Value::AdtUnit(r)) => l == r,
+        (left, right) if left.type_name() == "Adt" && right.type_name() == "Adt" => {
+            match (left.as_adt(&ctx.gc_heap), right.as_adt(&ctx.gc_heap)) {
+                (Some(left_adt), Some(right_adt)) => {
+                    if left_adt.constructor() != right_adt.constructor() {
+                        return false;
+                    }
+                    let left_fields = left_adt.fields();
+                    let right_fields = right_adt.fields();
+                    if left_fields.len() != right_fields.len() {
+                        return false;
+                    }
+                    for i in 0..left_fields.len() {
+                        if !values_equal(ctx, &left_fields[i], &right_fields[i]) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        }
         (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => false,
         _ => false,
     }
@@ -955,7 +1000,8 @@ pub extern "C" fn rt_unwrap_right(ctx: *mut JitContext, value: *mut Value) -> *m
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_values_equal(_ctx: *mut JitContext, a: *mut Value, b: *mut Value) -> i64 {
     let (a, b) = unsafe { (&*a, &*b) };
-    if values_equal(a, b) { 1 } else { 0 }
+    let ctx = unsafe { ctx_ref(_ctx) };
+    if values_equal(ctx, a, b) { 1 } else { 0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -969,6 +1015,9 @@ pub extern "C" fn rt_make_array(
     len: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
+    if len == 0 {
+        return ctx.alloc(Value::Array(Rc::new(vec![])));
+    }
     let Some(elements) = clone_values_from_ptrs(ctx, elements_ptr, len as usize, "array construction")
     else {
         return ptr::null_mut();
@@ -1165,9 +1214,10 @@ pub extern "C" fn rt_tuple_get(ctx: *mut JitContext, value: *mut Value, index: i
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_to_string(ctx: *mut JitContext, value: *mut Value) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
     let v = unsafe { &*value };
-    let s = v.to_string_value();
-    unsafe { ctx_ref(ctx) }.alloc(Value::String(s.into()))
+    let s = format_value(ctx, v);
+    ctx.alloc(Value::String(s.into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,6 +1233,7 @@ pub extern "C" fn rt_make_adt(
     arity: i64,
 ) -> *mut Value {
     let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
     // ABI contract: constructor bytes are emitted by the compiler/JIT and must be valid UTF-8.
     let constructor: Rc<str> = {
         let s = unsafe {
@@ -1203,11 +1254,153 @@ pub extern "C" fn rt_make_adt(
     if fields.is_empty() {
         ctx.alloc(Value::AdtUnit(constructor))
     } else {
-        ctx.alloc(Value::Adt(Rc::new(AdtValue {
+        let handle = ctx.gc_heap.alloc(HeapObject::Adt {
             constructor,
             fields: AdtFields::from_vec(fields),
-        })))
+        });
+        ctx.alloc(Value::GcAdt(handle))
     }
+}
+
+/// Specialized 1-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt1(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 2-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt2(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 3-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt3(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 4-field ADT constructor — avoids stack-slot + loop overhead.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt4(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+    f3: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let v3 = unsafe { (*f3).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2, v3]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
+}
+
+/// Specialized 5-field ADT constructor — avoids stack-slot + loop overhead.
+/// Covers `Node(Color, Tree, Int, Bool, Tree)` in rbtree benchmarks.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_make_adt5(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+    f0: *mut Value,
+    f1: *mut Value,
+    f2: *mut Value,
+    f3: *mut Value,
+    f4: *mut Value,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    maybe_collect_gc(ctx);
+    let constructor: Rc<str> = {
+        let s = unsafe {
+            from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+        };
+        Rc::from(s)
+    };
+    let v0 = unsafe { (*f0).clone() };
+    let v1 = unsafe { (*f1).clone() };
+    let v2 = unsafe { (*f2).clone() };
+    let v3 = unsafe { (*f3).clone() };
+    let v4 = unsafe { (*f4).clone() };
+    let handle = ctx.gc_heap.alloc(HeapObject::Adt {
+        constructor,
+        fields: AdtFields::from_vec(vec![v0, v1, v2, v3, v4]),
+    });
+    ctx.alloc(Value::GcAdt(handle))
 }
 
 #[unsafe(no_mangle)]
@@ -1217,7 +1410,7 @@ pub extern "C" fn rt_is_adt_constructor(
     constructor_ptr: *const u8,
     constructor_len: i64,
 ) -> i64 {
-    let _ = ctx;
+    let ctx = unsafe { ctx_ref(ctx) };
     // Null values never match any constructor tag.
     if value.is_null() {
         return 0;
@@ -1228,14 +1421,7 @@ pub extern "C" fn rt_is_adt_constructor(
         unsafe { from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize)) };
 
     match unsafe { &*value } {
-        Value::Adt(adt) => {
-            // Constructor comparison is a tag-name equality check.
-            if adt.constructor.as_ref() == expected {
-                1
-            } else {
-                0
-            }
-        }
+        value if value.adt_constructor(&ctx.gc_heap) == Some(expected) => 1,
         Value::AdtUnit(name) => {
             if name.as_ref() == expected {
                 1
@@ -1263,19 +1449,17 @@ pub extern "C" fn rt_adt_field(
     }
 
     match unsafe { &*value } {
-        Value::Adt(adt) => {
+        value @ (Value::Adt(_) | Value::GcAdt(_)) => {
             // Field index comes from JIT as i64 and is interpreted as usize.
             let idx = field_idx as usize;
-
-            if idx < adt.fields.len() {
-                // Return a freshly allocated clone for uniform pointer ownership semantics.
-                ctx.alloc(adt.fields[idx].clone())
+            if let Some(field) = value.adt_clone_field(&ctx.gc_heap, idx) {
+                ctx.alloc(field)
             } else {
+                let len = value.adt_field_count(&ctx.gc_heap).unwrap_or(0);
                 // Out-of-bounds ADT field access is reported through JitContext error state.
                 ctx.error = Some(format!(
                     "adt field index {} out of bounds (len={})",
-                    idx,
-                    adt.fields.len()
+                    idx, len
                 ));
                 ptr::null_mut()
             }
@@ -1466,6 +1650,8 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_make_float", rt_make_float as *const u8),
         ("rt_make_bool", rt_make_bool as *const u8),
         ("rt_make_none", rt_make_none as *const u8),
+        ("rt_push_gc_roots", rt_push_gc_roots as *const u8),
+        ("rt_pop_gc_roots", rt_pop_gc_roots as *const u8),
         ("rt_make_empty_list", rt_make_empty_list as *const u8),
         ("rt_make_string", rt_make_string as *const u8),
         ("rt_make_base_function", rt_make_base_function as *const u8),
@@ -1546,6 +1732,11 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         ("rt_to_string", rt_to_string as *const u8),
         // Phase 5: ADT helpers
         ("rt_make_adt", rt_make_adt as *const u8),
+        ("rt_make_adt1", rt_make_adt1 as *const u8),
+        ("rt_make_adt2", rt_make_adt2 as *const u8),
+        ("rt_make_adt3", rt_make_adt3 as *const u8),
+        ("rt_make_adt4", rt_make_adt4 as *const u8),
+        ("rt_make_adt5", rt_make_adt5 as *const u8),
         ("rt_is_adt_constructor", rt_is_adt_constructor as *const u8),
         ("rt_adt_field", rt_adt_field as *const u8),
         // Algebraic effects

@@ -357,13 +357,13 @@ if [[ "$SKIP_FLAMEGRAPH" -eq 0 ]]; then
   echo
 fi
 
-if [[ ! -f flamegraph.svg ]]; then
-  echo "Error: flamegraph.svg not found. Run flamegraph first." >&2
+if [[ ! -f "$FLAMEGRAPH_ARTIFACT" ]]; then
+  echo "Error: ${FLAMEGRAPH_ARTIFACT} not found. Run flamegraph first." >&2
   exit 1
 fi
 
 echo "== Flamewatch (top ${TOP_N}) =="
-perl -ne 'while(/<title>([^<]+)<\/title>/g){$t=$1; if($t =~ /^(.*) \(([0-9,]+) samples, ([0-9.]+)%\)$/){$n=$1;$p=$3; if(!defined $m{$n} || $p>$m{$n}){$m{$n}=$p;} }} END { for $k (keys %m){ printf "%.2f\t%s\n", $m{$k}, $k; } }' flamegraph.svg \
+perl -ne 'while(/<title>([^<]+)<\/title>/g){$t=$1; if($t =~ /^(.*) \(([0-9,]+) samples, ([0-9.]+)%\)$/){$n=$1;$p=$3; if(!defined $m{$n} || $p>$m{$n}){$m{$n}=$p;} }} END { for $k (keys %m){ printf "%.2f\t%s\n", $m{$k}, $k; } }' "$FLAMEGRAPH_ARTIFACT" \
   | sort -nr \
   | head -n "$TOP_N"
 echo

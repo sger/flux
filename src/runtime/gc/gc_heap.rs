@@ -170,23 +170,20 @@ impl GcHeap {
         frames: &[Frame],
         frame_index: usize,
     ) {
+        let frame_roots = if !frames.is_empty() {
+            frame_index.min(frames.len() - 1) + 1
+        } else {
+            0
+        };
+        #[allow(unused_variables)]
+        let roots_count = sp + globals.len() + constants.len() + 1 + frame_roots;
+
         #[cfg(feature = "gc-telemetry")]
-        {
-            let bytes_before = self.total_live_bytes();
-            self.telemetry.begin_cycle(self.gc_threshold, bytes_before);
-            let frame_count = if !frames.is_empty() {
-                frame_index.min(frames.len() - 1) + 1
-            } else {
-                0
-            };
-            let roots_count = sp + globals.len() + constants.len() + 1 + frame_count;
-            self.telemetry.set_roots_scanned(roots_count);
-        }
+        self.begin_cycle(roots_count);
 
         self.mark_slice(&stack[..sp]);
         self.mark_slice(globals);
         self.mark_slice(constants);
-
         self.mark_value(last_popped);
 
         if !frames.is_empty() {
@@ -198,6 +195,33 @@ impl GcHeap {
             }
         }
 
+        self.finish_collection();
+    }
+
+    #[cfg(feature = "gc-telemetry")]
+    fn begin_cycle(&mut self, roots_count: usize) {
+        let bytes_before = self.total_live_bytes();
+        self.telemetry.begin_cycle(self.gc_threshold, bytes_before);
+        self.telemetry.set_roots_scanned(roots_count);
+    }
+
+    #[cfg(not(feature = "gc-telemetry"))]
+    #[allow(dead_code)]
+    fn begin_cycle(&mut self, _roots_count: usize) {}
+
+    pub fn collect_roots<'a, I>(&mut self, roots: I)
+    where
+        I: IntoIterator<Item = &'a Value>,
+    {
+        let roots: Vec<Value> = roots.into_iter().cloned().collect();
+
+        #[cfg(feature = "gc-telemetry")]
+        self.begin_cycle(roots.len());
+        self.mark_slice(&roots);
+        self.finish_collection();
+    }
+
+    fn finish_collection(&mut self) {
         let live_before = self.live_count();
         self.sweep();
         let live_after = self.live_count();
@@ -243,6 +267,9 @@ impl GcHeap {
                 WorkItem::Value(value) => match value {
                     Value::Gc(handle) => {
                         // Follow heap references lazily through dedicated handle items.
+                        worklist.push(WorkItem::Handle(handle));
+                    }
+                    Value::GcAdt(handle) => {
                         worklist.push(WorkItem::Handle(handle));
                     }
                     Value::Some(inner)
@@ -359,6 +386,14 @@ impl GcHeap {
             HeapObject::Cons { head, tail } => {
                 worklist.push(WorkItem::Value(head.clone()));
                 worklist.push(WorkItem::Value(tail.clone()));
+            }
+            HeapObject::Adt { fields, .. } => {
+                let mut i = 0;
+                let len = fields.len();
+                while i < len {
+                    worklist.push(WorkItem::Value(fields[i].clone()));
+                    i += 1;
+                }
             }
             HeapObject::HamtNode { children, .. } => {
                 let mut i = 0;
@@ -812,6 +847,40 @@ mod tests {
         let stack = vec![arr];
         heap.collect(&stack, 1, &[], &[], &Value::None, &[], 0);
         assert_eq!(heap.live_count(), 1);
+    }
+
+    #[test]
+    fn test_collect_preserves_gc_adt_and_nested_handles() {
+        let mut heap = GcHeap::new();
+        let list = heap.alloc(HeapObject::Cons {
+            head: Value::Integer(7),
+            tail: Value::None,
+        });
+        let adt = heap.alloc(HeapObject::Adt {
+            constructor: Rc::from("Node"),
+            fields: crate::runtime::value::AdtFields::from_vec(vec![
+                Value::Integer(1),
+                Value::Gc(list),
+            ]),
+        });
+
+        heap.alloc(HeapObject::Cons {
+            head: Value::Integer(99),
+            tail: Value::None,
+        });
+
+        heap.collect_roots([&Value::GcAdt(adt)]);
+        assert_eq!(heap.live_count(), 2);
+        match heap.get(adt) {
+            HeapObject::Adt {
+                constructor,
+                fields,
+            } => {
+                assert_eq!(constructor.as_ref(), "Node");
+                assert_eq!(fields[1], Value::Gc(list));
+            }
+            _ => panic!("expected Adt"),
+        }
     }
 
     #[cfg(feature = "gc-telemetry")]

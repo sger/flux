@@ -11,7 +11,7 @@ use crate::{
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
-        value::{AdtFields, AdtValue, Value},
+        value::{AdtFields, Value},
     },
 };
 
@@ -807,10 +807,11 @@ impl VM {
                 if arity == 0 {
                     self.push(Value::AdtUnit(constructor_name))?;
                 } else {
-                    self.push(Value::Adt(std::rc::Rc::new(AdtValue {
+                    let handle = self.gc_heap.alloc(HeapObject::Adt {
                         constructor: constructor_name,
                         fields: AdtFields::from_vec(fields),
-                    })))?;
+                    });
+                    self.push(Value::GcAdt(handle))?;
                 }
                 Ok(4) // 1 opcode + 2 const_idx + 1 arity
             }
@@ -835,7 +836,7 @@ impl VM {
 
                 let idx = self.sp - 1;
                 let is_adt = match &self.stack[idx] {
-                    Value::Adt(adt) => adt.constructor.as_ref() == construct_name,
+                    value if value.adt_constructor(&self.gc_heap) == Some(construct_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == construct_name,
                     _ => false,
                 };
@@ -850,25 +851,14 @@ impl VM {
                 let field_idx = Self::read_u8_fast(instructions, ip + 1);
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(adt) => {
-                        let value = match std::rc::Rc::try_unwrap(adt) {
-                            Ok(adt) => {
-                                let len = adt.fields.len();
-                                adt.fields.into_nth(field_idx).ok_or_else(|| {
-                                    format!(
-                                        "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                        field_idx, len
-                                    )
-                                })?
-                            }
-                            Err(adt) => adt.fields.get(field_idx).cloned().ok_or_else(|| {
-                                format!(
-                                    "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                    field_idx,
-                                    adt.fields.len()
-                                )
-                            })?,
-                        };
+                    Value::Adt(_) | Value::GcAdt(_) => {
+                        let len = adt.adt_field_count(&self.gc_heap).unwrap_or(0);
+                        let value = adt.adt_clone_field(&self.gc_heap, field_idx).ok_or_else(|| {
+                            format!(
+                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                field_idx, len
+                            )
+                        })?;
                         self.push(value)?;
                         Ok(2) // 1 opcode + 1 field_idx
                     }
@@ -900,7 +890,7 @@ impl VM {
                     }
                 };
                 let is_match = match self.peek(0)? {
-                    Value::Adt(adt) => adt.constructor.as_ref() == constructor_name,
+                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -932,7 +922,7 @@ impl VM {
                 };
                 let bp = self.frames[self.frame_index].base_pointer;
                 let is_match = match &self.stack[bp + local_idx] {
-                    Value::Adt(adt) => adt.constructor.as_ref() == constructor_name,
+                    value if value.adt_constructor(&self.gc_heap) == Some(constructor_name) => true,
                     Value::AdtUnit(name) => name.as_ref() == constructor_name,
                     _ => false,
                 };
@@ -949,23 +939,10 @@ impl VM {
                 // Stack after:  [..., field0, field1]
                 let adt = self.pop_untracked()?;
                 match adt {
-                    Value::Adt(adt) => {
-                        let (f0, f1) = match std::rc::Rc::try_unwrap(adt) {
-                            Ok(owned) => {
-                                owned.fields.into_two().ok_or_else(|| {
-                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                                })?
-                            }
-                            Err(shared) => {
-                                let f0 = shared.fields.get(0).cloned().ok_or_else(|| {
-                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                                })?;
-                                let f1 = shared.fields.get(1).cloned().ok_or_else(|| {
-                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
-                                })?;
-                                (f0, f1)
-                            }
-                        };
+                    Value::Adt(_) | Value::GcAdt(_) => {
+                        let (f0, f1) = adt.adt_clone_two_fields(&self.gc_heap).ok_or_else(|| {
+                            "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                        })?;
                         self.push(f0)?;
                         self.push(f1)?;
                         Ok(1) // just the opcode byte

@@ -2,8 +2,11 @@ use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::runtime::{
     closure::Closure, compiled_function::CompiledFunction, continuation::Continuation,
-    gc::gc_handle::GcHandle, handler_descriptor::HandlerDescriptor, hash_key::HashKey,
-    jit_closure::JitClosure, perform_descriptor::PerformDescriptor,
+    gc::{gc_handle::GcHandle, gc_heap::GcHeap, heap_object::HeapObject},
+    handler_descriptor::HandlerDescriptor,
+    hash_key::HashKey,
+    jit_closure::JitClosure,
+    perform_descriptor::PerformDescriptor,
 };
 
 /// Inner data for an ADT constructor value, boxed behind a single `Rc` so that
@@ -184,6 +187,30 @@ impl std::ops::Index<usize> for AdtFields {
     }
 }
 
+pub enum AdtRef<'a> {
+    Rc(&'a AdtValue),
+    Gc {
+        constructor: &'a Rc<str>,
+        fields: &'a AdtFields,
+    },
+}
+
+impl<'a> AdtRef<'a> {
+    pub fn constructor(&self) -> &str {
+        match self {
+            AdtRef::Rc(adt) => adt.constructor.as_ref(),
+            AdtRef::Gc { constructor, .. } => constructor.as_ref(),
+        }
+    }
+
+    pub fn fields(&self) -> &'a AdtFields {
+        match self {
+            AdtRef::Rc(adt) => &adt.fields,
+            AdtRef::Gc { fields, .. } => fields,
+        }
+    }
+}
+
 /// Runtime value used by the VM stack, globals, constants, and closures.
 ///
 /// ## Memory Management Model
@@ -256,6 +283,8 @@ pub enum Value {
     Tuple(Rc<Vec<Value>>),
     /// GC-managed heap object (cons cell, HAMT map node).
     Gc(GcHandle),
+    /// GC-managed ADT payload.
+    GcAdt(GcHandle),
     /// User-defined ADT constructor value: `Circle(1.0)`, `Red`, `Node(l, v, r)`.
     Adt(Rc<AdtValue>),
     /// Zero-field ADT constructor: `Tip`, `Red`, `None` (user-defined).
@@ -303,6 +332,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Gc(handle) => write!(f, "<gc@{}", handle.index()),
+            Value::GcAdt(handle) => write!(f, "<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     write!(f, "{}", adt.constructor)
@@ -344,7 +374,7 @@ impl Value {
             Value::Array(_) => "Array",
             Value::Tuple(_) => "Tuple",
             Value::Gc(_) => "Gc",
-            Value::Adt(_) | Value::AdtUnit(_) => "Adt",
+            Value::GcAdt(_) | Value::Adt(_) | Value::AdtUnit(_) => "Adt",
             Value::Continuation(_) => "Continuation",
             Value::HandlerDescriptor(_) => "HandlerDescriptor",
             Value::PerformDescriptor(_) => "PerformDescriptor",
@@ -412,6 +442,7 @@ impl Value {
                 }
             }
             Value::Gc(handle) => format!("<gc@{}>", handle.index()),
+            Value::GcAdt(handle) => format!("<gc-adt@{}>", handle.index()),
             Value::Adt(adt) => {
                 if adt.fields.is_empty() {
                     adt.constructor.to_string()
@@ -425,6 +456,50 @@ impl Value {
             Value::Continuation(_) => "<continuation>".to_string(),
             Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) => "<internal>".to_string(),
         }
+    }
+
+    pub fn as_adt<'a>(&'a self, heap: &'a GcHeap) -> Option<AdtRef<'a>> {
+        match self {
+            Value::Adt(adt) => Some(AdtRef::Rc(adt)),
+            Value::GcAdt(handle) => match heap.get(*handle) {
+                HeapObject::Adt {
+                    constructor,
+                    fields,
+                } => Some(AdtRef::Gc {
+                    constructor,
+                    fields,
+                }),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn adt_constructor<'a>(&'a self, heap: &'a GcHeap) -> Option<&'a str> {
+        match self {
+            Value::Adt(adt) => Some(adt.constructor.as_ref()),
+            Value::GcAdt(handle) => match heap.get(*handle) {
+                HeapObject::Adt { constructor, .. } => Some(constructor.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn adt_field_count(&self, heap: &GcHeap) -> Option<usize> {
+        self.as_adt(heap).map(|adt| adt.fields().len())
+    }
+
+    pub fn adt_clone_field(&self, heap: &GcHeap, idx: usize) -> Option<Value> {
+        self.as_adt(heap)
+            .and_then(|adt| adt.fields().get(idx).cloned())
+    }
+
+    pub fn adt_clone_two_fields(&self, heap: &GcHeap) -> Option<(Value, Value)> {
+        let adt = self.as_adt(heap)?;
+        let f0 = adt.fields().get(0)?.clone();
+        let f1 = adt.fields().get(1)?.clone();
+        Some((f0, f1))
     }
 }
 
