@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     ast::type_infer::display_infer_type,
@@ -588,6 +588,7 @@ impl Compiler {
                 if self.block_has_value_tail(body) {
                     if self.is_last_instruction(OpCode::OpPop) {
                         self.replace_last_pop_with_return();
+                    } else if self.replace_last_local_read_with_return() {
                     } else if !self.is_last_instruction(OpCode::OpReturnValue)
                         && !self.is_last_instruction(OpCode::OpReturnLocal)
                     {
@@ -853,41 +854,54 @@ impl Compiler {
     }
 
     pub(super) fn compile_block(&mut self, block: &Block) -> CompileResult<()> {
+        let mut consumable_counts = HashMap::new();
         for statement in &block.statements {
-            if let Some(err) = self.compile_statement_collect_error(statement) {
-                return Err(err);
-            }
+            self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);
         }
 
-        Ok(())
+        self.with_consumable_local_use_counts(consumable_counts, |compiler| {
+            for statement in &block.statements {
+                if let Some(err) = compiler.compile_statement_collect_error(statement) {
+                    return Err(err);
+                }
+            }
+            Ok(())
+        })
     }
 
     #[allow(clippy::vec_box)]
     fn compile_block_with_tail_collect_errors(&mut self, block: &Block) -> Vec<Box<Diagnostic>> {
         let len = block.statements.len();
         let mut errors = Vec::new();
-
-        for (i, statement) in block.statements.iter().enumerate() {
-            let is_last = i == len - 1;
-            let tail_eligible = matches!(
-                statement,
-                Statement::Expression {
-                    has_semicolon: false,
-                    ..
-                } | Statement::Return { .. }
-            );
-
-            let result = if is_last && tail_eligible {
-                // Only value producing terminal statements are in tail position.
-                self.with_tail_position(true, |compiler| compiler.compile_statement(statement))
-            } else {
-                self.with_tail_position(false, |compiler| compiler.compile_statement(statement))
-            };
-
-            if let Err(err) = result {
-                errors.push(err);
-            }
+        let mut consumable_counts = HashMap::new();
+        for statement in &block.statements {
+            self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);
         }
+
+        self.with_consumable_local_use_counts(consumable_counts, |compiler| {
+            for (i, statement) in block.statements.iter().enumerate() {
+                let is_last = i == len - 1;
+                let tail_eligible = matches!(
+                    statement,
+                    Statement::Expression {
+                        has_semicolon: false,
+                        ..
+                    } | Statement::Return { .. }
+                );
+
+                let result = if is_last && tail_eligible {
+                    compiler
+                        .with_tail_position(true, |compiler| compiler.compile_statement(statement))
+                } else {
+                    compiler
+                        .with_tail_position(false, |compiler| compiler.compile_statement(statement))
+                };
+
+                if let Err(err) = result {
+                    errors.push(err);
+                }
+            }
+        });
 
         errors
     }

@@ -16,7 +16,7 @@ use crate::{
             },
         },
         debug_info::FunctionDebugInfo,
-        op_code::OpCode,
+        op_code::{OpCode, make},
         symbol_scope::SymbolScope,
     },
     diagnostics::{
@@ -70,7 +70,365 @@ enum GeneralCoverageDomain {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ConditionalJump {
+    position: usize,
+    leaves_condition_on_jump: bool,
+    /// For 2-operand jumps (e.g. `OpIsAdtJump`): the first operand that must be
+    /// preserved when patching the jump target. `None` for single-operand jumps.
+    first_operand: Option<usize>,
+}
+
 impl Compiler {
+    /// Patch a conditional jump's target, handling single-, two-, and three-operand jump opcodes.
+    fn patch_cond_jump(&mut self, jump: &ConditionalJump, target: usize) {
+        let op = OpCode::from(self.current_instructions()[jump.position]);
+        if op == OpCode::OpIsAdtJumpLocal {
+            // 3-operand instruction: [local_idx: u8, const_idx: u16, jump_offset: u16].
+            // Read local_idx and const_idx from the already-emitted bytes, then rewrite
+            // all 6 bytes in-place with the patched jump target.
+            let local_idx = self.current_instructions()[jump.position + 1] as usize;
+            let const_hi = self.current_instructions()[jump.position + 2] as usize;
+            let const_lo = self.current_instructions()[jump.position + 3] as usize;
+            let const_idx = (const_hi << 8) | const_lo;
+            self.replace_instruction(jump.position, make(op, &[local_idx, const_idx, target]));
+            return;
+        }
+        match jump.first_operand {
+            None => self.change_operand(jump.position, target),
+            Some(first) => {
+                self.replace_instruction(jump.position, make(op, &[first, target]));
+            }
+        }
+    }
+
+    /// Returns `true` if this Constructor pattern qualifies for the fast
+    /// `OpIsAdtJump` + `OpAdtFields2` path: all fields are simple
+    /// (Identifier or Wildcard) and arity is 0, 1, or 2.
+    fn is_simple_adt_pattern(fields: &[Pattern]) -> bool {
+        fields.len() <= 2
+            && fields
+                .iter()
+                .all(|f| matches!(f, Pattern::Identifier { .. } | Pattern::Wildcard { .. }))
+    }
+
+    /// Fast path for `Pattern::Constructor` arms where all fields are
+    /// Identifier or Wildcard and arity ≤ 2.
+    ///
+    /// Emits:
+    /// - `load_symbol(scrutinee)` (one Rc clone)
+    /// - `OpIsAdtJump const_idx <placeholder>` — peeks at constructor, jumps
+    ///   on mismatch leaving the ADT on the stack.  Falls through on match
+    ///   with the ADT still on the stack.
+    /// - Field extraction from the on-stack ADT (no further loads):
+    ///   - arity 0: `OpPop` (clean up the ADT)
+    ///   - arity 1: `OpAdtField 0` (pops ADT, pushes field)
+    ///   - arity 2: `OpAdtFields2` (pops ADT, pushes field0 then field1)
+    /// - Identifier bindings: `define(name)` + `OpSetLocal` for each non-wildcard field.
+    ///
+    /// Returns the `ConditionalJump` that must be patched to the next arm.
+    fn compile_adt_arm_simple(
+        &mut self,
+        name: &crate::syntax::symbol::Symbol,
+        fields: &[Pattern],
+        pattern_span: Span,
+        scrutinee: &Binding,
+    ) -> CompileResult<ConditionalJump> {
+        // Validate constructor exists and arity matches (same as compile_pattern_check).
+        let constructor_name = self.interner.resolve(*name).to_string();
+        if let Some(info) = self.adt_registry.lookup_constructor(*name) {
+            if fields.len() != info.arity {
+                return Err(Self::boxed(
+                    constructor_pattern_arity_mismatch(
+                        pattern_span,
+                        &constructor_name,
+                        info.arity,
+                        fields.len(),
+                    )
+                    .with_file(self.file_path.clone()),
+                ));
+            }
+        }
+        // If the constructor is unknown, compile_pattern_check will produce the
+        // proper diagnostic.  The caller guarantees this path is only taken for
+        // constructors whose arity equals `fields.len()` (checked via
+        // `is_known_simple_adt_arm` before this call).
+
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+
+        self.load_symbol(scrutinee);
+        let jump_pos = self.emit(OpCode::OpIsAdtJump, &[const_idx, 9999]);
+
+        match fields.len() {
+            0 => {
+                // ADT (AdtUnit) is on stack after a successful match; pop it.
+                self.emit(OpCode::OpPop, &[]);
+            }
+            1 => {
+                // ADT is on stack; extract field 0 with the existing opcode.
+                self.emit(OpCode::OpAdtField, &[0]);
+                if let Pattern::Identifier {
+                    name: field_name,
+                    span,
+                } = &fields[0]
+                {
+                    let sym = self.symbol_table.define(*field_name, *span);
+                    match sym.symbol_scope {
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[sym.index]);
+                        }
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Wildcard: field is on stack but unused; discard it.
+                    self.emit(OpCode::OpPop, &[]);
+                }
+            }
+            2 => {
+                // ADT is on stack; extract both fields atomically.
+                self.emit(OpCode::OpAdtFields2, &[]);
+                // Stack after: [..., field0, field1]  (field1 on top)
+                // Bind field1 first (top of stack), then field0.
+                for field_pat in fields.iter().rev() {
+                    if let Pattern::Identifier {
+                        name: field_name,
+                        span,
+                    } = field_pat
+                    {
+                        let sym = self.symbol_table.define(*field_name, *span);
+                        match sym.symbol_scope {
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[sym.index]);
+                            }
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        // Wildcard: discard the field.
+                        self.emit(OpCode::OpPop, &[]);
+                    }
+                }
+            }
+            _ => unreachable!("compile_adt_arm_simple: arity > 2 should not be called"),
+        }
+
+        Ok(ConditionalJump {
+            position: jump_pos,
+            // ADT clone is on the stack when jumping → needs OpPop at the next arm.
+            leaves_condition_on_jump: true,
+            first_operand: Some(const_idx),
+        })
+    }
+
+    /// Variant of `compile_adt_arm_simple` for when the scrutinee is a consumable local variable.
+    ///
+    /// Emits `OpIsAdtJumpLocal` (peeks at the local slot without cloning) followed by
+    /// `OpConsumeLocal` (moves the value to the stack with `Rc` strong_count == 1). This
+    /// allows `Rc::try_unwrap` in `OpAdtFields2` / `OpAdtField` to succeed, eliminating
+    /// the clone-then-drop cycle that `OpGetLocal` + `OpAdtFields2` would otherwise produce.
+    ///
+    /// Unlike `compile_adt_arm_simple`, the returned `ConditionalJump` has
+    /// `leaves_condition_on_jump: false` — no value is left on the stack when the jump is
+    /// taken, so the next arm needs no `OpPop` prefix.
+    fn compile_adt_arm_simple_local(
+        &mut self,
+        name: &crate::syntax::symbol::Symbol,
+        fields: &[Pattern],
+        pattern_span: Span,
+        local_idx: usize,
+    ) -> CompileResult<ConditionalJump> {
+        let constructor_name = self.interner.resolve(*name).to_string();
+        if let Some(info) = self.adt_registry.lookup_constructor(*name) {
+            if fields.len() != info.arity {
+                return Err(Self::boxed(
+                    constructor_pattern_arity_mismatch(
+                        pattern_span,
+                        &constructor_name,
+                        info.arity,
+                        fields.len(),
+                    )
+                    .with_file(self.file_path.clone()),
+                ));
+            }
+        }
+
+        let const_idx = self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
+
+        // Peek at the local slot without cloning (no stack push).
+        // On match: fall through; on mismatch: jump (local unchanged, nothing on stack).
+        let jump_pos = self.emit(OpCode::OpIsAdtJumpLocal, &[local_idx, const_idx, 9999]);
+
+        // Move the matched value from the local slot onto the stack.
+        // After this, local[local_idx] == Uninit and Rc strong_count == 1.
+        self.emit_consume_local(local_idx);
+
+        match fields.len() {
+            0 => {
+                // AdtUnit on stack; pop it.
+                self.emit(OpCode::OpPop, &[]);
+            }
+            1 => {
+                self.emit(OpCode::OpAdtField, &[0]);
+                if let Pattern::Identifier {
+                    name: field_name,
+                    span,
+                } = &fields[0]
+                {
+                    let sym = self.symbol_table.define(*field_name, *span);
+                    match sym.symbol_scope {
+                        SymbolScope::Local => {
+                            self.emit(OpCode::OpSetLocal, &[sym.index]);
+                        }
+                        SymbolScope::Global => {
+                            self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    self.emit(OpCode::OpPop, &[]);
+                }
+            }
+            2 => {
+                // Rc strong_count == 1 here → Rc::try_unwrap succeeds → zero field clones.
+                self.emit(OpCode::OpAdtFields2, &[]);
+                for field_pat in fields.iter().rev() {
+                    if let Pattern::Identifier {
+                        name: field_name,
+                        span,
+                    } = field_pat
+                    {
+                        let sym = self.symbol_table.define(*field_name, *span);
+                        match sym.symbol_scope {
+                            SymbolScope::Local => {
+                                self.emit(OpCode::OpSetLocal, &[sym.index]);
+                            }
+                            SymbolScope::Global => {
+                                self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        self.emit(OpCode::OpPop, &[]);
+                    }
+                }
+            }
+            _ => unreachable!("compile_adt_arm_simple_local: arity > 2 should not be called"),
+        }
+
+        Ok(ConditionalJump {
+            position: jump_pos,
+            // Nothing is left on the stack when jumping → no OpPop needed at the next arm.
+            leaves_condition_on_jump: false,
+            first_operand: None,
+        })
+    }
+
+    /// Returns `true` if every arm in `arms` satisfies the simple ADT fast-path conditions:
+    /// no guard, `Constructor` pattern, arity ≤ 2, all-identifier/wildcard fields, known ADT.
+    fn all_arms_simple_adt(&mut self, arms: &[MatchArm]) -> bool {
+        for arm in arms {
+            if arm.guard.is_some() {
+                return false;
+            }
+            let Pattern::Constructor { name, fields, .. } = &arm.pattern else {
+                return false;
+            };
+            if !Self::is_simple_adt_pattern(fields) {
+                return false;
+            }
+            if !self
+                .adt_registry
+                .lookup_constructor(*name)
+                .is_some_and(|info| info.arity == fields.len())
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// If `scrutinee` is a simple identifier that refers to a consumable local variable
+    /// used exactly once in the enclosing function body, returns its local slot index.
+    /// Otherwise returns `None`.
+    ///
+    /// When `Some(idx)` is returned it is safe to replace the temp-variable pattern with
+    /// `OpIsAdtJumpLocal(idx, …)` + `OpConsumeLocal(idx)`, keeping `Rc` strong_count == 1
+    /// at the point of field extraction.
+    fn scrutinee_as_simple_consumable_local(&mut self, scrutinee: &Expression) -> Option<usize> {
+        let Expression::Identifier { name, .. } = scrutinee else {
+            return None;
+        };
+        let name = *name;
+        let symbol = self.resolve_visible_symbol(name)?;
+        if !self.is_consumable_local(&symbol) {
+            return None;
+        }
+        let counts = self.current_consumable_local_use_counts()?.clone();
+        if counts.get(&name) != Some(&1) {
+            return None;
+        }
+        Some(symbol.index)
+    }
+
+    fn emit_conditional_jump_not_truthy_for_compiled_comparison(
+        &mut self,
+        comparison_op: OpCode,
+    ) -> ConditionalJump {
+        ConditionalJump {
+            position: self.emit_jump_not_truthy_comparison(comparison_op),
+            leaves_condition_on_jump: false,
+            first_operand: None,
+        }
+    }
+
+    fn compile_jump_not_truthy_condition(
+        &mut self,
+        condition: &Expression,
+    ) -> CompileResult<ConditionalJump> {
+        if let Expression::Infix {
+            left,
+            operator,
+            right,
+            ..
+        } = condition
+        {
+            let comparison_op = match operator.as_str() {
+                "==" => Some(OpCode::OpEqual),
+                "!=" => Some(OpCode::OpNotEqual),
+                ">" => Some(OpCode::OpGreaterThan),
+                ">=" => Some(OpCode::OpGreaterThanOrEqual),
+                "<=" => Some(OpCode::OpLessThanOrEqual),
+                "<" => Some(OpCode::OpGreaterThan),
+                _ => None,
+            };
+
+            if let Some(comparison_op) = comparison_op {
+                if operator == "<" {
+                    self.compile_non_tail_expression(right)?;
+                    self.compile_non_tail_expression(left)?;
+                } else {
+                    self.compile_non_tail_expression(left)?;
+                    self.compile_non_tail_expression(right)?;
+                }
+                return Ok(
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(comparison_op)
+                );
+            }
+        }
+
+        self.compile_non_tail_expression(condition)?;
+        Ok(ConditionalJump {
+            position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+            leaves_condition_on_jump: true,
+            first_operand: None,
+        })
+    }
+
     fn effect_constraint_origin(
         &self,
         function: &Expression,
@@ -173,11 +531,15 @@ impl Compiler {
             Expression::Identifier { name, span, .. } => {
                 let name = *name;
                 if let Some(symbol) = self.resolve_visible_symbol(name) {
-                    self.load_symbol(&symbol);
+                    if !self.try_emit_consumed_local(name) {
+                        self.load_symbol(&symbol);
+                    }
                 } else if let Some(prefix) = self.current_module_prefix {
                     let qualified = self.interner.intern_join(prefix, name);
                     if let Some(symbol) = self.resolve_visible_symbol(qualified) {
-                        self.load_symbol(&symbol);
+                        if !self.try_emit_consumed_local(qualified) {
+                            self.load_symbol(&symbol);
+                        }
                     } else if let Some(constant_value) = self.module_constants.get(&qualified) {
                         // Module constant - inline the value
                         self.emit_constant_value(constant_value.clone());
@@ -464,10 +826,13 @@ impl Compiler {
                     return Ok(());
                 }
 
-                // Check if this is a self recursive tail call
-                let is_self_tail_call = self.in_tail_position && self.is_self_call(function);
+                let is_direct_self_call = self.is_self_call(function);
+                let is_self_tail_call = self.in_tail_position && is_direct_self_call;
+                let is_self_non_tail_call = !self.in_tail_position && is_direct_self_call;
 
-                self.compile_non_tail_expression(function)?;
+                if !is_self_non_tail_call {
+                    self.compile_non_tail_expression(function)?;
+                }
 
                 let mut consumable_counts: HashMap<Symbol, usize> = HashMap::new();
 
@@ -488,6 +853,8 @@ impl Compiler {
                 // Emit OpTailCall for self recursive tail calls otherwise OpCall
                 if is_self_tail_call {
                     self.emit(OpCode::OpTailCall, &[arguments.len()]);
+                } else if is_self_non_tail_call {
+                    self.emit(OpCode::OpCallSelf, &[arguments.len()]);
                 } else {
                     self.emit(OpCode::OpCall, &[arguments.len()]);
                 }
@@ -1460,6 +1827,7 @@ impl Compiler {
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
                 self.replace_last_pop_with_return();
+            } else if self.replace_last_local_read_with_return() {
             } else if !self.is_last_instruction(OpCode::OpReturnValue)
                 && !self.is_last_instruction(OpCode::OpReturnLocal)
             {
@@ -1563,9 +1931,7 @@ impl Compiler {
         alternative: &Option<Block>,
     ) -> CompileResult<()> {
         self.validate_boolean_expression(condition, "if condition")?;
-        self.compile_non_tail_expression(condition)?;
-
-        let jump_not_truthy_pos = self.emit(OpCode::OpJumpNotTruthy, &[9999]);
+        let condition_jump = self.compile_jump_not_truthy_condition(condition)?;
 
         let consequence_has_value = self.block_has_value_tail(consequence);
         // Consequence branch inherits tail position
@@ -1584,11 +1950,13 @@ impl Compiler {
         }
 
         let jump_pos = self.emit(OpCode::OpJump, &[9999]);
-        self.change_operand(jump_not_truthy_pos, self.current_instructions().len());
+        self.change_operand(condition_jump.position, self.current_instructions().len());
 
         // Pop the condition value that was left on stack when we jumped here
         // (OpJumpNotTruthy keeps value on stack when jumping for short-circuit support)
-        self.emit(OpCode::OpPop, &[]);
+        if condition_jump.leaves_condition_on_jump {
+            self.emit(OpCode::OpPop, &[]);
+        }
 
         // Alternative branch also inherits tail position
         if let Some(alt) = alternative {
@@ -1626,55 +1994,144 @@ impl Compiler {
         for diag in self.collect_unreachable_arm_warnings(arms) {
             self.warnings.push(diag);
         }
-        // Compile scrutinee once and store it in a temp symbol.
+        // Optimisation: if the scrutinee is a simple consumable local used exactly once AND
+        // every arm is a simple ADT pattern (no guards, arity ≤ 2, all-identifier/wildcard
+        // fields, known constructor), skip the temp variable entirely.
+        //
+        // Instead, each arm emits `OpIsAdtJumpLocal(local_idx, …)` which peeks at the local
+        // slot without cloning (Rc strong_count stays 1), then on match emits
+        // `OpConsumeLocal(local_idx)` to move the value to the stack — so `Rc::try_unwrap`
+        // succeeds in `OpAdtFields2`, moving fields without any clone/drop overhead.
+        let consume_local_idx: Option<usize> = if self.all_arms_simple_adt(arms) {
+            self.scrutinee_as_simple_consumable_local(scrutinee)
+        } else {
+            None
+        };
+
+        // Compile scrutinee once and store it in a temp symbol (standard path only).
         // Keep it in the current scope so top-level matches use globals, not stack-backed locals.
-        self.compile_non_tail_expression(scrutinee)?;
-        let temp_symbol = self.symbol_table.define_temp();
-        match temp_symbol.symbol_scope {
-            SymbolScope::Global => {
-                self.emit(OpCode::OpSetGlobal, &[temp_symbol.index]);
-            }
-            SymbolScope::Local => {
-                self.emit(OpCode::OpSetLocal, &[temp_symbol.index]);
-            }
-            _ => {
-                return Err(Self::boxed(Diagnostic::make_error(
-                    &ICE_TEMP_SYMBOL_MATCH,
-                    &[],
-                    self.file_path.clone(),
-                    Span::new(Position::default(), Position::default()),
-                )));
-            }
+        let temp_symbol: Option<Binding> = if consume_local_idx.is_none() {
+            self.compile_non_tail_expression(scrutinee)?;
+            let sym = self.symbol_table.define_temp();
+            match sym.symbol_scope {
+                SymbolScope::Global => {
+                    self.emit(OpCode::OpSetGlobal, &[sym.index]);
+                }
+                SymbolScope::Local => {
+                    self.emit(OpCode::OpSetLocal, &[sym.index]);
+                }
+                _ => {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &ICE_TEMP_SYMBOL_MATCH,
+                        &[],
+                        self.file_path.clone(),
+                        Span::new(Position::default(), Position::default()),
+                    )));
+                }
+            };
+            Some(sym)
+        } else {
+            None
         };
 
         let mut end_jumps = Vec::new();
-        let mut next_arm_jumps: Vec<usize> = Vec::new();
+        let mut next_arm_jumps: Vec<ConditionalJump> = Vec::new();
 
         // Compile each arm
         for arm in arms {
             if !next_arm_jumps.is_empty() {
-                let arm_start = self.current_instructions().len();
-                for jump_pos in next_arm_jumps.drain(..) {
-                    self.change_operand(jump_pos, arm_start);
+                let pop_start = self.current_instructions().len();
+                let arm_start = if next_arm_jumps
+                    .iter()
+                    .any(|jump| jump.leaves_condition_on_jump)
+                {
+                    self.emit(OpCode::OpPop, &[]);
+                    self.current_instructions().len()
+                } else {
+                    pop_start
+                };
+                for jump in next_arm_jumps.drain(..) {
+                    let target = if jump.leaves_condition_on_jump {
+                        pop_start
+                    } else {
+                        arm_start
+                    };
+                    self.patch_cond_jump(&jump, target);
                 }
-                // A failed pattern/guard jump leaves its condition on stack.
-                self.emit(OpCode::OpPop, &[]);
             }
 
-            // Check whether pattern matches and collect jumps to the next arm.
-            let mut arm_next_jumps = self.compile_pattern_check(&temp_symbol, &arm.pattern)?;
-
-            self.enter_block_scope();
-            self.compile_pattern_bind(&temp_symbol, &arm.pattern)?;
+            // Fast path: Constructor patterns with all-identifier/wildcard fields,
+            // arity ≤ 2, a known constructor, and no guard.
+            // When `consume_local_idx` is set, uses OpIsAdtJumpLocal which avoids cloning
+            // and keeps Rc strong_count == 1 so OpAdtFields2's Rc::try_unwrap succeeds.
+            let mut arm_next_jumps = if arm.guard.is_none()
+                && let Pattern::Constructor {
+                    name,
+                    fields,
+                    span: pat_span,
+                } = &arm.pattern
+                && Self::is_simple_adt_pattern(fields)
+                && self
+                    .adt_registry
+                    .lookup_constructor(*name)
+                    .is_some_and(|info| info.arity == fields.len())
+            {
+                self.enter_block_scope();
+                let jump = if let Some(local_idx) = consume_local_idx {
+                    self.compile_adt_arm_simple_local(name, fields, *pat_span, local_idx)?
+                } else {
+                    self.compile_adt_arm_simple(
+                        name,
+                        fields,
+                        *pat_span,
+                        temp_symbol.as_ref().expect("temp_symbol must exist for standard path"),
+                    )?
+                };
+                vec![jump]
+            } else {
+                // General path: separate check + bind.
+                let ts = temp_symbol
+                    .as_ref()
+                    .expect("temp_symbol must exist for general path");
+                let jumps = self.compile_pattern_check(ts, &arm.pattern)?;
+                self.enter_block_scope();
+                self.compile_pattern_bind(ts, &arm.pattern)?;
+                jumps
+            };
 
             // Guard runs only after a successful pattern match and in the arm binding scope.
             if let Some(guard) = &arm.guard {
                 self.validate_boolean_expression(guard, "match guard")?;
-                self.compile_non_tail_expression(guard)?;
-                arm_next_jumps.push(self.emit(OpCode::OpJumpNotTruthy, &[9999]));
+                arm_next_jumps.push(self.compile_jump_not_truthy_condition(guard)?);
             }
 
-            if self.in_tail_position {
+            // Compute arm-binding-specific use counts so that bindings used exactly
+            // once in the arm body (e.g. `left`, `right` in a Node pattern) are emitted
+            // as `OpConsumeLocal` instead of `OpGetLocal`, keeping Rc strong_count == 1
+            // and enabling `Rc::try_unwrap` to succeed in `OpAdtFields2` / `OpAdtField`.
+            let merged_counts = {
+                let outer_clone = self.current_consumable_local_use_counts().cloned();
+                if let Some(mut merged) = outer_clone {
+                    let mut arm_body_counts: HashMap<Symbol, usize> = HashMap::new();
+                    self.collect_consumable_param_uses(&arm.body, &mut arm_body_counts);
+                    for (sym, count) in arm_body_counts {
+                        merged.entry(sym).or_insert(count);
+                    }
+                    Some(merged)
+                } else {
+                    None
+                }
+            };
+            let in_tail = self.in_tail_position;
+            if let Some(counts) = merged_counts {
+                self.with_consumable_local_use_counts(counts, |compiler| -> CompileResult<()> {
+                    if in_tail {
+                        compiler.with_tail_position(true, |c| c.compile_expression(&arm.body))
+                    } else {
+                        compiler.compile_expression(&arm.body)
+                    }
+                })?;
+            } else if in_tail {
                 self.with_tail_position(true, |compiler| compiler.compile_expression(&arm.body))?;
             } else {
                 self.compile_expression(&arm.body)?;
@@ -1688,11 +2145,24 @@ impl Compiler {
 
         // If no arm matched (or all guards failed), leave a sentinel value on stack.
         if !next_arm_jumps.is_empty() {
-            let no_match_start = self.current_instructions().len();
-            for jump_pos in next_arm_jumps {
-                self.change_operand(jump_pos, no_match_start);
+            let pop_start = self.current_instructions().len();
+            let no_match_start = if next_arm_jumps
+                .iter()
+                .any(|jump| jump.leaves_condition_on_jump)
+            {
+                self.emit(OpCode::OpPop, &[]);
+                self.current_instructions().len()
+            } else {
+                pop_start
+            };
+            for jump in next_arm_jumps {
+                let target = if jump.leaves_condition_on_jump {
+                    pop_start
+                } else {
+                    no_match_start
+                };
+                self.patch_cond_jump(&jump, target);
             }
-            self.emit(OpCode::OpPop, &[]);
         }
         self.emit(OpCode::OpNone, &[]);
 
@@ -1704,11 +2174,11 @@ impl Compiler {
         Ok(())
     }
 
-    pub(super) fn compile_pattern_check(
+    fn compile_pattern_check(
         &mut self,
         scrutinee: &Binding,
         pattern: &Pattern,
-    ) -> CompileResult<Vec<usize>> {
+    ) -> CompileResult<Vec<ConditionalJump>> {
         match pattern {
             Pattern::Wildcard { .. } => {
                 // Wildcard always matches, so we never jump to next arm
@@ -1717,7 +2187,11 @@ impl Compiler {
                 // So we return a dummy jump position that will never be used
                 // For simplicity, emit a condition that's always true
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::Literal { expression, .. } => {
                 // Push pattern value onto stack: [scrutinee, pattern]
@@ -1725,20 +2199,26 @@ impl Compiler {
                 // OpJumpNotTruthy jumps when false (no match), continues when true (match)
                 self.load_symbol(scrutinee);
                 self.compile_non_tail_expression(expression)?;
-                self.emit(OpCode::OpEqual, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(OpCode::OpEqual),
+                ])
             }
             Pattern::None { .. } => {
                 // Check if scrutinee is None
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpNone, &[]);
-                self.emit(OpCode::OpEqual, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![
+                    self.emit_conditional_jump_not_truthy_for_compiled_comparison(OpCode::OpEqual),
+                ])
             }
             Pattern::Some { pattern: inner, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsSome, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1772,7 +2252,11 @@ impl Compiler {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsLeft, &[]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1808,7 +2292,11 @@ impl Compiler {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsRight, &[]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 match inner.as_ref() {
                     Pattern::Wildcard { .. } | Pattern::Identifier { .. } => Ok(jumps),
@@ -1844,19 +2332,31 @@ impl Compiler {
                 // Identifier patterns always match; value binding is performed in
                 // `compile_pattern_bind` after a successful check.
                 self.emit(OpCode::OpTrue, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::EmptyList { .. } => {
                 // Check if scrutinee is an empty list
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsEmptyList, &[]);
-                Ok(vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])])
+                Ok(vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }])
             }
             Pattern::Cons { head, tail, .. } => {
                 // Check if scrutinee is a non-empty cons cell
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsCons, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 // Check head pattern
                 let head_symbol = self.symbol_table.define_temp();
@@ -1921,7 +2421,11 @@ impl Compiler {
             Pattern::Tuple { elements, .. } => {
                 self.load_symbol(scrutinee);
                 self.emit(OpCode::OpIsTuple, &[]);
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 for (index, element) in elements.iter().enumerate() {
                     match element {
@@ -2011,7 +2515,11 @@ impl Compiler {
                     self.add_constant(Value::String(Rc::from(constructor_name.as_str())));
                 self.emit(OpCode::OpIsAdt, &[const_idx]);
 
-                let mut jumps = vec![self.emit(OpCode::OpJumpNotTruthy, &[9999])];
+                let mut jumps = vec![ConditionalJump {
+                    position: self.emit(OpCode::OpJumpNotTruthy, &[9999]),
+                    leaves_condition_on_jump: true,
+                    first_operand: None,
+                }];
 
                 // 3. For each non-wildcard/non-identifier field pattern, extract and sub-check
                 for (field_idx, field_pat) in fields.iter().enumerate() {
@@ -2798,15 +3306,22 @@ impl Compiler {
             return false;
         }
         if let Some(symbol) = self.resolve_visible_symbol(name)
-            && self.is_consumable_tail_param(&symbol)
+            && self.is_consumable_local(&symbol)
         {
-            self.emit(OpCode::OpConsumeLocal, &[symbol.index]);
+            self.emit_consume_local(symbol.index);
             return true;
         }
         false
     }
 
-    fn collect_consumable_param_uses_statement(
+    fn try_emit_consumed_local(&mut self, name: Symbol) -> bool {
+        let Some(counts) = self.current_consumable_local_use_counts().cloned() else {
+            return false;
+        };
+        self.try_emit_consumed_param(name, &counts)
+    }
+
+    pub(super) fn collect_consumable_param_uses_statement(
         &mut self,
         statement: &Statement,
         counts: &mut HashMap<Symbol, usize>,
@@ -2837,7 +3352,7 @@ impl Compiler {
         }
     }
 
-    fn collect_consumable_param_uses(
+    pub(super) fn collect_consumable_param_uses(
         &mut self,
         expression: &Expression,
         counts: &mut HashMap<Symbol, usize>,
@@ -2845,7 +3360,7 @@ impl Compiler {
         match expression {
             Expression::Identifier { name, .. } => {
                 if let Some(symbol) = self.symbol_table.resolve(*name)
-                    && self.is_consumable_tail_param(&symbol)
+                    && self.is_consumable_local(&symbol)
                 {
                     *counts.entry(*name).or_insert(0) += 1;
                 }
@@ -2972,7 +3487,7 @@ impl Compiler {
         }
     }
 
-    fn is_consumable_tail_param(&self, symbol: &Binding) -> bool {
+    fn is_consumable_local(&self, symbol: &Binding) -> bool {
         if symbol.symbol_scope != SymbolScope::Local {
             return false;
         }
@@ -2982,10 +3497,7 @@ impl Compiler {
         {
             return false;
         }
-        match self.current_function_param_count() {
-            Some(num_params) => symbol.index < num_params,
-            None => false,
-        }
+        true
     }
 
     fn try_emit_adt_constructor_call(

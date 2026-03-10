@@ -22,6 +22,9 @@ mod tests {
 
         let ins = make(OpCode::OpPop, &[]);
         assert_eq!(ins, vec![OpCode::OpPop as u8]);
+
+        let ins = make(OpCode::OpConsumeLocal0, &[]);
+        assert_eq!(ins, vec![OpCode::OpConsumeLocal0 as u8]);
     }
 
     #[test]
@@ -33,6 +36,9 @@ mod tests {
         // OpJump has one 2-byte operand
         let ins = make(OpCode::OpJump, &[1024]); // 0x0400
         assert_eq!(ins, vec![OpCode::OpJump as u8, 0x04, 0x00]);
+
+        let ins = make(OpCode::OpCmpEqJumpNotTruthy, &[1024]);
+        assert_eq!(ins, vec![OpCode::OpCmpEqJumpNotTruthy as u8, 0x04, 0x00]);
     }
 
     #[test]
@@ -44,6 +50,9 @@ mod tests {
         // OpCall has one 1-byte operand
         let ins = make(OpCode::OpCall, &[2]);
         assert_eq!(ins, vec![OpCode::OpCall as u8, 2]);
+
+        let ins = make(OpCode::OpCallSelf, &[2]);
+        assert_eq!(ins, vec![OpCode::OpCallSelf as u8, 2]);
     }
 
     #[test]
@@ -129,6 +138,12 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpConstant), vec![2]);
         assert_eq!(operand_widths(OpCode::OpConstantLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpGetLocal), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpCallSelf), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpCmpEqJumpNotTruthy), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpCmpNeJumpNotTruthy), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpCmpGtJumpNotTruthy), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpCmpLeJumpNotTruthy), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpCmpGeJumpNotTruthy), vec![2]);
         assert_eq!(operand_widths(OpCode::OpClosure), vec![2, 1]);
         assert_eq!(operand_widths(OpCode::OpClosureLong), vec![4, 1]);
         assert_eq!(operand_widths(OpCode::OpArrayLong), vec![4]);
@@ -136,6 +151,9 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpTuple), vec![2]);
         assert_eq!(operand_widths(OpCode::OpTupleLong), vec![4]);
         assert_eq!(operand_widths(OpCode::OpTupleIndex), vec![1]);
+        assert_eq!(operand_widths(OpCode::OpConsumeLocal0), Vec::<usize>::new());
+        assert_eq!(operand_widths(OpCode::OpConsumeLocal1), Vec::<usize>::new());
+        assert_eq!(operand_widths(OpCode::OpIsAdtJumpLocal), vec![1, 2, 2]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
     }
 }

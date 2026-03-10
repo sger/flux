@@ -1,0 +1,82 @@
+type Expr = Var(Int) | Val(Int) | Add(Expr, Expr) | Mul(Expr, Expr)
+
+fn dec(n: Int) -> Int {
+    if n == 0 { 0 } else { n - 1 }
+}
+
+fn mk_expr(n: Int, v: Int) -> Expr {
+    if n == 0 {
+        if v == 0 { Var(1) } else { Val(v) }
+    } else {
+        Add(mk_expr(n - 1, v + 1), mk_expr(n - 1, dec(v)))
+    }
+}
+
+fn append_add(expr: Expr, tail: Expr) -> Expr {
+    match expr {
+        Add(left, right) -> Add(left, append_add(right, tail)),
+        _ -> Add(expr, tail),
+    }
+}
+
+fn append_mul(expr: Expr, tail: Expr) -> Expr {
+    match expr {
+        Mul(left, right) -> Mul(left, append_mul(right, tail)),
+        _ -> Mul(expr, tail),
+    }
+}
+
+fn reassoc(expr: Expr) -> Expr {
+    match expr {
+        Add(left, right) -> append_add(reassoc(left), reassoc(right)),
+        Mul(left, right) -> append_mul(reassoc(left), reassoc(right)),
+        _ -> expr,
+    }
+}
+
+fn fold_add(left: Expr, right: Expr) -> Expr {
+    match left {
+        Val(a) -> match right {
+            Val(b) -> Val(a + b),
+            Add(expr, Val(b)) -> Add(Val(a + b), expr),
+            Add(Val(b), expr) -> Add(Val(a + b), expr),
+            other -> Add(Val(a), other),
+        },
+        other -> Add(other, right),
+    }
+}
+
+fn fold_mul(left: Expr, right: Expr) -> Expr {
+    match left {
+        Val(a) -> match right {
+            Val(b) -> Val(a * b),
+            Mul(expr, Val(b)) -> Mul(Val(a * b), expr),
+            Mul(Val(b), expr) -> Mul(Val(a * b), expr),
+            other -> Mul(Val(a), other),
+        },
+        other -> Mul(other, right),
+    }
+}
+
+fn const_folding(expr: Expr) -> Expr {
+    match expr {
+        Add(left, right) -> fold_add(const_folding(left), const_folding(right)),
+        Mul(left, right) -> fold_mul(const_folding(left), const_folding(right)),
+        _ -> expr,
+    }
+}
+
+fn eval(expr: Expr) -> Int {
+    match expr {
+        Var(_) -> 0,
+        Val(value) -> value,
+        Add(left, right) -> eval(left) + eval(right),
+        Mul(left, right) -> eval(left) * eval(right),
+    }
+}
+
+fn main() with IO {
+    let original = mk_expr(12, 1)
+    let optimized = const_folding(reassoc(mk_expr(12, 1)))
+    print("#{eval(original)} #{eval(optimized)}")
+}

@@ -11,7 +11,7 @@ use crate::{
         handler_arm::HandlerArm,
         handler_frame::HandlerFrame,
         leak_detector,
-        value::{AdtValue, Value},
+        value::{AdtFields, AdtValue, Value},
     },
 };
 
@@ -124,6 +124,65 @@ impl VM {
         )
     }
 
+    #[inline(always)]
+    fn fused_cmp_base_opcode(op: OpCode) -> OpCode {
+        match op {
+            OpCode::OpCmpEqJumpNotTruthy => OpCode::OpEqual,
+            OpCode::OpCmpNeJumpNotTruthy => OpCode::OpNotEqual,
+            OpCode::OpCmpGtJumpNotTruthy => OpCode::OpGreaterThan,
+            OpCode::OpCmpLeJumpNotTruthy => OpCode::OpLessThanOrEqual,
+            OpCode::OpCmpGeJumpNotTruthy => OpCode::OpGreaterThanOrEqual,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    fn execute_cmp_jump_not_truthy(
+        &mut self,
+        instructions: &[u8],
+        ip: usize,
+        op: OpCode,
+    ) -> Result<usize, String> {
+        let jump_pos = Self::read_u16_fast(instructions, ip + 1);
+        if self.sp < 2 {
+            return Err(Self::stack_underflow_err());
+        }
+
+        let l_idx = self.sp - 2;
+        let r_idx = self.sp - 1;
+        let result = match (&self.stack[l_idx], &self.stack[r_idx]) {
+            (Value::Integer(l), Value::Integer(r)) => match op {
+                OpCode::OpCmpEqJumpNotTruthy => l == r,
+                OpCode::OpCmpNeJumpNotTruthy => l != r,
+                OpCode::OpCmpGtJumpNotTruthy => l > r,
+                OpCode::OpCmpLeJumpNotTruthy => l <= r,
+                OpCode::OpCmpGeJumpNotTruthy => l >= r,
+                _ => unreachable!(),
+            },
+            _ => {
+                let (left, right) = self.pop_pair_untracked()?;
+                let result = self.compare_values(&left, &right, Self::fused_cmp_base_opcode(op))?;
+                if !result {
+                    self.current_frame_mut().ip = jump_pos;
+                    return Ok(0);
+                }
+                return Ok(3);
+            }
+        };
+
+        self.stack[l_idx] = Value::Uninit;
+        self.stack[r_idx] = Value::Uninit;
+        self.sp -= 2;
+        self.last_popped = Value::None;
+
+        if !result {
+            self.current_frame_mut().ip = jump_pos;
+            Ok(0)
+        } else {
+            Ok(3)
+        }
+    }
+
     pub(super) fn dispatch_instruction(
         &mut self,
         instructions: &[u8],
@@ -155,8 +214,8 @@ impl VM {
                         Some(&value_preview),
                     ));
                 }
-                let bp = self.pop_frame_bp();
-                self.reset_sp(bp - 1)?;
+                let return_slot = self.pop_frame_return_slot();
+                self.reset_sp(return_slot)?;
                 self.push(return_value)?;
                 Ok(0)
             }
@@ -173,8 +232,8 @@ impl VM {
                         Some(&value_preview),
                     ));
                 }
-                let bp = self.pop_frame_bp();
-                self.reset_sp(bp - 1)?;
+                let return_slot = self.pop_frame_return_slot();
+                self.reset_sp(return_slot)?;
                 self.push(Value::None)?;
                 Ok(0)
             }
@@ -210,6 +269,18 @@ impl VM {
                 let value = std::mem::replace(&mut self.stack[bp + idx], Value::Uninit);
                 self.push(value)?;
                 Ok(2)
+            }
+            OpCode::OpConsumeLocal0 => {
+                let bp = self.current_frame().base_pointer;
+                let value = std::mem::replace(&mut self.stack[bp], Value::Uninit);
+                self.push(value)?;
+                Ok(1)
+            }
+            OpCode::OpConsumeLocal1 => {
+                let bp = self.current_frame().base_pointer;
+                let value = std::mem::replace(&mut self.stack[bp + 1], Value::Uninit);
+                self.push(value)?;
+                Ok(1)
             }
             OpCode::OpGetFree => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
@@ -257,6 +328,13 @@ impl VM {
                     self.discard_top()?;
                     Ok(3)
                 }
+            }
+            OpCode::OpCmpEqJumpNotTruthy
+            | OpCode::OpCmpNeJumpNotTruthy
+            | OpCode::OpCmpGtJumpNotTruthy
+            | OpCode::OpCmpLeJumpNotTruthy
+            | OpCode::OpCmpGeJumpNotTruthy => {
+                self.execute_cmp_jump_not_truthy(instructions, ip, op)
             }
             OpCode::OpGetGlobal => {
                 let idx = Self::read_u16_fast(instructions, ip + 1);
@@ -436,6 +514,11 @@ impl VM {
                     self.execute_call(num_args)?;
                     Ok(2)
                 }
+            }
+            OpCode::OpCallSelf => {
+                let num_args = Self::read_u8_fast(instructions, ip + 1);
+                self.execute_call_self(num_args)?;
+                Ok(2)
             }
             OpCode::OpCallBase => {
                 // Encoded as [OpCallBase, base_fn_idx, arity]; callee is implicit.
@@ -684,15 +767,15 @@ impl VM {
             }
             OpCode::OpReturnLocal => {
                 // Superinstruction: GetLocal(n) + ReturnValue fused into one dispatch.
-                // Avoids clone + push + pop cycle.
+                // Avoids clone + push + pop cycle, and can move because the frame is discarded.
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let bp = self.frames[self.frame_index].base_pointer;
-                let mut return_value = self.stack[bp + idx].clone();
+                let mut return_value = std::mem::replace(&mut self.stack[bp + idx], Value::Uninit);
                 if matches!(return_value, Value::Uninit) {
                     return_value = Value::None;
                 }
-                let frame_bp = self.pop_frame_bp();
-                self.reset_sp(frame_bp - 1)?;
+                let return_slot = self.pop_frame_return_slot();
+                self.reset_sp(return_slot)?;
                 self.push(return_value)?;
                 Ok(0)
             }
@@ -715,15 +798,20 @@ impl VM {
                 let mut fields = Vec::with_capacity(arity);
 
                 for i in 0..arity {
-                    let val = self.stack[self.sp - arity + i].clone();
+                    let val =
+                        std::mem::replace(&mut self.stack[self.sp - arity + i], Value::Uninit);
                     fields.push(val);
                 }
 
                 self.reset_sp(self.sp - arity)?;
-                self.push(Value::Adt(std::rc::Rc::new(AdtValue {
-                    constructor: constructor_name,
-                    fields,
-                })))?;
+                if arity == 0 {
+                    self.push(Value::AdtUnit(constructor_name))?;
+                } else {
+                    self.push(Value::Adt(std::rc::Rc::new(AdtValue {
+                        constructor: constructor_name,
+                        fields: AdtFields::from_vec(fields),
+                    })))?;
+                }
                 Ok(4) // 1 opcode + 2 const_idx + 1 arity
             }
             OpCode::OpIsAdt => {
@@ -732,7 +820,7 @@ impl VM {
                 // Stack after:  [..., bool]  (peek-and-replace, value stays for next ops)
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let construct_name = match &self.constants[const_idx] {
-                    Value::String(s) => s.as_ref().to_owned(),
+                    Value::String(s) => s.as_ref(),
                     other => {
                         return Err(format!(
                             "OpIsAdt: expected string constant for constructor name, got {}",
@@ -748,6 +836,7 @@ impl VM {
                 let idx = self.sp - 1;
                 let is_adt = match &self.stack[idx] {
                     Value::Adt(adt) => adt.constructor.as_ref() == construct_name,
+                    Value::AdtUnit(name) => name.as_ref() == construct_name,
                     _ => false,
                 };
 
@@ -762,18 +851,127 @@ impl VM {
                 let adt = self.pop_untracked()?;
                 match adt {
                     Value::Adt(adt) => {
-                        let value = adt.fields.get(field_idx).cloned().ok_or_else(|| {
-                            format!(
-                                "OpAdtField: field index {} out of bounds (adt has {} fields)",
-                                field_idx,
-                                adt.fields.len()
-                            )
-                        })?;
+                        let value = match std::rc::Rc::try_unwrap(adt) {
+                            Ok(adt) => {
+                                let len = adt.fields.len();
+                                adt.fields.into_nth(field_idx).ok_or_else(|| {
+                                    format!(
+                                        "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                        field_idx, len
+                                    )
+                                })?
+                            }
+                            Err(adt) => adt.fields.get(field_idx).cloned().ok_or_else(|| {
+                                format!(
+                                    "OpAdtField: field index {} out of bounds (adt has {} fields)",
+                                    field_idx,
+                                    adt.fields.len()
+                                )
+                            })?,
+                        };
                         self.push(value)?;
                         Ok(2) // 1 opcode + 1 field_idx
                     }
+                    Value::AdtUnit(name) => Err(format!(
+                        "OpAdtField: field index {} out of bounds (AdtUnit '{}' has 0 fields)",
+                        field_idx, name
+                    )),
                     other => Err(format!(
                         "OpAdtField: expected Adt value, got {}",
+                        other.type_name()
+                    )),
+                }
+            }
+
+            OpCode::OpIsAdtJump => {
+                // Operands: const_idx: u16, jump_offset: u16
+                // Stack before: [..., value]
+                // On match:    fall through (5 bytes), ADT stays on stack
+                // On mismatch: jump to jump_offset, ADT stays on stack (caller must OpPop)
+                let const_idx = Self::read_u16_fast(instructions, ip + 1);
+                let jump_pos = Self::read_u16_fast(instructions, ip + 3);
+                let constructor_name = match &self.constants[const_idx] {
+                    Value::String(s) => s.as_ref(),
+                    other => {
+                        return Err(format!(
+                            "OpIsAdtJump: expected string constant for constructor name, got {}",
+                            other
+                        ));
+                    }
+                };
+                let is_match = match self.peek(0)? {
+                    Value::Adt(adt) => adt.constructor.as_ref() == constructor_name,
+                    Value::AdtUnit(name) => name.as_ref() == constructor_name,
+                    _ => false,
+                };
+                if is_match {
+                    Ok(5) // 1 opcode + 2 const_idx + 2 jump_offset
+                } else {
+                    self.current_frame_mut().ip = jump_pos;
+                    Ok(0)
+                }
+            }
+            OpCode::OpIsAdtJumpLocal => {
+                // Operands: local_idx: u8, const_idx: u16, jump_offset: u16
+                // Peeks at local[local_idx] WITHOUT pushing it to the stack.
+                // On constructor match: fall through (6 bytes), local slot unchanged.
+                // On mismatch: jump to jump_offset, local slot unchanged.
+                // The matching arm must emit OpConsumeLocal(local_idx) next to move the value
+                // onto the stack with Rc strong_count == 1, enabling Rc::try_unwrap in OpAdtFields2.
+                let local_idx = Self::read_u8_fast(instructions, ip + 1);
+                let const_idx = Self::read_u16_fast(instructions, ip + 2);
+                let jump_pos = Self::read_u16_fast(instructions, ip + 4);
+                let constructor_name = match &self.constants[const_idx] {
+                    Value::String(s) => s.as_ref(),
+                    other => {
+                        return Err(format!(
+                            "OpIsAdtJumpLocal: expected string constant for constructor name, got {}",
+                            other
+                        ));
+                    }
+                };
+                let bp = self.frames[self.frame_index].base_pointer;
+                let is_match = match &self.stack[bp + local_idx] {
+                    Value::Adt(adt) => adt.constructor.as_ref() == constructor_name,
+                    Value::AdtUnit(name) => name.as_ref() == constructor_name,
+                    _ => false,
+                };
+                if is_match {
+                    Ok(6) // 1 opcode + 1 local_idx + 2 const_idx + 2 jump_offset
+                } else {
+                    self.current_frame_mut().ip = jump_pos;
+                    Ok(0)
+                }
+            }
+            OpCode::OpAdtFields2 => {
+                // No operands.
+                // Stack before: [..., Adt { field0, field1, ... }]
+                // Stack after:  [..., field0, field1]
+                let adt = self.pop_untracked()?;
+                match adt {
+                    Value::Adt(adt) => {
+                        let (f0, f1) = match std::rc::Rc::try_unwrap(adt) {
+                            Ok(owned) => {
+                                owned.fields.into_two().ok_or_else(|| {
+                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                                })?
+                            }
+                            Err(shared) => {
+                                let f0 = shared.fields.get(0).cloned().ok_or_else(|| {
+                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                                })?;
+                                let f1 = shared.fields.get(1).cloned().ok_or_else(|| {
+                                    "OpAdtFields2: ADT has fewer than 2 fields".to_string()
+                                })?;
+                                (f0, f1)
+                            }
+                        };
+                        self.push(f0)?;
+                        self.push(f1)?;
+                        Ok(1) // just the opcode byte
+                    }
+                    other => Err(format!(
+                        "OpAdtFields2: expected Adt value, got {}",
                         other.type_name()
                     )),
                 }

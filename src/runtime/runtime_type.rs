@@ -244,6 +244,14 @@ mod tests {
             Err("not used in runtime_type tests".to_string())
         }
 
+        fn invoke_base_function_borrowed(
+            &mut self,
+            _base_fn_index: usize,
+            _args: &[&Value],
+        ) -> Result<Value, String> {
+            Err("not used in runtime_type tests".to_string())
+        }
+
         fn gc_heap(&self) -> &GcHeap {
             &self.heap
         }

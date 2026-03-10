@@ -18,7 +18,7 @@ Hint:
   Define it first: let iter_free_bounded = ...;
 
 Help:
-  Did you mean one of: `search_free_bounded`, `search_free_bounded`?
+  Did you mean `search_free_bounded`?
 
 
 error[E300]: Argument Type Mismatch

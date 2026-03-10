@@ -15,6 +15,7 @@ Cargo.lock
 # Linux
 *.o
 *.so
+*.hi
 
 # Windows
 *.exe
@@ -31,3 +32,10 @@ Thumbs.db
 
 # Benchmark artifacts
 /baseline_criterion/
+
+# OCaml compiler artifacts
+*.cmi
+*.cmo
+*.cmx
+*.cmxa
+*.cmxs

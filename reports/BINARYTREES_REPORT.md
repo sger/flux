@@ -1,14 +1,15 @@
 # Binary Trees Benchmark Report
 
-- Generated: 2026-03-09 17:35:34 UTC
+- Generated: 2026-03-10 10:25:21 UTC
 - Runs: 10
 - Warmup: 2
 - Full baseline: no
 
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `binarytrees/flux` | 57.6 ± 0.6 | 56.9 | 58.6 | 60.29 ± 16.47 |
-| `binarytrees/flux-jit` | 64.8 ± 1.3 | 63.5 | 67.2 | 67.84 ± 18.57 |
-| `binarytrees/rust` | 1.0 ± 0.3 | 0.8 | 1.7 | 1.00 |
-| `binarytrees/python` | 10.2 ± 0.2 | 10.0 | 10.7 | 10.64 ± 2.91 |
-| `binarytrees/haskell` | 10.8 ± 0.1 | 10.7 | 11.0 | 11.31 ± 3.09 |
+| `binarytrees/flux` | 89.3 ± 30.4 | 46.5 | 147.0 | 1.69 ± 1.01 |
+| `binarytrees/flux-jit` | 52.7 ± 26.0 | 29.9 | 111.0 | 1.00 |
+| `binarytrees/rust` | 78.5 ± 54.2 | 4.7 | 181.3 | 1.49 ± 1.26 |
+| `binarytrees/python` | 84.1 ± 21.2 | 54.3 | 115.6 | 1.60 ± 0.88 |
+| `binarytrees/haskell` | 77.4 ± 39.0 | 45.8 | 165.7 | 1.47 ± 1.03 |
+| `binarytrees/ocaml` | 132.9 ± 102.0 | 8.1 | 311.6 | 2.52 ± 2.30 |

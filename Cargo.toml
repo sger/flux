@@ -88,21 +88,37 @@ name = "aoc_day1_bench"
 harness = false
 
 [[bin]]
-name = "aoc_day1_rust"
-path = "benchmarks/rust/aoc/day1_rust.rs"
-
-[[bin]]
-name = "aoc_day1_part2_rust"
-path = "benchmarks/rust/aoc/day1_part2_rust.rs"
-
-[[bin]]
-name = "aoc_day2_part1_rust"
-path = "benchmarks/rust/aoc/day2_part1_rust.rs"
-
-[[bin]]
-name = "aoc_day2_part2_rust"
-path = "benchmarks/rust/aoc/day2_part2_rust.rs"
-
-[[bin]]
 name = "binarytrees_rust"
 path = "benchmarks/rust/binarytrees.rs"
+
+[[bin]]
+name = "cfold_rust"
+path = "benchmarks/rust/cfold.rs"
+
+[[bin]]
+name = "deriv_rust"
+path = "benchmarks/rust/deriv.rs"
+
+[[bin]]
+name = "nqueens_rust"
+path = "benchmarks/rust/nqueens.rs"
+
+[[bin]]
+name = "qsort_rust"
+path = "benchmarks/rust/qsort.rs"
+
+[[bin]]
+name = "rbtree_ck_rust"
+path = "benchmarks/rust/rbtree_ck.rs"
+
+[[bin]]
+name = "rbtree_rust"
+path = "benchmarks/rust/rbtree.rs"
+
+[[bin]]
+name = "rbtree2_rust"
+path = "benchmarks/rust/rbtree2.rs"
+
+[[bin]]
+name = "rbtree_del_rust"
+path = "benchmarks/rust/rbtree_del.rs"

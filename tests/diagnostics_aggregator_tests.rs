@@ -2,8 +2,7 @@ mod diagnostics_env;
 
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
-    ErrorType,
-    RelatedDiagnostic,
+    ErrorType, RelatedDiagnostic,
     position::{Position, Span},
     render_diagnostics_multi,
 };
@@ -690,7 +689,9 @@ fn aggregator_does_not_collapse_named_parser_diagnostics_as_cascades() {
     .with_category(DiagnosticCategory::ParserDeclaration)
     .with_phase(DiagnosticPhase::Parse);
 
-    let output = DiagnosticsAggregator::new(&[root, missing_hash_colon, missing_comma, missing_else]).render();
+    let output =
+        DiagnosticsAggregator::new(&[root, missing_hash_colon, missing_comma, missing_else])
+            .render();
     assert_eq!(output.matches("error[E076]").count(), 1);
     assert_eq!(output.matches("error[E034]: Missing Hash Colon").count(), 1);
     assert_eq!(output.matches("error[E073]: Missing Comma").count(), 1);
@@ -723,7 +724,11 @@ fn aggregator_compresses_repeated_parser_errors_per_file() {
     let output = render_diagnostics_multi(&repeated, Some(50));
     assert_eq!(output.matches("error[E034]: Missing Hash Colon").count(), 3);
     assert!(output.contains("Repeated Parser Diagnostics Suppressed"));
-    assert!(output.contains("I hid 2 additional repeated parser diagnostic(s) for \"Missing Hash Colon\""));
+    assert!(
+        output.contains(
+            "I hid 2 additional repeated parser diagnostic(s) for \"Missing Hash Colon\""
+        )
+    );
     assert!(output.contains("• 5 errors, 1 note • a.flx"));
     assert!(output.contains("Found 5 errors and 1 note."));
 }
@@ -767,7 +772,12 @@ fn aggregator_compresses_repeated_parser_errors_separately_per_fingerprint() {
     }
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
+    assert_eq!(
+        output
+            .matches("Repeated Parser Diagnostics Suppressed")
+            .count(),
+        2
+    );
     assert!(output.contains("\"Missing Hash Colon\""));
     assert!(output.contains("\"Missing Comma\""));
     assert!(output.contains("Found 10 errors and 2 notes."));
@@ -810,7 +820,12 @@ fn aggregator_repeated_parser_compression_is_scoped_per_file() {
     }
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
+    assert_eq!(
+        output
+            .matches("Repeated Parser Diagnostics Suppressed")
+            .count(),
+        2
+    );
     assert!(output.contains("• 4 errors, 1 note • a.flx"));
     assert!(output.contains("• 4 errors, 1 note • b.flx"));
 }
