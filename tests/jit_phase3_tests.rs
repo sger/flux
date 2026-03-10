@@ -50,6 +50,50 @@ add(2, 3)
 }
 
 #[test]
+fn jit_named_function_call_arity3_uses_register_abi() {
+    let result = run_jit(
+        r#"
+fn add3(a, b, c) { a + b + c }
+add3(2, 3, 4)
+"#,
+    );
+    assert_eq!(result, Value::Integer(9));
+}
+
+#[test]
+fn jit_named_function_call_arity4_uses_register_abi() {
+    let result = run_jit(
+        r#"
+fn add4(a, b, c, d) { a + b + c + d }
+add4(1, 2, 3, 4)
+"#,
+    );
+    assert_eq!(result, Value::Integer(10));
+}
+
+#[test]
+fn jit_zero_arity_function_keeps_array_abi() {
+    let result = run_jit(
+        r#"
+fn forty_two() { 42 }
+forty_two()
+"#,
+    );
+    assert_eq!(result, Value::Integer(42));
+}
+
+#[test]
+fn jit_arity5_function_keeps_array_abi() {
+    let result = run_jit(
+        r#"
+fn add5(a, b, c, d, e) { a + b + c + d + e }
+add5(1, 2, 3, 4, 5)
+"#,
+    );
+    assert_eq!(result, Value::Integer(15));
+}
+
+#[test]
 fn jit_function_reads_top_level_global_let() {
     let result = run_jit(
         r#"
@@ -191,6 +235,116 @@ outer(10)
 }
 
 #[test]
+fn jit_integer_locals_flow_through_arithmetic() {
+    let result = run_jit(
+        r#"
+let x = 10
+let y = x + 20
+y + x
+"#,
+    );
+    assert_eq!(result, Value::Integer(40));
+}
+
+#[test]
+fn jit_integer_if_branches_roundtrip_through_boxed_join() {
+    let result = run_jit(
+        r#"
+fn choose(flag) {
+    if flag { 10 + 20 } else { 1 + 2 }
+}
+choose(true)
+"#,
+    );
+    assert_eq!(result, Value::Integer(30));
+}
+
+#[test]
+fn jit_nested_non_nullary_adt_construction_works() {
+    let result = run_jit(
+        r#"
+type Expr = Var(Int) | Val(Int) | Add(Expr, Expr)
+
+fn mk(n) {
+    if n == 0 {
+        Val(1)
+    } else {
+        Add(Val(n), mk(n - 1))
+    }
+}
+
+fn eval(expr) {
+    match expr {
+        Var(_) -> 0,
+        Val(v) -> v,
+        Add(left, right) -> eval(left) + eval(right),
+    }
+}
+
+eval(mk(8))
+"#,
+    );
+    assert_eq!(result, Value::Integer(37));
+}
+
+#[test]
+fn jit_nested_constructor_patterns_check_inner_shapes() {
+    let result = run_jit(
+        r#"
+type Expr = Var(Int) | Val(Int) | Add(Expr, Expr)
+
+fn score(expr) {
+    match expr {
+        Add(left, Val(right)) -> match left {
+            Val(v) -> v + right,
+            _ -> 0,
+        },
+        _ -> 0,
+    }
+}
+
+score(Add(Val(4), Val(5)))
+"#,
+    );
+    assert_eq!(result, Value::Integer(9));
+}
+
+#[test]
+fn jit_nested_constructor_patterns_check_literal_fields() {
+    let result = run_jit(
+        r#"
+type Tree = Leaf | Node(Int)
+type Del = Del(Tree, Bool)
+type Delmin = Delmin(Del, Int, Bool)
+
+fn score(x: Delmin) -> Int {
+    match x {
+        Delmin(Del(_t, true), k, true) -> k + 100,
+        Delmin(Del(_t, false), k, true) -> k + 200,
+        Delmin(Del(_t, true), k, false) -> k + 300,
+        Delmin(Del(_t, false), k, false) -> k + 400,
+    }
+}
+
+score(Delmin(Del(Node(1), true), 7, false))
+"#,
+    );
+    assert_eq!(result, Value::Integer(307));
+}
+
+#[test]
+fn jit_integer_values_box_at_collection_boundaries() {
+    let result = run_jit(
+        r#"
+let x = 40 + 2
+let arr = [|x, x + 1|]
+arr[1]
+"#,
+    );
+    assert_eq!(result, Value::Some(Rc::new(Value::Integer(43))));
+}
+
+#[test]
 fn jit_tail_recursive_without_explicit_return_works() {
     let result = run_jit(
         r#"
@@ -298,4 +452,65 @@ M.add(40, 2)
 "#,
     );
     assert_eq!(result, Value::Integer(42));
+}
+
+#[test]
+fn jit_boolean_if_join_stays_unboxed_through_nested_control_flow() {
+    let result = run_jit(
+        r#"
+let b = if 1 < 2 { true } else { false }
+if b { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
+fn jit_nested_boolean_if_joins_preserve_bool_kind() {
+    let result = run_jit(
+        r#"
+let b =
+    if 1 < 2 {
+        if 2 < 3 { true } else { false }
+    } else {
+        false
+    }
+if b { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
+fn jit_boolean_short_circuit_result_feeds_control_flow() {
+    let result = run_jit(
+        r#"
+let b = (1 < 2) && (2 < 3)
+if b { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
+}
+
+#[test]
+fn jit_truthy_short_circuit_with_non_boolean_values_stays_boxed() {
+    let result = run_jit(
+        r#"
+let x = 1 && 2
+let y = None || 7
+x + y
+"#,
+    );
+    assert_eq!(result, Value::Integer(9));
+}
+
+#[test]
+fn jit_boolean_boxes_when_crossing_collection_boundary() {
+    let result = run_jit(
+        r#"
+let xs = [if 1 < 2 { true } else { false }]
+if first(xs) { 1 } else { 0 }
+"#,
+    );
+    assert_eq!(result, Value::Integer(1));
 }

@@ -1,9 +1,3 @@
-// Binary Trees benchmark, adapted from the Koka benchmark-game variant.
-//
-// Flux does not currently expose command-line args to programs, so `n` is a
-// fixed benchmark parameter here. Keep the other language versions on the same
-// default for like-for-like comparisons.
-
 type Tree = Node(Tree, Tree) | Tip
 
 fn max_int(a: Int, b: Int) -> Int {

@@ -14,6 +14,18 @@ use crate::{
 use super::Compiler;
 
 impl Compiler {
+    pub(super) fn emit_jump_not_truthy_comparison(&mut self, comparison_op: OpCode) -> usize {
+        let fused_op = match comparison_op {
+            OpCode::OpEqual => OpCode::OpCmpEqJumpNotTruthy,
+            OpCode::OpNotEqual => OpCode::OpCmpNeJumpNotTruthy,
+            OpCode::OpGreaterThan => OpCode::OpCmpGtJumpNotTruthy,
+            OpCode::OpLessThanOrEqual => OpCode::OpCmpLeJumpNotTruthy,
+            OpCode::OpGreaterThanOrEqual => OpCode::OpCmpGeJumpNotTruthy,
+            _ => unreachable!("unsupported fused comparison opcode: {:?}", comparison_op),
+        };
+        self.emit(fused_op, &[9999])
+    }
+
     pub(super) fn emit(&mut self, op_code: OpCode, operands: &[usize]) -> usize {
         let instruction = make(op_code, operands);
         let pos = self.add_instruction(&instruction, self.current_span);
@@ -32,7 +44,9 @@ impl Compiler {
                     None => EffectSummary::HasEffects,
                 }
             }
-            OpCode::OpCall | OpCode::OpTailCall | OpCode::OpCallBase => EffectSummary::Unknown,
+            OpCode::OpCall | OpCode::OpCallSelf | OpCode::OpTailCall | OpCode::OpCallBase => {
+                EffectSummary::Unknown
+            }
             _ => EffectSummary::Pure,
         };
 
@@ -114,6 +128,20 @@ impl Compiler {
             }
             SymbolScope::Function => {
                 self.emit(OpCode::OpCurrentClosure, &[]);
+            }
+        }
+    }
+
+    pub(super) fn emit_consume_local(&mut self, index: usize) {
+        match index {
+            0 => {
+                self.emit(OpCode::OpConsumeLocal0, &[]);
+            }
+            1 => {
+                self.emit(OpCode::OpConsumeLocal1, &[]);
+            }
+            _ => {
+                self.emit(OpCode::OpConsumeLocal, &[index]);
             }
         }
     }

@@ -798,16 +798,15 @@ impl Parser {
                 context
             )
         };
-        self.errors
-            .push(
-                unexpected_token_with_details(
-                    self.peek_token.span(),
-                    "Missing Type Annotation Colon",
-                    DiagnosticCategory::ParserSeparator,
-                    message,
-                )
-                .with_hint_text("Type annotations use `name: Type`."),
-            );
+        self.errors.push(
+            unexpected_token_with_details(
+                self.peek_token.span(),
+                "Missing Type Annotation Colon",
+                DiagnosticCategory::ParserSeparator,
+                message,
+            )
+            .with_hint_text("Type annotations use `name: Type`."),
+        );
 
         self.next_token(); // move to start of type expression
         match self.parse_type_expr() {

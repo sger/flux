@@ -2810,11 +2810,9 @@ let w = match x { Some(n) -> n, None -> 0 };
             .expect("expected missing match arm arrow diagnostic");
 
         assert!(
-            diag.hints()
-                .iter()
-                .any(|hint| hint
-                    .text
-                    .contains("while parsing function `greet` > `match` expression")),
+            diag.hints().iter().any(|hint| hint
+                .text
+                .contains("while parsing function `greet` > `match` expression")),
             "expected contextual breadcrumb on helper-emitted diagnostic, got: {:?}",
             diag.hints()
         );

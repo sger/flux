@@ -25,7 +25,7 @@ use crate::syntax::{
     program::Program, statement::Statement, type_expr::TypeExpr,
 };
 
-use super::context::JitFunctionEntry;
+use super::context::{JitCallAbi, JitFunctionEntry};
 use super::runtime_helpers::rt_symbols;
 
 /// Pointer type used for all Value pointers in JIT code.
@@ -40,6 +40,7 @@ struct HelperFuncs {
 struct JitFunctionMeta {
     id: FuncId,
     num_params: usize,
+    call_abi: JitCallAbi,
     function_index: usize,
 }
 
@@ -113,9 +114,51 @@ struct LiteralFunctionSpec {
 
 /// Tracks variables in the current scope.
 #[derive(Clone)]
+struct LocalBinding {
+    var: Variable,
+    kind: JitValueKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JitValueKind {
+    Boxed,
+    Int,
+    Bool,
+}
+
+#[derive(Clone, Copy)]
+struct JitValue {
+    value: CraneliftValue,
+    kind: JitValueKind,
+}
+
+impl JitValue {
+    fn boxed(value: CraneliftValue) -> Self {
+        Self {
+            value,
+            kind: JitValueKind::Boxed,
+        }
+    }
+
+    fn int(value: CraneliftValue) -> Self {
+        Self {
+            value,
+            kind: JitValueKind::Int,
+        }
+    }
+
+    fn bool(value: CraneliftValue) -> Self {
+        Self {
+            value,
+            kind: JitValueKind::Bool,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct Scope {
     /// Maps interned identifier → Cranelift Variable
-    locals: HashMap<Identifier, Variable>,
+    locals: HashMap<Identifier, LocalBinding>,
     /// Maps interned identifier → global slot index
     globals: HashMap<Identifier, usize>,
     /// Maps interned identifier → base index
@@ -162,6 +205,125 @@ impl Scope {
     }
 }
 
+fn declare_local(builder: &mut FunctionBuilder, kind: JitValueKind) -> Variable {
+    let ty = match kind {
+        JitValueKind::Boxed => PTR_TYPE,
+        JitValueKind::Int | JitValueKind::Bool => types::I64,
+    };
+    builder.declare_var(ty)
+}
+
+fn bind_local(
+    builder: &mut FunctionBuilder,
+    scope: &mut Scope,
+    name: Identifier,
+    value: JitValue,
+) -> LocalBinding {
+    let var = declare_local(builder, value.kind);
+    builder.def_var(var, value.value);
+    let binding = LocalBinding {
+        var,
+        kind: value.kind,
+    };
+    scope.locals.insert(name, binding.clone());
+    binding
+}
+
+fn use_local(builder: &mut FunctionBuilder, binding: LocalBinding) -> JitValue {
+    let value = builder.use_var(binding.var);
+    match binding.kind {
+        JitValueKind::Boxed => JitValue::boxed(value),
+        JitValueKind::Int => JitValue::int(value),
+        JitValueKind::Bool => JitValue::bool(value),
+    }
+}
+
+fn box_jit_value(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    value: JitValue,
+) -> CraneliftValue {
+    match value.kind {
+        JitValueKind::Boxed => value.value,
+        JitValueKind::Int => {
+            let make_int = get_helper_func_ref(module, helpers, builder, "rt_make_integer");
+            let call = builder.ins().call(make_int, &[ctx_val, value.value]);
+            builder.inst_results(call)[0]
+        }
+        JitValueKind::Bool => {
+            let make_bool = get_helper_func_ref(module, helpers, builder, "rt_make_bool");
+            let call = builder.ins().call(make_bool, &[ctx_val, value.value]);
+            builder.inst_results(call)[0]
+        }
+    }
+}
+
+fn box_and_guard_jit_value(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    value: JitValue,
+) -> CraneliftValue {
+    let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
+    emit_return_on_null_value(builder, boxed);
+    boxed
+}
+
+fn emit_return_on_null_jit_value(
+    module: &mut JITModule,
+    helpers: &HelperFuncs,
+    builder: &mut FunctionBuilder,
+    ctx_val: CraneliftValue,
+    value: JitValue,
+) {
+    if value.kind == JitValueKind::Boxed {
+        let boxed = box_jit_value(module, helpers, builder, ctx_val, value);
+        emit_return_on_null_value(builder, boxed);
+    }
+}
+
+fn jit_value_type(kind: JitValueKind) -> types::Type {
+    match kind {
+        JitValueKind::Boxed => PTR_TYPE,
+        JitValueKind::Int | JitValueKind::Bool => types::I64,
+    }
+}
+
+fn merged_jit_value_kind(left: JitValue, right: JitValue) -> JitValueKind {
+    if left.kind == JitValueKind::Bool && right.kind == JitValueKind::Bool {
+        JitValueKind::Bool
+    } else {
+        JitValueKind::Boxed
+    }
+}
+
+fn live_branch_locals(
+    builder: &mut FunctionBuilder,
+    scope: &Scope,
+) -> Vec<(Identifier, LocalBinding, CraneliftValue)> {
+    let mut locals: Vec<_> = scope
+        .locals
+        .iter()
+        .map(|(name, binding)| (*name, binding.clone(), builder.use_var(binding.var)))
+        .collect();
+    locals.sort_by_key(|(name, _, _)| name.as_u32());
+    locals
+}
+
+fn bind_branch_block_params(
+    builder: &mut FunctionBuilder,
+    block: cranelift_codegen::ir::Block,
+    live_locals: &[(Identifier, LocalBinding, CraneliftValue)],
+) {
+    let params = builder.block_params(block).to_vec();
+    for ((_, binding, _), param) in live_locals.iter().zip(params.iter()) {
+        builder.def_var(binding.var, *param);
+    }
+}
+
 pub struct JitCompiler {
     pub module: JITModule,
     builder_ctx: FunctionBuilderContext,
@@ -176,6 +338,7 @@ pub struct JitCompiler {
 struct JitFunctionCompileEntry {
     id: FuncId,
     num_params: usize,
+    call_abi: JitCallAbi,
     contract: Option<FunctionContract>,
 }
 
@@ -359,9 +522,10 @@ impl JitCompiler {
                     let make_none =
                         get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
-                    builder.inst_results(call)[0]
+                    JitValue::boxed(builder.inst_results(call)[0])
                 }
             };
+            let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
             builder.ins().return_(&[ret]);
             builder.finalize();
         }
@@ -383,7 +547,7 @@ impl JitCompiler {
     /// JIT function. Its function_index is stored in `self.identity_fn_index` and exposed
     /// to the JIT context so `rt_perform` can build a callable `resume` closure.
     fn compile_identity_function(&mut self) -> Result<usize, String> {
-        let sig = self.user_function_signature();
+        let sig = self.user_function_signature(JitCallAbi::from_arity(1));
         let func_id = self
             .module
             .declare_function("__flux_identity", cranelift_module::Linkage::Local, &sig)
@@ -416,6 +580,7 @@ impl JitCompiler {
         self.jit_functions.push(JitFunctionCompileEntry {
             id: func_id,
             num_params: 1,
+            call_abi: JitCallAbi::Reg1,
             contract: None,
         });
         Ok(function_index)
@@ -441,11 +606,36 @@ impl JitCompiler {
         }
     }
 
-    fn user_function_signature(&mut self) -> cranelift_codegen::ir::Signature {
+    fn user_function_signature(
+        &mut self,
+        call_abi: JitCallAbi,
+    ) -> cranelift_codegen::ir::Signature {
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(PTR_TYPE)); // ctx
-        sig.params.push(AbiParam::new(PTR_TYPE)); // args ptr
-        sig.params.push(AbiParam::new(PTR_TYPE)); // nargs
+        match call_abi {
+            JitCallAbi::Array => {
+                sig.params.push(AbiParam::new(PTR_TYPE)); // args ptr
+                sig.params.push(AbiParam::new(PTR_TYPE)); // nargs
+            }
+            JitCallAbi::Reg1 => {
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
+            }
+            JitCallAbi::Reg2 => {
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
+            }
+            JitCallAbi::Reg3 => {
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg2
+            }
+            JitCallAbi::Reg4 => {
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg0
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg1
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg2
+                sig.params.push(AbiParam::new(PTR_TYPE)); // arg3
+            }
+        }
         sig.params.push(AbiParam::new(PTR_TYPE)); // captures ptr
         sig.params.push(AbiParam::new(PTR_TYPE)); // ncaptures
         sig.returns.push(AbiParam::new(PTR_TYPE)); // result
@@ -472,7 +662,8 @@ impl JitCompiler {
                         continue;
                     }
 
-                    let sig = self.user_function_signature();
+                    let call_abi = JitCallAbi::from_arity(parameters.len());
+                    let sig = self.user_function_signature(call_abi);
                     let fn_name = format!("flux_fn_{}", interner.resolve(*name));
                     let id = self
                         .module
@@ -488,6 +679,7 @@ impl JitCompiler {
                     self.jit_functions.push(JitFunctionCompileEntry {
                         id,
                         num_params: parameters.len(),
+                        call_abi,
                         contract,
                     });
                     scope.functions.insert(
@@ -495,6 +687,7 @@ impl JitCompiler {
                         JitFunctionMeta {
                             id,
                             num_params: parameters.len(),
+                            call_abi,
                             function_index,
                         },
                     );
@@ -523,7 +716,8 @@ impl JitCompiler {
                             continue;
                         }
 
-                        let sig = self.user_function_signature();
+                        let call_abi = JitCallAbi::from_arity(parameters.len());
+                        let sig = self.user_function_signature(call_abi);
                         let label = format!(
                             "flux_mod_{}_{}",
                             interner.resolve(*module_name),
@@ -543,6 +737,7 @@ impl JitCompiler {
                         self.jit_functions.push(JitFunctionCompileEntry {
                             id,
                             num_params: parameters.len(),
+                            call_abi,
                             contract,
                         });
                         scope.module_functions.insert(
@@ -550,6 +745,7 @@ impl JitCompiler {
                             JitFunctionMeta {
                                 id,
                                 num_params: parameters.len(),
+                                call_abi,
                                 function_index,
                             },
                         );
@@ -656,7 +852,7 @@ impl JitCompiler {
                 continue;
             };
 
-            let sig = self.user_function_signature();
+            let sig = self.user_function_signature(meta.call_abi);
             let mut func = Function::with_name_signature(UserFuncName::default(), sig);
             {
                 let module = &mut self.module;
@@ -675,38 +871,54 @@ impl JitCompiler {
                 builder.switch_to_block(entry);
                 builder.seal_block(entry);
 
-                let entry_params = builder.block_params(entry);
+                let entry_params = builder.block_params(entry).to_vec();
                 let ctx_val = entry_params[0];
-                let args_ptr = entry_params[1];
-                let nargs = entry_params[2];
-                let _captures_ptr = entry_params[3];
-                let _ncaptures = entry_params[4];
-                let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
-                let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
-                builder
-                    .ins()
-                    .brif(arity_ok, init_block, &[], arity_fail, &[]);
+                let args_ptr = if meta.call_abi.uses_array_args() {
+                    Some(entry_params[1])
+                } else {
+                    None
+                };
 
-                builder.switch_to_block(arity_fail);
-                let set_arity_error =
-                    get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
-                builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                builder.ins().return_(&[null_ptr]);
-                builder.seal_block(arity_fail);
+                if args_ptr.is_some() {
+                    let nargs = entry_params[2];
+                    let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
+                    let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
+                    builder
+                        .ins()
+                        .brif(arity_ok, init_block, &[], arity_fail, &[]);
+
+                    builder.switch_to_block(arity_fail);
+                    let set_arity_error =
+                        get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
+                    builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
+                    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                    builder.ins().return_(&[null_ptr]);
+                    builder.seal_block(arity_fail);
+                } else {
+                    builder.ins().jump(init_block, &[]);
+                    builder.seal_block(arity_fail);
+                }
 
                 builder.switch_to_block(init_block);
                 let mut param_bindings: Vec<(Identifier, Variable)> =
                     Vec::with_capacity(parameters.len());
                 for (idx, ident) in parameters.iter().enumerate() {
-                    let arg_ptr =
-                        builder
-                            .ins()
-                            .load(PTR_TYPE, MemFlags::new(), args_ptr, (idx * 8) as i32);
-                    let var = builder.declare_var(PTR_TYPE);
-                    builder.def_var(var, arg_ptr);
-                    fn_scope.locals.insert(*ident, var);
-                    param_bindings.push((*ident, var));
+                    let arg_ptr = match args_ptr {
+                        Some(args_ptr) => builder.ins().load(
+                            PTR_TYPE,
+                            MemFlags::new(),
+                            args_ptr,
+                            (idx * 8) as i32,
+                        ),
+                        None => entry_params[1 + idx],
+                    };
+                    let binding = LocalBinding {
+                        var: declare_local(&mut builder, JitValueKind::Boxed),
+                        kind: JitValueKind::Boxed,
+                    };
+                    builder.def_var(binding.var, arg_ptr);
+                    fn_scope.locals.insert(*ident, binding.clone());
+                    param_bindings.push((*ident, binding.var));
                 }
                 builder.ins().jump(body_block, &[]);
                 builder.seal_block(init_block);
@@ -777,9 +989,10 @@ impl JitCompiler {
                             let make_none =
                                 get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                             let call = builder.ins().call(make_none, &[ctx_val]);
-                            builder.inst_results(call)[0]
+                            JitValue::boxed(builder.inst_results(call)[0])
                         }
                     };
+                    let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
                     let args = [BlockArg::Value(ret)];
                     builder.ins().jump(return_block, &args);
                 }
@@ -830,7 +1043,7 @@ impl JitCompiler {
                     continue;
                 };
 
-                let sig = self.user_function_signature();
+                let sig = self.user_function_signature(meta.call_abi);
                 let mut func = Function::with_name_signature(UserFuncName::default(), sig);
                 {
                     let module = &mut self.module;
@@ -854,40 +1067,57 @@ impl JitCompiler {
                     builder.switch_to_block(entry);
                     builder.seal_block(entry);
 
-                    let entry_params = builder.block_params(entry);
+                    let entry_params = builder.block_params(entry).to_vec();
                     let ctx_val = entry_params[0];
-                    let args_ptr = entry_params[1];
-                    let nargs = entry_params[2];
-                    let _captures_ptr = entry_params[3];
-                    let _ncaptures = entry_params[4];
-                    let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
-                    let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
-                    builder
-                        .ins()
-                        .brif(arity_ok, init_block, &[], arity_fail, &[]);
+                    let args_ptr = if meta.call_abi.uses_array_args() {
+                        Some(entry_params[1])
+                    } else {
+                        None
+                    };
+                    if args_ptr.is_some() {
+                        let nargs = entry_params[2];
+                        let want = builder.ins().iconst(PTR_TYPE, parameters.len() as i64);
+                        let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
+                        builder
+                            .ins()
+                            .brif(arity_ok, init_block, &[], arity_fail, &[]);
 
-                    builder.switch_to_block(arity_fail);
-                    let set_arity_error =
-                        get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
-                    builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                    builder.ins().return_(&[null_ptr]);
-                    builder.seal_block(arity_fail);
+                        builder.switch_to_block(arity_fail);
+                        let set_arity_error = get_helper_func_ref(
+                            module,
+                            helpers,
+                            &mut builder,
+                            "rt_set_arity_error",
+                        );
+                        builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
+                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                        builder.ins().return_(&[null_ptr]);
+                        builder.seal_block(arity_fail);
+                    } else {
+                        builder.ins().jump(init_block, &[]);
+                        builder.seal_block(arity_fail);
+                    }
 
                     builder.switch_to_block(init_block);
                     let mut param_bindings: Vec<(Identifier, Variable)> =
                         Vec::with_capacity(parameters.len());
                     for (idx, ident) in parameters.iter().enumerate() {
-                        let arg_ptr = builder.ins().load(
-                            PTR_TYPE,
-                            MemFlags::new(),
-                            args_ptr,
-                            (idx * 8) as i32,
-                        );
-                        let var = builder.declare_var(PTR_TYPE);
-                        builder.def_var(var, arg_ptr);
-                        fn_scope.locals.insert(*ident, var);
-                        param_bindings.push((*ident, var));
+                        let arg_ptr = match args_ptr {
+                            Some(args_ptr) => builder.ins().load(
+                                PTR_TYPE,
+                                MemFlags::new(),
+                                args_ptr,
+                                (idx * 8) as i32,
+                            ),
+                            None => entry_params[1 + idx],
+                        };
+                        let binding = LocalBinding {
+                            var: declare_local(&mut builder, JitValueKind::Boxed),
+                            kind: JitValueKind::Boxed,
+                        };
+                        builder.def_var(binding.var, arg_ptr);
+                        fn_scope.locals.insert(*ident, binding.clone());
+                        param_bindings.push((*ident, binding.var));
                     }
                     builder.ins().jump(body_block, &[]);
                     builder.seal_block(init_block);
@@ -962,9 +1192,10 @@ impl JitCompiler {
                                     "rt_make_none",
                                 );
                                 let call = builder.ins().call(make_none, &[ctx_val]);
-                                builder.inst_results(call)[0]
+                                JitValue::boxed(builder.inst_results(call)[0])
                             }
                         };
+                        let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
                         let args = [BlockArg::Value(ret)];
                         builder.ins().jump(return_block, &args);
                     }
@@ -1004,7 +1235,8 @@ impl JitCompiler {
             if scope.literal_functions.contains_key(&spec.key) {
                 continue;
             }
-            let sig = self.user_function_signature();
+            let call_abi = JitCallAbi::from_arity(spec.parameters.len());
+            let sig = self.user_function_signature(call_abi);
             let fn_name = format!(
                 "flux_lit_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}",
                 spec.key.sl,
@@ -1032,6 +1264,7 @@ impl JitCompiler {
             self.jit_functions.push(JitFunctionCompileEntry {
                 id,
                 num_params: spec.parameters.len(),
+                call_abi,
                 contract,
             });
             scope.literal_functions.insert(
@@ -1039,6 +1272,7 @@ impl JitCompiler {
                 JitFunctionMeta {
                     id,
                     num_params: spec.parameters.len(),
+                    call_abi,
                     function_index,
                 },
             );
@@ -1060,7 +1294,7 @@ impl JitCompiler {
                 continue;
             };
 
-            let sig = self.user_function_signature();
+            let sig = self.user_function_signature(meta.call_abi);
             let mut func = Function::with_name_signature(UserFuncName::default(), sig);
             {
                 let module = &mut self.module;
@@ -1079,25 +1313,34 @@ impl JitCompiler {
                 builder.switch_to_block(entry);
                 builder.seal_block(entry);
 
-                let entry_params = builder.block_params(entry);
+                let entry_params = builder.block_params(entry).to_vec();
                 let ctx_val = entry_params[0];
-                let args_ptr = entry_params[1];
-                let nargs = entry_params[2];
-                let captures_ptr = entry_params[3];
-                let ncaptures = entry_params[4];
-                let want = builder.ins().iconst(PTR_TYPE, spec.parameters.len() as i64);
-                let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
-                builder
-                    .ins()
-                    .brif(arity_ok, init_block, &[], arity_fail, &[]);
+                let args_ptr = if meta.call_abi.uses_array_args() {
+                    Some(entry_params[1])
+                } else {
+                    None
+                };
+                let captures_ptr = entry_params[meta.call_abi.captures_param_index()];
+                let ncaptures = entry_params[meta.call_abi.ncaptures_param_index()];
+                if args_ptr.is_some() {
+                    let nargs = entry_params[2];
+                    let want = builder.ins().iconst(PTR_TYPE, spec.parameters.len() as i64);
+                    let arity_ok = builder.ins().icmp(IntCC::Equal, nargs, want);
+                    builder
+                        .ins()
+                        .brif(arity_ok, init_block, &[], arity_fail, &[]);
 
-                builder.switch_to_block(arity_fail);
-                let set_arity_error =
-                    get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
-                builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
-                let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
-                builder.ins().return_(&[null_ptr]);
-                builder.seal_block(arity_fail);
+                    builder.switch_to_block(arity_fail);
+                    let set_arity_error =
+                        get_helper_func_ref(module, helpers, &mut builder, "rt_set_arity_error");
+                    builder.ins().call(set_arity_error, &[ctx_val, nargs, want]);
+                    let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                    builder.ins().return_(&[null_ptr]);
+                    builder.seal_block(arity_fail);
+                } else {
+                    builder.ins().jump(init_block, &[]);
+                    builder.seal_block(arity_fail);
+                }
 
                 builder.switch_to_block(init_block);
                 let mut param_bindings: Vec<(Identifier, Variable)> =
@@ -1111,20 +1354,31 @@ impl JitCompiler {
                         captures_ptr,
                         (idx * 8) as i32,
                     );
-                    let var = builder.declare_var(PTR_TYPE);
-                    builder.def_var(var, cap_ptr);
-                    fn_scope.locals.insert(*ident, var);
+                    let binding = LocalBinding {
+                        var: declare_local(&mut builder, JitValueKind::Boxed),
+                        kind: JitValueKind::Boxed,
+                    };
+                    builder.def_var(binding.var, cap_ptr);
+                    fn_scope.locals.insert(*ident, binding);
                 }
 
                 for (idx, ident) in spec.parameters.iter().enumerate() {
-                    let arg_ptr =
-                        builder
-                            .ins()
-                            .load(PTR_TYPE, MemFlags::new(), args_ptr, (idx * 8) as i32);
-                    let var = builder.declare_var(PTR_TYPE);
-                    builder.def_var(var, arg_ptr);
-                    fn_scope.locals.insert(*ident, var);
-                    param_bindings.push((*ident, var));
+                    let arg_ptr = match args_ptr {
+                        Some(args_ptr) => builder.ins().load(
+                            PTR_TYPE,
+                            MemFlags::new(),
+                            args_ptr,
+                            (idx * 8) as i32,
+                        ),
+                        None => entry_params[1 + idx],
+                    };
+                    let binding = LocalBinding {
+                        var: declare_local(&mut builder, JitValueKind::Boxed),
+                        kind: JitValueKind::Boxed,
+                    };
+                    builder.def_var(binding.var, arg_ptr);
+                    fn_scope.locals.insert(*ident, binding.clone());
+                    param_bindings.push((*ident, binding.var));
                 }
 
                 if let Some(self_name) = spec.self_name {
@@ -1136,9 +1390,12 @@ impl JitCompiler {
                         &[ctx_val, fn_idx, captures_ptr, ncaptures],
                     );
                     let closure = builder.inst_results(call)[0];
-                    let self_var = builder.declare_var(PTR_TYPE);
-                    builder.def_var(self_var, closure);
-                    fn_scope.locals.insert(self_name, self_var);
+                    let binding = LocalBinding {
+                        var: declare_local(&mut builder, JitValueKind::Boxed),
+                        kind: JitValueKind::Boxed,
+                    };
+                    builder.def_var(binding.var, closure);
+                    fn_scope.locals.insert(self_name, binding);
                 }
                 builder.ins().jump(body_block, &[]);
                 builder.seal_block(init_block);
@@ -1209,9 +1466,10 @@ impl JitCompiler {
                             let make_none =
                                 get_helper_func_ref(module, helpers, &mut builder, "rt_make_none");
                             let call = builder.ins().call(make_none, &[ctx_val]);
-                            builder.inst_results(call)[0]
+                            JitValue::boxed(builder.inst_results(call)[0])
                         }
                     };
+                    let ret = box_jit_value(module, helpers, &mut builder, ctx_val, ret);
                     let args = [BlockArg::Value(ret)];
                     builder.ins().jump(return_block, &args);
                 }
@@ -1248,6 +1506,7 @@ impl JitCompiler {
             .map(|entry| JitFunctionEntry {
                 ptr: self.module.get_finalized_function(entry.id),
                 num_params: entry.num_params,
+                call_abi: entry.call_abi,
                 contract: entry.contract.clone(),
             })
             .collect()
@@ -1283,21 +1542,20 @@ fn compile_statement(
                 value,
                 interner,
             )?;
-            emit_return_on_null_value(builder, val);
+            emit_return_on_null_jit_value(module, helpers, builder, ctx_val, val);
             if top_level {
                 if let Some(&idx) = scope.globals.get(name) {
                     let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
                     let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
-                    builder.ins().call(set_global, &[ctx_val, idx_val, val]);
+                    let boxed = box_jit_value(module, helpers, builder, ctx_val, val);
+                    builder.ins().call(set_global, &[ctx_val, idx_val, boxed]);
                 } else {
-                    let var = builder.declare_var(PTR_TYPE);
-                    builder.def_var(var, val);
-                    scope.locals.insert(*name, var);
+                    let boxed =
+                        JitValue::boxed(box_jit_value(module, helpers, builder, ctx_val, val));
+                    bind_local(builder, scope, *name, boxed);
                 }
             } else {
-                let var = builder.declare_var(PTR_TYPE);
-                builder.def_var(var, val);
-                scope.locals.insert(*name, var);
+                bind_local(builder, scope, *name, val);
             }
             Ok(StmtOutcome::None)
         }
@@ -1313,13 +1571,14 @@ fn compile_statement(
                 value,
                 interner,
             )?;
-            emit_return_on_null_value(builder, val);
+            let boxed = box_jit_value(module, helpers, builder, ctx_val, val);
+            emit_return_on_null_value(builder, boxed);
             if top_level {
                 bind_top_level_pattern_value(
-                    module, helpers, builder, scope, ctx_val, pattern, val,
+                    module, helpers, builder, scope, ctx_val, pattern, boxed,
                 )?;
             } else {
-                bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, val)?;
+                bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, boxed)?;
             }
             Ok(StmtOutcome::None)
         }
@@ -1355,7 +1614,8 @@ fn compile_statement(
                     )?);
                 }
                 for (idx, (_, var)) in tc.params.iter().enumerate() {
-                    builder.def_var(*var, arg_vals[idx]);
+                    let boxed = box_jit_value(module, helpers, builder, ctx_val, arg_vals[idx]);
+                    builder.def_var(*var, boxed);
                 }
                 builder.ins().jump(tc.loop_block, &[]);
                 return Ok(StmtOutcome::Returned);
@@ -1373,7 +1633,7 @@ fn compile_statement(
                 interner,
             )?;
             if *has_semicolon {
-                emit_return_on_null_value(builder, val);
+                emit_return_on_null_jit_value(module, helpers, builder, ctx_val, val);
                 Ok(StmtOutcome::None)
             } else {
                 Ok(StmtOutcome::Value(val))
@@ -1391,13 +1651,18 @@ fn compile_statement(
                 value,
                 interner,
             )?;
-            emit_return_on_null_value(builder, val);
-            if let Some(&var) = scope.locals.get(name) {
-                builder.def_var(var, val);
+            emit_return_on_null_jit_value(module, helpers, builder, ctx_val, val);
+            if let Some(binding) = scope.locals.get(name).cloned() {
+                if binding.kind == val.kind {
+                    builder.def_var(binding.var, val.value);
+                } else {
+                    bind_local(builder, scope, *name, val);
+                }
             } else if let Some(&idx) = scope.globals.get(name) {
                 let set_global = get_helper_func_ref(module, helpers, builder, "rt_set_global");
                 let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
-                builder.ins().call(set_global, &[ctx_val, idx_val, val]);
+                let boxed = box_jit_value(module, helpers, builder, ctx_val, val);
+                builder.ins().call(set_global, &[ctx_val, idx_val, boxed]);
             }
             Ok(StmtOutcome::None)
         }
@@ -1433,7 +1698,8 @@ fn compile_statement(
                     )?);
                 }
                 for (idx, (_, var)) in tc.params.iter().enumerate() {
-                    builder.def_var(*var, arg_vals[idx]);
+                    let boxed = box_jit_value(module, helpers, builder, ctx_val, arg_vals[idx]);
+                    builder.def_var(*var, boxed);
                 }
                 builder.ins().jump(tc.loop_block, &[]);
                 return Ok(StmtOutcome::Returned);
@@ -1453,9 +1719,10 @@ fn compile_statement(
                 None => {
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
-                    builder.inst_results(call)[0]
+                    JitValue::boxed(builder.inst_results(call)[0])
                 }
             };
+            let ret = box_jit_value(module, helpers, builder, ctx_val, ret);
             let args = [BlockArg::Value(ret)];
             builder.ins().jump(rb, &args);
             Ok(StmtOutcome::Returned)
@@ -1485,9 +1752,7 @@ fn compile_statement(
             let fn_val = compile_function_literal(
                 module, helpers, builder, scope, ctx_val, &expr, interner,
             )?;
-            let var = builder.declare_var(PTR_TYPE);
-            builder.def_var(var, fn_val);
-            scope.locals.insert(*name, var);
+            bind_local(builder, scope, *name, JitValue::boxed(fn_val));
             Ok(StmtOutcome::None)
         }
         Statement::Import {
@@ -1583,7 +1848,8 @@ fn try_compile_tail_expression_statement(
         )?);
     }
     for (idx, (_, var)) in tail_ctx.params.iter().enumerate() {
-        builder.def_var(*var, arg_vals[idx]);
+        let boxed = box_jit_value(module, helpers, builder, ctx_val, arg_vals[idx]);
+        builder.def_var(*var, boxed);
     }
     builder.ins().jump(tail_ctx.loop_block, &[]);
     Ok(Some(StmtOutcome::Returned))
@@ -1599,36 +1865,31 @@ fn compile_expression(
     tail_call: Option<&TailCallContext>,
     expr: &Expression,
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     match expr {
         // --- Literals ---
         Expression::Integer { value, .. } => {
-            let make_int = get_helper_func_ref(module, helpers, builder, "rt_make_integer");
-            let v = builder.ins().iconst(PTR_TYPE, *value);
-            let call = builder.ins().call(make_int, &[ctx_val, v]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::int(builder.ins().iconst(types::I64, *value)))
         }
         Expression::Float { value, .. } => {
             let make_float = get_helper_func_ref(module, helpers, builder, "rt_make_float");
             let bits = builder.ins().iconst(PTR_TYPE, value.to_bits() as i64);
             let call = builder.ins().call(make_float, &[ctx_val, bits]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::Boolean { value, .. } => {
-            let make_bool = get_helper_func_ref(module, helpers, builder, "rt_make_bool");
-            let v = builder.ins().iconst(PTR_TYPE, *value as i64);
-            let call = builder.ins().call(make_bool, &[ctx_val, v]);
-            Ok(builder.inst_results(call)[0])
+            let v = builder.ins().iconst(types::I64, *value as i64);
+            Ok(JitValue::bool(v))
         }
         Expression::None { .. } => {
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::EmptyList { .. } => {
             let make_empty = get_helper_func_ref(module, helpers, builder, "rt_make_empty_list");
             let call = builder.ins().call(make_empty, &[ctx_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::String { value, .. } => {
             let make_string = get_helper_func_ref(module, helpers, builder, "rt_make_string");
@@ -1643,7 +1904,7 @@ fn compile_expression(
             let ptr = builder.ins().global_value(PTR_TYPE, gv);
             let len = builder.ins().iconst(PTR_TYPE, bytes.len() as i64);
             let call = builder.ins().call(make_string, &[ctx_val, ptr, len]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::TupleLiteral { elements, .. } => {
             let mut elem_vals = Vec::with_capacity(elements.len());
@@ -1659,7 +1920,9 @@ fn compile_expression(
                     elem,
                     interner,
                 )?;
-                elem_vals.push(val);
+                elem_vals.push(box_and_guard_jit_value(
+                    module, helpers, builder, ctx_val, val,
+                ));
             }
             let len = elem_vals.len();
             let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
@@ -1676,7 +1939,7 @@ fn compile_expression(
             let call = builder
                 .ins()
                 .call(make_tuple, &[ctx_val, elems_ptr, len_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::TupleFieldAccess { object, index, .. } => {
             let tuple_val = compile_expression(
@@ -1692,16 +1955,19 @@ fn compile_expression(
             )?;
             let index_val = builder.ins().iconst(PTR_TYPE, *index as i64);
             let tuple_get = get_helper_func_ref(module, helpers, builder, "rt_tuple_get");
+            let tuple_val = box_jit_value(module, helpers, builder, ctx_val, tuple_val);
             let call = builder
                 .ins()
                 .call(tuple_get, &[ctx_val, tuple_val, index_val]);
-            Ok(builder.inst_results(call)[0])
+            let result = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, result);
+            Ok(JitValue::boxed(result))
         }
 
         // --- Identifiers ---
         Expression::Identifier { name, .. } => {
-            if let Some(&var) = scope.locals.get(name) {
-                Ok(builder.use_var(var))
+            if let Some(binding) = scope.locals.get(name).cloned() {
+                Ok(use_local(builder, binding))
             } else if let Some(meta) = scope.functions.get(name).copied() {
                 let make_jit_closure =
                     get_helper_func_ref(module, helpers, builder, "rt_make_jit_closure");
@@ -1711,18 +1977,18 @@ fn compile_expression(
                 let call = builder
                     .ins()
                     .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
-                Ok(builder.inst_results(call)[0])
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if let Some(&base_idx) = scope.base_functions.get(name) {
                 let make_base =
                     get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                 let idx = builder.ins().iconst(PTR_TYPE, base_idx as i64);
                 let call = builder.ins().call(make_base, &[ctx_val, idx]);
-                Ok(builder.inst_results(call)[0])
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if let Some(&idx) = scope.globals.get(name) {
                 let get_global = get_helper_func_ref(module, helpers, builder, "rt_get_global");
                 let idx_val = builder.ins().iconst(PTR_TYPE, idx as i64);
                 let call = builder.ins().call(get_global, &[ctx_val, idx_val]);
-                Ok(builder.inst_results(call)[0])
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else if scope.adt_constructors.get(name).copied() == Some(0) {
                 // Zero-arg ADT constructor used as a value (e.g. `Point`, `None_`)
                 let name_str = interner.resolve(*name);
@@ -1753,7 +2019,7 @@ fn compile_expression(
                     .ins()
                     .call(make_adt, &[ctx_val, name_ptr, name_len, fields_ptr, zero]);
 
-                Ok(builder.inst_results(call)[0])
+                Ok(JitValue::boxed(builder.inst_results(call)[0]))
             } else {
                 Err(format!("undefined identifier: {}", interner.resolve(*name)))
             }
@@ -1769,7 +2035,7 @@ fn compile_expression(
                         get_helper_func_ref(module, helpers, builder, "rt_make_base_function");
                     let idx = builder.ins().iconst(PTR_TYPE, index as i64);
                     let call = builder.ins().call(make_base, &[ctx_val, idx]);
-                    return Ok(builder.inst_results(call)[0]);
+                    return Ok(JitValue::boxed(builder.inst_results(call)[0]));
                 }
 
                 let module_name = scope.import_aliases.get(name).copied().or_else(|| {
@@ -1796,7 +2062,7 @@ fn compile_expression(
                         let call = builder
                             .ins()
                             .call(make_jit_closure, &[ctx_val, fn_idx, null_ptr, zero]);
-                        return Ok(builder.inst_results(call)[0]);
+                        return Ok(JitValue::boxed(builder.inst_results(call)[0]));
                     }
 
                     return Err(format!(
@@ -1825,14 +2091,22 @@ fn compile_expression(
                 right,
                 interner,
             )?;
+            if operator == "-" && operand.kind == JitValueKind::Int {
+                return Ok(JitValue::int(builder.ins().ineg(operand.value)));
+            }
+            if operator == "!" && operand.kind == JitValueKind::Bool {
+                let one = builder.ins().iconst(types::I64, 1);
+                return Ok(JitValue::bool(builder.ins().bxor(operand.value, one)));
+            }
             let helper_name = match operator.as_str() {
                 "-" => "rt_negate",
                 "!" => "rt_not",
                 _ => return Err(format!("unknown prefix operator: {}", operator)),
             };
             let func_ref = get_helper_func_ref(module, helpers, builder, helper_name);
+            let operand = box_jit_value(module, helpers, builder, ctx_val, operand);
             let call = builder.ins().call(func_ref, &[ctx_val, operand]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
 
         // --- Infix operators ---
@@ -1879,6 +2153,58 @@ fn compile_expression(
                 right,
                 interner,
             )?;
+            if lhs.kind == JitValueKind::Int && rhs.kind == JitValueKind::Int {
+                match operator.as_str() {
+                    "+" => return Ok(JitValue::int(builder.ins().iadd(lhs.value, rhs.value))),
+                    "-" => return Ok(JitValue::int(builder.ins().isub(lhs.value, rhs.value))),
+                    "*" => return Ok(JitValue::int(builder.ins().imul(lhs.value, rhs.value))),
+                    "/" | "%" => {
+                        // Inline div/mod with div-by-zero guard.
+                        let is_zero = builder.ins().icmp_imm(IntCC::Equal, rhs.value, 0);
+                        let err_block = builder.create_block();
+                        let ok_block = builder.create_block();
+                        builder.ins().brif(is_zero, err_block, &[], ok_block, &[]);
+
+                        // Error path: set "division by zero" and return null.
+                        builder.switch_to_block(err_block);
+                        let dbz =
+                            get_helper_func_ref(module, helpers, builder, "rt_division_by_zero");
+                        builder.ins().call(dbz, &[ctx_val]);
+                        let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
+                        builder.ins().return_(&[null_ptr]);
+                        builder.seal_block(err_block);
+
+                        // Normal path: emit sdiv/srem.
+                        builder.switch_to_block(ok_block);
+                        builder.seal_block(ok_block);
+                        let result = if operator == "/" {
+                            builder.ins().sdiv(lhs.value, rhs.value)
+                        } else {
+                            builder.ins().srem(lhs.value, rhs.value)
+                        };
+                        return Ok(JitValue::int(result));
+                    }
+                    "==" | "!=" | ">" | "<" | "<=" | ">=" => {
+                        let cc = match operator.as_str() {
+                            "==" => IntCC::Equal,
+                            "!=" => IntCC::NotEqual,
+                            ">" => IntCC::SignedGreaterThan,
+                            "<" => IntCC::SignedLessThan,
+                            "<=" => IntCC::SignedLessThanOrEqual,
+                            ">=" => IntCC::SignedGreaterThanOrEqual,
+                            _ => unreachable!(),
+                        };
+                        let cmp = builder.ins().icmp(cc, lhs.value, rhs.value);
+                        let one = builder.ins().iconst(types::I64, 1);
+                        let zero = builder.ins().iconst(types::I64, 0);
+                        let bool_i64 = builder.ins().select(cmp, one, zero);
+                        return Ok(JitValue::bool(bool_i64));
+                    }
+                    _ => {}
+                }
+            }
+            let lhs = box_jit_value(module, helpers, builder, ctx_val, lhs);
+            let rhs = box_jit_value(module, helpers, builder, ctx_val, rhs);
             let helper_name = match operator.as_str() {
                 "+" => "rt_add",
                 "-" => "rt_sub",
@@ -1898,13 +2224,13 @@ fn compile_expression(
                     let ge_result = builder.inst_results(ge_call)[0];
                     let not_ref = get_helper_func_ref(module, helpers, builder, "rt_not");
                     let not_call = builder.ins().call(not_ref, &[ctx_val, ge_result]);
-                    return Ok(builder.inst_results(not_call)[0]);
+                    return Ok(JitValue::boxed(builder.inst_results(not_call)[0]));
                 }
                 _ => return Err(format!("unknown infix operator: {}", operator)),
             };
             let func_ref = get_helper_func_ref(module, helpers, builder, helper_name);
             let call = builder.ins().call(func_ref, &[ctx_val, lhs, rhs]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::If {
             condition,
@@ -1945,7 +2271,7 @@ fn compile_expression(
                     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
                     let call = builder.ins().call(make_none, &[ctx_val]);
                     builder.seal_block(continue_block);
-                    Ok(builder.inst_results(call)[0])
+                    Ok(JitValue::boxed(builder.inst_results(call)[0]))
                 }
                 BlockEval::Value(v) => Ok(v),
             }
@@ -2005,7 +2331,9 @@ fn compile_expression(
                         arg,
                         interner,
                     )?;
-                    arg_vals.push(value);
+                    arg_vals.push(box_and_guard_jit_value(
+                        module, helpers, builder, ctx_val, value,
+                    ));
                 }
 
                 let n = arg_vals.len();
@@ -2028,7 +2356,7 @@ fn compile_expression(
                     &[ctx_val, name_ptr, name_len, fields_ptr, arity_value],
                 );
 
-                return Ok(builder.inst_results(call)[0]);
+                return Ok(JitValue::boxed(builder.inst_results(call)[0]));
             }
             // Check if calling a base directly
             if let Expression::Identifier { name, .. } = function.as_ref() {
@@ -2081,6 +2409,7 @@ fn compile_expression(
         }
         Expression::Function { .. } => {
             compile_function_literal(module, helpers, builder, scope, ctx_val, expr, interner)
+                .map(JitValue::boxed)
         }
         Expression::Cons { head, tail, .. } => {
             let head_val = compile_expression(
@@ -2105,11 +2434,13 @@ fn compile_expression(
                 tail,
                 interner,
             )?;
+            let head_val = box_jit_value(module, helpers, builder, ctx_val, head_val);
+            let tail_val = box_jit_value(module, helpers, builder, ctx_val, tail_val);
             let make_cons = get_helper_func_ref(module, helpers, builder, "rt_make_cons");
             let call = builder
                 .ins()
                 .call(make_cons, &[ctx_val, head_val, tail_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::Match {
             scrutinee, arms, ..
@@ -2138,9 +2469,10 @@ fn compile_expression(
                 value,
                 interner,
             )?;
+            let inner = box_jit_value(module, helpers, builder, ctx_val, inner);
             let make_some = get_helper_func_ref(module, helpers, builder, "rt_make_some");
             let call = builder.ins().call(make_some, &[ctx_val, inner]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::Left { value, .. } => {
             let inner = compile_expression(
@@ -2154,9 +2486,10 @@ fn compile_expression(
                 value,
                 interner,
             )?;
+            let inner = box_jit_value(module, helpers, builder, ctx_val, inner);
             let make_left = get_helper_func_ref(module, helpers, builder, "rt_make_left");
             let call = builder.ins().call(make_left, &[ctx_val, inner]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::Right { value, .. } => {
             let inner = compile_expression(
@@ -2170,9 +2503,10 @@ fn compile_expression(
                 value,
                 interner,
             )?;
+            let inner = box_jit_value(module, helpers, builder, ctx_val, inner);
             let make_right = get_helper_func_ref(module, helpers, builder, "rt_make_right");
             let call = builder.ins().call(make_right, &[ctx_val, inner]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::ArrayLiteral { elements, .. } => {
             let mut elem_vals = Vec::with_capacity(elements.len());
@@ -2188,7 +2522,9 @@ fn compile_expression(
                     elem,
                     interner,
                 )?;
-                elem_vals.push(val);
+                elem_vals.push(box_and_guard_jit_value(
+                    module, helpers, builder, ctx_val, val,
+                ));
             }
             let len = elem_vals.len();
             let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
@@ -2205,7 +2541,7 @@ fn compile_expression(
             let call = builder
                 .ins()
                 .call(make_array, &[ctx_val, elems_ptr, len_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::ListLiteral { elements, .. } => {
             // Build cons chain in reverse: start with None, prepend each element
@@ -2225,10 +2561,11 @@ fn compile_expression(
                     elem,
                     interner,
                 )?;
+                let val = box_jit_value(module, helpers, builder, ctx_val, val);
                 let cons_call = builder.ins().call(make_cons, &[ctx_val, val, acc]);
                 acc = builder.inst_results(cons_call)[0];
             }
-            Ok(acc)
+            Ok(JitValue::boxed(acc))
         }
         Expression::Hash { pairs, .. } => {
             let npairs = pairs.len();
@@ -2256,8 +2593,12 @@ fn compile_expression(
                     value,
                     interner,
                 )?;
-                pair_vals.push(k);
-                pair_vals.push(v);
+                pair_vals.push(box_and_guard_jit_value(
+                    module, helpers, builder, ctx_val, k,
+                ));
+                pair_vals.push(box_and_guard_jit_value(
+                    module, helpers, builder, ctx_val, v,
+                ));
             }
             let slot_size = (npairs as u32 * 2).max(1) * 8;
             let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
@@ -2274,7 +2615,7 @@ fn compile_expression(
             let call = builder
                 .ins()
                 .call(make_hash, &[ctx_val, pairs_ptr, npairs_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::Index { left, index, .. } => {
             let left_val = compile_expression(
@@ -2300,10 +2641,12 @@ fn compile_expression(
                 interner,
             )?;
             let rt_index = get_helper_func_ref(module, helpers, builder, "rt_index");
+            let left_val = box_jit_value(module, helpers, builder, ctx_val, left_val);
+            let index_val = box_jit_value(module, helpers, builder, ctx_val, index_val);
             let call = builder
                 .ins()
                 .call(rt_index, &[ctx_val, left_val, index_val]);
-            Ok(builder.inst_results(call)[0])
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
         }
         Expression::InterpolatedString { parts, .. } => {
             use crate::syntax::expression::StringPart;
@@ -2341,6 +2684,7 @@ fn compile_expression(
                             expr,
                             interner,
                         )?;
+                        let val = box_jit_value(module, helpers, builder, ctx_val, val);
                         let call = builder.ins().call(rt_to_string, &[ctx_val, val]);
                         builder.inst_results(call)[0]
                     }
@@ -2355,14 +2699,14 @@ fn compile_expression(
             }
             // Empty interpolated string edge case
             match acc {
-                Some(val) => Ok(val),
+                Some(val) => Ok(JitValue::boxed(val)),
                 None => {
                     let make_string =
                         get_helper_func_ref(module, helpers, builder, "rt_make_string");
                     let null = builder.ins().iconst(PTR_TYPE, 0);
                     let zero = builder.ins().iconst(PTR_TYPE, 0);
                     let call = builder.ins().call(make_string, &[ctx_val, null, zero]);
-                    Ok(builder.inst_results(call)[0])
+                    Ok(JitValue::boxed(builder.inst_results(call)[0]))
                 }
             }
         }
@@ -2419,7 +2763,7 @@ fn compile_jit_perform(
     args: &[Expression],
     interner: &Interner,
     span: crate::diagnostics::position::Span,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let mut arg_vals: Vec<CraneliftValue> = Vec::new();
     for arg in args {
         let val = compile_expression(
@@ -2433,7 +2777,9 @@ fn compile_jit_perform(
             arg,
             interner,
         )?;
-        arg_vals.push(val);
+        arg_vals.push(box_and_guard_jit_value(
+            module, helpers, builder, ctx_val, val,
+        ));
     }
 
     let nargs = arg_vals.len();
@@ -2481,7 +2827,7 @@ fn compile_jit_perform(
 
     // Null result means rt_perform set an error in the context; propagate upward.
     emit_return_on_null_value(builder, result);
-    Ok(result)
+    Ok(JitValue::boxed(result))
 }
 
 /// Compile `expr handle Effect { arms... }` in JIT mode.
@@ -2498,7 +2844,7 @@ fn compile_jit_handle(
     effect: crate::syntax::symbol::Symbol,
     arms: &[crate::syntax::expression::HandleArm],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let num_arms = arms.len();
     let mut op_sym_vals: Vec<CraneliftValue> = Vec::new();
     let mut closure_vals: Vec<CraneliftValue> = Vec::new();
@@ -2636,11 +2982,11 @@ fn compile_match_expression(
     scrutinee: &Expression,
     arms: &[crate::syntax::expression::MatchArm],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     if arms.is_empty() {
         let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
         let call = builder.ins().call(make_none, &[ctx_val]);
-        return Ok(builder.inst_results(call)[0]);
+        return Ok(JitValue::boxed(builder.inst_results(call)[0]));
     }
 
     validate_jit_match_arms(scope, arms, interner)?;
@@ -2656,6 +3002,7 @@ fn compile_match_expression(
         scrutinee,
         interner,
     )?;
+    let scrutinee_val = box_jit_value(module, helpers, builder, ctx_val, scrutinee_val);
     let merge_block = builder.create_block();
     builder.append_block_param(merge_block, PTR_TYPE);
 
@@ -2763,6 +3110,7 @@ fn compile_match_expression(
                     expression,
                     interner,
                 )?;
+                let lit_val = box_jit_value(module, helpers, builder, ctx_val, lit_val);
                 let vals_eq = get_helper_func_ref(module, helpers, builder, "rt_values_equal");
                 let call = builder
                     .ins()
@@ -2776,12 +3124,14 @@ fn compile_match_expression(
             }
             Pattern::Tuple { elements, .. } => {
                 let next = builder.create_block();
+                let mut test_scope = scope.clone();
                 // Use emit_pattern_check to recursively validate the tuple
                 // and each of its elements against their sub-patterns.
                 emit_pattern_check(
                     module,
                     helpers,
                     builder,
+                    &mut test_scope,
                     ctx_val,
                     &arm.pattern,
                     scrutinee_val,
@@ -2796,32 +3146,21 @@ fn compile_match_expression(
                 next_test = Some(next);
                 pending_test = Some(next);
             }
-            Pattern::Constructor { name, .. } => {
-                // Embed the constructor name as a data constant
-                let name_str = interner.resolve(*name);
-                let bytes = name_str.as_bytes().to_vec();
-
-                let data = module
-                    .declare_anonymous_data(false, false)
-                    .map_err(|e| e.to_string())
-                    .expect("declare unknown data");
-
-                let mut desc = DataDescription::new();
-                desc.define(bytes.into_boxed_slice());
-                module.define_data(data, &desc).expect("define data");
-
-                let global_value = module.declare_data_in_func(data, builder.func);
-                let name_ptr = builder.ins().global_value(PTR_TYPE, global_value);
-                let name_len = builder.ins().iconst(PTR_TYPE, name_str.len() as i64);
-
-                let is_adt = get_helper_func_ref(module, helpers, builder, "rt_is_adt_constructor");
-                let call = builder
-                    .ins()
-                    .call(is_adt, &[ctx_val, scrutinee_val, name_ptr, name_len]);
-                let result = builder.inst_results(call)[0];
-                let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            Pattern::Constructor { .. } => {
                 let next = builder.create_block();
-                builder.ins().brif(cond, matched_block, &[], next, &[]);
+                let mut test_scope = scope.clone();
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    &mut test_scope,
+                    ctx_val,
+                    &arm.pattern,
+                    scrutinee_val,
+                    matched_block,
+                    next,
+                    interner,
+                )?;
                 next_test = Some(next);
                 pending_test = Some(next);
             }
@@ -2852,10 +3191,15 @@ fn compile_match_expression(
                 guard_expr,
                 interner,
             )?;
-            let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-            let truthy_call = builder.ins().call(is_truthy, &[ctx_val, guard_val]);
-            let truthy_i64 = builder.inst_results(truthy_call)[0];
-            let cond = builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0);
+            let cond = if guard_val.kind == JitValueKind::Bool {
+                builder.ins().icmp_imm(IntCC::NotEqual, guard_val.value, 0)
+            } else {
+                let guard_val = box_jit_value(module, helpers, builder, ctx_val, guard_val);
+                let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
+                let truthy_call = builder.ins().call(is_truthy, &[ctx_val, guard_val]);
+                let truthy_i64 = builder.inst_results(truthy_call)[0];
+                builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
+            };
             let fail_block = match next_test {
                 Some(next) => next,
                 None => {
@@ -2880,6 +3224,7 @@ fn compile_match_expression(
             &arm.body,
             interner,
         )?;
+        let arm_val = box_and_guard_jit_value(module, helpers, builder, ctx_val, arm_val);
         let args = [BlockArg::Value(arm_val)];
         builder.ins().jump(merge_block, &args);
         builder.seal_block(arm_block);
@@ -2901,7 +3246,7 @@ fn compile_match_expression(
 
     builder.switch_to_block(merge_block);
     builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
+    Ok(JitValue::boxed(builder.block_params(merge_block)[0]))
 }
 
 fn validate_jit_match_arms(
@@ -3061,9 +3406,12 @@ fn bind_pattern_value(
     match pattern {
         Pattern::Wildcard { .. } => Ok(()),
         Pattern::Identifier { name, .. } => {
-            let var = builder.declare_var(PTR_TYPE);
-            builder.def_var(var, value);
-            scope.locals.insert(*name, var);
+            let binding = LocalBinding {
+                var: declare_local(builder, JitValueKind::Boxed),
+                kind: JitValueKind::Boxed,
+            };
+            builder.def_var(binding.var, value);
+            scope.locals.insert(*name, binding);
             Ok(())
         }
         Pattern::Cons { head, tail, .. } => {
@@ -3073,6 +3421,8 @@ fn bind_pattern_value(
             let t_call = builder.ins().call(cons_tail, &[ctx_val, value]);
             let h_val = builder.inst_results(h_call)[0];
             let t_val = builder.inst_results(t_call)[0];
+            emit_return_on_null_value(builder, h_val);
+            emit_return_on_null_value(builder, t_val);
             bind_pattern_value(module, helpers, builder, scope, ctx_val, head, h_val)?;
             bind_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
             Ok(())
@@ -3085,18 +3435,21 @@ fn bind_pattern_value(
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Left { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Right { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Tuple { elements, .. } => {
@@ -3105,6 +3458,7 @@ fn bind_pattern_value(
                 let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
                 let call = builder.ins().call(tuple_get, &[ctx_val, value, index_val]);
                 let item = builder.inst_results(call)[0];
+                emit_return_on_null_value(builder, item);
                 bind_pattern_value(module, helpers, builder, scope, ctx_val, element, item)?;
             }
             Ok(())
@@ -3115,6 +3469,7 @@ fn bind_pattern_value(
                 let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
                 let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
                 let item = builder.inst_results(call)[0];
+                emit_return_on_null_value(builder, item);
                 bind_pattern_value(
                     module,
                     helpers,
@@ -3142,6 +3497,7 @@ fn emit_pattern_check(
     module: &mut JITModule,
     helpers: &HelperFuncs,
     builder: &mut FunctionBuilder,
+    scope: &mut Scope,
     ctx_val: CraneliftValue,
     pattern: &Pattern,
     value: CraneliftValue,
@@ -3196,13 +3552,23 @@ fn emit_pattern_check(
             builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
         Pattern::Literal { expression, .. } => {
-            // Literals require a runtime value to compare against, but we
-            // don't have an interner-aware compile path here. Fall through
-            // optimistically — the arm body will produce wrong results if
-            // the literal doesn't match, but pattern::Literal inside a Tuple
-            // is rarely used in practice.
-            let _ = (expression, interner);
-            builder.ins().jump(pass_block, &[]);
+            let lit_val = compile_expression(
+                module,
+                helpers,
+                builder,
+                scope,
+                ctx_val,
+                None,
+                None,
+                expression,
+                interner,
+            )?;
+            let lit_val = box_and_guard_jit_value(module, helpers, builder, ctx_val, lit_val);
+            let vals_eq = get_helper_func_ref(module, helpers, builder, "rt_values_equal");
+            let call = builder.ins().call(vals_eq, &[ctx_val, value, lit_val]);
+            let result = builder.inst_results(call)[0];
+            let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
+            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
         }
         Pattern::Tuple { elements, .. } => {
             // Check rt_is_tuple first, then chain checks for each element.
@@ -3228,12 +3594,12 @@ fn emit_pattern_check(
                 let elem_val = builder.inst_results(elem_call)[0];
                 let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
                 emit_pattern_check(
-                    module, helpers, builder, ctx_val, element, elem_val, next, fail_block,
+                    module, helpers, builder, scope, ctx_val, element, elem_val, next, fail_block,
                     interner,
                 )?;
             }
         }
-        Pattern::Constructor { name, .. } => {
+        Pattern::Constructor { name, fields, .. } => {
             let name_str = interner.resolve(*name);
             let bytes = name_str.as_bytes().to_vec();
             let data = module
@@ -3251,7 +3617,32 @@ fn emit_pattern_check(
                 .call(is_adt, &[ctx_val, value, name_ptr, name_len]);
             let result = builder.inst_results(call)[0];
             let cond = builder.ins().icmp_imm(IntCC::NotEqual, result, 0);
-            builder.ins().brif(cond, pass_block, &[], fail_block, &[]);
+            let step_blocks: Vec<cranelift_codegen::ir::Block> =
+                fields.iter().map(|_| builder.create_block()).collect();
+            let first = step_blocks.first().copied().unwrap_or(pass_block);
+            builder.ins().brif(cond, first, &[], fail_block, &[]);
+            for (i, (field_pattern, &step)) in fields.iter().zip(step_blocks.iter()).enumerate() {
+                builder.seal_block(step);
+                builder.switch_to_block(step);
+                let adt_field = get_helper_func_ref(module, helpers, builder, "rt_adt_field");
+                let idx_val = builder.ins().iconst(PTR_TYPE, i as i64);
+                let field_call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
+                let field_val = builder.inst_results(field_call)[0];
+                emit_return_on_null_value(builder, field_val);
+                let next = step_blocks.get(i + 1).copied().unwrap_or(pass_block);
+                emit_pattern_check(
+                    module,
+                    helpers,
+                    builder,
+                    scope,
+                    ctx_val,
+                    field_pattern,
+                    field_val,
+                    next,
+                    fail_block,
+                    interner,
+                )?;
+            }
         }
     }
     Ok(())
@@ -3284,6 +3675,8 @@ fn bind_top_level_pattern_value(
             let t_call = builder.ins().call(cons_tail, &[ctx_val, value]);
             let h_val = builder.inst_results(h_call)[0];
             let t_val = builder.inst_results(t_call)[0];
+            emit_return_on_null_value(builder, h_val);
+            emit_return_on_null_value(builder, t_val);
             bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, head, h_val)?;
             bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, tail, t_val)?;
             Ok(())
@@ -3292,18 +3685,21 @@ fn bind_top_level_pattern_value(
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_some");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Left { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_left");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Right { pattern, .. } => {
             let unwrap = get_helper_func_ref(module, helpers, builder, "rt_unwrap_right");
             let call = builder.ins().call(unwrap, &[ctx_val, value]);
             let inner = builder.inst_results(call)[0];
+            emit_return_on_null_value(builder, inner);
             bind_top_level_pattern_value(module, helpers, builder, scope, ctx_val, pattern, inner)
         }
         Pattern::Tuple { elements, .. } => {
@@ -3312,6 +3708,7 @@ fn bind_top_level_pattern_value(
                 let index_val = builder.ins().iconst(PTR_TYPE, index as i64);
                 let call = builder.ins().call(tuple_get, &[ctx_val, value, index_val]);
                 let item = builder.inst_results(call)[0];
+                emit_return_on_null_value(builder, item);
                 bind_top_level_pattern_value(
                     module, helpers, builder, scope, ctx_val, element, item,
                 )?;
@@ -3324,6 +3721,7 @@ fn bind_top_level_pattern_value(
                 let idx_val = builder.ins().iconst(PTR_TYPE, index as i64);
                 let call = builder.ins().call(adt_field, &[ctx_val, value, idx_val]);
                 let item = builder.inst_results(call)[0];
+                emit_return_on_null_value(builder, item);
                 bind_top_level_pattern_value(
                     module,
                     helpers,
@@ -3377,7 +3775,9 @@ fn compile_block_expression(
     }
     let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
     let call = builder.ins().call(make_none, &[ctx_val]);
-    Ok(BlockEval::Value(builder.inst_results(call)[0]))
+    Ok(BlockEval::Value(JitValue::boxed(
+        builder.inst_results(call)[0],
+    )))
 }
 
 fn compile_if_expression(
@@ -3392,7 +3792,7 @@ fn compile_if_expression(
     consequence: &Block,
     alternative: Option<&Block>,
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let cond_val = compile_expression(
         module,
         helpers,
@@ -3404,21 +3804,37 @@ fn compile_if_expression(
         condition,
         interner,
     )?;
-    let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-    let truthy_call = builder.ins().call(is_truthy, &[ctx_val, cond_val]);
-    let truthy_i64 = builder.inst_results(truthy_call)[0];
-    let cond_b1 = builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0);
+    // Fast path: Bool values are already i64 (0/1), skip rt_is_truthy call.
+    let cond_b1 = if cond_val.kind == JitValueKind::Bool {
+        builder.ins().icmp_imm(IntCC::NotEqual, cond_val.value, 0)
+    } else {
+        let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
+        let cond_val = box_jit_value(module, helpers, builder, ctx_val, cond_val);
+        let truthy_call = builder.ins().call(is_truthy, &[ctx_val, cond_val]);
+        let truthy_i64 = builder.inst_results(truthy_call)[0];
+        builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0)
+    };
 
     let then_block = builder.create_block();
     let else_block = builder.create_block();
     let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, PTR_TYPE);
+    let live_locals = live_branch_locals(builder, scope);
+    let branch_args: Vec<BlockArg> = live_locals
+        .iter()
+        .map(|(_, _, value)| BlockArg::Value(*value))
+        .collect();
+
+    for (_, binding, _) in &live_locals {
+        builder.append_block_param(then_block, jit_value_type(binding.kind));
+        builder.append_block_param(else_block, jit_value_type(binding.kind));
+    }
 
     builder
         .ins()
-        .brif(cond_b1, then_block, &[], else_block, &[]);
+        .brif(cond_b1, then_block, &branch_args, else_block, &branch_args);
 
     builder.switch_to_block(then_block);
+    bind_branch_block_params(builder, then_block, &live_locals);
     let then_eval = compile_block_expression(
         module,
         helpers,
@@ -3430,15 +3846,12 @@ fn compile_if_expression(
         consequence,
         interner,
     )?;
-    let mut has_merge_value = false;
-    if let BlockEval::Value(then_val) = then_eval {
-        let then_args = [BlockArg::Value(then_val)];
-        builder.ins().jump(merge_block, &then_args);
-        has_merge_value = true;
-    }
-    builder.seal_block(then_block);
+    let then_exit_block = builder
+        .current_block()
+        .expect("then branch should leave an active block");
 
     builder.switch_to_block(else_block);
+    bind_branch_block_params(builder, else_block, &live_locals);
     let else_eval = match alternative {
         Some(alt) => compile_block_expression(
             module,
@@ -3454,24 +3867,84 @@ fn compile_if_expression(
         None => BlockEval::Value({
             let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
             let call = builder.ins().call(make_none, &[ctx_val]);
-            builder.inst_results(call)[0]
+            JitValue::boxed(builder.inst_results(call)[0])
         }),
     };
-    if let BlockEval::Value(else_val) = else_eval {
-        let else_args = [BlockArg::Value(else_val)];
-        builder.ins().jump(merge_block, &else_args);
-        has_merge_value = true;
-    }
-    builder.seal_block(else_block);
+    let else_exit_block = builder
+        .current_block()
+        .expect("else branch should leave an active block");
 
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    if has_merge_value {
-        Ok(builder.block_params(merge_block)[0])
+    let merge_kind = match (&then_eval, &else_eval) {
+        (BlockEval::Value(then_val), BlockEval::Value(else_val))
+            if then_val.kind == JitValueKind::Bool && else_val.kind == JitValueKind::Bool =>
+        {
+            JitValueKind::Bool
+        }
+        _ => JitValueKind::Boxed,
+    };
+
+    if merge_kind == JitValueKind::Bool {
+        builder.append_block_param(merge_block, types::I64);
+
+        let mut has_merge_value = false;
+
+        builder.switch_to_block(then_exit_block);
+        if let BlockEval::Value(then_val) = then_eval {
+            let then_args = [BlockArg::Value(then_val.value)];
+            builder.ins().jump(merge_block, &then_args);
+            has_merge_value = true;
+        }
+        builder.seal_block(then_exit_block);
+
+        builder.switch_to_block(else_exit_block);
+        if let BlockEval::Value(else_val) = else_eval {
+            let else_args = [BlockArg::Value(else_val.value)];
+            builder.ins().jump(merge_block, &else_args);
+            has_merge_value = true;
+        }
+        builder.seal_block(else_exit_block);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        if has_merge_value {
+            Ok(JitValue::bool(builder.block_params(merge_block)[0]))
+        } else {
+            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+            let call = builder.ins().call(make_none, &[ctx_val]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
     } else {
-        let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
-        let call = builder.ins().call(make_none, &[ctx_val]);
-        Ok(builder.inst_results(call)[0])
+        builder.append_block_param(merge_block, PTR_TYPE);
+
+        let mut has_merge_value = false;
+
+        builder.switch_to_block(then_exit_block);
+        if let BlockEval::Value(then_val) = then_eval {
+            let then_val = box_and_guard_jit_value(module, helpers, builder, ctx_val, then_val);
+            let then_args = [BlockArg::Value(then_val)];
+            builder.ins().jump(merge_block, &then_args);
+            has_merge_value = true;
+        }
+        builder.seal_block(then_exit_block);
+
+        builder.switch_to_block(else_exit_block);
+        if let BlockEval::Value(else_val) = else_eval {
+            let else_val = box_and_guard_jit_value(module, helpers, builder, ctx_val, else_val);
+            let else_args = [BlockArg::Value(else_val)];
+            builder.ins().jump(merge_block, &else_args);
+            has_merge_value = true;
+        }
+        builder.seal_block(else_exit_block);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        if has_merge_value {
+            Ok(JitValue::boxed(builder.block_params(merge_block)[0]))
+        } else {
+            let make_none = get_helper_func_ref(module, helpers, builder, "rt_make_none");
+            let call = builder.ins().call(make_none, &[ctx_val]);
+            Ok(JitValue::boxed(builder.inst_results(call)[0]))
+        }
     }
 }
 
@@ -3487,7 +3960,7 @@ fn compile_short_circuit_expression(
     operator: &str,
     right: &Expression,
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let lhs = compile_expression(
         module,
         helpers,
@@ -3499,36 +3972,63 @@ fn compile_short_circuit_expression(
         left,
         interner,
     )?;
-    let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
-    let truthy_call = builder.ins().call(is_truthy, &[ctx_val, lhs]);
-    let truthy_i64 = builder.inst_results(truthy_call)[0];
-    let cond_b1 = builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0);
+    // Fast path: Bool values are already i64 (0/1), skip rt_is_truthy call.
+    let (cond_b1, short_value) = if lhs.kind == JitValueKind::Bool {
+        let cond = builder.ins().icmp_imm(IntCC::NotEqual, lhs.value, 0);
+        (cond, lhs)
+    } else {
+        let is_truthy = get_helper_func_ref(module, helpers, builder, "rt_is_truthy");
+        let lhs_boxed = box_jit_value(module, helpers, builder, ctx_val, lhs);
+        let truthy_call = builder.ins().call(is_truthy, &[ctx_val, lhs_boxed]);
+        let truthy_i64 = builder.inst_results(truthy_call)[0];
+        let cond = builder.ins().icmp_imm(IntCC::NotEqual, truthy_i64, 0);
+        (cond, JitValue::boxed(lhs_boxed))
+    };
 
     let short_block = builder.create_block();
     let eval_rhs_block = builder.create_block();
     let merge_block = builder.create_block();
-    builder.append_block_param(merge_block, PTR_TYPE);
+    let live_locals = live_branch_locals(builder, scope);
+    let branch_args: Vec<BlockArg> = live_locals
+        .iter()
+        .map(|(_, _, value)| BlockArg::Value(*value))
+        .collect();
+
+    for (_, binding, _) in &live_locals {
+        builder.append_block_param(short_block, jit_value_type(binding.kind));
+        builder.append_block_param(eval_rhs_block, jit_value_type(binding.kind));
+    }
 
     match operator {
         "&&" => {
-            builder
-                .ins()
-                .brif(cond_b1, eval_rhs_block, &[], short_block, &[]);
+            builder.ins().brif(
+                cond_b1,
+                eval_rhs_block,
+                &branch_args,
+                short_block,
+                &branch_args,
+            );
         }
         "||" => {
-            builder
-                .ins()
-                .brif(cond_b1, short_block, &[], eval_rhs_block, &[]);
+            builder.ins().brif(
+                cond_b1,
+                short_block,
+                &branch_args,
+                eval_rhs_block,
+                &branch_args,
+            );
         }
         _ => return Err(format!("unknown short-circuit operator: {}", operator)),
     }
 
     builder.switch_to_block(short_block);
-    let short_args = [BlockArg::Value(lhs)];
-    builder.ins().jump(merge_block, &short_args);
-    builder.seal_block(short_block);
+    bind_branch_block_params(builder, short_block, &live_locals);
+    let short_exit_block = builder
+        .current_block()
+        .expect("short-circuit path should leave an active block");
 
     builder.switch_to_block(eval_rhs_block);
+    bind_branch_block_params(builder, eval_rhs_block, &live_locals);
     let rhs = compile_expression(
         module,
         helpers,
@@ -3540,13 +4040,46 @@ fn compile_short_circuit_expression(
         right,
         interner,
     )?;
-    let rhs_args = [BlockArg::Value(rhs)];
-    builder.ins().jump(merge_block, &rhs_args);
-    builder.seal_block(eval_rhs_block);
+    let rhs_exit_block = builder
+        .current_block()
+        .expect("rhs path should leave an active block");
 
-    builder.switch_to_block(merge_block);
-    builder.seal_block(merge_block);
-    Ok(builder.block_params(merge_block)[0])
+    let merge_kind = merged_jit_value_kind(short_value, rhs);
+    if merge_kind == JitValueKind::Bool {
+        builder.append_block_param(merge_block, types::I64);
+
+        builder.switch_to_block(short_exit_block);
+        let short_args = [BlockArg::Value(short_value.value)];
+        builder.ins().jump(merge_block, &short_args);
+        builder.seal_block(short_exit_block);
+
+        builder.switch_to_block(rhs_exit_block);
+        let rhs_args = [BlockArg::Value(rhs.value)];
+        builder.ins().jump(merge_block, &rhs_args);
+        builder.seal_block(rhs_exit_block);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        Ok(JitValue::bool(builder.block_params(merge_block)[0]))
+    } else {
+        builder.append_block_param(merge_block, PTR_TYPE);
+
+        builder.switch_to_block(short_exit_block);
+        let short_arg = box_and_guard_jit_value(module, helpers, builder, ctx_val, short_value);
+        let short_args = [BlockArg::Value(short_arg)];
+        builder.ins().jump(merge_block, &short_args);
+        builder.seal_block(short_exit_block);
+
+        builder.switch_to_block(rhs_exit_block);
+        let rhs = box_and_guard_jit_value(module, helpers, builder, ctx_val, rhs);
+        let rhs_args = [BlockArg::Value(rhs)];
+        builder.ins().jump(merge_block, &rhs_args);
+        builder.seal_block(rhs_exit_block);
+
+        builder.switch_to_block(merge_block);
+        builder.seal_block(merge_block);
+        Ok(JitValue::boxed(builder.block_params(merge_block)[0]))
+    }
 }
 
 fn compile_base_function_call(
@@ -3561,7 +4094,7 @@ fn compile_base_function_call(
     base_idx: usize,
     arguments: &[Expression],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     // Compile all arguments
     let mut arg_vals = Vec::with_capacity(arguments.len());
     for arg in arguments {
@@ -3576,7 +4109,9 @@ fn compile_base_function_call(
             arg,
             interner,
         )?;
-        arg_vals.push(val);
+        arg_vals.push(box_and_guard_jit_value(
+            module, helpers, builder, ctx_val, val,
+        ));
     }
 
     // Store argument pointers in a stack slot array
@@ -3617,7 +4152,9 @@ fn compile_base_function_call(
             end_col_val,
         ],
     );
-    Ok(builder.inst_results(call)[0])
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
+    Ok(JitValue::boxed(result))
 }
 
 fn compile_primop_call(
@@ -3632,7 +4169,7 @@ fn compile_primop_call(
     span: Span,
     arguments: &[Expression],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let mut arg_vals = Vec::with_capacity(arguments.len());
 
     for arg in arguments {
@@ -3647,7 +4184,9 @@ fn compile_primop_call(
             arg,
             interner,
         )?;
-        arg_vals.push(val);
+        arg_vals.push(box_and_guard_jit_value(
+            module, helpers, builder, ctx_val, val,
+        ));
     }
 
     let nargs = arg_vals.len();
@@ -3669,26 +4208,24 @@ fn compile_primop_call(
         .ins()
         .iconst(PTR_TYPE, (span.start.column + 1) as i64);
     let end_line_val = builder.ins().iconst(PTR_TYPE, span.end.line as i64);
-    let end_col_val = builder
-        .ins()
-        .iconst(PTR_TYPE, (span.end.column + 1) as i64);
+    let end_col_val = builder.ins().iconst(PTR_TYPE, (span.end.column + 1) as i64);
     let call_primop = get_helper_func_ref(module, helpers, builder, "rt_call_primop");
-    let call = builder
-        .ins()
-        .call(
-            call_primop,
-            &[
-                ctx_val,
-                primop_val,
-                args_ptr,
-                nargs_val,
-                start_line_val,
-                start_col_val,
-                end_line_val,
-                end_col_val,
-            ],
-        );
-    Ok(builder.inst_results(call)[0])
+    let call = builder.ins().call(
+        call_primop,
+        &[
+            ctx_val,
+            primop_val,
+            args_ptr,
+            nargs_val,
+            start_line_val,
+            start_col_val,
+            end_line_val,
+            end_col_val,
+        ],
+    );
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
+    Ok(JitValue::boxed(result))
 }
 
 fn resolve_call_primop(
@@ -3744,7 +4281,7 @@ fn compile_user_function_call(
     call_span: crate::diagnostics::position::Span,
     arguments: &[Expression],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let mut arg_vals = Vec::with_capacity(arguments.len());
     for arg in arguments {
         let val = compile_expression(
@@ -3758,7 +4295,7 @@ fn compile_user_function_call(
             arg,
             interner,
         )?;
-        arg_vals.push(val);
+        arg_vals.push(box_jit_value(module, helpers, builder, ctx_val, val));
     }
 
     let nargs = arg_vals.len();
@@ -3769,17 +4306,6 @@ fn compile_user_function_call(
         ));
     }
 
-    let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-        (nargs as u32) * 8,
-        3,
-    ));
-    for (i, val) in arg_vals.iter().enumerate() {
-        builder.ins().stack_store(*val, slot, (i * 8) as i32);
-    }
-
-    let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
-    let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
     let null_ptr = builder.ins().iconst(PTR_TYPE, 0);
     let zero = builder.ins().iconst(PTR_TYPE, 0);
     let fn_index = builder.ins().iconst(PTR_TYPE, meta.function_index as i64);
@@ -3792,20 +4318,105 @@ fn compile_user_function_call(
         .ins()
         .iconst(PTR_TYPE, (call_span.end.column + 1) as i64);
 
-    let check_call = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
-    let call_ok = builder.ins().call(
-        check_call,
-        &[
-            ctx_val,
-            fn_index,
-            args_ptr,
-            nargs_val,
-            start_line_val,
-            start_col_val,
-            end_line_val,
-            end_col_val,
-        ],
-    );
+    let call_ok = match meta.call_abi {
+        JitCallAbi::Array => {
+            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (nargs as u32) * 8,
+                3,
+            ));
+            for (i, val) in arg_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 8) as i32);
+            }
+            let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+            let check_call =
+                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call");
+            builder.ins().call(
+                check_call,
+                &[
+                    ctx_val,
+                    fn_index,
+                    args_ptr,
+                    nargs_val,
+                    start_line_val,
+                    start_col_val,
+                    end_line_val,
+                    end_col_val,
+                ],
+            )
+        }
+        JitCallAbi::Reg1 => {
+            let check_call =
+                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call1");
+            builder.ins().call(
+                check_call,
+                &[
+                    ctx_val,
+                    fn_index,
+                    arg_vals[0],
+                    start_line_val,
+                    start_col_val,
+                    end_line_val,
+                    end_col_val,
+                ],
+            )
+        }
+        JitCallAbi::Reg2 => {
+            let check_call =
+                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call2");
+            builder.ins().call(
+                check_call,
+                &[
+                    ctx_val,
+                    fn_index,
+                    arg_vals[0],
+                    arg_vals[1],
+                    start_line_val,
+                    start_col_val,
+                    end_line_val,
+                    end_col_val,
+                ],
+            )
+        }
+        JitCallAbi::Reg3 => {
+            let check_call =
+                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call3");
+            builder.ins().call(
+                check_call,
+                &[
+                    ctx_val,
+                    fn_index,
+                    arg_vals[0],
+                    arg_vals[1],
+                    arg_vals[2],
+                    start_line_val,
+                    start_col_val,
+                    end_line_val,
+                    end_col_val,
+                ],
+            )
+        }
+        JitCallAbi::Reg4 => {
+            let check_call =
+                get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_call4");
+            builder.ins().call(
+                check_call,
+                &[
+                    ctx_val,
+                    fn_index,
+                    arg_vals[0],
+                    arg_vals[1],
+                    arg_vals[2],
+                    arg_vals[3],
+                    start_line_val,
+                    start_col_val,
+                    end_line_val,
+                    end_col_val,
+                ],
+            )
+        }
+    };
     let call_ok_val = builder.inst_results(call_ok)[0];
     let call_ok_bool = builder.ins().icmp_imm(IntCC::NotEqual, call_ok_val, 0);
 
@@ -3824,9 +4435,53 @@ fn compile_user_function_call(
 
     builder.switch_to_block(call_block);
     let callee_ref = module.declare_func_in_func(meta.id, builder.func);
-    let call = builder
-        .ins()
-        .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero]);
+    let call = match meta.call_abi {
+        JitCallAbi::Array => {
+            let slot = builder.create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                (nargs as u32) * 8,
+                3,
+            ));
+            for (i, val) in arg_vals.iter().enumerate() {
+                builder.ins().stack_store(*val, slot, (i * 8) as i32);
+            }
+            let args_ptr = builder.ins().stack_addr(PTR_TYPE, slot, 0);
+            let nargs_val = builder.ins().iconst(PTR_TYPE, nargs as i64);
+            builder
+                .ins()
+                .call(callee_ref, &[ctx_val, args_ptr, nargs_val, null_ptr, zero])
+        }
+        JitCallAbi::Reg1 => builder
+            .ins()
+            .call(callee_ref, &[ctx_val, arg_vals[0], null_ptr, zero]),
+        JitCallAbi::Reg2 => builder.ins().call(
+            callee_ref,
+            &[ctx_val, arg_vals[0], arg_vals[1], null_ptr, zero],
+        ),
+        JitCallAbi::Reg3 => builder.ins().call(
+            callee_ref,
+            &[
+                ctx_val,
+                arg_vals[0],
+                arg_vals[1],
+                arg_vals[2],
+                null_ptr,
+                zero,
+            ],
+        ),
+        JitCallAbi::Reg4 => builder.ins().call(
+            callee_ref,
+            &[
+                ctx_val,
+                arg_vals[0],
+                arg_vals[1],
+                arg_vals[2],
+                arg_vals[3],
+                null_ptr,
+                zero,
+            ],
+        ),
+    };
     let raw_result = builder.inst_results(call)[0];
     let check_ret = get_helper_func_ref(module, helpers, builder, "rt_check_jit_contract_return");
     let checked_ret_call = builder.ins().call(
@@ -3842,6 +4497,7 @@ fn compile_user_function_call(
         ],
     );
     let checked_ret = builder.inst_results(checked_ret_call)[0];
+    emit_return_on_null_value(builder, checked_ret);
     let ok_args = [BlockArg::Value(checked_ret)];
     builder.ins().jump(done_block, &ok_args);
     builder.seal_block(call_block);
@@ -3849,7 +4505,7 @@ fn compile_user_function_call(
     builder.switch_to_block(done_block);
     let result = builder.block_params(done_block)[0];
     builder.seal_block(done_block);
-    Ok(result)
+    Ok(JitValue::boxed(result))
 }
 
 fn compile_generic_call(
@@ -3864,7 +4520,7 @@ fn compile_generic_call(
     function: &Expression,
     arguments: &[Expression],
     interner: &Interner,
-) -> Result<CraneliftValue, String> {
+) -> Result<JitValue, String> {
     let callee = compile_expression(
         module,
         helpers,
@@ -3877,6 +4533,7 @@ fn compile_generic_call(
         interner,
     )?;
 
+    let callee = box_and_guard_jit_value(module, helpers, builder, ctx_val, callee);
     let mut arg_vals = Vec::with_capacity(arguments.len());
     for arg in arguments {
         let val = compile_expression(
@@ -3890,7 +4547,9 @@ fn compile_generic_call(
             arg,
             interner,
         )?;
-        arg_vals.push(val);
+        arg_vals.push(box_and_guard_jit_value(
+            module, helpers, builder, ctx_val, val,
+        ));
     }
 
     let nargs = arg_vals.len();
@@ -3927,7 +4586,9 @@ fn compile_generic_call(
             end_col_val,
         ],
     );
-    Ok(builder.inst_results(call)[0])
+    let result = builder.inst_results(call)[0];
+    emit_return_on_null_value(builder, result);
+    Ok(JitValue::boxed(result))
 }
 
 fn compile_function_literal(
@@ -3951,8 +4612,9 @@ fn compile_function_literal(
 
     let mut capture_vals: Vec<CraneliftValue> = Vec::new();
     for sym in captures {
-        if let Some(&var) = scope.locals.get(&sym) {
-            capture_vals.push(builder.use_var(var));
+        if let Some(binding) = scope.locals.get(&sym).cloned() {
+            let value = use_local(builder, binding);
+            capture_vals.push(box_jit_value(module, helpers, builder, ctx_val, value));
             continue;
         }
         if let Some(fn_meta) = scope.functions.get(&sym).copied() {
@@ -4527,12 +5189,12 @@ struct HelperSig {
 
 enum StmtOutcome {
     None,
-    Value(CraneliftValue),
+    Value(JitValue),
     Returned,
 }
 
 enum BlockEval {
-    Value(CraneliftValue),
+    Value(JitValue),
     Returned,
 }
 
@@ -4565,6 +5227,13 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             HelperSig {
                 num_params: 2,
                 has_return: true,
+            },
+        ),
+        (
+            "rt_division_by_zero",
+            HelperSig {
+                num_params: 1,
+                has_return: false,
             },
         ),
         (
@@ -4771,6 +5440,34 @@ fn helper_signatures() -> Vec<(&'static str, HelperSig)> {
             "rt_check_jit_contract_call",
             HelperSig {
                 num_params: 8,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_call1",
+            HelperSig {
+                num_params: 7,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_call2",
+            HelperSig {
+                num_params: 8,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_call3",
+            HelperSig {
+                num_params: 9,
+                has_return: true,
+            },
+        ),
+        (
+            "rt_check_jit_contract_call4",
+            HelperSig {
+                num_params: 10,
                 has_return: true,
             },
         ),

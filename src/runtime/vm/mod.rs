@@ -375,10 +375,10 @@ impl VM {
         }
     }
 
-    fn pop_frame_bp(&mut self) -> usize {
-        let bp = self.frames[self.frame_index].base_pointer;
+    fn pop_frame_return_slot(&mut self) -> usize {
+        let return_slot = self.frames[self.frame_index].return_slot;
         self.frame_index -= 1;
-        bp
+        return_slot
     }
 
     #[inline(always)]

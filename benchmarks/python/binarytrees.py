@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Binary Trees benchmark aligned with examples/perf/binarytrees.flx."""
 
 from __future__ import annotations
 

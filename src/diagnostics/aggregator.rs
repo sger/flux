@@ -7,10 +7,10 @@ use std::path::Path;
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
     RelatedKind, Severity,
-    quality::{
-        downstream_errors_suppressed_note, repeated_parser_diagnostics_suppressed_note,
-    },
-    render_display_path, rendering::Colors, types::DiagnosticPhase,
+    quality::{downstream_errors_suppressed_note, repeated_parser_diagnostics_suppressed_note},
+    render_display_path,
+    rendering::Colors,
+    types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
 use crate::syntax::parser::is_structural_parse_diagnostic_code;

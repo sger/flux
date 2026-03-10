@@ -65,8 +65,43 @@ pub(super) fn check_arity(
     Ok(())
 }
 
+pub(super) fn check_arity_ref(
+    args: &[&Value],
+    expected: usize,
+    name: &str,
+    signature: &str,
+) -> Result<(), String> {
+    if args.len() != expected {
+        return Err(arity_error(
+            name,
+            &expected.to_string(),
+            args.len(),
+            signature,
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn check_arity_range(
     args: &[Value],
+    min: usize,
+    max: usize,
+    name: &str,
+    signature: &str,
+) -> Result<(), String> {
+    if args.len() < min || args.len() > max {
+        return Err(arity_error(
+            name,
+            &format!("{}..{}", min, max),
+            args.len(),
+            signature,
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn check_arity_range_ref(
+    args: &[&Value],
     min: usize,
     max: usize,
     name: &str,
@@ -102,14 +137,33 @@ pub(super) fn arg_string<'a>(
     }
 }
 
-pub(super) fn arg_array<'a>(
-    args: &'a [Value],
+pub(super) fn arg_string_ref<'a>(
+    args: &'a [&Value],
+    index: usize,
+    name: &str,
+    label: &str,
+    signature: &str,
+) -> Result<&'a str, String> {
+    match args[index] {
+        Value::String(s) => Ok(s.as_ref()),
+        other => Err(type_error(
+            name,
+            label,
+            "String",
+            other.type_name(),
+            signature,
+        )),
+    }
+}
+
+pub(super) fn arg_array_ref<'a>(
+    args: &'a [&Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<&'a Vec<Value>, String> {
-    match &args[index] {
+    match args[index] {
         Value::Array(arr) => Ok(arr),
         other => Err(type_error(
             name,
@@ -121,14 +175,14 @@ pub(super) fn arg_array<'a>(
     }
 }
 
-pub(super) fn arg_int(
-    args: &[Value],
+pub(super) fn arg_int_ref(
+    args: &[&Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<i64, String> {
-    match &args[index] {
+    match args[index] {
         Value::Integer(value) => Ok(*value),
         other => Err(type_error(
             name,
@@ -140,14 +194,14 @@ pub(super) fn arg_int(
     }
 }
 
-pub(super) fn arg_number(
-    args: &[Value],
+pub(super) fn arg_number_ref(
+    args: &[&Value],
     index: usize,
     name: &str,
     label: &str,
     signature: &str,
 ) -> Result<f64, String> {
-    match &args[index] {
+    match args[index] {
         Value::Integer(v) => Ok(*v as f64),
         Value::Float(v) => Ok(*v),
         other => Err(type_error(

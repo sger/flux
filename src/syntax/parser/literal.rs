@@ -1,6 +1,7 @@
 use crate::{
     diagnostics::{
-        empty_string_interpolation, invalid_float, invalid_integer, missing_string_interpolation_close,
+        empty_string_interpolation, invalid_float, invalid_integer,
+        missing_string_interpolation_close,
         position::{Position, Span},
         unterminated_interpolation,
     },
