@@ -1,10 +1,21 @@
-use crate::runtime::{gc::hamt_entry::HamtEntry, hash_key::HashKey, value::Value};
+use std::rc::Rc;
+
+use crate::runtime::{
+    gc::hamt_entry::HamtEntry,
+    hash_key::HashKey,
+    value::{AdtFields, Value},
+};
 
 /// Objects that live on the GC-managed heap.
 #[derive(Debug, Clone)]
 pub enum HeapObject {
     /// Cons cell for persistent linked lists.
     Cons { head: Value, tail: Value },
+    /// GC-backed ADT payload used by VM and JIT non-nullary constructors.
+    Adt {
+        constructor: Rc<str>,
+        fields: AdtFields,
+    },
     /// Internal node of a Hash Array Mapped Trie (HAMT).
     HamtNode {
         bitmap: u32,
@@ -26,6 +37,10 @@ impl HeapObject {
         let base = std::mem::size_of::<Self>();
         match self {
             HeapObject::Cons { .. } => base,
+            HeapObject::Adt { fields, .. } => match fields {
+                AdtFields::One(_) | AdtFields::Two(..) | AdtFields::Three(..) => base,
+                AdtFields::Many(values) => base + values.capacity() * std::mem::size_of::<Value>(),
+            },
             HeapObject::HamtNode { children, .. } => {
                 base + children.capacity() * std::mem::size_of::<HamtEntry>()
             }
