@@ -277,7 +277,7 @@ The technical details below consolidate implementation, validation, and policy n
 - [Module Graph Documentation](../architecture/module_graph.md)
 - [Language Design](../language/language_design.md)
 - [Stdlib Proposal](0003_stdlib_proposal.md)
-- [Phase 1 Module Split](0006_phase1_module_split_plan.md)
+- [Phase 1 Module Split](implemented/0006_phase1_module_split_plan.md)
 
 ### References
 
