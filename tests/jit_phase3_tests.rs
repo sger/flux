@@ -382,6 +382,33 @@ arr[1]
 }
 
 #[test]
+fn jit_reuses_boxed_array_storage_across_base_and_primop_calls() {
+    let result = run_jit(
+        r#"
+let n = len("flux")
+let suffix = string_concat("J", "IT")
+string_slice(string_concat("flux", suffix), 0, n)
+"#,
+    );
+    assert_eq!(result, Value::String("flux".into()));
+}
+
+#[test]
+fn jit_mixes_base_and_array_abi_contract_call_sites() {
+    let result = run_jit(
+        r#"
+fn add5(a: Int, b: Int, c: Int, d: Int, e: Int) -> Int {
+    a + b + c + d + e
+}
+
+let n = len("flux")
+add5(n, 2, 3, 4, 5)
+"#,
+    );
+    assert_eq!(result, Value::Integer(18));
+}
+
+#[test]
 fn jit_tail_recursive_without_explicit_return_works() {
     let result = run_jit(
         r#"
