@@ -16,6 +16,7 @@ pub const JIT_TAG_INT: i64 = 1;
 pub const JIT_TAG_FLOAT: i64 = 2;
 pub const JIT_TAG_BOOL: i64 = 3;
 pub const JIT_TAG_PTR: i64 = 4;
+pub const JIT_TAG_THUNK: i64 = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,6 +119,13 @@ pub struct JitHandlerArm {
     pub closure: Value,
 }
 
+/// Target and arguments for a deferred mutual tail call.
+/// Set by `rt_set_thunk`; consumed by the trampoline loop in `jit_execute`.
+pub struct JitThunk {
+    pub fn_index: usize,
+    pub args: Vec<JitTaggedValue>,
+}
+
 /// An active handler pushed onto `JitContext::handler_stack` by `rt_push_handler`.
 #[derive(Clone)]
 pub struct JitHandlerFrame {
@@ -151,6 +159,12 @@ pub struct JitContext {
     /// Function index of the JIT-compiled identity closure used as the `resume`
     /// value passed to handler arms (shallow handlers: resume returns its argument).
     pub identity_fn_index: usize,
+    /// Pending mutual-tail-call thunk. `None` unless the last JIT return was
+    /// `JIT_TAG_THUNK`, in which case the trampoline loop re-invokes this.
+    pub pending_thunk: Option<JitThunk>,
+    /// Cache of unit (nullary) ADT values keyed by constructor name.
+    /// Each name is allocated exactly once; subsequent lookups return the same pointer.
+    pub unit_adts: HashMap<String, *mut Value>,
 }
 
 #[derive(Clone)]
@@ -369,7 +383,19 @@ impl JitContext {
             shadow_roots: Vec::new(),
             shadow_frames: Vec::new(),
             identity_fn_index: usize::MAX,
+            pending_thunk: None,
+            unit_adts: HashMap::new(),
         }
+    }
+
+    /// Return a stable pointer to the unit ADT value for `name`, allocating it on first use.
+    pub fn intern_unit_adt(&mut self, name: &str) -> *mut Value {
+        if let Some(&ptr) = self.unit_adts.get(name) {
+            return ptr;
+        }
+        let ptr = self.alloc(Value::AdtUnit(std::rc::Rc::from(name)));
+        self.unit_adts.insert(name.to_string(), ptr);
+        ptr
     }
 
     /// Allocate a Value in the arena, returning a stable pointer.

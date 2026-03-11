@@ -4,11 +4,15 @@ use crate::ast::type_infer::InferProgramConfig;
 use crate::ast::type_informed_fold::type_informed_fold;
 use crate::bytecode::compiler::effect_rows::EffectRow;
 use crate::bytecode::compiler::hm_expr_typer::HmExprTypeResult;
+use crate::ir::{
+    FunctionId, IrInstr, IrPassContext, IrProgram, IrTerminator, lower_program_to_ir,
+    run_ir_pass_pipeline,
+};
 use crate::syntax::expression::ExprId;
 use crate::types::infer_effect_row::InferEffectRow;
 use crate::types::{TypeVarId, infer_type::InferType, scheme::Scheme};
 use crate::{
-    ast::{TailCall, collect_free_vars_in_program, find_tail_calls, type_infer::infer_program},
+    ast::{TailCall, collect_free_vars_in_program, type_infer::infer_program},
     bytecode::{
         binding::Binding,
         bytecode::Bytecode,
@@ -121,6 +125,7 @@ pub struct Compiler {
     pub free_vars: HashSet<Symbol>,
     // Program-level tail-position analysis result for the latest optimized compile pass.
     pub tail_calls: Vec<TailCall>,
+    analyze_enabled: bool,
     // Conservative per-block local-use counts used to emit consume-style local reads.
     pub(super) consumable_local_use_counts: Vec<HashMap<Symbol, usize>>,
     pub(super) excluded_base_symbols: HashSet<Symbol>,
@@ -135,6 +140,7 @@ pub struct Compiler {
     /// HM-inferred type environment, populated before PASS 2 by `infer_program`.
     pub(super) type_env: TypeEnv,
     pub(super) hm_expr_types: HashMap<ExprId, InferType>,
+    pub(super) ir_function_symbols: HashMap<FunctionId, Symbol>,
     strict_mode: bool,
     strict_require_main: bool,
     /// When true, run two-phase inference with type-informed optimization
@@ -187,6 +193,7 @@ impl Compiler {
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
             tail_calls: Vec::new(),
+            analyze_enabled: false,
             consumable_local_use_counts: Vec::new(),
             excluded_base_symbols: HashSet::new(),
             module_contracts: HashMap::new(),
@@ -199,6 +206,7 @@ impl Compiler {
             effect_op_signatures: HashMap::new(),
             type_env: TypeEnv::new(),
             hm_expr_types: HashMap::new(),
+            ir_function_symbols: HashMap::new(),
             strict_mode: false,
             strict_require_main: true,
             type_optimize: false,
@@ -1939,6 +1947,19 @@ impl Compiler {
             .find_map(|scope| scope.get(&name).copied())
     }
 
+    pub(super) fn track_effect_alias_for_ir_binding(
+        &mut self,
+        binding: Symbol,
+        value: &crate::ir::IrStructuredExpr,
+    ) {
+        if let crate::ir::IrStructuredExpr::Identifier { name, span, id } = value {
+            self.track_effect_alias_for_binding(
+                binding,
+                &Expression::Identifier { name: *name, span: *span, id: *id },
+            );
+        }
+    }
+
     pub(super) fn track_effect_alias_for_binding(&mut self, binding: Symbol, value: &Expression) {
         let Expression::Identifier { name, .. } = value else {
             return;
@@ -2006,10 +2027,12 @@ impl Compiler {
             // Collect analysis data if requested.
             if analyze {
                 self.free_vars = collect_free_vars_in_program(&program_to_compile);
-                self.tail_calls = find_tail_calls(&program_to_compile);
+                self.analyze_enabled = true;
+                self.tail_calls.clear();
             } else {
                 self.free_vars.clear();
                 self.tail_calls.clear();
+                self.analyze_enabled = false;
             }
 
             // Enable two-phase inference with type-informed optimization (proposal 0077).
@@ -2019,10 +2042,12 @@ impl Compiler {
             // Borrow the original program directly for non-optimized paths.
             if analyze {
                 self.free_vars = collect_free_vars_in_program(program);
-                self.tail_calls = find_tail_calls(program);
+                self.analyze_enabled = true;
+                self.tail_calls.clear();
             } else {
                 self.free_vars.clear();
                 self.tail_calls.clear();
+                self.analyze_enabled = false;
             }
             self.compile(program)
         }
@@ -2151,15 +2176,31 @@ impl Compiler {
 
         // PASS 2 must use the same Program allocation as the final inference pass.
         let program = type_optimized_program.as_ref().unwrap_or(program);
-
+        let mut ir_program = match lower_program_to_ir(program, &self.hm_expr_types) {
+            Ok(program) => program,
+            Err(diag) => {
+                self.errors.push(diag);
+                return Err(std::mem::take(&mut self.errors));
+            }
+        };
+        if let Err(diag) = run_ir_pass_pipeline(&mut ir_program, &IrPassContext) {
+            self.errors.push(diag);
+            return Err(std::mem::take(&mut self.errors));
+        }
+        if self.analyze_enabled {
+            self.tail_calls = collect_tail_calls_from_ir(&ir_program);
+        }
+        self.ir_function_symbols.clear();
+        self.register_ir_function_symbols(&ir_program.top_level_items, self.current_module_prefix);
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
-        let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
+        let mut pattern_diags =
+            validate_program_patterns(&program, &self.file_path, &self.interner);
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);
-        for statement in &program.statements {
+        for item in &ir_program.top_level_items {
             // Continue compilation even if there are errors
-            if let Err(err) = self.compile_statement(statement) {
+            if let Err(err) = self.compile_ir_top_level_item(item, &ir_program) {
                 let mut diag = *err;
                 if diag.phase().is_none() {
                     diag.phase = Some(DiagnosticPhase::TypeCheck);
@@ -2168,7 +2209,7 @@ impl Compiler {
             }
         }
 
-        if main_state.has_main && !self.has_explicit_top_level_main_call(program, main_symbol) {
+        if main_state.has_main && !self.has_explicit_top_level_main_call(&program, main_symbol) {
             self.emit_main_entry_call();
         }
 
@@ -2193,6 +2234,31 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn register_ir_function_symbols(
+        &mut self,
+        items: &[crate::ir::IrTopLevelItem],
+        module_prefix: Option<Symbol>,
+    ) {
+        for item in items {
+            match item {
+                crate::ir::IrTopLevelItem::Function {
+                    name,
+                    function_id: Some(function_id),
+                    ..
+                } => {
+                    let symbol = module_prefix
+                        .map(|module_name| self.interner.intern_join(module_name, *name))
+                        .unwrap_or(*name);
+                    self.ir_function_symbols.insert(*function_id, symbol);
+                }
+                crate::ir::IrTopLevelItem::Module { name, body, .. } => {
+                    self.register_ir_function_symbols(&body.statements, Some(*name));
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Drop HM diagnostics that are redundant with a compiler boundary error.
@@ -2746,6 +2812,59 @@ impl Compiler {
             }
         }
     }
+}
+
+fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
+    let mut tail_calls = Vec::new();
+    for function in &program.functions {
+        // Build a map from BlockId to block for fast lookup.
+        let block_map: std::collections::HashMap<_, _> =
+            function.blocks.iter().map(|b| (b.id, b)).collect();
+
+        for block in &function.blocks {
+            match &block.terminator {
+                // Explicit tail-call terminator emitted by the IR lowering for
+                // self-tail-calls or direct tail-position calls at the statement level.
+                IrTerminator::TailCall { metadata, .. } => {
+                    if let Some(span) = metadata.span {
+                        tail_calls.push(TailCall { span });
+                    }
+                }
+                // Pattern produced by `lower_if_expression` for tail calls inside
+                // if-branches: the call result is the last instruction and is passed
+                // directly as the sole arg to a jump whose target block immediately
+                // returns it (merge block with one param and no instructions).
+                IrTerminator::Jump(target_id, jump_args, _) => {
+                    let Some(last_instr) = block.instrs.last() else {
+                        continue;
+                    };
+                    let IrInstr::Call { dest: call_dest, metadata, .. } = last_instr else {
+                        continue;
+                    };
+                    if jump_args != &[*call_dest] {
+                        continue;
+                    }
+                    let Some(target_block) = block_map.get(target_id) else {
+                        continue;
+                    };
+                    if !target_block.instrs.is_empty() || target_block.params.len() != 1 {
+                        continue;
+                    }
+                    let merge_param = target_block.params[0].var;
+                    if matches!(
+                        &target_block.terminator,
+                        IrTerminator::Return(ret_var, _) if *ret_var == merge_param
+                    ) {
+                        if let Some(span) = metadata.span {
+                            tail_calls.push(TailCall { span });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    tail_calls
 }
 
 impl Default for Compiler {

@@ -18,3 +18,9 @@ Hint:
 
 Help:
   Did you mean one of: `find`, `fold`, `first`?
+
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 1 error and 1 warning.

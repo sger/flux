@@ -1,7 +1,7 @@
 - Feature Name: Cranelift JIT Improvements & Flux IR Layer
 - Start Date: 2026-03-10
-- Completion Date: pending
-- Status: In Progress (Proposal 1 implemented)
+- Completion Date: 2026-03-11
+- Status: Implemented (all 7 proposals)
 - Proposal PR: pending
 - Flux Issue: pending
 - Depends on: 0031 (cranelift jit backend), 0077 (type-informed optimization), 0086 (backend-neutral core ir)
@@ -88,7 +88,7 @@ to short-circuit `&&`/`||` in the same function.
 
 ---
 
-### Proposal 2 — Inline integer arithmetic using ExprTypeMap
+### Proposal 2 — Inline integer arithmetic using ExprTypeMap ✓ IMPLEMENTED
 
 **Problem:** Every arithmetic and comparison PrimOp calls a runtime helper even when both
 operands are statically `Int`:
@@ -122,7 +122,7 @@ For comparisons (`<`, `>`, `==`) where operands are `Int`, emit `icmp` and write
 
 ---
 
-### Proposal 3 — Reuse stack slots across calls
+### Proposal 3 — Reuse stack slots across calls ✓ IMPLEMENTED
 
 **Problem:** Every Base function call and PrimOp call allocates a fresh `stack_slot_create`
 for the arguments array. In a function with ten Base calls, ten independent slots are
@@ -144,7 +144,7 @@ struct FunctionCompiler<'a> {
 
 ---
 
-### Proposal 4 — Intern unit ADT variants as constants
+### Proposal 4 — Intern unit ADT variants as constants ✓ IMPLEMENTED
 
 **Problem:** `rt_make_adt0` (nullary ADT constructor) always heap-allocates a new
 `HeapObject::Adt` even though the value is immutable and structurally identical every time.
@@ -169,7 +169,7 @@ This is safe because ADT values are immutable and the arena is never compacted.
 
 ---
 
-### Proposal 5 — Unbox Base function arguments on typed call sites
+### Proposal 5 — Unbox Base function arguments on typed call sites ✓ IMPLEMENTED
 
 **Problem:** Before every Base function call, all arguments are boxed into a stack-allocated
 `Value` array regardless of their static types. When argument types are statically known
@@ -188,7 +188,7 @@ known. Pass `i64` payloads in registers up to arity 4 (matching the existing
 
 ---
 
-### Proposal 6 — Mutual tail-call optimization via trampoline
+### Proposal 6 — Mutual tail-call optimization via trampoline ✓ IMPLEMENTED
 
 **Problem:** Self-recursion is compiled to a `jump` back to the loop block (no call frame).
 Mutual recursion (e.g. `isEven`/`isOdd`, CPS-transformed state machines) still generates
@@ -217,7 +217,7 @@ non-tail calls.
 
 ---
 
-### Proposal 7 — Introduce a Flux IR layer
+### Proposal 7 — Introduce a Flux IR layer ✓ IMPLEMENTED
 
 **Problem:** `src/jit/compiler.rs` is 5 896 lines performing AST → Cranelift IR in one
 pass with no intermediate representation:

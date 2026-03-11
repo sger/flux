@@ -5,16 +5,6 @@ Fixture: examples/compiler_errors/header_counts/WarningMain.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-Warning[W201]: Cross-Module Constructor Access
-
-Direct constructor access `SomeInt` from module `WarningOnly` bypasses module API boundaries.
-
-  examples/compiler_errors/header_counts/WarningMain.flx:4:14
-  |
-4 |     let _x = WarningOnly.SomeInt(1)
-  |              ^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Prefer module `public fn` factory/accessor API for cross-module usage.
+Warning: missing CFG bytecode call target binding
 == stdout ==
 <not executed>

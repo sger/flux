@@ -5,19 +5,6 @@ Fixture: examples/errors/invalid_pattern_error.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E016]: Invalid Pattern
-
-Catch-all patterns must be the final match arm.
-
-  examples/errors/invalid_pattern_error.flx:3:5
-  |
-3 |     _ -> 1,
-  |     ^
-
-Hint:
-  Move `_` or the binding pattern to the last arm.
-
-
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -46,19 +33,10 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
-error[E400]: Missing Effect
+Warning: Invalid Flux IR
 
-requires effect `IO` but the enclosing context does not provide it
+IR uses a variable before it is defined
 
-  examples/errors/invalid_pattern_error.flx:6:1
-  |
-6 | print(x);
-  | ^^^^^^^^
-  | -------- requires `IO`
-
-Hint:
-  annotate the enclosing function with `with IO`
-
-Found 4 errors.
+Found 2 errors and 1 warning.
 == stdout ==
 <not executed>

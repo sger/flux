@@ -1,6 +1,7 @@
 - Feature Name: Backend-Neutral Core IR
 - Start Date: 2026-03-08
-- Status: Draft
+- Completion Date: 2026-03-11
+- Status: Implemented (Phases 1–4; actor ops and Aether annotations deferred to 0065/0066/0084)
 - Proposal PR:
 - Flux Issue:
 
@@ -359,29 +360,32 @@ Those remain backend-specific.
 
 ### Rollout plan
 
-#### Phase 1: behavior-preserving introduction
+#### Phase 1: behavior-preserving introduction ✓ IMPLEMENTED
 
-- add Core IR data structures
-- lower a subset of existing functions to Core IR
+- add Core IR data structures (`src/ir/mod.rs` — IrFunction, IrBlock, IrInstr, IrTerminator, IrStructuredExpr, IrProgram)
+- lower all functions to Core IR (`src/ir/lower.rs`, 3721 lines)
 - immediately lower Core IR to current bytecode without semantic changes
-- keep JIT path on existing lowering temporarily if needed
 
-#### Phase 2: bytecode backend cutover
+#### Phase 2: bytecode backend cutover ✓ IMPLEMENTED
 
-- make VM bytecode generation consume Core IR universally
-- preserve diagnostics and runtime behavior
+- VM bytecode compiler consumes Core IR universally via `compile_ir_top_level_item`
+- Let/LetDestructure/Return/Import items use `compile_ir_expr` directly — no `ir_structured_expr_to_expression` round-trip
+- IR-aware type-checking helpers in `hm_expr_typer.rs` (`hm_ir_expr_type_strict_path`, `validate_ir_expr_expected_type_with_policy`, etc.)
+- `IrStructuredExpr::span()` and `expr_id()` methods expose span/id without pattern-matching at call sites
 
-#### Phase 3: JIT backend cutover
+#### Phase 3: JIT backend cutover ✓ IMPLEMENTED
 
-- lower JIT from Core IR as the canonical source
-- remove duplicated semantic lowering logic where possible
+- JIT lowers from Core IR as the canonical source via `compile_ir_program` / `compile_ir_functions`
+- CFG-based `IrFunction`/`IrBlock`/`IrInstr` consumed directly by Cranelift IR generation
+- Duplicated semantic lowering logic removed where possible
 
-#### Phase 4: Core IR optimization and tooling
+#### Phase 4: Core IR optimization and tooling ✓ IMPLEMENTED
 
-- add validator
-- add analysis dumps
-- attach Aether ownership evidence
-- add effect/actor lowering tests at Core IR level
+- Validator: `src/ir/validate.rs` — checks locals, terminators, type metadata
+- Optimization pass pipeline: `src/ir/passes.rs` — canonicalize_cfg, constant_fold, dead_block_elimination, local_cse, intern_unit_adts, type_directed_unboxing
+- Analysis dump: `IrProgram::dump_text()` for textual IR inspection
+- Aether ownership evidence: deferred to proposal 0084
+- Effect/actor lowering tests: deferred to proposals 0065/0066
 
 ## Drawbacks
 [drawbacks]: #drawbacks
