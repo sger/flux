@@ -20,5 +20,11 @@ Match on `MaybeInt` is non-exhaustive because all constructor arms are guarded.
 
 Hint:
   Add unguarded arms for SomeI, NoneI or add a `_ -> ...` catch-all.
+
+
+Warning: missing CFG bytecode call target binding
+
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>

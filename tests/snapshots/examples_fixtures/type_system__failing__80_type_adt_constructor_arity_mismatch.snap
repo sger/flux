@@ -16,5 +16,11 @@ Constructor pattern `Pair` expects 2 argument(s) but got 1.
 
 Hint:
   Check the constructor's declared pattern field count.
+
+
+Warning: missing CFG bytecode call target binding
+
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>

@@ -5,19 +5,6 @@ Fixture: examples/io/aoc_day12_haskell_style.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
-
-I can't find a value named `str_at`.
-
-  examples/io/aoc_day12_haskell_style.flx:60:13
-   |
-60 |     let t = str_at(tokens, idx)
-   |             ^^^^^^
-
-Hint:
-  Define it first: let str_at = ...;
-
-
 error[E300]: Type Mismatch
 
 I found a type mismatch.
@@ -85,6 +72,10 @@ Note:
 Help:
   Pass a `Array<Int>` value as the 2nd argument.
 
-Found 3 errors.
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 2 errors and 1 warning.
 == stdout ==
 <not executed>

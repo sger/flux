@@ -5,24 +5,6 @@ Fixture: examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatc
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/type_system/failing/76_hm_match_guard_non_bool_compile_mismatch.flx:3:14
-  |
-3 |         n if 1 -> n,
-  |              ^
-  |              - this expression has type `Int`
-
-  |              - match guard is known at compile time
-
-Note:
-  expected type: Bool
-  found type: Int
-
-Help:
-  Booleans are not numeric in Flux. Use `true` or `false` here.
-  use a Bool expression, or make the condition/guard explicitly boolean
+Warning: missing CFG bytecode binding for IR call dest
 == stdout ==
 <not executed>

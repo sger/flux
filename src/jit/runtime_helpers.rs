@@ -25,7 +25,7 @@ use crate::runtime::{
     value::{AdtFields, Value},
 };
 
-use super::context::{JitContext, JIT_TAG_PTR};
+use super::context::{JitContext, JitThunk, JIT_TAG_BOOL, JIT_TAG_FLOAT, JIT_TAG_INT, JIT_TAG_PTR, JIT_TAG_THUNK};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -678,6 +678,117 @@ pub extern "C" fn rt_greater_than_or_equal(
 // ---------------------------------------------------------------------------
 // Base function calls
 // ---------------------------------------------------------------------------
+
+/// Register a mutual tail call thunk so the trampoline loop in `jit_execute`
+/// can re-invoke the target without growing the native call stack.
+///
+/// The JIT function that emits a mutual tail call stores the callee index and
+/// the tagged argument array here, then returns `JIT_TAG_THUNK` to the caller.
+/// The `JitContext::pending_thunk` field is consumed by `invoke_jit_thunk` in
+/// `src/jit/mod.rs`.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_set_thunk(
+    ctx: *mut JitContext,
+    fn_index: i64,
+    args_ptr: *const JitTaggedValue,
+    nargs: i64,
+) -> JitTaggedValue {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let args = unsafe { from_raw_parts(args_ptr, nargs as usize) }.to_vec();
+    ctx.pending_thunk = Some(JitThunk {
+        fn_index: fn_index as usize,
+        args,
+    });
+    JitTaggedValue {
+        tag: JIT_TAG_THUNK,
+        payload: 0,
+    }
+}
+
+/// Call a Base function by index, passing args as a tagged-value array
+/// (16 bytes each: `i64 tag` + `i64 payload`).
+///
+/// Unlike [`rt_call_base_function`], this avoids arena allocation for
+/// unboxed `Int` / `Float` / `Bool` arguments: they are materialised inline
+/// as stack `Value`s and passed by borrowed reference, so no `*mut Value`
+/// arena slot is needed per primitive argument.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_call_base_function_tagged(
+    ctx: *mut JitContext,
+    base_fn_index: i64,
+    args_ptr: *const JitTaggedValue,
+    nargs: i64,
+    start_line: i64,
+    start_column: i64,
+    end_line: i64,
+    end_column: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    match get_base_function_by_index(base_fn_index as usize) {
+        Some(_) => {}
+        None => {
+            ctx.error = Some(format!("unknown Base function index: {}", base_fn_index));
+            return ptr::null_mut();
+        }
+    }
+
+    let nargs = nargs as usize;
+    let tagged_args = unsafe { from_raw_parts(args_ptr, nargs) };
+
+    // Materialise each arg. For Int/Float/Bool we own the Value on the stack;
+    // for PTR we borrow through the raw arena pointer. Pre-allocating
+    // `owned_storage` to `nargs` ensures it never reallocates, keeping
+    // the pointers we store in `refs` valid for the entire call.
+    let mut owned_storage: Vec<Value> = Vec::with_capacity(nargs);
+    let mut refs: Vec<*const Value> = Vec::with_capacity(nargs);
+    for &tagged in tagged_args {
+        match tagged.tag {
+            JIT_TAG_INT => {
+                owned_storage.push(Value::Integer(tagged.payload));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_FLOAT => {
+                owned_storage.push(Value::Float(f64::from_bits(tagged.payload as u64)));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_BOOL => {
+                owned_storage.push(Value::Boolean(tagged.payload != 0));
+                refs.push(owned_storage.last().unwrap() as *const Value);
+            }
+            JIT_TAG_PTR => {
+                if tagged.payload == 0 {
+                    ctx.error =
+                        Some(format!("base function arg {} evaluated to null", refs.len()));
+                    return ptr::null_mut();
+                }
+                refs.push(tagged.payload as *const Value);
+            }
+            _ => {
+                ctx.error =
+                    Some(format!("unknown tag {} in base function arg", tagged.tag));
+                return ptr::null_mut();
+            }
+        }
+    }
+
+    // SAFETY: `owned_storage` is not moved/reallocated after we took interior
+    // pointers (capacity == nargs, at most nargs elements pushed). Arena-backed
+    // PTR pointers remain valid — no GC fires inside `invoke_base_function_borrowed`.
+    let borrowed: Vec<&Value> = refs.into_iter().map(|p| unsafe { &*p }).collect();
+    match ctx.invoke_base_function_borrowed(base_fn_index as usize, &borrowed) {
+        Ok(result) => ctx.alloc(result),
+        Err(msg) => {
+            ctx.error = Some(ctx.render_runtime_error_from_string(
+                &msg,
+                start_line as usize,
+                start_column as usize,
+                end_line as usize,
+                end_column as usize,
+            ));
+            ptr::null_mut()
+        }
+    }
+}
 
 /// Call a Base function by index. Arguments are passed as an array of
 /// `*mut Value` pointers.
@@ -1419,6 +1530,22 @@ pub extern "C" fn rt_make_adt(
     }
 }
 
+/// Unit (nullary) ADT constructor with interning — returns the same `*mut Value` for
+/// each unique constructor name within a program execution, avoiding repeated arena
+/// allocations for identical unit values such as `None`, `True`, `False`, etc.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_intern_unit_adt(
+    ctx: *mut JitContext,
+    constructor_ptr: *const u8,
+    constructor_len: i64,
+) -> *mut Value {
+    let ctx = unsafe { ctx_ref(ctx) };
+    let name = unsafe {
+        from_utf8_unchecked(from_raw_parts(constructor_ptr, constructor_len as usize))
+    };
+    ctx.intern_unit_adt(name)
+}
+
 /// Specialized 1-field ADT constructor — avoids stack-slot + loop overhead.
 #[unsafe(no_mangle)]
 pub extern "C" fn rt_make_adt1(
@@ -1836,6 +1963,11 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
             "rt_greater_than_or_equal",
             rt_greater_than_or_equal as *const u8,
         ),
+        ("rt_set_thunk", rt_set_thunk as *const u8),
+        (
+            "rt_call_base_function_tagged",
+            rt_call_base_function_tagged as *const u8,
+        ),
         ("rt_call_base_function", rt_call_base_function as *const u8),
         ("rt_call_primop", rt_call_primop as *const u8),
         ("rt_call_value", rt_call_value as *const u8),
@@ -1891,6 +2023,7 @@ pub fn rt_symbols() -> Vec<(&'static str, *const u8)> {
         // Phase 4: string ops
         ("rt_to_string", rt_to_string as *const u8),
         // Phase 5: ADT helpers
+        ("rt_intern_unit_adt", rt_intern_unit_adt as *const u8),
         ("rt_make_adt", rt_make_adt as *const u8),
         ("rt_make_adt1", rt_make_adt1 as *const u8),
         ("rt_make_adt2", rt_make_adt2 as *const u8),

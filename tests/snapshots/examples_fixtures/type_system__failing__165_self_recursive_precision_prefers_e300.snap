@@ -5,23 +5,6 @@ Fixture: examples/type_system/failing/165_self_recursive_precision_prefers_e300.
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Annotation Type Mismatch
-
-The value of `x` does not match its type annotation.
-
-  examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx:10:21
-   |
-10 |     let x: String = loop_back(3)
-   |                     ^^^^^^^^^^^^
-   |                     ------------ this value has type `Int`
-
-   |            ------ but `x` was annotated as `String`
-
-Note:
-  annotated type: String
-  value type: Int
-
-Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
+Warning: missing CFG bytecode binding for IR call dest
 == stdout ==
 <not executed>

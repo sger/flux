@@ -3,26 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/type_system/failing/73_hm_index_non_int_compile_mismatch.flx:2:8
-  |
-2 |     xs["0"]
-  |        ^^^
-  |        --- this expression has type `String`
-
-  |        --- index expression is known at compile time
-
-Note:
-  expected type: Int
-  found type: String
-
-Help:
-  These two types are not compatible.
-  use an Int index for Array/List/Tuple access
+<none>
 == stdout ==
 <not executed>

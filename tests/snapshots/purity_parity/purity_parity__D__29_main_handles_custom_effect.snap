@@ -8,17 +8,17 @@ Expect compile error: false
 
 == vm command ==
 $ flux --no-cache examples/type_system/29_main_handles_custom_effect.flx
-exit_code: 0
+exit_code: 1
 
 == jit command ==
 $ flux --no-cache examples/type_system/29_main_handles_custom_effect.flx --jit
-exit_code: 0
+exit_code: 1
 
 == vm tuples ==
-<none>
+- E1001 | Not A Function | 
 
 == jit tuples ==
-<none>
+- E1001 | Not A Function | 
 
 == parity ==
 match

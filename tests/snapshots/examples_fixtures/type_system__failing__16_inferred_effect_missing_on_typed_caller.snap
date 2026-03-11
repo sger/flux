@@ -5,6 +5,20 @@ Fixture: examples/type_system/failing/16_inferred_effect_missing_on_typed_caller
 == compile ==
 failed (compile)
 == diagnostics ==
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/16_inferred_effect_missing_on_typed_caller.flx:8:5
+  |
+8 |     sink("hello")
+  |     ^^^^^^^^^^^^^
+  |     ------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: Time).
@@ -47,10 +61,9 @@ Hint:
   annotate the enclosing function with `with Time`
 
 
-Note: Downstream Errors Suppressed
+Warning: missing CFG bytecode binding for IR call dest
 
-I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
 
-Found 3 errors.
+Found 4 errors and 1 warning.
 == stdout ==
 <not executed>

@@ -6,6 +6,11 @@ use std::{
 use super::suggestions::suggest_effect_name;
 use crate::{
     ast::type_infer::display_infer_type,
+    ir::{
+        IrStructuredExpr, IrStructuredHandleArm, IrStructuredMatchArm, IrStructuredPattern,
+        IrStructuredStringPart, ir_structured_block_to_block, ir_structured_expr_to_expression,
+        ir_structured_pattern_to_pattern,
+    },
     bytecode::{
         binding::Binding,
         compiler::{
@@ -80,6 +85,457 @@ struct ConditionalJump {
 }
 
 impl Compiler {
+    pub(super) fn compile_ir_expr(&mut self, expression: &IrStructuredExpr) -> CompileResult<()> {
+        match expression {
+            IrStructuredExpr::Integer { value, .. } => {
+                let idx = self.add_constant(Value::Integer(*value));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::Float { value, .. } => {
+                let idx = self.add_constant(Value::Float(*value));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::String { value, .. } => {
+                let idx = self.add_constant(Value::String(value.clone().into()));
+                self.emit_constant_index(idx);
+                Ok(())
+            }
+            IrStructuredExpr::Boolean { value, .. } => {
+                if *value {
+                    self.emit(OpCode::OpTrue, &[]);
+                } else {
+                    self.emit(OpCode::OpFalse, &[]);
+                }
+                Ok(())
+            }
+            IrStructuredExpr::InterpolatedString { parts, .. } => {
+                let string_parts = parts
+                    .iter()
+                    .map(|part| match part {
+                        IrStructuredStringPart::Literal(text) => StringPart::Literal(text.clone()),
+                        IrStructuredStringPart::Interpolation(expr) => StringPart::Interpolation(
+                            Box::new(ir_structured_expr_to_expression(expr)),
+                        ),
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_interpolated_string(&string_parts)
+            }
+            IrStructuredExpr::DoBlock { block, .. } => {
+                self.compile_ir_block_with_tail(block)?;
+                if !self.compile_ir_block_has_value_tail(block) {
+                    self.emit(OpCode::OpNone, &[]);
+                }
+                Ok(())
+            }
+            IrStructuredExpr::ListLiteral { elements, .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("base list must be defined");
+                self.load_symbol(&symbol);
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit(OpCode::OpCall, &[elements.len()]);
+                Ok(())
+            }
+            IrStructuredExpr::ArrayLiteral { elements, .. } => {
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit_array_count(elements.len());
+                Ok(())
+            }
+            IrStructuredExpr::TupleLiteral { elements, .. } => {
+                for element in elements {
+                    self.compile_ir_non_tail_expression(element)?;
+                }
+                self.emit_tuple_count(elements.len());
+                Ok(())
+            }
+            IrStructuredExpr::EmptyList { .. } => {
+                let list_sym = self.interner.intern("list");
+                let symbol = self
+                    .symbol_table
+                    .resolve(list_sym)
+                    .expect("base list must be defined");
+                self.load_symbol(&symbol);
+                self.emit(OpCode::OpCall, &[0]);
+                Ok(())
+            }
+            IrStructuredExpr::Hash { pairs, .. } => {
+                for (key, value) in pairs {
+                    self.compile_ir_non_tail_expression(key)?;
+                    self.compile_ir_non_tail_expression(value)?;
+                }
+                self.emit_hash_count(pairs.len() * 2);
+                Ok(())
+            }
+            IrStructuredExpr::Index { left, index, .. } => {
+                self.compile_ir_non_tail_expression(left)?;
+                self.compile_ir_non_tail_expression(index)?;
+                self.emit(OpCode::OpIndex, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::TupleFieldAccess { object, index, .. } => {
+                self.compile_ir_non_tail_expression(object)?;
+                self.emit(OpCode::OpTupleIndex, &[*index]);
+                Ok(())
+            }
+            IrStructuredExpr::None { .. } => {
+                self.emit(OpCode::OpNone, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Some { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpSome, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Left { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpLeft, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Right { value, .. } => {
+                self.compile_ir_non_tail_expression(value)?;
+                self.emit(OpCode::OpRight, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Cons { head, tail, .. } => {
+                if let IrStructuredExpr::None { span, .. } = tail.as_ref() {
+                    return Err(Self::boxed(Diagnostic::make_error(
+                        &LEGACY_LIST_TAIL_NONE,
+                        &[],
+                        self.file_path.clone(),
+                        *span,
+                    )));
+                }
+                self.compile_ir_non_tail_expression(head)?;
+                self.compile_ir_non_tail_expression(tail)?;
+                self.emit(OpCode::OpCons, &[]);
+                Ok(())
+            }
+            IrStructuredExpr::Identifier { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Prefix { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Infix { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::If {
+                condition,
+                consequence,
+                alternative,
+                ..
+            } => {
+                let condition = ir_structured_expr_to_expression(condition);
+                let consequence = ir_structured_block_to_block(consequence, &[]);
+                let alternative =
+                    alternative.as_ref().map(|block| ir_structured_block_to_block(block, &[]));
+                self.compile_if_expression(&condition, &consequence, &alternative)
+            }
+            IrStructuredExpr::Function {
+                parameters,
+                parameter_types,
+                return_type,
+                effects,
+                body,
+                ..
+            } => {
+                let body = ir_structured_block_to_block(body, &[]);
+                self.compile_function_literal(
+                    parameters,
+                    parameter_types,
+                    return_type,
+                    effects,
+                    &body,
+                )
+            }
+            IrStructuredExpr::Call { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::MemberAccess { .. } => {
+                let expression = ir_structured_expr_to_expression(expression);
+                self.compile_expression(&expression)
+            }
+            IrStructuredExpr::Match {
+                scrutinee,
+                arms,
+                span,
+                ..
+            } => {
+                let scrutinee = ir_structured_expr_to_expression(scrutinee);
+                let arms = arms
+                    .iter()
+                    .map(|arm: &IrStructuredMatchArm| MatchArm {
+                        pattern: ir_structured_pattern_to_pattern(&arm.pattern),
+                        guard: arm.guard.as_ref().map(ir_structured_expr_to_expression),
+                        body: ir_structured_expr_to_expression(&arm.body),
+                        span: arm.span,
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_match_expression(&scrutinee, &arms, *span)
+            }
+            IrStructuredExpr::Perform {
+                effect,
+                operation,
+                args,
+                ..
+            } => {
+                let args = args
+                    .iter()
+                    .map(ir_structured_expr_to_expression)
+                    .collect::<Vec<_>>();
+                self.compile_perform(*effect, *operation, &args)
+            }
+            IrStructuredExpr::Handle {
+                expr,
+                effect,
+                arms,
+                ..
+            } => {
+                let expr = ir_structured_expr_to_expression(expr);
+                let arms = arms
+                    .iter()
+                    .map(|arm: &IrStructuredHandleArm| HandleArm {
+                        operation_name: arm.operation_name,
+                        resume_param: arm.resume_param,
+                        params: arm.params.clone(),
+                        body: ir_structured_expr_to_expression(&arm.body),
+                        span: arm.span,
+                    })
+                    .collect::<Vec<_>>();
+                self.compile_handle(&expr, *effect, &arms)
+            }
+        }
+    }
+
+    fn compile_ir_non_tail_expression(&mut self, expression: &IrStructuredExpr) -> CompileResult<()> {
+        self.with_tail_position(false, |compiler| compiler.compile_ir_expr(expression))
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn compile_ir_pattern_bind(
+        &mut self,
+        temp_symbol: &Binding,
+        pattern: &IrStructuredPattern,
+    ) -> CompileResult<()> {
+        match pattern {
+            IrStructuredPattern::Identifier { name, span } => {
+                self.load_symbol(temp_symbol);
+                let symbol = self.symbol_table.define(*name, *span);
+                match symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_SYMBOL_SCOPE_PATTERN,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                Ok(())
+            }
+            IrStructuredPattern::Some { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapSome, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_SOME_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::Left { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapLeft, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_LEFT_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::Right { pattern: inner, .. } => {
+                let inner_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpUnwrapRight, &[]);
+                match inner_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_RIGHT_BINDING,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&inner_symbol, inner)
+            }
+            IrStructuredPattern::EmptyList { .. }
+            | IrStructuredPattern::Wildcard { .. }
+            | IrStructuredPattern::Literal { .. }
+            | IrStructuredPattern::None { .. } => Ok(()),
+            IrStructuredPattern::Cons { head, tail, .. } => {
+                let head_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpConsHead, &[]);
+                match head_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[head_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[head_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&head_symbol, head)?;
+
+                let tail_symbol = self.symbol_table.define_temp();
+                self.load_symbol(temp_symbol);
+                self.emit(OpCode::OpConsTail, &[]);
+                match tail_symbol.symbol_scope {
+                    SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[tail_symbol.index]),
+                    SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[tail_symbol.index]),
+                    _ => {
+                        return Err(Self::boxed(Diagnostic::make_error(
+                            &ICE_TEMP_SYMBOL_MATCH,
+                            &[],
+                            self.file_path.clone(),
+                            Span::new(Position::default(), Position::default()),
+                        )));
+                    }
+                };
+                self.compile_ir_pattern_bind(&tail_symbol, tail)
+            }
+            IrStructuredPattern::Tuple { elements, .. } => {
+                for (index, element) in elements.iter().enumerate() {
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(temp_symbol);
+                    self.emit(OpCode::OpTupleIndex, &[index]);
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    };
+                    self.compile_ir_pattern_bind(&inner_symbol, element)?;
+                }
+                Ok(())
+            }
+            IrStructuredPattern::Constructor { .. } => {
+                let crate::ir::IrStructuredPattern::Constructor { name, fields, span } = pattern else {
+                    unreachable!()
+                };
+                let Some(constructor_info) = self.adt_registry.lookup_constructor(*name) else {
+                    if let Some((member_name, qualifier)) =
+                        self.module_constructor_boundary_from_qualified_identifier(*name)
+                    {
+                        if self.strict_mode {
+                            return Err(Self::boxed(
+                                cross_module_constructor_access_error(
+                                    *span,
+                                    member_name.as_str(),
+                                    qualifier.as_str(),
+                                )
+                                .with_file(self.file_path.clone()),
+                            ));
+                        }
+                        self.warnings.push(
+                            cross_module_constructor_access_warning(
+                                *span,
+                                member_name.as_str(),
+                                qualifier.as_str(),
+                            )
+                            .with_file(self.file_path.clone()),
+                        );
+                    }
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        diagnostic_for(&UNKNOWN_CONSTRUCTOR)
+                            .with_span(*span)
+                            .with_message(format!("Unknown constructor `{}`.", name_str)),
+                    ));
+                };
+                if fields.len() != constructor_info.arity {
+                    let name_str = self.interner.resolve(*name).to_string();
+                    return Err(Self::boxed(
+                        constructor_pattern_arity_mismatch(
+                            *span,
+                            &name_str,
+                            constructor_info.arity,
+                            fields.len(),
+                        )
+                        .with_file(self.file_path.clone()),
+                    ));
+                }
+
+                for (field_idx, field_pat) in fields.iter().enumerate() {
+                    if matches!(field_pat, IrStructuredPattern::Wildcard { .. }) {
+                        continue;
+                    }
+
+                    let inner_symbol = self.symbol_table.define_temp();
+                    self.load_symbol(temp_symbol);
+                    self.emit(OpCode::OpAdtField, &[field_idx]);
+
+                    match inner_symbol.symbol_scope {
+                        SymbolScope::Global => self.emit(OpCode::OpSetGlobal, &[inner_symbol.index]),
+                        SymbolScope::Local => self.emit(OpCode::OpSetLocal, &[inner_symbol.index]),
+                        _ => {
+                            return Err(Self::boxed(Diagnostic::make_error(
+                                &ICE_TEMP_SYMBOL_MATCH,
+                                &[],
+                                self.file_path.clone(),
+                                Span::new(Position::default(), Position::default()),
+                            )));
+                        }
+                    };
+                    self.compile_ir_pattern_bind(&inner_symbol, field_pat)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Patch a conditional jump's target, handling single-, two-, and three-operand jump opcodes.
     fn patch_cond_jump(&mut self, jump: &ConditionalJump, target: usize) {
         let op = OpCode::from(self.current_instructions()[jump.position]);

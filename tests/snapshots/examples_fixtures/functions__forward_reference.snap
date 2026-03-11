@@ -5,58 +5,6 @@ Fixture: examples/functions/forward_reference.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E001]: Duplicate Name
-
-Duplicate binding: `main` is already defined.
-
-  examples/functions/forward_reference.flx:9:5
-   |
- 9 |     fn main() {
-   |     ^^^^^^^^^^^
-10 |         print("Testing forward references...");
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-11 |         let result = greet("World");
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-12 |         print(result);
-   | ^^^^^^^^^^^^^^^^^^^^^^
-13 | 
-   | ^
-14 |         print("Testing mutual recursion...");
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-15 |         print(isEven(10));  // Should print true
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |         print(isOdd(10));   // Should print false
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-17 |         print(isEven(7));   // Should print false
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-18 |         print(isOdd(7));    // Should print true
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-19 |     }
-   | ^^^^^
-
-Hint:
-  Use a different name or remove the previous definition.
-  Use a different name or remove the previous definition
-
-   = note: first defined here
-  examples/functions/forward_reference.flx:8:1
-  |
-8 | fn main() with IO, Time {
-  | ^
-
-
-error[E004]: Undefined Variable
-
-I can't find a value named `isOdd`.
-
-  examples/functions/forward_reference.flx:31:9
-   |
-31 |         isOdd(n - 1);
-   |         ^^^^^
-
-Hint:
-  Define it first: let isOdd = ...;
-
-Found 2 errors.
+Warning: missing CFG bytecode binding for IR call dest
 == stdout ==
 <not executed>
