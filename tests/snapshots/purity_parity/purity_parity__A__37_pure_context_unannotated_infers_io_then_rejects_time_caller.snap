@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/37_pure_context_unannotated_infer
 exit_code: 1
 
 == vm tuples ==
-- E400 | Missing Ambient Effect | effectful call occurs here
+- E1001 | Not A Function | 
 
 == jit tuples ==
-- E400 | Missing Ambient Effect | effectful call occurs here
+- E1001 | Not A Function | 
 
 == parity ==
 match

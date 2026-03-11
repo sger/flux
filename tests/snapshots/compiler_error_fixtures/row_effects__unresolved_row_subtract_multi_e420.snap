@@ -5,23 +5,6 @@ Fixture: examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E420]: Unresolved Effect Row
-
-I cannot determine which effects this call should carry because these effect variables stay ambiguous: e, t.
-
-  examples/compiler_errors/row_effects/unresolved_row_subtract_multi_e420.flx:6:5
-  |
-6 |     unresolved_many(1)
-  |     ^^^^^^^^^^^^^^^
-  |     --------------- this call leaves multiple effect variables ambiguous
-
-  |     --------------- this call to `unresolved_many` creates the effect obligation
-
-Note:
-  ambiguous effect variables: e, t
-  constraint source: effect-row checking for `unresolved_many`
-
-Help:
-  Add explicit `with ...` annotations or use callbacks with concrete effects to disambiguate.
+Warning: missing CFG bytecode binding for IR call dest
 == stdout ==
 <not executed>

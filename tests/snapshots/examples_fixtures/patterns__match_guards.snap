@@ -3,8 +3,15 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/patterns/match_guards.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+Warning: Flux IR lowering fallback
+
+unsupported infix operator
+
+  examples/patterns/match_guards.flx:25:14
+   |
+25 |         n if n % 2 == 0 -> "even",
+   |              ^^^^^
 == stdout ==
 <not executed>

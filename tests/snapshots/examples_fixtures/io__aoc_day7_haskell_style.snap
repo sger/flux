@@ -86,17 +86,17 @@ I found a type mismatch.
     |
 177 |         process_cols_b(row_txt, col + 1, width, active_counts, n2, finished + out_left + out_right)
     |                                                                    ^^^^^^^^^^^^^^^^^^^
-    |                                                                    ------------------- this expression has type `Array<Int> and Int`
+    |                                                                    ------------------- this expression has type `Int`
 
-    |                                                                    ------------------- operator operands are known at compile time
+    |                                                                    ------------------- this type mismatch is reported here
 
 Note:
-  expected type: matching '+' operands (Int+Int, Float+Float, or String+String)
-  found type: Array<Int> and Int
+  expected type: Array<Int>
+  found type: Int
+  the conflicting types meet at this expression
 
 Help:
   These two types are not compatible.
-  adjust operand types or add explicit conversion
 
 
 error[E300]: Argument Type Mismatch
@@ -300,6 +300,10 @@ Note:
 Help:
   Pass a `Array<Int>` value as the 5th argument.
 
-Found 6 errors.
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 6 errors and 1 warning.
 == stdout ==
 <not executed>

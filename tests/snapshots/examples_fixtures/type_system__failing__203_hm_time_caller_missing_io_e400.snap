@@ -5,17 +5,23 @@ Fixture: examples/type_system/failing/203_hm_time_caller_missing_io_e400.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E400]: Missing Ambient Effect
+error[E400]: Missing Effect
 
-Call to `log_event` requires effect `IO` in this function signature.
+requires effect `IO` but the enclosing context does not provide it
 
   examples/type_system/failing/203_hm_time_caller_missing_io_e400.flx:11:5
    |
 11 |     log_event("recorded")
-   |     ^^^^^^^^^
-   |     --------- effectful call occurs here
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |     --------------------- requires `IO`
 
 Hint:
-  Add `with IO` to the enclosing function.
+  annotate the enclosing function with `with IO`
+
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>

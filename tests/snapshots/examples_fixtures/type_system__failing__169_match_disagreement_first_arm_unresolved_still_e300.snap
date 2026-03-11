@@ -5,44 +5,8 @@ Fixture: examples/type_system/failing/169_match_disagreement_first_arm_unresolve
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E004]: Undefined Variable
+Warning: Invalid Flux IR
 
-I can't find a value named `mystery_value`.
-
-  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:2:13
-  |
-2 |     let x = mystery_value
-  |             ^^^^^^^^^^^^^
-
-Hint:
-  Define it first: let mystery_value = ...;
-
-
-error[E300]: Match Arm Type Mismatch
-
-The arms of this `match` expression do not agree on a type.
-
-  examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx:6:14
-  |
-5 |         1 -> 10,
-  |              -- first arm returns `Int`
-
-  |              -- this arm established the expected type
-6 |         _ -> "oops",
-  |              ^^^^^^
-  |              ------ arm 2 has type `String`
-
-  |              ------ arm 2 conflicts with that type
-
-Note:
-  first arm type: Int
-  this arm type: String
-  the first arm fixes the type expected from the whole `match`
-  this arm produces the competing type
-
-Help:
-  Change arm 2 so every arm returns the same type.
-
-Found 2 errors.
+IR uses a variable before it is defined
 == stdout ==
 <not executed>

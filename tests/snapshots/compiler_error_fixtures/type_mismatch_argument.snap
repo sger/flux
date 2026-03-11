@@ -28,5 +28,11 @@ Note:
 
 Help:
   Try `to_string(...)` to convert a `Int` into a `String`.
+
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>

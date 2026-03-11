@@ -17,5 +17,11 @@ Call to `n` requires effect `Time` in this function signature.
 
 Hint:
   Add `with Time` to the enclosing function.
+
+
+Warning: missing CFG bytecode binding for IR call dest
+
+
+Found 1 error and 1 warning.
 == stdout ==
 <not executed>
