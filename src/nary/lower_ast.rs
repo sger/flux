@@ -213,19 +213,14 @@ impl<'a> AstLowerer<'a> {
                 span: *s,
             },
 
-            Statement::Function { name, parameters, body, span: s, .. } => {
-                let fn_body = self.lower_block(body);
-                let fn_expr = if parameters.is_empty() {
-                    fn_body
-                } else {
-                    CoreExpr::lambda(parameters.clone(), fn_body, *s)
-                };
-                CoreExpr::LetRec {
-                    var: *name,
-                    rhs: Box::new(fn_expr),
-                    body: Box::new(tail),
-                    span: *s,
-                }
+            Statement::Function { .. } => {
+                // Nested function statements are not lowered into Core IR.
+                // They are compiled via the bytecode compiler's AST path which
+                // handles recursion (OpCurrentClosure), closures, and scoping
+                // correctly.  We just pass through to the tail expression —
+                // the bytecode compiler will see the original Statement::Function
+                // and compile it before reaching the Core IR instructions.
+                tail
             }
 
             Statement::Assign { name, value, span: s } => CoreExpr::Let {

@@ -3,27 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/26_any_boundary_success.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/type_system/26_any_boundary_success.flx:8:26
-  |
-8 |     let value = identity(42)
-  |                          ^^
-  |                          -- this expression has type `Int`
-
-  |                          -- argument type is known at compile time
-
-Note:
-  expected type: Any
-  found type: Int
-
-Help:
-  These two types are not compatible.
-  argument #1 does not match function contract
-  Unknown type `Any` — did you mean `Int`?
+<none>
 == stdout ==
 <not executed>

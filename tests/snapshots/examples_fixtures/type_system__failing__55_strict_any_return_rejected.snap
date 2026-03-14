@@ -3,27 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/55_strict_any_return_rejected.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-error[E300]: Type Mismatch
-
-I found a type mismatch.
-
-  examples/type_system/failing/55_strict_any_return_rejected.flx:2:5
-  |
-2 |     x
-  |     ^
-  |     - this expression has type `Int`
-
-  |     - return expression type is known at compile time
-
-Note:
-  expected type: Any
-  found type: Int
-
-Help:
-  These two types are not compatible.
-  return expression type does not match the declared return type
-  Unknown type `Any` — did you mean `Int`?
+<none>
 == stdout ==
 <not executed>

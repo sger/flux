@@ -33,4 +33,21 @@ status: 1
 stdout:
 <empty>
 stderr:
-missing JIT CFG closure function
+• 1 error • examples/runtime_errors/list_boundary_string_into_list.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/runtime_errors/list_boundary_string_into_list.flx:8:1
+  |
+8 | sum_list(dynamic)
+  | ^^^^^^^^^^^^^^^^^
+  | ----------------- this value has runtime type `String`
+
+Note:
+  expected type: List<Int>
+  found type:    String
+  runtime value:  "oops"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.
