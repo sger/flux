@@ -3,15 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/arithmetic.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: Flux IR lowering fallback
-
-unsupported infix operator
-
-  examples/basics/arithmetic.flx:16:11
-   |
-16 |     print(10 % 3);
-   |           ^^^^^^
+<none>
 == stdout ==
 <not executed>

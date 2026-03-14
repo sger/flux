@@ -17,11 +17,5 @@ Call to `p` requires effect `IO` in this function signature.
 
 Hint:
   Add `with IO` to the enclosing function.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
 == stdout ==
 <not executed>

@@ -3,15 +3,8 @@ source: tests/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/using_list_module.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: Flux IR lowering fallback
-
-unsupported infix operator
-
-  examples/advanced/using_list_module.flx:99:36
-   |
-99 |     let evens = filter(nums, /x -> x % 2 == 0)
-   |                                    ^^^^^
+<none>
 == stdout ==
 <not executed>

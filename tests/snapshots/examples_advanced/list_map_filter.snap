@@ -3,15 +3,8 @@ source: tests/examples_advanced_snapshots.rs
 ---
 Fixture: examples/advanced/list_map_filter.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: Flux IR lowering fallback
-
-unsupported infix operator
-
-  examples/advanced/list_map_filter.flx:54:21
-   |
-54 |     |> filter(/x -> x % 2 == 0)
-   |                     ^^^^^
+<none>
 == stdout ==
 <not executed>

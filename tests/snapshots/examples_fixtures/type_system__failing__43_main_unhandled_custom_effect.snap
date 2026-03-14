@@ -20,11 +20,5 @@ error[E406]: Unhandled Root Effect
 
 Hint:
   Handle these effects explicitly with `... handle Effect { ... }` before returning from `main`.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
 == stdout ==
 <not executed>

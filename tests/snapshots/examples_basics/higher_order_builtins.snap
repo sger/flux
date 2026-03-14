@@ -3,15 +3,8 @@ source: tests/examples_basics_snapshots.rs
 ---
 Fixture: examples/basics/higher_order_builtins.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: Flux IR lowering fallback
-
-unsupported infix operator
-
-  examples/basics/higher_order_builtins.flx:90:29
-   |
-90 |     print(count(nums, /x -> x % 2 == 0))
-   |                             ^^^^^
+<none>
 == stdout ==
 <not executed>

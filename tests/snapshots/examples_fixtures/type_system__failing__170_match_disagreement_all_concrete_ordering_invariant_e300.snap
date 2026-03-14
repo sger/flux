@@ -5,29 +5,27 @@ Fixture: examples/type_system/failing/170_match_disagreement_all_concrete_orderi
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E300]: Match Arm Type Mismatch
+error[E300]: Annotation Type Mismatch
 
-The arms of this `match` expression do not agree on a type.
+The value of `y` does not match its type annotation.
 
-  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:4:18
+  examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx:2:18
   |
+2 |     let y: Int = match true {
+  |                  ^^^^^^^^^^^^
+  |            --- but `y` was annotated as `Int`
 3 |         true -> "oops",
-  |                 ------ first arm returns `String`
-
-  |                 ------ this arm established the expected type
+  | ^^^^^^^^^^^^^^^^^^^^^^^
 4 |         false -> 1,
-  |                  ^
-  |                  - arm 2 has type `Int`
-
-  |                  - arm 2 conflicts with that type
+  | ^^^^^^^^^^^^^^^^^^^
+5 |     }
+  | ^^^^^
 
 Note:
-  first arm type: String
-  this arm type: Int
-  the first arm fixes the type expected from the whole `match`
-  this arm produces the competing type
+  annotated type: Int
+  value type: String
 
 Help:
-  Try `to_string(...)` to convert a `Int` into a `String`.
+  Change `y` to a `Int` value or update the annotation.
 == stdout ==
 <not executed>

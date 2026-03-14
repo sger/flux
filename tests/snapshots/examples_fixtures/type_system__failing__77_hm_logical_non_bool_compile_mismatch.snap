@@ -24,11 +24,5 @@ Note:
 Help:
   These two types are not compatible.
   adjust operand types or add explicit conversion
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
 == stdout ==
 <not executed>

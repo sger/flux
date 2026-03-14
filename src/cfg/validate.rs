@@ -36,6 +36,10 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         }
                         defined.insert(*dest);
                     }
+                    IrInstr::HandleScope { dest, body_entry, .. } => {
+                        ensure_block_exists(*body_entry, &block_ids)?;
+                        defined.insert(*dest);
+                    }
                 }
             }
             validate_terminator(&block.terminator, &defined, &block_ids, &function_ids)?;
@@ -105,7 +109,9 @@ fn compute_reachable_defs(
             }
             for instr in &block.instrs {
                 match instr {
-                    IrInstr::Assign { dest, .. } | IrInstr::Call { dest, .. } => {
+                    IrInstr::Assign { dest, .. }
+                    | IrInstr::Call { dest, .. }
+                    | IrInstr::HandleScope { dest, .. } => {
                         defined.insert(*dest);
                     }
                 }
@@ -232,11 +238,11 @@ fn ensure_handle_arm_defined(
     _arm: &IrHandleArm,
     _defined: &HashSet<IrVar>,
 ) -> Result<(), Diagnostic> {
-    // IrHandleArm bodies are still in structured (IrStructuredExpr) form and
-    // reference Identifiers, not IrVars, so there is nothing to validate
-    // against the flat-IR `defined` set.  When Handle is lowered to flat CFG
-    // (requires evidence-passing infrastructure), explicit capture IrVars will
-    // be added to IrHandleArm and checked here.
+    // IrHandleArm bodies are AST `Expression` nodes and reference Identifiers,
+    // not IrVars, so there is nothing to validate against the flat-IR `defined`
+    // set.  When Handle is lowered to flat CFG (requires evidence-passing
+    // infrastructure), explicit capture IrVars will be added to IrHandleArm
+    // and checked here.
     Ok(())
 }
 
@@ -336,7 +342,7 @@ fn invalid_ir(span: Option<Span>, message: &str) -> Diagnostic {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::ir::{
+    use crate::cfg::{
         BlockId, FunctionId, IrBlock, IrFunction, IrFunctionOrigin, IrMetadata, IrProgram,
         IrTerminator, IrType, IrVar,
     };
@@ -370,6 +376,7 @@ mod tests {
             entry: FunctionId(0),
             globals: Vec::new(),
             hm_expr_types: HashMap::new(),
+            core: None,
         };
 
         assert!(validate_ir(&program).is_err());

@@ -16,9 +16,11 @@ exit_code: 1
 
 == vm tuples ==
 - E425 | Unresolved Boundary Type | runtime boundary check is unresolved in strict mode
+- E086 | Cross-Module Constructor Access | 
 
 == jit tuples ==
 - E425 | Unresolved Boundary Type | runtime boundary check is unresolved in strict mode
+- E086 | Cross-Module Constructor Access | 
 
 == parity ==
 match

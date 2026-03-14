@@ -10,23 +10,23 @@ stderr:
 • 1 error • examples/runtime_errors/indirect_call_wrong_arity.flx
 error[E1000]: wrong number of arguments: want=2, got=1
 
-  examples/runtime_errors/indirect_call_wrong_arity.flx:7:19
+  examples/runtime_errors/indirect_call_wrong_arity.flx:5:1
   |
+5 | fn main() {
+  | ^^^^^^^^^^^
+6 |     let f = add
+  | ^^^^^^^^^^^^^^^
 7 |     let ignored = f(1)
-  |                   ^^^^
+  | ^^^^^^^^^^^^^^^^^^^^^^
+8 | }
+  | ^
 
 Stack trace:
-  at main (examples/runtime_errors/indirect_call_wrong_arity.flx:7:19)
+  at main (examples/runtime_errors/indirect_call_wrong_arity.flx:5:1)
   at <main>
 == jit ==
 status: 1
 stdout:
 <empty>
 stderr:
-• 1 error • examples/runtime_errors/indirect_call_wrong_arity.flx
-error[E1000]: wrong number of arguments: want=2, got=1
-
-  examples/runtime_errors/indirect_call_wrong_arity.flx:7:19
-  |
-7 |     let ignored = f(1)
-  |                   ^^^^
+wrong number of arguments in JIT CFG call: want=2, got=1
