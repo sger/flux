@@ -9,11 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx:2:5
+  examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx:2:18
   |
 2 |     let (a, b) = 1
-  |     ^^^^^^^^^^^^^^
-  |     -------------- this expression has type `Int`
+  |                  ^
+  |                  - this expression has type `Int`
+
+  |                  - destructure source type is known at compile time
 
 Note:
   expected type: (_, _)
@@ -21,5 +23,6 @@ Note:
 
 Help:
   These two types are not compatible.
+  destructure source does not match pattern shape
 == stdout ==
 <not executed>

@@ -35,10 +35,6 @@ requires effect `Time` but the enclosing context does not provide it
 Hint:
   annotate the enclosing function with `with Time`
 
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 2 errors and 1 warning.
+Found 2 errors.
 == stdout ==
 <not executed>

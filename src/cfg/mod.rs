@@ -4,10 +4,11 @@ use crate::{
     diagnostics::position::Span,
     syntax::{
         Identifier,
+        block::Block,
         data_variant::DataVariant,
         effect_expr::EffectExpr,
         effect_ops::EffectOp,
-        expression::ExprId,
+        expression::{ExprId, Expression, Pattern},
         type_expr::TypeExpr,
     },
     types::infer_type::InferType,
@@ -18,12 +19,64 @@ pub mod passes;
 pub mod validate;
 
 pub use lower::lower_program_to_ir;
-pub(crate) use lower::{
-    ir_structured_block_to_block, ir_structured_expr_to_expression,
-    ir_structured_pattern_to_pattern,
-};
 pub use passes::{IrPassContext, run_ir_pass_pipeline};
 pub use validate::validate_ir;
+
+/// Update `function_id` in each `IrTopLevelItem::Function` of `items` to
+/// reference the Core IR-derived CFG function instead of the old structured-IR
+/// function.  Matching is done by function name.  Items whose name is not
+/// present in `core_items` are left unchanged (e.g. module-nested functions
+/// that the Core IR pipeline does not yet lower).
+///
+/// Returns the set of old `FunctionId`s that were NOT replaced (i.e. functions
+/// the Core IR doesn't cover).  The caller must preserve the corresponding
+/// `IrFunction` entries from the old function list for these IDs.
+pub fn patch_function_ids_from_core(
+    items: &mut [IrTopLevelItem],
+    core_items: &[IrTopLevelItem],
+) -> Vec<FunctionId> {
+    let name_to_id: HashMap<Identifier, FunctionId> = core_items
+        .iter()
+        .filter_map(|item| {
+            if let IrTopLevelItem::Function { name, function_id: Some(id), .. } = item {
+                Some((*name, *id))
+            } else {
+                None
+            }
+        })
+        .collect();
+    let mut kept_old_ids = Vec::new();
+    patch_function_ids_recursive(items, &name_to_id, &mut kept_old_ids);
+    kept_old_ids
+}
+
+fn patch_function_ids_recursive(
+    items: &mut [IrTopLevelItem],
+    name_to_id: &HashMap<Identifier, FunctionId>,
+    kept_old_ids: &mut Vec<FunctionId>,
+) {
+    for item in items {
+        match item {
+            IrTopLevelItem::Function { name, function_id, .. } => {
+                if let Some(&core_id) = name_to_id.get(name) {
+                    // Replace with the Core IR function_id.
+                    *function_id = Some(core_id);
+                } else {
+                    // No Core IR match — keep the original function_id so the
+                    // old IrFunction can still be looked up.  The caller must
+                    // merge the old function into the new function list.
+                    if let Some(old_id) = *function_id {
+                        kept_old_ids.push(old_id);
+                    }
+                }
+            }
+            IrTopLevelItem::Module { body, .. } => {
+                patch_function_ids_recursive(body, name_to_id, kept_old_ids);
+            }
+            _ => {}
+        }
+    }
+}
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -72,6 +125,15 @@ impl IrMetadata {
             expr_id: None,
         }
     }
+
+    /// Create metadata carrying only a source span.
+    pub fn from_span(span: Span) -> Self {
+        Self {
+            span: Some(span),
+            inferred_type: None,
+            expr_id: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +151,7 @@ pub enum IrBinaryOp {
     Sub,
     Mul,
     Div,
+    Mod,
     Eq,
     NotEq,
     Lt,
@@ -101,6 +164,7 @@ pub enum IrBinaryOp {
     ISub,
     IMul,
     IDiv,
+    IMod,
     FAdd,
     FSub,
     FMul,
@@ -119,8 +183,16 @@ pub struct IrHandleArm {
     pub operation_name: Identifier,
     pub resume_param: Identifier,
     pub params: Vec<Identifier>,
-    pub body: Box<IrStructuredExpr>,
+    pub body: Box<Expression>,
     pub metadata: IrMetadata,
+}
+
+/// A handler arm in a `HandleScope` instruction.
+/// Each arm is compiled as a separate function (closure) referenced by `FunctionId`.
+#[derive(Debug, Clone)]
+pub struct HandleScopeArm {
+    pub operation_name: Identifier,
+    pub function_id: FunctionId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -162,6 +234,10 @@ pub enum IrExpr {
     MemberAccess {
         object: IrVar,
         member: Identifier,
+        /// Original module name (e.g. `Base`, `MyModule`) when known from
+        /// the source.  Carried through so the bytecode CFG path can resolve
+        /// the qualified binding without tracing back through IrVars.
+        module_name: Option<Identifier>,
     },
     TupleFieldAccess {
         object: IrVar,
@@ -237,6 +313,22 @@ pub enum IrInstr {
         args: Vec<IrVar>,
         metadata: IrMetadata,
     },
+    /// Scoped effect handler: installs a handler before executing the body
+    /// blocks, then removes it after. Solves the ordering issue where
+    /// `IrExpr::Handle` emits body instructions before the handler install.
+    ///
+    /// Bytecode emission order:
+    ///   arm closures → OpHandle → body blocks → OpEndHandle
+    HandleScope {
+        effect: Identifier,
+        arms: Vec<HandleScopeArm>,
+        /// Entry block for the handled body.
+        body_entry: BlockId,
+        /// Var holding the body's result (set in the body blocks).
+        body_result: IrVar,
+        dest: IrVar,
+        metadata: IrMetadata,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -303,255 +395,24 @@ pub struct IrFunction {
 }
 
 #[derive(Debug, Clone)]
-pub enum IrStructuredStringPart {
-    Literal(String),
-    Interpolation(Box<IrStructuredExpr>),
-}
-
-#[derive(Debug, Clone)]
-pub enum IrStructuredPattern {
-    Wildcard {
-        span: Span,
-    },
-    Literal {
-        expression: Box<IrStructuredExpr>,
-        span: Span,
-    },
-    Identifier {
-        name: Identifier,
-        span: Span,
-    },
-    None {
-        span: Span,
-    },
-    Some {
-        pattern: Box<IrStructuredPattern>,
-        span: Span,
-    },
-    Left {
-        pattern: Box<IrStructuredPattern>,
-        span: Span,
-    },
-    Right {
-        pattern: Box<IrStructuredPattern>,
-        span: Span,
-    },
-    Cons {
-        head: Box<IrStructuredPattern>,
-        tail: Box<IrStructuredPattern>,
-        span: Span,
-    },
-    EmptyList {
-        span: Span,
-    },
-    Tuple {
-        elements: Vec<IrStructuredPattern>,
-        span: Span,
-    },
-    Constructor {
-        name: Identifier,
-        fields: Vec<IrStructuredPattern>,
-        span: Span,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub struct IrStructuredMatchArm {
-    pub pattern: IrStructuredPattern,
-    pub guard: Option<IrStructuredExpr>,
-    pub body: IrStructuredExpr,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct IrStructuredHandleArm {
-    pub operation_name: Identifier,
-    pub resume_param: Identifier,
-    pub params: Vec<Identifier>,
-    pub body: IrStructuredExpr,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub enum IrStructuredExpr {
-    Identifier {
-        name: Identifier,
-        span: Span,
-        id: ExprId,
-    },
-    Integer {
-        value: i64,
-        span: Span,
-        id: ExprId,
-    },
-    Float {
-        value: f64,
-        span: Span,
-        id: ExprId,
-    },
-    String {
-        value: String,
-        span: Span,
-        id: ExprId,
-    },
-    InterpolatedString {
-        parts: Vec<IrStructuredStringPart>,
-        span: Span,
-        id: ExprId,
-    },
-    Boolean {
-        value: bool,
-        span: Span,
-        id: ExprId,
-    },
-    Prefix {
-        operator: String,
-        right: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Infix {
-        left: Box<IrStructuredExpr>,
-        operator: String,
-        right: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    If {
-        condition: Box<IrStructuredExpr>,
-        consequence: IrStructuredBlock,
-        alternative: Option<IrStructuredBlock>,
-        span: Span,
-        id: ExprId,
-    },
-    DoBlock {
-        block: IrStructuredBlock,
-        span: Span,
-        id: ExprId,
-    },
-    Function {
-        parameters: Vec<Identifier>,
-        parameter_types: Vec<Option<TypeExpr>>,
-        return_type: Option<TypeExpr>,
-        effects: Vec<EffectExpr>,
-        body: IrStructuredBlock,
-        span: Span,
-        id: ExprId,
-    },
-    Call {
-        function: Box<IrStructuredExpr>,
-        arguments: Vec<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    ListLiteral {
-        elements: Vec<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    ArrayLiteral {
-        elements: Vec<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    TupleLiteral {
-        elements: Vec<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    EmptyList {
-        span: Span,
-        id: ExprId,
-    },
-    Index {
-        left: Box<IrStructuredExpr>,
-        index: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Hash {
-        pairs: Vec<(IrStructuredExpr, IrStructuredExpr)>,
-        span: Span,
-        id: ExprId,
-    },
-    MemberAccess {
-        object: Box<IrStructuredExpr>,
-        member: Identifier,
-        span: Span,
-        id: ExprId,
-    },
-    TupleFieldAccess {
-        object: Box<IrStructuredExpr>,
-        index: usize,
-        span: Span,
-        id: ExprId,
-    },
-    Match {
-        scrutinee: Box<IrStructuredExpr>,
-        arms: Vec<IrStructuredMatchArm>,
-        span: Span,
-        id: ExprId,
-    },
-    None {
-        span: Span,
-        id: ExprId,
-    },
-    Some {
-        value: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Left {
-        value: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Right {
-        value: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Cons {
-        head: Box<IrStructuredExpr>,
-        tail: Box<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Perform {
-        effect: Identifier,
-        operation: Identifier,
-        args: Vec<IrStructuredExpr>,
-        span: Span,
-        id: ExprId,
-    },
-    Handle {
-        expr: Box<IrStructuredExpr>,
-        effect: Identifier,
-        arms: Vec<IrStructuredHandleArm>,
-        span: Span,
-        id: ExprId,
-    },
-}
-
-#[derive(Debug, Clone)]
 pub enum IrTopLevelItem {
     Let {
         name: Identifier,
         type_annotation: Option<TypeExpr>,
-        value: IrStructuredExpr,
+        value: Expression,
         span: Span,
     },
     LetDestructure {
-        pattern: IrStructuredPattern,
-        value: IrStructuredExpr,
+        pattern: Pattern,
+        value: Expression,
         span: Span,
     },
     Return {
-        value: Option<IrStructuredExpr>,
+        value: Option<Expression>,
         span: Span,
     },
     Expression {
-        expression: IrStructuredExpr,
+        expression: Expression,
         has_semicolon: bool,
         span: Span,
     },
@@ -564,17 +425,17 @@ pub enum IrTopLevelItem {
         parameter_types: Vec<Option<TypeExpr>>,
         return_type: Option<TypeExpr>,
         effects: Vec<EffectExpr>,
-        body: IrStructuredBlock,
+        body: Block,
         span: Span,
     },
     Assign {
         name: Identifier,
-        value: IrStructuredExpr,
+        value: Expression,
         span: Span,
     },
     Module {
         name: Identifier,
-        body: IrStructuredBlock,
+        body: Vec<IrTopLevelItem>,
         span: Span,
     },
     Import {
@@ -597,18 +458,15 @@ pub enum IrTopLevelItem {
 }
 
 #[derive(Debug, Clone)]
-pub struct IrStructuredBlock {
-    pub statements: Vec<IrTopLevelItem>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
 pub struct IrProgram {
     pub top_level_items: Vec<IrTopLevelItem>,
     pub functions: Vec<IrFunction>,
     pub entry: FunctionId,
     pub globals: Vec<Identifier>,
     pub hm_expr_types: HashMap<ExprId, InferType>,
+    /// Core IR representation — populated by `lower_program_to_ir`.
+    /// `None` when the Core IR lowering pass has not been run.
+    pub core: Option<crate::nary::CoreProgram>,
 }
 
 fn ir_fmt_var(v: IrVar) -> String {
@@ -706,7 +564,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::Index { left, index } => {
             format!("Index({}, {})", ir_fmt_var(*left), ir_fmt_var(*index))
         }
-        IrExpr::MemberAccess { object, member } => {
+        IrExpr::MemberAccess { object, member, .. } => {
             format!("MemberAccess({}, #{})", ir_fmt_var(*object), member.as_u32())
         }
         IrExpr::TupleFieldAccess { object, index } => {
@@ -759,74 +617,6 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
     }
 }
 
-impl IrStructuredExpr {
-    pub fn span(&self) -> Span {
-        match self {
-            IrStructuredExpr::Identifier { span, .. }
-            | IrStructuredExpr::Integer { span, .. }
-            | IrStructuredExpr::Float { span, .. }
-            | IrStructuredExpr::String { span, .. }
-            | IrStructuredExpr::InterpolatedString { span, .. }
-            | IrStructuredExpr::Boolean { span, .. }
-            | IrStructuredExpr::Prefix { span, .. }
-            | IrStructuredExpr::Infix { span, .. }
-            | IrStructuredExpr::If { span, .. }
-            | IrStructuredExpr::DoBlock { span, .. }
-            | IrStructuredExpr::Function { span, .. }
-            | IrStructuredExpr::Call { span, .. }
-            | IrStructuredExpr::ListLiteral { span, .. }
-            | IrStructuredExpr::ArrayLiteral { span, .. }
-            | IrStructuredExpr::TupleLiteral { span, .. }
-            | IrStructuredExpr::EmptyList { span, .. }
-            | IrStructuredExpr::Index { span, .. }
-            | IrStructuredExpr::Hash { span, .. }
-            | IrStructuredExpr::MemberAccess { span, .. }
-            | IrStructuredExpr::TupleFieldAccess { span, .. }
-            | IrStructuredExpr::Match { span, .. }
-            | IrStructuredExpr::None { span, .. }
-            | IrStructuredExpr::Some { span, .. }
-            | IrStructuredExpr::Left { span, .. }
-            | IrStructuredExpr::Right { span, .. }
-            | IrStructuredExpr::Cons { span, .. }
-            | IrStructuredExpr::Perform { span, .. }
-            | IrStructuredExpr::Handle { span, .. } => *span,
-        }
-    }
-
-    pub fn expr_id(&self) -> ExprId {
-        match self {
-            IrStructuredExpr::Identifier { id, .. }
-            | IrStructuredExpr::Integer { id, .. }
-            | IrStructuredExpr::Float { id, .. }
-            | IrStructuredExpr::String { id, .. }
-            | IrStructuredExpr::InterpolatedString { id, .. }
-            | IrStructuredExpr::Boolean { id, .. }
-            | IrStructuredExpr::Prefix { id, .. }
-            | IrStructuredExpr::Infix { id, .. }
-            | IrStructuredExpr::If { id, .. }
-            | IrStructuredExpr::DoBlock { id, .. }
-            | IrStructuredExpr::Function { id, .. }
-            | IrStructuredExpr::Call { id, .. }
-            | IrStructuredExpr::ListLiteral { id, .. }
-            | IrStructuredExpr::ArrayLiteral { id, .. }
-            | IrStructuredExpr::TupleLiteral { id, .. }
-            | IrStructuredExpr::EmptyList { id, .. }
-            | IrStructuredExpr::Index { id, .. }
-            | IrStructuredExpr::Hash { id, .. }
-            | IrStructuredExpr::MemberAccess { id, .. }
-            | IrStructuredExpr::TupleFieldAccess { id, .. }
-            | IrStructuredExpr::Match { id, .. }
-            | IrStructuredExpr::None { id, .. }
-            | IrStructuredExpr::Some { id, .. }
-            | IrStructuredExpr::Left { id, .. }
-            | IrStructuredExpr::Right { id, .. }
-            | IrStructuredExpr::Cons { id, .. }
-            | IrStructuredExpr::Perform { id, .. }
-            | IrStructuredExpr::Handle { id, .. } => *id,
-        }
-    }
-}
-
 impl IrProgram {
     pub fn function(&self, id: FunctionId) -> Option<&IrFunction> {
         self.functions.iter().find(|function| function.id == id)
@@ -868,9 +658,104 @@ impl IrProgram {
                                 args_s.join(", ")
                             ));
                         }
+                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
+                            let arm_s: Vec<_> = arms.iter().map(|a| format!("#{} -> fn{}", a.operation_name.as_u32(), a.function_id.0)).collect();
+                            out.push_str(&format!(
+                                "    v{} = HandleScope(#{}, body=B{}, arms=[{}])\n",
+                                dest.0, effect.as_u32(), body_entry.0, arm_s.join(", ")
+                            ));
+                        }
                     }
                 }
                 out.push_str(&format!("    {}\n", ir_fmt_terminator(&block.terminator)));
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Like `dump_text` but resolves symbol IDs to human-readable names via `interner`.
+    pub fn dump_text_with_interner(
+        &self,
+        interner: &crate::syntax::interner::Interner,
+    ) -> String {
+        let sym = |s: Identifier| interner.resolve(s).to_string();
+        let fmt_name = |n: Option<Identifier>| {
+            n.map(|s| sym(s)).unwrap_or_else(|| "<anon>".to_string())
+        };
+        let fmt_target = |t: &IrCallTarget| match t {
+            IrCallTarget::Direct(fid) => format!("fn{}", fid.0),
+            IrCallTarget::Named(name) => sym(*name),
+            IrCallTarget::Var(v) => format!("v{}", v.0),
+        };
+        let fmt_term = |t: &IrTerminator| {
+            let fv = |v: IrVar| format!("v{}", v.0);
+            let fb = |b: BlockId| format!("b{}", b.0);
+            match t {
+                IrTerminator::Return(v, _) => format!("Return {}", fv(*v)),
+                IrTerminator::Jump(b, args, _) => {
+                    let a: Vec<_> = args.iter().map(|v| fv(*v)).collect();
+                    format!("Jump {}({})", fb(*b), a.join(", "))
+                }
+                IrTerminator::Branch { cond, then_block, else_block, .. } => format!(
+                    "Branch {} ? {} : {}",
+                    fv(*cond),
+                    fb(*then_block),
+                    fb(*else_block)
+                ),
+                IrTerminator::TailCall { callee, args, .. } => {
+                    let a: Vec<_> = args.iter().map(|v| fv(*v)).collect();
+                    format!("TailCall {}({})", fmt_target(callee), a.join(", "))
+                }
+                IrTerminator::Unreachable(_) => "Unreachable".to_string(),
+            }
+        };
+
+        let mut out = String::new();
+        for function in &self.functions {
+            let origin = match function.origin {
+                IrFunctionOrigin::ModuleTopLevel => "ModuleTopLevel",
+                IrFunctionOrigin::NamedFunction => "NamedFunction",
+                IrFunctionOrigin::FunctionLiteral => "FunctionLiteral",
+            };
+            out.push_str(&format!("fn {} [{}]\n", fmt_name(function.name), origin));
+            for block in &function.blocks {
+                out.push_str(&format!("  b{}(", block.id.0));
+                for (i, param) in block.params.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!("v{}: {:?}", param.var.0, param.ty));
+                }
+                out.push_str("):\n");
+                for instr in &block.instrs {
+                    match instr {
+                        IrInstr::Assign { dest, expr, .. } => {
+                            out.push_str(&format!("    v{} = {}\n", dest.0, ir_fmt_expr(expr)));
+                        }
+                        IrInstr::Call { dest, target, args, .. } => {
+                            let a: Vec<_> = args.iter().map(|v| format!("v{}", v.0)).collect();
+                            out.push_str(&format!(
+                                "    v{} = call {}({})\n",
+                                dest.0,
+                                fmt_target(target),
+                                a.join(", ")
+                            ));
+                        }
+                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
+                            let arm_s: Vec<_> = arms.iter().map(|a| {
+                                let op_name = interner.resolve(a.operation_name);
+                                format!("{} -> fn{}", op_name, a.function_id.0)
+                            }).collect();
+                            let eff_name = interner.resolve(*effect);
+                            out.push_str(&format!(
+                                "    v{} = HandleScope({}, body=B{}, arms=[{}])\n",
+                                dest.0, eff_name, body_entry.0, arm_s.join(", ")
+                            ));
+                        }
+                    }
+                }
+                out.push_str(&format!("    {}\n", fmt_term(&block.terminator)));
             }
             out.push('\n');
         }

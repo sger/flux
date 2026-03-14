@@ -16,11 +16,5 @@ Base has no member named `does_not_exist`.
 
 Hint:
   Check the Base surface or remove this name from `except`.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
 == stdout ==
 <not executed>

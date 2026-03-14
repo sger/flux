@@ -3,8 +3,18 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx
 == compile ==
-ok
+failed (compile)
 == diagnostics ==
-<none>
+error[E004]: Undefined Variable
+
+I can't find a value named `mystery_value`.
+
+  examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx:2:18
+  |
+2 |     let (a, b) = mystery_value
+  |                  ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
 == stdout ==
 <not executed>

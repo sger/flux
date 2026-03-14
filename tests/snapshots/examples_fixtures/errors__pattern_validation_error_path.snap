@@ -43,6 +43,38 @@ Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/pattern_validation_error_path.flx:9:1
+   |
+ 9 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+10 |     _ -> "any",
+   | ^^^^^^^^^^^^^^^
+11 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+12 | });
+   | ^^
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E016]: Invalid Pattern
+
+Catch-all patterns must be the final match arm.
+
+  examples/errors/pattern_validation_error_path.flx:10:5
+   |
+10 |     _ -> "any",
+   |     ^
+
+Hint:
+  Move `_` or the binding pattern to the last arm.
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -62,6 +94,44 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/errors/pattern_validation_error_path.flx:14:1
+   |
+14 | print(match value {
+   | ^^^^^^^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^^
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E015]: Non-Exhaustive Match
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  examples/errors/pattern_validation_error_path.flx:14:7
+   |
+14 | print(match value {
+   |       ^^^^^^^^^^^^^
+15 |     1 -> "one",
+   | ^^^^^^^^^^^^^^^
+16 |     2 -> "two",
+   | ^^^^^^^^^^^^^^^
+17 | });
+   | ^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+
 error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
@@ -76,10 +146,45 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
-Warning: Invalid Flux IR
+error[E400]: Missing Effect
 
-IR uses a variable before it is defined
+requires effect `IO` but the enclosing context does not provide it
 
-Found 4 errors and 1 warning.
+  examples/errors/pattern_validation_error_path.flx:19:1
+   |
+19 | print(match value { });
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   | ---------------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+
+error[E014]: Empty Match
+
+Match expression must have at least one arm.
+
+  examples/errors/pattern_validation_error_path.flx:19:7
+   |
+19 | print(match value { });
+   |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Add at least one pattern match arm: match value { pattern -> expr; }
+
+
+error[E015]: Non-Exhaustive Match
+
+Match is non-exhaustive without an unguarded catch-all arm.
+
+  examples/errors/pattern_validation_error_path.flx:19:7
+   |
+19 | print(match value { });
+   |       ^^^^^^^^^^^^^^^
+
+Hint:
+  Add an unguarded `_ -> ...` arm for conservative exhaustive coverage.
+
+Found 11 errors.
 == stdout ==
 <not executed>

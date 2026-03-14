@@ -8,17 +8,17 @@ Expect compile error: false
 
 == vm command ==
 $ flux --no-cache examples/type_system/101_effect_row_subtract_concrete_ok.flx
-exit_code: 1
+exit_code: 0
 
 == jit command ==
 $ flux --no-cache examples/type_system/101_effect_row_subtract_concrete_ok.flx --jit
-exit_code: 1
+exit_code: 0
 
 == vm tuples ==
-- E1004 | Type Error | this value has runtime type `None`
+<none>
 
 == jit tuples ==
-- E1004 | Type Error | this value has runtime type `None`
+<none>
 
 == parity ==
 match

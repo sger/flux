@@ -3,8 +3,8 @@ source: tests/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/21_effect_polymorphism_with_e.flx
 == compile ==
-failed (compile)
+ok
 == diagnostics ==
-Warning: missing CFG bytecode binding for IR call dest
+<none>
 == stdout ==
 <not executed>

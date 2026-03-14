@@ -5,8 +5,16 @@ Fixture: examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.
 == compile ==
 failed (compile)
 == diagnostics ==
-Warning: Invalid Flux IR
+error[E004]: Undefined Variable
 
-IR uses a variable before it is defined
+I can't find a value named `mystery_value`.
+
+  examples/type_system/failing/164_match_unresolved_arm_stays_suppressed.flx:2:13
+  |
+2 |     let x = mystery_value
+  |             ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
 == stdout ==
 <not executed>

@@ -23,11 +23,5 @@ Note:
 
 Help:
   Handle or include this effect before subtracting it from an effect row.
-
-
-Warning: missing CFG bytecode binding for IR call dest
-
-
-Found 1 error and 1 warning.
 == stdout ==
 <not executed>

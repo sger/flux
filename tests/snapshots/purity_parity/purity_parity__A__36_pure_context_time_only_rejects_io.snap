@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/36_pure_context_time_only_rejects
 exit_code: 1
 
 == vm tuples ==
-- E400 | Missing Effect | requires `IO`
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == jit tuples ==
-- E400 | Missing Effect | requires `IO`
+- E400 | Missing Ambient Effect | effectful call occurs here
 
 == parity ==
 match

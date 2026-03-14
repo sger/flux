@@ -1,6 +1,6 @@
 # Flux Compiler Architecture
 
-This document describes the current architecture of the Flux compiler (v0.2.0).
+This document describes the current architecture of the Flux compiler.
 
 ---
 
@@ -15,19 +15,43 @@ This architecture document focuses on component layout; semantic truth for type/
 
 ## Pipeline
 
-Flux has two execution backends that share the same front-end:
+Flux compiles source code through a series of intermediate representations. Both execution
+backends (bytecode VM and Cranelift JIT) share the same front-end and lowering pipeline:
 
 ```
 Source (.flx)
     │
     ▼
-  Lexer              token stream
+  Lexer                    token stream
     │
     ▼
-  Parser             AST  (string-interned identifiers, parse-time desugaring)
+  Parser                   AST  (string-interned identifiers, parse-time desugaring)
     │
     ▼
-  AST Passes         constant folding · desugaring · free var collection · tail call detection
+  AST Passes               constant folding · desugaring · free var collection · tail call detection
+    │
+    ▼
+  HM Type Inference        Algorithm W with effect rows — produces typed AST + hm_expr_types map
+    │
+    ├──────────────────────────────────────────────────┐
+    ▼                                                  ▼
+  Structured IR Lowering  (cfg/lower.rs)         Core IR Lowering  (nary/lower_ast.rs)
+  AST → IrTopLevelItem + IrFunction              AST → CoreProgram
+  (handles modules, data types, effects)         (handles top-level functions)
+    │                                                  │
+    │                                                  ▼
+    │                                            Core IR Passes  (nary/passes.rs)
+    │                                            beta reduction · COKC · inline trivial lets
+    │                                                  │
+    │                                                  ▼
+    │                                            Core → CFG IR  (nary/to_ir.rs)
+    │                                            CoreExpr → IrFunction + IrBlock
+    │                                                  │
+    ├──────────────── merge ◄──────────────────────────┘
+    │  (Core IR functions replace structured-IR functions;
+    │   module-internal functions kept from structured-IR)
+    ▼
+  IrProgram                unified CFG IR with IrFunction, IrBlock, IrInstr, IrTerminator
     │
     ├─────────────────────────────────────────┐
     ▼                                         ▼
@@ -42,6 +66,34 @@ Source (.flx)
                         ▼
                   GC Heap  (cons lists · HAMT maps)
 ```
+
+### Dual Lowering Pipeline
+
+The current pipeline runs **two parallel lowering passes** that are merged before code generation:
+
+1. **Structured IR lowering** (`cfg/lower.rs`): Lowers the full AST including modules, data
+   types, effect declarations, imports, and function bodies. Produces `IrTopLevelItem` metadata
+   and `IrFunction` entries with CFG basic blocks. This is the "old" path.
+
+2. **Core IR lowering** (`nary/lower_ast.rs` → `nary/passes.rs` → `nary/to_ir.rs`): Lowers
+   top-level functions through the N-ary Core IR, runs optimization passes, then converts to
+   CFG IR. This is the "new" path that will eventually replace the structured-IR lowering.
+
+After both passes run, the Core IR functions replace the structured-IR functions for any
+top-level function that has a Core IR representation. Module-internal functions (which the
+Core IR pipeline does not yet cover) are preserved from the structured-IR pass.
+
+### Why Two Passes?
+
+The N-ary Core IR pipeline currently only processes top-level function definitions. It skips:
+- `Statement::Module` bodies (module-internal functions)
+- Data type declarations
+- Effect declarations
+- Import statements
+
+These constructs are handled by the structured-IR lowering path. The merge step ensures
+both paths contribute to the final `IrProgram`. The goal is to eventually extend the Core IR
+pipeline to handle all constructs, eliminating the need for the structured-IR path.
 
 ### Parse-Time Desugaring
 
@@ -79,11 +131,27 @@ src/
 │   ├── desugar/             Additional desugaring (after parse)
 │   ├── free_vars/           Free variable collection for closure compilation
 │   ├── tail_calls/          Tail call detection / annotation
+│   ├── type_infer/          Hindley-Milner inference (Algorithm W) with effect rows
 │   └── visitor.rs           Visitor + Folder traits for AST traversal
 │
+├── nary/                    Core IR — functional intermediate representation
+│   ├── mod.rs               CoreExpr, CoreDef, CoreProgram types (~12 expression variants)
+│   ├── lower_ast.rs         AST → Core IR lowering (post-HM, type-directed)
+│   ├── passes.rs            Core IR optimization passes (beta reduction, COKC, etc.)
+│   ├── to_ir.rs             Core IR → CFG IR lowering (CoreExpr → IrFunction/IrBlock)
+│   └── display.rs           Pretty-printing for Core IR
+│
+├── cfg/                     CFG IR — control flow graph representation
+│   ├── mod.rs               IrProgram, IrFunction, IrBlock, IrInstr, IrTerminator types
+│   ├── lower.rs             AST → CFG IR lowering (structured path, handles modules)
+│   ├── passes.rs            CFG IR optimization passes
+│   └── validate.rs          CFG IR validation
+│
 ├── bytecode/                Bytecode compiler
-│   ├── compiler/            AST → stack-based bytecode
-│   │   └── mod.rs           Compiler struct, symbol table setup, Base function registration
+│   ├── compiler/            CFG IR → stack-based bytecode
+│   │   ├── mod.rs           Compiler struct, symbol table setup, Base function registration
+│   │   ├── statement.rs     CFG IR compilation (IrInstr, IrTerminator → opcodes)
+│   │   └── expression.rs    AST expression compilation (fallback for module functions)
 │   ├── opcode.rs            ~45 opcodes (OpGetLocal, OpCall, OpMatch, ...)
 │   ├── symbol_table.rs      Variable/function/Base-function tracking per scope
 │   └── cache.rs             .fxc bytecode cache (SHA-2 content hashing)
@@ -92,7 +160,7 @@ src/
 │   ├── vm/                  Stack-based VM, instruction dispatch, call frames
 │   │   └── test_runner.rs   --test flag: collect_test_functions, run_test_fns, reporting
 │   ├── value.rs             Value enum (Integer, Float, String, Array, Gc, Closure, ...)
-│   ├── base/                75 Base functions, registered via BASE_FUNCTIONS array
+│   ├── base/                77 Base functions, registered via BASE_FUNCTIONS array
 │   │   ├── array_ops.rs
 │   │   ├── string_ops.rs
 │   │   ├── hash_ops.rs
@@ -107,10 +175,12 @@ src/
 │       └── hamt.rs          HeapObject::HamtNode/HamtCollision — persistent maps
 │
 ├── jit/                     Cranelift JIT backend (--features jit)
-│   ├── compiler.rs          AST → Cranelift IR
+│   ├── compiler.rs          CFG IR → Cranelift IR
 │   ├── context.rs           JIT execution context, shares GC heap with VM
 │   ├── runtime_helpers.rs   Native callbacks: rt_call_base_function, GC allocation
 │   └── value_arena.rs       Pointer-stable allocation for JIT values
+│
+├── primop/                  41 primitive operations with frozen discriminants
 │
 └── diagnostics/             Structured error reporting
     ├── diagnostic.rs        Core Diagnostic struct (builder pattern via trait)
@@ -122,6 +192,19 @@ src/
     ├── aggregator.rs        Multi-diagnostic deduplication, grouping, sorting
     └── registry.rs          Error code registry (E1xx, E2xx–E9xx, E10xx, W2xx)
 ```
+
+---
+
+## Intermediate Representations
+
+Flux has three IRs between the surface AST and executable code. See
+[`ir_pipeline.md`](ir_pipeline.md) for a deep dive into each one.
+
+| IR | Module | Purpose | Key types |
+|----|--------|---------|-----------|
+| **Core IR** (N-ary) | `nary/` | Functional IR: ~12 expression variants, eliminates all sugar | `CoreExpr`, `CoreDef`, `CoreProgram` |
+| **CFG IR** | `cfg/` | Control flow graph: basic blocks, SSA-like variables | `IrFunction`, `IrBlock`, `IrInstr`, `IrTerminator` |
+| **Bytecode** | `bytecode/` | Stack-based instructions for the VM | `OpCode`, `CompiledFunction` |
 
 ---
 
@@ -192,7 +275,7 @@ Compiled bytecode is cached as `.fxc` files under `target/flux/`. Cache keys are
 
 ### JIT Backend
 
-The JIT (`src/jit/`) compiles the AST directly to native machine code via [Cranelift](https://cranelift.dev/), bypassing the bytecode compiler and VM entirely. It shares:
+The JIT (`src/jit/`) compiles CFG IR to native machine code via [Cranelift](https://cranelift.dev/), bypassing the bytecode compiler and VM entirely. It shares:
 - The same `RuntimeContext` trait
 - The same `BASE_FUNCTIONS` array
 - The same GC heap
