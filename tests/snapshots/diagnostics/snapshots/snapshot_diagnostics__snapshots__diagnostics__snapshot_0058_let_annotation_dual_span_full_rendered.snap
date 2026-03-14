@@ -2,16 +2,21 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  --> examples/type_system/failing/106_let_annotation_int_string.flx:2:18
+  examples/type_system/failing/106_let_annotation_int_string.flx:2:18
   |
 2 |     let x: Int = "hello"
   |                  ^^^^^^^
-  |                  ------- this is `String`
+  |                  ------- this value has type `String`
+
   |            --- but `x` was annotated as `Int`
 
+Note:
+  annotated type: Int
+  value type: String
+
 Help:
-  Change `x` to a `Int` value or update the annotation to `String`.
+  Change `x` to a `Int` value or update the annotation.

@@ -1,0 +1,26 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_paren.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E076]: Missing Closing Delimiter
+
+Expected a closing `)` to match this opening `(`.
+
+  examples/parser_errors/missing_paren.flx:7:13
+  |
+7 |     let x = (1 + 2
+  |             ^
+
+Note:
+  while parsing function `main`
+
+note: Expected `)` before this token.
+  examples/parser_errors/missing_paren.flx:8:5
+  |
+8 |     print(x)
+  |     ^^^^^
+== stdout ==
+<not executed>

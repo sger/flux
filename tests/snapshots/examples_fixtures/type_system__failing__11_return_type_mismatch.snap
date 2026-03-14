@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/11_return_type_mismatch.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E400]: MISSING EFFECT
+error[E400]: Missing Ambient Effect
 
 Call to `print` requires effect `IO` in this function signature.
 
-  --> examples/type_system/failing/11_return_type_mismatch.flx:6:5
+  examples/type_system/failing/11_return_type_mismatch.flx:6:5
   |
 6 |     print("hello")
   |     ^^^^^

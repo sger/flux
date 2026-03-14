@@ -1,0 +1,21 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/primop_clock_now_missing_time.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E400]: Missing Ambient Effect
+
+Call to `clock_now` requires effect `Time` in this function signature.
+
+  examples/compiler_errors/primop_clock_now_missing_time.flx:2:19
+  |
+2 |     let ignored = clock_now()
+  |                   ^^^^^^^^^
+  |                   --------- effectful call occurs here
+
+Hint:
+  Add `with Time` to the enclosing function.
+== stdout ==
+<not executed>

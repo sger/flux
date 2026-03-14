@@ -1,5 +1,6 @@
 use crate::{
     bytecode::compiler::Compiler,
+    bytecode::op_code::OpCode,
     bytecode::symbol_scope::SymbolScope,
     diagnostics::render_diagnostics,
     runtime::base::BaseModule,
@@ -18,6 +19,24 @@ fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
     );
     let interner = parser.take_interner();
     (program, interner)
+}
+
+fn find_compiled_function(
+    constants: &[Value],
+    name: &str,
+) -> Option<std::rc::Rc<crate::runtime::compiled_function::CompiledFunction>> {
+    constants.iter().find_map(|value| match value {
+        Value::Function(function)
+            if function
+                .debug_info
+                .as_ref()
+                .and_then(|debug| debug.name.as_deref())
+                == Some(name) =>
+        {
+            Some(function.clone())
+        }
+        _ => None,
+    })
 }
 
 #[test]
@@ -98,6 +117,69 @@ fn compile_with_opts_collects_tail_calls_when_optimized() {
 }
 
 #[test]
+fn compile_with_opts_handles_cfg_lowered_option_match_function() {
+    let (program, interner) = parse_program("fn f(x) { match x { Some(n) -> n, None -> 0 } }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, true, true).unwrap();
+
+    let function = find_compiled_function(&compiler.bytecode().constants, "f")
+        .expect("expected compiled function constant for f");
+
+    let instructions = &function.instructions;
+    assert!(
+        instructions.contains(&(OpCode::OpIsSome as u8)),
+        "expected option-test opcode in compiled function"
+    );
+    assert!(
+        instructions.contains(&(OpCode::OpUnwrapSome as u8)),
+        "expected option-payload opcode in compiled function"
+    );
+}
+
+#[test]
+fn compile_with_opts_handles_cfg_lowered_constructor_match_function() {
+    let (program, interner) = parse_program(
+        "data MaybeInt { SomeInt(Int), NoneInt }\nfn f(x) { match x { SomeInt(n) -> n, NoneInt -> 0 } }",
+    );
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, true, true).unwrap();
+
+    let function = find_compiled_function(&compiler.bytecode().constants, "f")
+        .expect("expected compiled function constant for f");
+
+    let instructions = &function.instructions;
+    assert!(
+        instructions.contains(&(OpCode::OpIsAdtJump as u8))
+            || instructions.contains(&(OpCode::OpIsAdtJumpLocal as u8)),
+        "expected constructor-test opcode in compiled function"
+    );
+    assert!(
+        instructions.contains(&(OpCode::OpAdtField as u8)),
+        "expected constructor-field opcode in compiled function"
+    );
+}
+
+#[test]
+fn compile_with_opts_handles_cfg_lowered_tuple_match_function() {
+    let (program, interner) = parse_program("fn f(x) { match x { (a, b) -> a, _ -> 0 } }");
+    let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, true, true).unwrap();
+
+    let function = find_compiled_function(&compiler.bytecode().constants, "f")
+        .expect("expected compiled function constant for f");
+
+    let instructions = &function.instructions;
+    assert!(
+        instructions.contains(&(OpCode::OpIsTuple as u8)),
+        "expected tuple-test opcode in compiled function"
+    );
+    assert!(
+        instructions.contains(&(OpCode::OpTupleIndex as u8)),
+        "expected tuple-field opcode in compiled function"
+    );
+}
+
+#[test]
 fn compile_with_opts_skips_tail_call_analysis_without_optimization() {
     let (program, interner) = parse_program("fn f(n) { f(n - 1) }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
@@ -168,7 +250,7 @@ let x: Int = y
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -191,7 +273,7 @@ let x: Int = make()
         .expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -219,7 +301,7 @@ fn main() -> Unit {
         .expect_err("expected HM strict-path mismatch for module member call");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("Float"),
@@ -248,7 +330,7 @@ fn main() -> Unit {
         .expect_err("expected private member access failure");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E011]"),
+        rendered.contains("error[E011]: Private Member"),
         "unexpected diagnostics:\n{}",
         rendered
     );
@@ -283,7 +365,7 @@ fn main() -> Unit {
         .expect_err("expected tuple-field typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]")
+        rendered.contains("error[E300]: Annotation Type Mismatch")
             && rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
             && rendered.contains("String"),
@@ -314,7 +396,8 @@ fn main() -> Unit {
         .expect_err("expected index projection typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
-        rendered.contains("error[E300]") && rendered.contains("Option<Int>"),
+        rendered.contains("error[E300]: Annotation Type Mismatch")
+            && rendered.contains("Option<Int>"),
         "unexpected diagnostics:\n{}",
         rendered
     );

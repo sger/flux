@@ -5,11 +5,11 @@ Fixture: examples/Modules/ink_script.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Amber.Ink` to import.
 
-  --> examples/Modules/ink_script.flx:1:1
+  examples/Modules/ink_script.flx:1:1
   |
 1 | import Modules.Amber.Ink
   | ^

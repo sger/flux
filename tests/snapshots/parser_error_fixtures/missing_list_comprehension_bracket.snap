@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/missing_list_comprehension_bracket.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Missing Closing Delimiter
+
+Expected `]` to close list comprehension.
+
+  examples/parser_errors/missing_list_comprehension_bracket.flx:3:29
+  |
+3 |     print([x * 2 | x <- nums)
+  |                             ^
+
+Hint:
+  List comprehensions use `[expr | x <- xs, ...]`.
+== stdout ==
+<not executed>

@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/186_runtime_boundary_return_e1004.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `TypeSystem.BoundaryUnknown` to import.
 
-  --> examples/type_system/failing/186_runtime_boundary_return_e1004.flx:1:1
+  examples/type_system/failing/186_runtime_boundary_return_e1004.flx:1:1
   |
 1 | import TypeSystem.BoundaryUnknown
   | ^

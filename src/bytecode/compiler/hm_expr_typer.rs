@@ -2,10 +2,11 @@ use crate::{
     bytecode::compiler::Compiler,
     diagnostics::{
         Diagnostic, DiagnosticBuilder, ErrorType, compiler_errors::type_unification_error,
-        types::LabelStyle,
+        position::Span, types::LabelStyle,
     },
+    ir::IrStructuredExpr,
     syntax::expression::Expression,
-    types::{infer_type::InferType, unify_error::unify},
+    types::{infer_type::InferType, unify::unify},
 };
 
 use crate::ast::type_infer::{display_infer_type, suggest_type_name};
@@ -27,32 +28,14 @@ impl Compiler {
     /// Authoritative HM expression typing for typed validation paths.
     /// This path only consults the global HM expression-type map.
     pub(super) fn hm_expr_type_strict_path(&self, expression: &Expression) -> HmExprTypeResult {
-        let key = expression as *const Expression as usize;
-        let Some(node_id) = self.expr_ptr_to_id.get(&key) else {
-            debug_assert!(
-                false,
-                "HM expression id lookup missed in strict path. Invariant: HM pass and typed validation must run against the same Program allocation within one compile invocation."
-            );
-            return HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType);
-        };
-        match self.expr_type(*node_id) {
-            Some(infer) if Self::is_hm_type_resolved(&infer) => HmExprTypeResult::Known(infer),
-            Some(_) => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
-            None => {
-                debug_assert!(
-                    false,
-                    "HM expression type map missed known expression id in strict path. Invariant: infer_program must populate ExprTypeMap for every expression visited in codegen validation."
-                );
-                HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType)
+        let expr_id = expression.expr_id();
+        match self.hm_expr_types.get(&expr_id) {
+            Some(infer) if Self::is_hm_type_resolved(infer) => {
+                HmExprTypeResult::Known(infer.clone())
             }
+            Some(_) => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
+            None => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
         }
-    }
-
-    pub(super) fn expr_type(
-        &self,
-        node_id: crate::ast::type_infer::ExprNodeId,
-    ) -> Option<InferType> {
-        self.hm_expr_types.get(&node_id).cloned()
     }
 
     fn is_hm_type_resolved(infer: &InferType) -> bool {
@@ -85,6 +68,10 @@ impl Compiler {
         expected: &InferType,
         actual: &InferType,
     ) -> Result<(), (String, String)> {
+        // Any is compatible with every type (gradual typing boundary).
+        if expected.contains_any() || actual.contains_any() {
+            return Ok(());
+        }
         if let Some((resolved_expected, resolved_actual)) =
             Self::resolved_unify_types(expected, actual)
             && resolved_expected == resolved_actual
@@ -139,6 +126,8 @@ impl Compiler {
             self.file_path.clone(),
             expression.span(),
         )
+        .with_display_title("Unresolved Boundary Type")
+        .with_category(crate::diagnostics::DiagnosticCategory::TypeInference)
         .with_primary_label(
             expression.span(),
             "expression type is unresolved in strict mode",
@@ -160,7 +149,7 @@ impl Compiler {
         if self.is_concrete_array_literal_conflict(expression) {
             return Ok(());
         }
-        if self.has_concrete_e300_for_expression(expression) {
+        if self.type_error_already_reported_for(expression) {
             return Ok(());
         }
         self.check_private_module_member_access_for_expr(expression)?;
@@ -225,8 +214,61 @@ impl Compiler {
         false
     }
 
-    fn has_concrete_e300_for_expression(&self, expression: &Expression) -> bool {
-        let expr_span = expression.span();
+    fn is_concrete_ir_array_literal_conflict(&self, expr: &IrStructuredExpr) -> bool {
+        let IrStructuredExpr::ArrayLiteral { elements, .. } = expr else {
+            return false;
+        };
+        if elements.len() < 2 {
+            return false;
+        }
+        let mut first_known: Option<InferType> = None;
+        for element in elements {
+            let HmExprTypeResult::Known(actual) = self.hm_ir_expr_type_strict_path(element) else {
+                return false;
+            };
+            if actual.contains_any() || !actual.free_vars().is_empty() {
+                return false;
+            }
+            if let Some(expected) = &first_known {
+                if self.ensure_unify(expected, &actual).is_err() {
+                    return true;
+                }
+            } else {
+                first_known = Some(actual);
+            }
+        }
+        false
+    }
+
+    fn is_concrete_ir_match_arm_conflict(&self, expr: &IrStructuredExpr) -> bool {
+        let IrStructuredExpr::Match { arms, .. } = expr else {
+            return false;
+        };
+        if arms.len() < 2 {
+            return false;
+        }
+        let concrete_arms: Vec<InferType> = arms
+            .iter()
+            .filter_map(|arm| match self.hm_ir_expr_type_strict_path(&arm.body) {
+                HmExprTypeResult::Known(ty) if !ty.contains_any() && ty.free_vars().is_empty() => {
+                    Some(ty)
+                }
+                _ => None,
+            })
+            .collect();
+        if concrete_arms.len() < 2 {
+            return false;
+        }
+        let pivot = &concrete_arms[0];
+        for actual in concrete_arms.iter().skip(1) {
+            if self.ensure_unify(pivot, actual).is_err() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(super) fn type_error_already_reported_for_span(&self, expr_span: Span) -> bool {
         self.errors.iter().any(|diag| {
             if diag.code() != Some("E300") {
                 return false;
@@ -253,6 +295,10 @@ impl Compiler {
                     || label.span.start.line == expr_span.start.line
             })
         })
+    }
+
+    pub(super) fn type_error_already_reported_for(&self, expression: &Expression) -> bool {
+        self.type_error_already_reported_for_span(expression.span())
     }
 
     fn check_private_module_member_access_for_expr(
@@ -350,5 +396,168 @@ impl Compiler {
                 self.maybe_unresolved(expression, unresolved_context, strict_unresolved_error)
             }
         }
+    }
+
+    /// IR-aware version of `hm_expr_type_strict_path` that uses `IrStructuredExpr::expr_id()`.
+    pub(super) fn hm_ir_expr_type_strict_path(&self, expr: &IrStructuredExpr) -> HmExprTypeResult {
+        let expr_id = expr.expr_id();
+        match self.hm_expr_types.get(&expr_id) {
+            Some(infer) if Self::is_hm_type_resolved(infer) => {
+                HmExprTypeResult::Known(infer.clone())
+            }
+            Some(_) => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
+            None => HmExprTypeResult::Unresolved(UnresolvedReason::UnknownExpressionType),
+        }
+    }
+
+    fn build_type_mismatch_for_span(
+        &self,
+        span: Span,
+        primary_label: &str,
+        help: String,
+        expected: &str,
+        actual: &str,
+    ) -> Diagnostic {
+        let mut diag = type_unification_error(self.file_path.clone(), span, expected, actual)
+            .with_secondary_label(span, primary_label)
+            .with_help(help);
+        for name in [expected, actual] {
+            if let Some(suggestion) = crate::ast::type_infer::suggest_type_name(name) {
+                diag.hints
+                    .push(crate::diagnostics::types::Hint::help(format!(
+                        "Unknown type `{name}` — {suggestion}"
+                    )));
+            }
+        }
+        diag
+    }
+
+    pub(super) fn unresolved_boundary_error_for_span(
+        &self,
+        span: Span,
+        unresolved_context: &str,
+    ) -> Diagnostic {
+        Diagnostic::make_error_dynamic(
+            "E425",
+            "STRICT UNRESOLVED BOUNDARY TYPE",
+            ErrorType::Compiler,
+            format!(
+                "Strict mode cannot enforce runtime boundary check for unresolved expression type in {}.",
+                unresolved_context
+            ),
+            Some(
+                "Use concrete types (or additional annotations) so HM can resolve this expression."
+                    .to_string(),
+            ),
+            self.file_path.clone(),
+            span,
+        )
+        .with_display_title("Unresolved Boundary Type")
+        .with_category(crate::diagnostics::DiagnosticCategory::TypeInference)
+        .with_primary_label(span, "expression type is unresolved in strict mode")
+    }
+
+    pub(super) fn validate_ir_expr_expected_type_with_policy(
+        &self,
+        expected: &InferType,
+        expr: &IrStructuredExpr,
+        primary_label: &str,
+        help: String,
+        unresolved_context: &str,
+        strict_unresolved_error: bool,
+    ) -> CompileResult<()> {
+        match self.hm_ir_expr_type_strict_path(expr) {
+            HmExprTypeResult::Known(actual) => {
+                if self.ensure_unify(expected, &actual).is_ok() {
+                    return Ok(());
+                }
+                let (expected_str, actual_str) = self.format_unify_pair(expected, &actual);
+                Err(Box::new(self.build_type_mismatch_for_span(
+                    expr.span(),
+                    primary_label,
+                    help,
+                    &expected_str,
+                    &actual_str,
+                )))
+            }
+            HmExprTypeResult::Unresolved(_) => {
+                if !strict_unresolved_error || !self.strict_mode {
+                    return Ok(());
+                }
+                // Suppress E425 when there is already a concrete type conflict
+                // that will produce an E300 error (either from HM or from the
+                // boundary checker for a nested expression).
+                if self.is_concrete_ir_array_literal_conflict(expr) {
+                    return Ok(());
+                }
+                if self.is_concrete_ir_match_arm_conflict(expr) {
+                    return Ok(());
+                }
+                if self.type_error_already_reported_for_span(expr.span()) {
+                    return Ok(());
+                }
+                // Check for private module member access before emitting a generic
+                // unresolved boundary error — the private access error is more precise.
+                self.check_private_module_member_access_for_ir_expr(expr)?;
+                Err(Box::new(self.unresolved_boundary_error_for_span(
+                    expr.span(),
+                    unresolved_context,
+                )))
+            }
+        }
+    }
+
+    fn check_private_module_member_access_for_ir_expr(
+        &self,
+        expr: &IrStructuredExpr,
+    ) -> CompileResult<()> {
+        // Extract (object_name, member, span) from a Call(MemberAccess(...)) or MemberAccess(...)
+        let (object_name, member, span) = match expr {
+            IrStructuredExpr::MemberAccess {
+                object,
+                member,
+                span,
+                ..
+            } => match object.as_ref() {
+                IrStructuredExpr::Identifier { name, .. } => (*name, *member, *span),
+                _ => return Ok(()),
+            },
+            IrStructuredExpr::Call { function, span, .. } => match function.as_ref() {
+                IrStructuredExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                    IrStructuredExpr::Identifier { name, .. } => (*name, *member, *span),
+                    _ => return Ok(()),
+                },
+                _ => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
+
+        let module_name = if let Some(target) = self.import_aliases.get(&object_name) {
+            Some(*target)
+        } else if self.imported_modules.contains(&object_name)
+            || self.current_module_prefix == Some(object_name)
+        {
+            Some(object_name)
+        } else {
+            None
+        };
+        let Some(module_name) = module_name else {
+            return Ok(());
+        };
+
+        let member_str = self.sym(member);
+        self.check_private_member(member_str, span, Some(self.sym(module_name)))?;
+        if self.current_module_prefix != Some(module_name)
+            && self.module_member_function_is_public(module_name, member) == Some(false)
+        {
+            return Err(Box::new(Diagnostic::make_error(
+                &crate::diagnostics::PRIVATE_MEMBER,
+                &[member_str],
+                self.file_path.clone(),
+                span,
+            )));
+        }
+
+        Ok(())
     }
 }

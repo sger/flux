@@ -1,0 +1,10 @@
+// Missing `)` in tuple literal.
+//
+// Expected: E076 UNCLOSED DELIMITER
+//   "Expected a closing `)` to match this opening `(`."
+//   Points to the opening `(` of the tuple.
+
+fn main() -> Unit {
+    let pair = (1, "hello"
+    print(pair)
+}

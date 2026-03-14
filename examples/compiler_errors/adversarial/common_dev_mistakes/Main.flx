@@ -1,0 +1,11 @@
+import MissingPublicAccess
+import PrivateMemberAccess
+import CollectionsConfusion
+import UnknownEffectTypo
+import UnknownBaseMemberTypo
+import UnknownIdentifierTypo
+import WrongArity
+
+fn main() -> Unit {
+    let entry = 1
+}

@@ -1,0 +1,4 @@
+module UnknownEffectTypo {
+    fn bad() -> Unit with I {
+    }
+}

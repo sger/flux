@@ -1,5 +1,6 @@
 - Feature Name: Contextual Diagnostics — Call-Site Arguments, Let Annotations, and Function Return Types
 - Start Date: 2026-02-28
+- Status: Partially Implemented
 - Proposal PR: pending (feature/type-system merge PR)
 - Flux Issue: pending (type-system merge-readiness tracker, March 1, 2026)
 

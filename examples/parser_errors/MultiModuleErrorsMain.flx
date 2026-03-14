@@ -1,0 +1,9 @@
+import MultiImportKeywordErrors
+import MultiControlFlowErrors
+import MultiDeclarationErrors
+import MultiDelimiterErrors
+import MultiAnnotationErrors
+
+fn main() -> Unit {
+    print("parser multi-module entry")
+}

@@ -5,11 +5,11 @@ Fixture: examples/Modules/Main.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Main` doesn't match file path `examples/Modules/Main.flx`.
 
-  --> examples/Modules/Main.flx:3:1
+  examples/Modules/Main.flx:3:1
   |
 3 | module Modules.Main {
   | ^

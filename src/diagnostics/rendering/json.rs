@@ -2,13 +2,14 @@ use serde::Serialize;
 
 use crate::diagnostics::position::{Position, Span};
 use crate::diagnostics::{
-    Diagnostic, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind, InlineSuggestion, Label,
-    LabelStyle, RelatedDiagnostic, RelatedKind, Severity,
+    Diagnostic, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator, Hint, HintKind,
+    InlineSuggestion, Label, LabelStyle, RelatedDiagnostic, RelatedKind, Severity, StackTraceFrame,
 };
 
 #[derive(Serialize)]
 struct JsonDiagnostic {
     severity: &'static str,
+    category: Option<&'static str>,
     phase: Option<&'static str>,
     code: Option<String>,
     title: String,
@@ -19,6 +20,7 @@ struct JsonDiagnostic {
     hints: Vec<JsonHint>,
     suggestions: Vec<JsonSuggestion>,
     related: Vec<JsonRelated>,
+    stack_trace: Vec<JsonStackTraceFrame>,
 }
 
 #[derive(Serialize)]
@@ -64,6 +66,12 @@ struct JsonRelated {
     span: Option<JsonSpan>,
 }
 
+#[derive(Serialize)]
+struct JsonStackTraceFrame {
+    text: String,
+}
+
+/// Render diagnostics as JSON after applying the standard aggregation pipeline.
 pub fn render_diagnostics_json(
     diagnostics: &[Diagnostic],
     default_file: Option<&str>,
@@ -91,6 +99,7 @@ impl JsonDiagnostic {
     fn from_diag(diag: &Diagnostic) -> Self {
         Self {
             severity: severity_str(diag.severity()),
+            category: diag.category().map(category_str),
             phase: diag.phase().map(phase_str),
             code: diag.code().map(ToString::to_string),
             title: diag.title().to_string(),
@@ -109,8 +118,17 @@ impl JsonDiagnostic {
                 .iter()
                 .map(JsonRelated::from_related)
                 .collect(),
+            stack_trace: diag
+                .stack_trace()
+                .iter()
+                .map(JsonStackTraceFrame::from_frame)
+                .collect(),
         }
     }
+}
+
+fn category_str(category: DiagnosticCategory) -> &'static str {
+    category.as_str()
 }
 
 fn phase_str(phase: DiagnosticPhase) -> &'static str {
@@ -182,6 +200,14 @@ impl JsonRelated {
             message: related.message.clone(),
             file: related.file.clone(),
             span: related.span.map(JsonSpan::from_span),
+        }
+    }
+}
+
+impl JsonStackTraceFrame {
+    fn from_frame(frame: &StackTraceFrame) -> Self {
+        Self {
+            text: frame.text.clone(),
         }
     }
 }

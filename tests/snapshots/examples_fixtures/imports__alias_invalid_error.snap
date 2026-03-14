@@ -5,11 +5,11 @@ Fixture: examples/imports/alias_invalid_error.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E026]: INVALID MODULE ALIAS
+error[E026]: Invalid Module Alias
 
 Invalid module alias: `myfile`.
 
-  --> examples/imports/alias_invalid_error.flx:1:1
+  examples/imports/alias_invalid_error.flx:1:1
   |
 1 | import Modules.Data.MyFile as myfile
   | ^

@@ -8,6 +8,11 @@ use std::{
 };
 
 #[cfg(feature = "jit")]
+use flux::diagnostics::{
+    ErrorType,
+    position::{Position, Span},
+};
+#[cfg(feature = "jit")]
 use flux::syntax::program::Program;
 use flux::{
     ast::{collect_free_vars_in_program, find_tail_calls},
@@ -17,8 +22,8 @@ use flux::{
         op_code::disassemble,
     },
     diagnostics::{
-        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator, position::Span,
-        render_diagnostics_json,
+        DEFAULT_MAX_ERRORS, Diagnostic, DiagnosticPhase, DiagnosticsAggregator,
+        quality::module_skipped_note, render_diagnostics_json,
     },
     runtime::{
         gc::GcHeap,
@@ -187,7 +192,10 @@ fn main() {
             }
 
             if !is_flx_file(&args[2]) {
-                eprintln!("Error: file must have .flx extension: {}", args[2]);
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             if test_mode {
@@ -235,7 +243,10 @@ fn main() {
                 return;
             }
             if !is_flx_file(&args[2]) {
-                eprintln!("Error: file must have .flx extension: {}", args[2]);
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_tokens(&args[2]);
@@ -243,6 +254,13 @@ fn main() {
         "bytecode" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux bytecode <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_bytecode(
@@ -259,6 +277,13 @@ fn main() {
                 eprintln!("Usage: flux lint <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             lint_file(&args[2], max_errors, diagnostics_format);
         }
         "fmt" => {
@@ -272,11 +297,25 @@ fn main() {
                 eprintln!("Usage: flux fmt --check <file.flx>");
                 return;
             }
+            if !is_flx_file(file) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    file
+                );
+                return;
+            }
             fmt_file(file, check);
         }
         "cache-info" => {
             if args.len() < 3 {
                 eprintln!("Usage: flux cache-info <file.flx>");
+                return;
+            }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
                 return;
             }
             show_cache_info(&args[2], &roots);
@@ -293,6 +332,13 @@ fn main() {
                 eprintln!("Usage: flux analyze-free-vars <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             analyze_free_vars(&args[2], max_errors, diagnostics_format);
         }
         "analyze-tail-calls" | "analyze-tails-calls" | "tail-calls" => {
@@ -300,12 +346,24 @@ fn main() {
                 eprintln!("Usage: flux analyze-tail-calls <file.flx>");
                 return;
             }
+            if !is_flx_file(&args[2]) {
+                eprintln!(
+                    "Error: expected a `.flx` file, got `{}`. Pass a Flux source file like `path/to/file.flx`.",
+                    args[2]
+                );
+                return;
+            }
             analyze_tail_calls(&args[2], max_errors, diagnostics_format);
         }
         "repl" => {
             repl(trace);
         }
-        _ => {}
+        _ => {
+            eprintln!(
+                "Error: unknown command or invalid input `{}`. Pass a `.flx` file or a valid subcommand.",
+                args[1]
+            );
+        }
     }
 }
 
@@ -520,16 +578,10 @@ fn run_file(
                     .find(|e| failed.contains(&e.target_path));
                 if let Some(dep) = failed_dep {
                     failed.insert(node.path.clone());
-                    // GHC-style skip note
-                    all_diagnostics.push(Diagnostic::make_note(
-                        "MODULE SKIPPED",
-                        format!(
-                            "Module `{}` was skipped because its dependency `{}` has errors.",
-                            node.path.to_string_lossy(),
-                            dep.name,
-                        ),
+                    all_diagnostics.push(module_skipped_note(
                         node.path.to_string_lossy().to_string(),
-                        Span::default(),
+                        node.path.to_string_lossy().to_string(),
+                        dep.name.clone(),
                     ));
                     continue;
                 }
@@ -621,14 +673,28 @@ fn run_file(
                 };
 
                 let jit_compile_start = Instant::now();
-                let compiled =
-                    match flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options) {
-                        Ok(c) => c,
-                        Err(err) => {
-                            eprintln!("{}", err);
-                            std::process::exit(1);
-                        }
-                    };
+                let prev_hook = std::panic::take_hook();
+                std::panic::set_hook(Box::new(|_| {}));
+                let jit_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    flux::jit::jit_compile(&jit_program, &compiler.interner, &jit_options)
+                }));
+                std::panic::set_hook(prev_hook);
+                let compiled = match jit_result {
+                    Ok(Ok(c)) => c,
+                    Ok(Err(err)) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
+                    }
+                    Err(panic) => {
+                        let msg = panic
+                            .downcast_ref::<String>()
+                            .map(|s| s.as_str())
+                            .or_else(|| panic.downcast_ref::<&str>().copied())
+                            .unwrap_or("unknown panic");
+                        eprintln!("JIT compilation failed: {}", msg);
+                        std::process::exit(1);
+                    }
+                };
                 let jit_compile_ms = jit_compile_start.elapsed().as_secs_f64() * 1000.0;
 
                 let jit_exec_start = Instant::now();
@@ -662,7 +728,13 @@ fn run_file(
                         }
                     }
                     Err(err) => {
-                        eprintln!("{}", err);
+                        emit_jit_runtime_error(
+                            &err,
+                            path,
+                            source.as_str(),
+                            max_errors,
+                            diagnostics_format,
+                        );
                         std::process::exit(1);
                     }
                 }
@@ -1195,6 +1267,24 @@ fn tag_diagnostics(diags: &mut [Diagnostic], phase: DiagnosticPhase) {
     }
 }
 
+fn should_show_file_headers(diagnostics: &[Diagnostic], requested: bool) -> bool {
+    if requested {
+        return true;
+    }
+
+    let mut files = std::collections::BTreeSet::new();
+    for diag in diagnostics {
+        if let Some(file) = diag.file() {
+            files.insert(file);
+            if files.len() > 1 {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_diagnostics(
     diagnostics: &[Diagnostic],
@@ -1206,6 +1296,7 @@ fn emit_diagnostics(
     all_errors: bool,
     text_to_stderr: bool,
 ) {
+    let show_file_headers = should_show_file_headers(diagnostics, show_file_headers);
     let mut agg = DiagnosticsAggregator::new(diagnostics)
         .with_file_headers(show_file_headers)
         .with_max_errors(Some(max_errors))
@@ -1246,6 +1337,95 @@ fn emit_diagnostics(
                 false,
             );
             eprintln!("{}", rendered);
+        }
+    }
+}
+
+#[cfg(feature = "jit")]
+fn parse_rendered_runtime_diagnostic(err: &str) -> Option<Diagnostic> {
+    let mut lines = err.lines();
+    let header = lines.next()?.trim();
+    if !header.starts_with("• ") {
+        return None;
+    }
+
+    let error_line = lines.find(|line| {
+        let trimmed = line.trim_start();
+        trimmed.starts_with("Error[") || trimmed.starts_with("error[")
+    })?;
+    let error_line = error_line.trim();
+    let code_end = error_line.find(']')?;
+    let prefix_len = if error_line.starts_with("Error[") {
+        "Error[".len()
+    } else {
+        "error[".len()
+    };
+    let code = error_line.get(prefix_len..code_end)?;
+    let title = error_line.get(code_end + 1..)?.trim().strip_prefix(": ")?;
+
+    let mut message_lines = Vec::new();
+    let mut location_line = None;
+    for line in lines {
+        if location_line.is_none()
+            && line.starts_with("  ")
+            && line.trim().contains(':')
+            && !line.contains('|')
+        {
+            location_line = Some(line.trim().to_string());
+            break;
+        }
+        if !line.trim().is_empty() {
+            message_lines.push(line.trim_end().to_string());
+        }
+    }
+    let location_line = location_line?;
+    let (file_and_line, column) = location_line.rsplit_once(':')?;
+    let (file, line) = file_and_line.rsplit_once(':')?;
+    let line = line.parse::<usize>().ok()?;
+    let column = column.parse::<usize>().ok()?;
+
+    Some(
+        Diagnostic::make_error_dynamic(
+            code,
+            title,
+            ErrorType::Runtime,
+            message_lines.join("\n").trim(),
+            None,
+            file.to_string(),
+            Span::new(
+                Position::new(line, column.saturating_sub(1)),
+                Position::new(line, column.saturating_sub(1)),
+            ),
+        )
+        .with_phase(DiagnosticPhase::Runtime),
+    )
+}
+
+#[cfg(feature = "jit")]
+fn emit_jit_runtime_error(
+    err: &str,
+    source_path: &str,
+    source_text: &str,
+    max_errors: usize,
+    diagnostics_format: DiagnosticOutputFormat,
+) {
+    match diagnostics_format {
+        DiagnosticOutputFormat::Text => eprintln!("{}", err),
+        DiagnosticOutputFormat::Json | DiagnosticOutputFormat::JsonCompact => {
+            if let Some(diag) = parse_rendered_runtime_diagnostic(err) {
+                emit_diagnostics(
+                    &[diag],
+                    Some(source_path),
+                    Some(source_text),
+                    false,
+                    max_errors,
+                    diagnostics_format,
+                    false,
+                    true,
+                );
+            } else {
+                eprintln!("{}", err);
+            }
         }
     }
 }

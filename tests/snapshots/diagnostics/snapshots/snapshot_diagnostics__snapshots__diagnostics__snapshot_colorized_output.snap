@@ -2,11 +2,11 @@
 source: tests/snapshots/diagnostics/mod.rs
 expression: output
 ---
-[33m--> warning[E123]: COLOR[0m
+[33mWarning[E123]: Color[0m
 
 message
 
-  --> test.flx:1:5
+  [2m[36mtest.flx:1:5[0m
   |
 1 | let x = 1;
   |     [31m^[0m

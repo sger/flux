@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/10_adt_non_exhaustive.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E083]: NON-EXHAUSTIVE ADT MATCH
+error[E083]: Non-Exhaustive ADT Match
 
 Match on `Color` is missing constructors: Blue.
 
-  --> examples/type_system/failing/10_adt_non_exhaustive.flx:13:5
+  examples/type_system/failing/10_adt_non_exhaustive.flx:13:5
    |
 13 |     match c {
    |     ^^^^^^^^^
@@ -26,11 +26,11 @@ Hint:
   Add arms for Blue or add a `_ -> ...` catch-all.
 
 
---> compiler error[E413]: TOP-LEVEL EFFECT
+error[E413]: Top-Level Effect
 
 Effectful operation is not allowed at top level (requires: IO).
 
-  --> examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
+  examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
    |
 28 | print(pass(t))
    | ^^^^^^^^^^^^^^
@@ -40,11 +40,11 @@ Hint:
   Move this code into `fn main() with ... { ... }`.
 
 
---> compiler error[E414]: MISSING MAIN FUNCTION
+error[E414]: Missing Main Function
 
 Effectful program is missing `fn main` root effect handler.
 
-  --> examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
+  examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
    |
 28 | print(pass(t))
    | ^^^^^^^^^^^^^^
@@ -53,6 +53,20 @@ Effectful program is missing `fn main` root effect handler.
 Hint:
   Define `fn main() with ... { ... }` and move execution there.
 
-Found 3 errors.
+
+error[E400]: Missing Effect
+
+requires effect `IO` but the enclosing context does not provide it
+
+  examples/type_system/failing/10_adt_non_exhaustive.flx:28:1
+   |
+28 | print(pass(t))
+   | ^^^^^^^^^^^^^^
+   | -------------- requires `IO`
+
+Hint:
+  annotate the enclosing function with `with IO`
+
+Found 4 errors.
 == stdout ==
 <not executed>

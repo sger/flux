@@ -1,0 +1,20 @@
+---
+source: tests/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/extra_closing_paren.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E031]: Expected Expression
+
+Expected expression, found `)`.
+
+  examples/parser_errors/extra_closing_paren.flx:6:18
+  |
+6 |     let x = 1 + 2)
+  |                  ^
+
+Note:
+  while parsing function `main`
+== stdout ==
+<not executed>

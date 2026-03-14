@@ -1,0 +1,54 @@
+---
+source: tests/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/adversarial/multi_independent_errors.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `first` does not match its type annotation.
+
+  examples/compiler_errors/adversarial/multi_independent_errors.flx:6:22
+  |
+6 |     let first: Int = "oops"
+  |                      ^^^^^^
+  |                      ------ this value has type `String`
+
+  |                --- but `first` was annotated as `Int`
+
+Note:
+  annotated type: Int
+  value type: String
+
+Help:
+  Change `first` to a `Int` value or update the annotation.
+
+
+error[E056]: Wrong Number Of Arguments
+
+The `add` function takes 2 arguments, but 1 were provided.
+
+  examples/compiler_errors/adversarial/multi_independent_errors.flx:7:18
+  |
+1 | fn add(a: Int, b: Int) -> Int {
+2 |     a + b
+3 | }
+4 | 
+5 | fn bad() -> Unit {
+6 |     let first: Int = "oops"
+7 |     let second = add(1)
+  |                  ^^^^^^
+  |                  ------ 1 arguments provided here, expected 2
+
+Help:
+  Add 1 missing argument(s), for example: `add(arg1, arg2)`.
+
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+
+Found 2 errors.
+== stdout ==
+<not executed>

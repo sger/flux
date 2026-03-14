@@ -4,27 +4,27 @@ source: tests/regression_snapshots.rs
 $ flux --no-cache tests/fixtures/collections/error_limit_missing_commas.flx
 exit_code: 1
 
---> compiler error[E076]: UNCLOSED DELIMITER
+error[E076]: Missing Closing Delimiter
 
 Expected a closing `)` to match this opening `(`.
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:2:6
+  tests/fixtures/collections/error_limit_missing_commas.flx:2:6
   |
 2 | print(
   |      ^
 
 note: Expected `)` before this token.
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:4:3
+  tests/fixtures/collections/error_limit_missing_commas.flx:4:3
   |
 4 |   11 12 13 14 15 16 17 18 19 20
   |   ^^
 
 
---> compiler error[E073]: MISSING COMMA
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:5
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:5
   |
 3 |   1 2 3 4 5 6 7 8 9 10
   |     ^
@@ -33,11 +33,11 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
---> compiler error[E073]: MISSING COMMA
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:7
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:7
   |
 3 |   1 2 3 4 5 6 7 8 9 10
   |       ^
@@ -46,11 +46,11 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
---> compiler error[E073]: MISSING COMMA
+error[E073]: Missing Comma
 
 Missing comma between arguments.
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:9
+  tests/fixtures/collections/error_limit_missing_commas.flx:3:9
   |
 3 |   1 2 3 4 5 6 7 8 9 10
   |         ^
@@ -59,91 +59,32 @@ Hint:
   Add a comma between items, e.g. `f(a, b)`.
 
 
---> compiler error[E073]: MISSING COMMA
+error[E031]: Expected Expression
 
-Missing comma between arguments.
+Expected expression, found `)`.
 
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:11
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |           ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E073]: MISSING COMMA
-
-Missing comma between arguments.
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:13
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |             ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E073]: MISSING COMMA
-
-Missing comma between arguments.
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:15
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |               ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E073]: MISSING COMMA
-
-Missing comma between arguments.
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:17
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                 ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E073]: MISSING COMMA
-
-Missing comma between arguments.
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:19
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                   ^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E073]: MISSING COMMA
-
-Missing comma between arguments.
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:3:21
-  |
-3 |   1 2 3 4 5 6 7 8 9 10
-  |                     ^^
-
-Hint:
-  Add a comma between items, e.g. `f(a, b)`.
-
-
---> compiler error[E031]: EXPECTED EXPRESSION
-
-Expected expression, found ).
-
-  --> tests/fixtures/collections/error_limit_missing_commas.flx:9:1
+  tests/fixtures/collections/error_limit_missing_commas.flx:9:1
   |
 9 | );
   | ^
 
-Found 11 errors.
+
+error[E031]: Expected Expression
+
+Expected expression, found `;`.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:9:2
+  |
+9 | );
+  |  ^
+
+
+Note: Repeated Parser Diagnostics Suppressed
+
+I hid 6 additional repeated parser diagnostic(s) for "Missing Comma" in this file. Use `--all-errors` to see every occurrence.
+
+  tests/fixtures/collections/error_limit_missing_commas.flx:0:1
+  |
+... and 6 more errors not shown (use --max-errors to increase).
+
+Found 12 errors and 1 note.

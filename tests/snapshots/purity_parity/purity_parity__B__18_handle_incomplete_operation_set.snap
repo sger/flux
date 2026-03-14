@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/18_handle_incomplete_operation_se
 exit_code: 1
 
 == vm tuples ==
-- E402 | INCOMPLETE EFFECT HANDLER | handled expression
+- E402 | Missing Effect Handler Arm | handled expression
 
 == jit tuples ==
-- E402 | INCOMPLETE EFFECT HANDLER | handled expression
+- E402 | Missing Effect Handler Arm | handled expression
 
 == parity ==
 match

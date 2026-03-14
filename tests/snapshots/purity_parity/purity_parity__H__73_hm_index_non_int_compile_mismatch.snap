@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/73_hm_index_non_int_compile_misma
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
+- E300 | Type Mismatch | this expression has type `String`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected Int, found String
+- E300 | Type Mismatch | this expression has type `String`
 
 == parity ==
 match

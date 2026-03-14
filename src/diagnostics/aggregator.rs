@@ -1,17 +1,24 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs;
 use std::path::Path;
 
 use super::{
     Diagnostic, Hint, HintChain, HintKind, InlineSuggestion, Label, LabelStyle, RelatedDiagnostic,
-    RelatedKind, Severity, render_display_path, types::DiagnosticPhase,
+    RelatedKind, Severity,
+    quality::{downstream_errors_suppressed_note, repeated_parser_diagnostics_suppressed_note},
+    render_display_path,
+    rendering::Colors,
+    types::DiagnosticPhase,
 };
 use crate::diagnostics::position::Span;
+use crate::syntax::parser::is_structural_parse_diagnostic_code;
 
 /// Default max error limit to avoid overwhelming output.
 pub const DEFAULT_MAX_ERRORS: usize = 50;
 
+/// Counts of rendered diagnostics grouped by severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DiagnosticCounts {
     pub errors: usize,
@@ -21,15 +28,18 @@ pub struct DiagnosticCounts {
 }
 
 impl DiagnosticCounts {
+    /// Return the total number of diagnostics across all severities.
     pub fn total(&self) -> usize {
         self.errors + self.warnings + self.notes + self.helps
     }
 
+    /// Format a human-readable summary line when summary output is useful.
     pub fn summary_line(&self) -> Option<String> {
         format_summary(self, 1)
     }
 }
 
+/// Rendered diagnostics output together with aggregate severity counts.
 #[derive(Debug, Clone)]
 pub struct DiagnosticsReport {
     pub counts: DiagnosticCounts,
@@ -104,6 +114,11 @@ struct HintChainKey {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct StackTraceKey {
+    text: String,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct DiagnosticKey {
     file: Option<String>,
     span: Option<SpanKey>,
@@ -116,6 +131,7 @@ struct DiagnosticKey {
     suggestions: Vec<SuggestionKey>,
     hint_chains: Vec<HintChainKey>,
     related: Vec<RelatedKey>,
+    stack_trace: Vec<StackTraceKey>,
 }
 
 impl DiagnosticKey {
@@ -154,6 +170,13 @@ impl DiagnosticKey {
             .map(RelatedKey::from_related)
             .collect::<Vec<_>>();
         related.sort_by(related_sort);
+        // Stack trace text participates in diagnostic identity so runtime
+        // diagnostics with different call stacks are intentionally kept distinct.
+        let stack_trace = diag
+            .stack_trace()
+            .iter()
+            .map(StackTraceKey::from_frame)
+            .collect::<Vec<_>>();
         Self {
             file: effective_file(diag, default_file).map(|f| f.to_string()),
             span: diag.span().map(SpanKey::from_span),
@@ -166,6 +189,15 @@ impl DiagnosticKey {
             suggestions,
             hint_chains,
             related,
+            stack_trace,
+        }
+    }
+}
+
+impl StackTraceKey {
+    fn from_frame(frame: &super::StackTraceFrame) -> Self {
+        Self {
+            text: frame.text.clone(),
         }
     }
 }
@@ -176,6 +208,7 @@ struct IndexedDiagnostic<'a> {
     diag: &'a Diagnostic,
 }
 
+/// Deduplicates, filters, and renders diagnostics in deterministic order.
 pub struct DiagnosticsAggregator<'a> {
     diagnostics: &'a [Diagnostic],
     max_errors: Option<usize>,
@@ -189,9 +222,26 @@ pub struct DiagnosticsAggregator<'a> {
 struct StageFilterStats {
     suppressed_type_count: usize,
     suppressed_effect_count: usize,
+    suppressed_repeated_parse_count: usize,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct RepeatedParserFingerprint {
+    code: Option<String>,
+    title: String,
+    message: Option<String>,
+    category: Option<super::DiagnosticCategory>,
+}
+
+#[derive(Debug, Clone)]
+struct RenderBucket {
+    file: Option<String>,
+    diagnostics: Vec<Diagnostic>,
+    counts: DiagnosticCounts,
 }
 
 impl<'a> DiagnosticsAggregator<'a> {
+    /// Create an aggregator for the provided diagnostics slice.
     pub fn new(diagnostics: &'a [Diagnostic]) -> Self {
         Self {
             diagnostics,
@@ -203,11 +253,13 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
     }
 
+    /// Limit the number of error-severity diagnostics shown in rendered output.
     pub fn with_max_errors(mut self, max_errors: Option<usize>) -> Self {
         self.max_errors = max_errors;
         self
     }
 
+    /// Set the default file used when diagnostics omit an explicit file path.
     pub fn with_default_file(mut self, file: impl Into<String>) -> Self {
         self.default_file = Some(file.into());
         self
@@ -220,16 +272,19 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
+    /// Enable or disable stage-based suppression of downstream diagnostics.
     pub fn with_stage_filtering(mut self, enabled: bool) -> Self {
         self.disable_stage_filtering = !enabled;
         self
     }
 
+    /// Register source text for a specific file so rendering can show snippets.
     pub fn with_source(mut self, file: impl Into<String>, source: impl Into<String>) -> Self {
         self.sources.insert(file.into(), source.into());
         self
     }
 
+    /// Set both the default file and its source text in one call.
     pub fn with_default_source(
         mut self,
         file: impl Into<String>,
@@ -241,7 +296,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         self
     }
 
-    fn unique_sorted_suppressed(&self) -> Vec<Diagnostic> {
+    fn unique_sorted(&self) -> Vec<Diagnostic> {
         let default_file = self.default_file.as_deref();
         let mut seen: HashSet<DiagnosticKey> = HashSet::new();
         let mut unique: Vec<IndexedDiagnostic<'_>> = Vec::new();
@@ -267,7 +322,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .then_with(|| a.index.cmp(&b.index))
         });
 
-        suppress_nearby_duplicate_e300(unique, default_file)
+        unique.into_iter().map(|item| item.diag.clone()).collect()
     }
 
     fn apply_stage_filtering(
@@ -345,8 +400,6 @@ impl<'a> DiagnosticsAggregator<'a> {
         };
 
         let mut out = Vec::with_capacity(diagnostics.len());
-        let mut root_file = effective_file(&diagnostics[first_idx], self.default_file.as_deref())
-            .map(ToString::to_string);
         let mut root_line = diagnostics[first_idx]
             .span()
             .map(|s| s.start.line)
@@ -363,25 +416,18 @@ impl<'a> DiagnosticsAggregator<'a> {
                 continue;
             }
 
-            let file = effective_file(&diag, self.default_file.as_deref()).map(ToString::to_string);
             let line = diag.span().map(|s| s.start.line).unwrap_or(0);
-            let is_generic = diag.code() == Some("E034");
-            // Only collapse generic E034 errors that follow a *structural* root
-            // error which corrupts the token stream (unterminated string, unclosed
-            // delimiter).  Other root errors (e.g. E030 unknown keyword) recover
-            // cleanly, so nearby E034s are likely independent issues.
-            let root_is_structural = matches!(root_code.as_deref(), Some("E071" | "E076"));
+            let is_generic = is_generic_parser_cascade(&diag);
+            let root_is_structural = is_structural_parse_root(root_code.as_deref());
             if seen_parse_error
                 && is_generic
                 && root_is_structural
-                && file == root_file
                 && line <= root_line.saturating_add(3)
             {
                 suppressed_cascades += 1;
                 continue;
             }
 
-            root_file = file;
             root_line = line;
             root_code = diag.code().map(ToString::to_string);
             seen_parse_error = true;
@@ -402,11 +448,109 @@ impl<'a> DiagnosticsAggregator<'a> {
         out
     }
 
+    fn compress_repeated_parser_errors(
+        &self,
+        diagnostics: Vec<Diagnostic>,
+    ) -> (Vec<Diagnostic>, usize) {
+        const MAX_VISIBLE_REPEATS: usize = 3;
+
+        if self.disable_stage_filtering || diagnostics.len() <= 1 {
+            return (diagnostics, 0);
+        }
+
+        let default_file = self.default_file.as_deref();
+        let mut seen_counts: HashMap<RepeatedParserFingerprint, usize> = HashMap::new();
+        let mut suppressed_counts: HashMap<RepeatedParserFingerprint, usize> = HashMap::new();
+        let mut kept = Vec::with_capacity(diagnostics.len());
+        let mut summary_order = Vec::new();
+
+        for diag in diagnostics {
+            if !is_repeat_compressible_parser_error(&diag) {
+                kept.push(diag);
+                continue;
+            }
+
+            let fingerprint = RepeatedParserFingerprint::from_diagnostic(&diag);
+            let count = seen_counts.entry(fingerprint.clone()).or_default();
+            *count += 1;
+            if *count <= MAX_VISIBLE_REPEATS {
+                kept.push(diag);
+                continue;
+            }
+
+            let suppressed = suppressed_counts.entry(fingerprint.clone()).or_default();
+            *suppressed += 1;
+            if *suppressed == 1 {
+                summary_order.push(fingerprint);
+            }
+        }
+
+        let mut total_suppressed = 0usize;
+        let file = single_effective_file(&kept, default_file)
+            .or(default_file)
+            .unwrap_or("<unknown>")
+            .to_string();
+        for fingerprint in summary_order {
+            let suppressed = suppressed_counts
+                .get(&fingerprint)
+                .copied()
+                .unwrap_or_default();
+            if suppressed == 0 {
+                continue;
+            }
+            total_suppressed += suppressed;
+            kept.push(repeated_parser_diagnostics_suppressed_note(
+                file.clone(),
+                fingerprint.title.clone(),
+                suppressed,
+            ));
+        }
+
+        (kept, total_suppressed)
+    }
+
     fn process_with_metadata(&self) -> (Vec<Diagnostic>, StageFilterStats) {
-        let deduped = self.unique_sorted_suppressed();
-        let (filtered, stats) = self.apply_stage_filtering(deduped);
-        let collapsed = self.collapse_parser_cascades(filtered);
-        (collapsed, stats)
+        let default_file = self.default_file.as_deref();
+        let deduped = self.unique_sorted();
+        let mut processed = Vec::new();
+        let mut stats = StageFilterStats::default();
+        let mut group = Vec::new();
+        let mut current_file: Option<String> = None;
+
+        let flush_group = |group: &mut Vec<Diagnostic>,
+                           stats: &mut StageFilterStats,
+                           processed: &mut Vec<Diagnostic>| {
+            if group.is_empty() {
+                return;
+            }
+            let indexed = group
+                .iter()
+                .enumerate()
+                .map(|(index, diag)| IndexedDiagnostic { index, diag })
+                .collect::<Vec<_>>();
+            let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
+            let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
+            let collapsed = self.collapse_parser_cascades(filtered);
+            let (compressed, suppressed_repeated_parse_count) =
+                self.compress_repeated_parser_errors(collapsed);
+            stats.suppressed_type_count += group_stats.suppressed_type_count;
+            stats.suppressed_effect_count += group_stats.suppressed_effect_count;
+            stats.suppressed_repeated_parse_count += suppressed_repeated_parse_count;
+            processed.extend(compressed);
+            group.clear();
+        };
+
+        for diag in deduped {
+            let file_key = effective_file(&diag, default_file).map(ToString::to_string);
+            if !group.is_empty() && file_key != current_file {
+                flush_group(&mut group, &mut stats, &mut processed);
+            }
+            current_file = file_key;
+            group.push(diag);
+        }
+
+        flush_group(&mut group, &mut stats, &mut processed);
+        (processed, stats)
     }
 
     fn apply_error_limit(&self, diagnostics: Vec<Diagnostic>) -> (Vec<Diagnostic>, usize) {
@@ -425,6 +569,45 @@ impl<'a> DiagnosticsAggregator<'a> {
         (shown, errors_shown)
     }
 
+    fn build_render_buckets(
+        &self,
+        diagnostics: &[Diagnostic],
+        counts: DiagnosticCounts,
+    ) -> Vec<RenderBucket> {
+        let default_file = self.default_file.as_deref();
+        let mut buckets: Vec<RenderBucket> = Vec::new();
+
+        for diag in diagnostics {
+            let file = effective_file(diag, default_file).map(ToString::to_string);
+            let diag_counts = logical_counts(diag);
+            if let Some(last) = buckets.last_mut()
+                && last.file == file
+            {
+                last.counts.errors += diag_counts.errors;
+                last.counts.warnings += diag_counts.warnings;
+                last.counts.notes += diag_counts.notes;
+                last.counts.helps += diag_counts.helps;
+                last.diagnostics.push(diag.clone());
+            } else {
+                buckets.push(RenderBucket {
+                    file,
+                    diagnostics: vec![diag.clone()],
+                    counts: diag_counts,
+                });
+            }
+        }
+
+        if buckets.is_empty() && counts.total() > 0 {
+            buckets.push(RenderBucket {
+                file: None,
+                diagnostics: Vec::new(),
+                counts,
+            });
+        }
+
+        buckets
+    }
+
     /// Returns diagnostics after exact dedup + E300 neighborhood suppression
     /// + max-errors filtering, in deterministic render order.
     pub fn processed_diagnostics(&self) -> Vec<Diagnostic> {
@@ -433,6 +616,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         shown
     }
 
+    /// Produce the fully rendered report and aggregate counts for this diagnostics set.
     pub fn report(&self) -> DiagnosticsReport {
         if self.diagnostics.is_empty() {
             return DiagnosticsReport {
@@ -442,8 +626,9 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
 
         let default_file = self.default_file.as_deref();
+        let use_color = env::var_os("NO_COLOR").is_none();
         let (processed, stage_stats) = self.process_with_metadata();
-        let counts = {
+        let mut counts = {
             let indexed_suppressed: Vec<IndexedDiagnostic<'_>> = processed
                 .iter()
                 .enumerate()
@@ -451,6 +636,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .collect();
             count_severity(&indexed_suppressed)
         };
+        counts.errors += stage_stats.suppressed_repeated_parse_count;
         let file_count = processed
             .iter()
             .filter_map(|d| effective_file(d, default_file))
@@ -462,31 +648,14 @@ impl<'a> DiagnosticsAggregator<'a> {
         let suppressed_effect_count = stage_stats.suppressed_effect_count;
         let suppressed_total = suppressed_type_count + suppressed_effect_count;
         if suppressed_total > 0 {
-            let mut details = Vec::new();
-            if suppressed_type_count > 0 {
-                details.push(format!("{} type", suppressed_type_count));
-            }
-            if suppressed_effect_count > 0 {
-                details.push(format!("{} effect", suppressed_effect_count));
-            }
-            let breakdown = if details.is_empty() {
-                "downstream".to_string()
-            } else {
-                details.join(", ")
-            };
-            let mut suppression_note = Diagnostic::make_note(
-                "DOWNSTREAM ERRORS SUPPRESSED",
-                format!(
-                    "{} downstream diagnostic{} ({}) {} suppressed by stage filtering. Fix earlier-stage errors first.",
-                    suppressed_total,
-                    if suppressed_total == 1 { "" } else { "s" },
-                    breakdown,
-                    if suppressed_total == 1 { "was" } else { "were" }
-                ),
-                default_file.unwrap_or("<unknown>"),
-                Span::default(),
-            )
-            .with_phase(DiagnosticPhase::Validation);
+            let suppression_file = single_effective_file(&shown, default_file)
+                .or(default_file)
+                .unwrap_or("<unknown>");
+            let mut suppression_note = downstream_errors_suppressed_note(
+                suppression_file,
+                suppressed_type_count,
+                suppressed_effect_count,
+            );
             suppression_note.span = None;
             shown.push(suppression_note);
         }
@@ -499,50 +668,47 @@ impl<'a> DiagnosticsAggregator<'a> {
         let mut rendered = String::new();
 
         let mut groups: Vec<String> = Vec::new();
-        let mut current_file_key: Option<&str> = None;
-        let mut current_group = String::new();
-        let mut first_in_group = true;
         let mut rendered_items: Vec<String> = Vec::new();
-
-        for diag in &shown {
-            let file_key = effective_file(diag, default_file);
-            ensure_source(file_key, &mut file_cache);
-            for hint in diag.hints() {
-                ensure_source(hint.file.as_deref(), &mut file_cache);
-            }
-            for related in diag.related() {
-                ensure_source(related.file.as_deref(), &mut file_cache);
-            }
-            let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
-
-            if show_file_headers {
-                if current_file_key.is_none_or(|f| f != file_key.unwrap_or("")) {
-                    if !current_group.is_empty() {
-                        groups.push(current_group);
-                        current_group = String::new();
-                    }
-                    current_file_key = Some(file_key.unwrap_or(""));
-                    first_in_group = true;
-                    let display = file_display(file_key);
-                    current_group.push_str(&format!("--> {}\n", display));
-                }
-
-                if !first_in_group {
-                    current_group.push_str("\n\n");
-                }
-                first_in_group = false;
-                current_group.push_str(&rendered_diag);
-            } else {
-                rendered_items.push(rendered_diag);
-            }
-        }
+        let render_buckets = self.build_render_buckets(&shown, counts);
 
         if show_file_headers {
-            if !current_group.is_empty() {
+            for bucket in render_buckets {
+                let mut current_group = String::new();
+                let display = format_file_header(bucket.file.as_deref(), bucket.counts, use_color);
+                current_group.push_str(&display);
+                current_group.push('\n');
+
+                for (index, diag) in bucket.diagnostics.iter().enumerate() {
+                    ensure_source(effective_file(diag, default_file), &mut file_cache);
+                    for hint in diag.hints() {
+                        ensure_source(hint.file.as_deref(), &mut file_cache);
+                    }
+                    for related in diag.related() {
+                        ensure_source(related.file.as_deref(), &mut file_cache);
+                    }
+                    let rendered_diag = diag.render_with_sources(default_file, Some(&file_cache));
+                    if index > 0 {
+                        current_group.push_str("\n\n");
+                    }
+                    current_group.push_str(&rendered_diag);
+                }
+
                 groups.push(current_group);
             }
+
             rendered.push_str(&groups.join("\n\n"));
         } else {
+            for diag in &shown {
+                let file_key = effective_file(diag, default_file);
+                ensure_source(file_key, &mut file_cache);
+                for hint in diag.hints() {
+                    ensure_source(hint.file.as_deref(), &mut file_cache);
+                }
+                for related in diag.related() {
+                    ensure_source(related.file.as_deref(), &mut file_cache);
+                }
+                rendered_items.push(diag.render_with_sources(default_file, Some(&file_cache)));
+            }
             rendered.push_str(&rendered_items.join("\n\n"));
         }
 
@@ -571,11 +737,24 @@ impl<'a> DiagnosticsAggregator<'a> {
         DiagnosticsReport { counts, rendered }
     }
 
+    /// Render diagnostics to text using the current aggregator configuration.
     pub fn render(&self) -> String {
         self.report().rendered
     }
 }
 
+impl RepeatedParserFingerprint {
+    fn from_diagnostic(diag: &Diagnostic) -> Self {
+        Self {
+            code: diag.code().map(ToString::to_string),
+            title: parser_facing_title(diag),
+            message: diag.message().map(ToString::to_string),
+            category: diag.category(),
+        }
+    }
+}
+
+/// Render multiple diagnostics with the default text pipeline and optional error cap.
 pub fn render_diagnostics_multi(diagnostics: &[Diagnostic], max_errors: Option<usize>) -> String {
     DiagnosticsAggregator::new(diagnostics)
         .with_max_errors(max_errors)
@@ -590,10 +769,44 @@ fn effective_file<'a>(diag: &'a Diagnostic, default_file: Option<&'a str>) -> Op
     normalize_file(diag.file()).or(normalize_file(default_file))
 }
 
+fn single_effective_file<'a>(
+    diagnostics: &'a [Diagnostic],
+    default_file: Option<&'a str>,
+) -> Option<&'a str> {
+    let mut file: Option<&str> = None;
+    for diag in diagnostics {
+        let current = effective_file(diag, default_file)?;
+        if let Some(existing) = file {
+            if existing != current {
+                return None;
+            }
+        } else {
+            file = Some(current);
+        }
+    }
+    file
+}
+
 fn file_display<'a>(file: Option<&'a str>) -> Cow<'a, str> {
     file.filter(|f| !f.is_empty())
         .map(render_display_path)
         .unwrap_or_else(|| Cow::Borrowed("<unknown>"))
+}
+
+fn format_file_header(file: Option<&str>, counts: DiagnosticCounts, use_color: bool) -> String {
+    let display = file_display(file);
+    let summary = format_group_header_counts(&counts);
+    let header = format!("• {summary} • {display}");
+    let colors = if use_color {
+        Colors::with_color()
+    } else {
+        Colors::no_color()
+    };
+    if !use_color {
+        header
+    } else {
+        format!("{}{}{}{}", colors.bold, colors.cyan, header, colors.reset)
+    }
 }
 
 fn ensure_source(file: Option<&str>, cache: &mut HashMap<String, String>) {
@@ -619,6 +832,78 @@ fn count_severity(diags: &[IndexedDiagnostic<'_>]) -> DiagnosticCounts {
         }
     }
     counts
+}
+
+fn logical_counts(diag: &Diagnostic) -> DiagnosticCounts {
+    let mut counts = DiagnosticCounts::default();
+    match diag.severity() {
+        Severity::Error => counts.errors += 1,
+        Severity::Warning => counts.warnings += 1,
+        Severity::Note => counts.notes += 1,
+        Severity::Help => counts.helps += 1,
+    }
+
+    if let Some(hidden_error_count) = hidden_repeated_parser_error_count(diag) {
+        counts.errors += hidden_error_count;
+    }
+
+    counts
+}
+
+fn hidden_repeated_parser_error_count(diag: &Diagnostic) -> Option<usize> {
+    const PREFIX: &str = "I hid ";
+    const NEEDLE: &str = " additional repeated parser diagnostic(s)";
+
+    if diag.display_title() != Some("Repeated Parser Diagnostics Suppressed") {
+        return None;
+    }
+    let message = diag.message()?;
+    let rest = message.strip_prefix(PREFIX)?;
+    let count_text = rest.split_once(NEEDLE)?.0;
+    count_text.parse::<usize>().ok()
+}
+
+fn format_group_header_counts(counts: &DiagnosticCounts) -> String {
+    let mut parts = Vec::new();
+    if counts.errors > 0 {
+        parts.push(format!("{} error{}", counts.errors, plural(counts.errors)));
+    }
+    if counts.warnings > 0 {
+        parts.push(format!(
+            "{} warning{}",
+            counts.warnings,
+            plural(counts.warnings)
+        ));
+    }
+    if counts.notes > 0 {
+        parts.push(format!("{} note{}", counts.notes, plural(counts.notes)));
+    }
+    if counts.helps > 0 {
+        parts.push(format!("{} help{}", counts.helps, plural(counts.helps)));
+    }
+    join_with_commas(&parts)
+}
+
+fn is_repeat_compressible_parser_error(diag: &Diagnostic) -> bool {
+    diag.severity() == Severity::Error && matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+}
+
+fn humanize_title(title: &str) -> String {
+    title
+        .split_whitespace()
+        .map(humanize_word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn humanize_word(word: &str) -> String {
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+
+    let rest = chars.as_str().to_ascii_lowercase();
+    format!("{}{}", first.to_ascii_uppercase(), rest)
 }
 
 fn format_summary(counts: &DiagnosticCounts, file_count: usize) -> Option<String> {
@@ -673,6 +958,10 @@ fn join_parts(parts: &[String]) -> String {
     }
 }
 
+fn join_with_commas(parts: &[String]) -> String {
+    parts.join(", ")
+}
+
 fn severity_rank(severity: Severity) -> u8 {
     match severity {
         Severity::Error => 0,
@@ -694,6 +983,44 @@ fn column_key(diag: &Diagnostic) -> usize {
 
 fn message_key(diag: &Diagnostic) -> &str {
     diag.message().unwrap_or("")
+}
+
+fn parser_effective_title(diag: &Diagnostic) -> &str {
+    diag.display_title().unwrap_or_else(|| diag.title())
+}
+
+fn parser_facing_title(diag: &Diagnostic) -> String {
+    diag.display_title()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| humanize_title(diag.title()))
+}
+
+fn is_structural_parse_root(code: Option<&str>) -> bool {
+    is_structural_parse_diagnostic_code(code)
+}
+
+fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {
+    let title = parser_effective_title(diag);
+    matches!(diag.phase(), Some(DiagnosticPhase::Parse))
+        && diag.severity() == Severity::Error
+        && match diag.category() {
+            None => true,
+            Some(
+                crate::diagnostics::DiagnosticCategory::ParserExpression
+                | crate::diagnostics::DiagnosticCategory::ParserSeparator
+                | crate::diagnostics::DiagnosticCategory::ParserDelimiter,
+            ) => true,
+            Some(_) => false,
+        }
+        && matches!(
+            title,
+            "Unexpected Token"
+                | "UNEXPECTED TOKEN"
+                | "Unexpected Closing Delimiter"
+                | "UNEXPECTED CLOSING DELIMITER"
+                | "Expected Expression"
+                | "EXPECTED EXPRESSION"
+        )
 }
 
 fn suppress_nearby_duplicate_e300(

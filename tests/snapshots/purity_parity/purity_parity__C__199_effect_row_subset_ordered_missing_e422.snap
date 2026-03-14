@@ -1,0 +1,27 @@
+---
+source: tests/purity_vm_jit_parity_snapshots.rs
+---
+Fixture: examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
+Category: C
+Strict: false
+Expect compile error: true
+
+== vm command ==
+$ flux --no-cache examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
+exit_code: 1
+
+== jit command ==
+$ flux --no-cache examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx --jit
+exit_code: 1
+
+== vm tuples ==
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit`
+
+== jit tuples ==
+- E300 | Parameter Type Mismatch | parameter 1 has type `() -> Unit`
+
+== parity ==
+match
+
+== mismatch_debug ==
+<none>

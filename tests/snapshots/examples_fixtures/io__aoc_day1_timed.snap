@@ -5,11 +5,32 @@ Fixture: examples/io/aoc_day1_timed.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/io/aoc_day1_timed.flx:18:9
+   |
+18 |         0 - distance
+   |         ^^^^^^^^^^^^
+   |         ------------ this expression has type `Int and Option<Int>`
+
+   |         ------------ operator operands are known at compile time
+
+Note:
+  expected type: numeric operands (Int or Float)
+  found type: Int and Option<Int>
+
+Help:
+  These two types are not compatible.
+  adjust operand types or add explicit conversion
+
+
+error[E004]: Undefined Variable
 
 I can't find a value named `parse_rotations`.
 
-  --> examples/io/aoc_day1_timed.flx:27:9
+  examples/io/aoc_day1_timed.flx:27:9
    |
 27 |         parse_rotations(rest, acc)
    |         ^^^^^^^^^^^^^^^
@@ -17,16 +38,15 @@ I can't find a value named `parse_rotations`.
 Hint:
   Define it first: let parse_rotations = ...;
 
-
 Help:
   Did you mean `parse_rotation`?
 
 
---> compiler error[E004]: UNDEFINED VARIABLE
+error[E004]: Undefined Variable
 
 I can't find a value named `solve_steps`.
 
-  --> examples/io/aoc_day1_timed.flx:43:9
+  examples/io/aoc_day1_timed.flx:43:9
    |
 43 |         solve_steps(rest, next_pos, hits + 1)
    |         ^^^^^^^^^^^
@@ -35,19 +55,86 @@ Hint:
   Define it first: let solve_steps = ...;
 
 
---> compiler error[E400]: MISSING EFFECT
+error[E056]: Wrong Number Of Arguments
 
-Call to `read_lines` requires effect `IO` in this function signature.
+The `time` function takes 0 arguments, but 1 were provided.
 
-  --> examples/io/aoc_day1_timed.flx:57:25
+  examples/io/aoc_day1_timed.flx:63:24
    |
+ 1 | 
+ 2 | 
+ 3 | 
+ 4 | fn main() with IO, Time {
+ 5 |     fn wrap_100(value) {
+ 6 |         let reduced = value % 100
+ 7 |         if reduced < 0 {
+ 8 |             reduced + 100
+ 9 |         } else {
+10 |         reduced
+11 |     }
+12 | }
+13 | 
+14 | fn parse_rotation(line) {
+15 |     let dir = substring(line, 0, 1)
+16 |     let distance = parse_int(substring(line, 1, len(line)))
+17 |     if dir == "L" {
+18 |         0 - distance
+19 |     } else {
+20 |     distance
+21 | }
+22 | }
+23 | 
+24 | fn parse_line(line, rest, acc) {
+25 |     let cleaned = trim(line)
+26 |     if cleaned == "" {
+27 |         parse_rotations(rest, acc)
+28 |     } else {
+29 |     parse_rotations(rest, [parse_rotation(cleaned) | acc])
+30 | }
+31 | }
+32 | 
+33 | fn parse_rotations(lines, acc) {
+34 |     match lines {
+35 |         [line | rest] -> parse_line(line, rest, acc),
+36 |         _ -> reverse(acc),
+37 |     }
+38 | }
+39 | 
+40 | fn process_step(step, rest, pos, hits) {
+41 |     let next_pos = wrap_100(pos + step)
+42 |     if next_pos == 0 {
+43 |         solve_steps(rest, next_pos, hits + 1)
+44 |     } else {
+45 |     solve_steps(rest, next_pos, hits)
+46 | }
+47 | }
+48 | 
+49 | fn solve_steps(steps, pos, hits) {
+50 |     match steps {
+51 |         [step | rest] -> process_step(step, rest, pos, hits),
+52 |         _ -> hits,
+53 |     }
+54 | }
+55 | 
+56 | fn run_day1() {
 57 |     let lines = to_list(read_lines("examples/io/aoc_day1.txt"))
-   |                         ^^^^^^^^^^
-   |                         ---------- effectful call occurs here
+58 |     let steps = parse_rotations(lines, None)
+59 |     solve_steps(steps, 50, 0)
+60 | }
+61 | 
+62 | let t0 = now_ms()
+63 | let elapsed_via_time = time(run_day1)
+   |                        ^^^^^^^^^^^^^^
+   |                        -------------- 1 arguments provided here, expected 0
 
-Hint:
-  Add `with IO` to the enclosing function.
+Help:
+  Remove 1 extra argument(s), for example: `time()`.
 
-Found 3 errors.
+
+Note: Downstream Errors Suppressed
+
+I hid 1 later-stage diagnostic (1 effect) because earlier errors make them less reliable. Fix the earlier errors first, or use `--all-errors` to see everything.
+
+Found 4 errors.
 == stdout ==
 <not executed>

@@ -1,0 +1,11 @@
+// Missing `{` in match expression.
+//
+// Expected: contextual error about match block.
+
+fn main() -> Unit {
+    let x = 5
+    let _r = match x
+        1 -> "one",
+        _ -> "other",
+    }
+}

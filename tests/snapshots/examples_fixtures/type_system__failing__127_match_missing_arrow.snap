@@ -1,21 +1,23 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/127_match_missing_arrow.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Match Arm Arrow
 
-Expected `->` in match arm, found `INT`. Match arms must use `->`.
+I was expecting `->` in this match arm, but I found an integer literal.
 
-  --> examples/type_system/failing/127_match_missing_arrow.flx:2:7
+  examples/type_system/failing/127_match_missing_arrow.flx:2:7
   |
 2 |     0 1,
   |       ^
 
-Hint:
+Note:
+  while parsing `match` expression
+
+Help:
   Write match arms as `match x { pattern -> body, ... }`.
 == stdout ==
 <not executed>

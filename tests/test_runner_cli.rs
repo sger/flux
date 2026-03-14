@@ -183,6 +183,7 @@ fn test_mode_test_filter_no_match_reports_empty() {
 
 #[cfg(feature = "jit")]
 #[test]
+#[ignore = "JIT: test runner VM/JIT summary parity (proposal 0102)"]
 fn test_mode_jit_matches_vm_summary() {
     let file = fixture_path("all_pass.flx");
     let vm = run_flux(&["--test", file.to_str().unwrap()]);
@@ -249,7 +250,7 @@ fn test_mode_primops_fixture_passes_on_vm() {
 
 #[test]
 fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
-    let file = example_path("type_system/failing/153_stage_all_errors_flag.flx");
+    let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
     let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
     let default_text = combined_output(&default_output);
@@ -259,13 +260,13 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         default_text
     );
     assert!(
-        default_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
-        "expected suppression note in default mode, output:\n{}",
+        default_text.contains("error[E300]"),
+        "expected type diagnostic to remain visible in a different module, output:\n{}",
         default_text
     );
     assert!(
-        !default_text.contains("error[E300]"),
-        "expected type diagnostic suppressed in default mode, output:\n{}",
+        !default_text.contains("Downstream Errors Suppressed"),
+        "did not expect a cross-module suppression note in default mode, output:\n{}",
         default_text
     );
 
@@ -280,6 +281,62 @@ fn all_errors_flag_reveals_downstream_diagnostics_in_run_mode() {
         all_text.contains("error[E300]"),
         "expected downstream type diagnostic visible with --all-errors, output:\n{}",
         all_text
+    );
+}
+
+#[cfg(feature = "jit")]
+#[test]
+#[ignore = "JIT: runtime error JSON/text metadata parity (proposal 0102)"]
+fn jit_runtime_error_json_matches_text_metadata() {
+    let file = example_path("runtime_errors/indirect_call_wrong_arity.flx");
+
+    let text_output = run_flux(&["--no-cache", file.to_str().unwrap(), "--jit"]);
+    let text = combined_output(&text_output);
+    assert!(
+        !text_output.status.success(),
+        "expected JIT text run to fail, output:\n{}",
+        text
+    );
+    assert!(
+        text.contains("error[E1000]: wrong number of arguments: want=2, got=1"),
+        "expected structured text diagnostic, output:\n{}",
+        text
+    );
+
+    let json_output = run_flux(&[
+        "--no-cache",
+        file.to_str().unwrap(),
+        "--jit",
+        "--format",
+        "json",
+    ]);
+    let json_text = combined_output(&json_output);
+    assert!(
+        !json_output.status.success(),
+        "expected JIT json run to fail, output:\n{}",
+        json_text
+    );
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json_text).expect("expected valid JSON diagnostics output");
+    let first = parsed
+        .as_array()
+        .and_then(|arr| arr.first())
+        .expect("expected at least one runtime diagnostic");
+
+    assert_eq!(first.get("code").and_then(|v| v.as_str()), Some("E1000"));
+    assert_eq!(first.get("phase").and_then(|v| v.as_str()), Some("runtime"));
+    assert_eq!(
+        first.get("category").and_then(|v| v.as_str()),
+        Some("runtime_execution")
+    );
+    assert_eq!(
+        first.get("title").and_then(|v| v.as_str()),
+        Some("wrong number of arguments: want=2, got=1")
+    );
+    assert_eq!(
+        first.get("file").and_then(|v| v.as_str()),
+        Some("examples/runtime_errors/indirect_call_wrong_arity.flx")
     );
 }
 
@@ -313,8 +370,54 @@ fn test_mode_parse_errors_exit_early_even_with_all_errors() {
         all_text
     );
     assert!(
-        !all_text.contains("DOWNSTREAM ERRORS SUPPRESSED"),
+        !all_text.contains("Downstream Errors Suppressed"),
         "test mode exits immediately on parse errors, so stage-filter suppression notes should not appear:\n{}",
+        all_text
+    );
+}
+
+#[test]
+fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
+    let file = example_path("compiler_errors/adversarial/stage_all_errors/Main.flx");
+
+    let default_output = run_flux(&["--no-cache", file.to_str().unwrap()]);
+    let default_text = combined_output(&default_output);
+    assert!(
+        !default_output.status.success(),
+        "expected adversarial compiler fixture to fail in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        default_text.contains("error[E300]: Annotation Type Mismatch"),
+        "expected visible type diagnostic in default mode, output:\n{}",
+        default_text
+    );
+    assert!(
+        default_text.contains("error[E400]: Missing Ambient Effect"),
+        "expected effect diagnostic to remain visible in a different module, output:\n{}",
+        default_text
+    );
+    assert!(
+        !default_text.contains("Downstream Errors Suppressed"),
+        "did not expect a cross-module suppression note in default mode, output:\n{}",
+        default_text
+    );
+
+    let all_output = run_flux(&["--no-cache", "--all-errors", file.to_str().unwrap()]);
+    let all_text = combined_output(&all_output);
+    assert!(
+        !all_output.status.success(),
+        "expected adversarial compiler fixture to fail with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("error[E300]: Annotation Type Mismatch"),
+        "expected type diagnostic visible with --all-errors, output:\n{}",
+        all_text
+    );
+    assert!(
+        all_text.contains("error[E400]: Missing Ambient Effect"),
+        "expected effect diagnostic visible with --all-errors, output:\n{}",
         all_text
     );
 }

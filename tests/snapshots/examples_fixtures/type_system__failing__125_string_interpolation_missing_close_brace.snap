@@ -1,21 +1,35 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/125_string_interpolation_missing_close_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E034]: Missing Closing Delimiter
 
 Expected `}` to close string interpolation.
 
-  --> examples/type_system/failing/125_string_interpolation_missing_close_brace.flx:1:24
+  examples/type_system/failing/125_string_interpolation_missing_close_brace.flx:1:24
   |
 1 | let msg = "Hello #{name"
   |                        ^
 
 Hint:
   Interpolation segments use `#{expr}` inside strings.
+
+
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/type_system/failing/125_string_interpolation_missing_close_brace.flx:1:24
+  |
+1 | let msg = "Hello #{name"
+  |                        ^
+
+Hint:
+  Add a closing " at the end of the string.
+
+Found 2 errors.
 == stdout ==
 <not executed>

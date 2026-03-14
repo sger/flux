@@ -1,0 +1,53 @@
+---
+source: tests/runtime_error_fixtures_snapshots.rs
+---
+Fixture: examples/runtime_errors/either_boundary_string_into_either.flx
+== vm ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/runtime_errors/either_boundary_string_into_either.flx:12:1
+   |
+12 | unwrap_or_zero(dynamic)
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- this value has runtime type `String`
+
+Note:
+  expected type: Either<String, Int>
+  found type:    String
+  runtime value:  "oops"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.
+
+Stack trace:
+  at <main> (examples/runtime_errors/either_boundary_string_into_either.flx:12:1)
+== jit ==
+status: 1
+stdout:
+<empty>
+stderr:
+• 1 error • examples/runtime_errors/either_boundary_string_into_either.flx
+error[E1004]: Type Error
+
+I found a value with the wrong runtime type.
+
+  examples/runtime_errors/either_boundary_string_into_either.flx:12:1
+   |
+12 | unwrap_or_zero(dynamic)
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+   | ----------------------- this value has runtime type `String`
+
+Note:
+  expected type: Either<String, Int>
+  found type:    String
+  runtime value:  "oops"
+
+Help:
+  Check the value flowing into this operation or add a conversion before this point.

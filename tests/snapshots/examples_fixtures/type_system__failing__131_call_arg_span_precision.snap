@@ -1,29 +1,31 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/131_call_arg_span_precision.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Argument Type Mismatch
 
-The 2nd argument to `pair` has the wrong type.
+I found the wrong type in the 2nd argument to `pair`.
 
-  --> examples/type_system/failing/131_call_arg_span_precision.flx:4:22
+  examples/type_system/failing/131_call_arg_span_precision.flx:4:22
   |
 1 | fn pair(a: Int, b: Int) -> Int { a + b }
-
   | ---------------------------------------- `pair` expects `Int` as the 2nd parameter
 2 | 
-
 3 | fn main() -> Unit {
-
 4 |     let _x = pair(1, "oops")
   |                      ^^^^^^
-  |                      ------ this argument is `String`
+  |                      ------ this argument has type `String`
+
+Note:
+  expected argument type: Int
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Expected `Int` as the 2nd argument.
+  Pass a `Int` value as the 2nd argument.
 == stdout ==
 <not executed>

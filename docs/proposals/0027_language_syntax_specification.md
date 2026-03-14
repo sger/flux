@@ -1,5 +1,6 @@
 - Feature Name: Flux Language Syntax Specification
 - Start Date: 2026-02-12
+- Status: Partially Implemented
 - Proposal PR: 
 - Flux Issue: 
 

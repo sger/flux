@@ -5,11 +5,11 @@ Fixture: examples/guide_type_system/Guide/StrictApi.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+error[E024]: Module Path Mismatch
 
 Module name `Guide.StrictApi` doesn't match file path `examples/guide_type_system/Guide/StrictApi.flx`.
 
-  --> examples/guide_type_system/Guide/StrictApi.flx:1:1
+  examples/guide_type_system/Guide/StrictApi.flx:1:1
   |
 1 | module Guide.StrictApi {
   | ^

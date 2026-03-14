@@ -1,0 +1,4 @@
+fn main() -> Unit {
+    let h = { "a" 1 }
+    print(h)
+}

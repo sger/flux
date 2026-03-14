@@ -16,7 +16,11 @@ use std::rc::Rc;
 use reader::CharReader;
 use state::LexerState;
 
-use crate::diagnostics::position::Position;
+use crate::diagnostics::{
+    Diagnostic, DiagnosticPhase, EXPECTED_EXPRESSION, UNTERMINATED_BLOCK_COMMENT,
+    UNTERMINATED_STRING,
+    position::{Position, Span},
+};
 use crate::syntax::interner::Interner;
 use crate::syntax::symbol::Symbol;
 use crate::syntax::token::Token;
@@ -38,6 +42,7 @@ pub struct Lexer {
     reader: CharReader,
     interner: Interner,
     state: LexerState,
+    diagnostics: Vec<Diagnostic>,
     warnings: Vec<LexerWarning>,
     /// Track unterminated block comment error (position where /* started)
     unterminated_block_comment_pos: Option<Position>,
@@ -55,6 +60,7 @@ impl Lexer {
             reader: CharReader::new(input),
             interner: Interner::with_capacity(estimated_symbols, estimated_symbol_bytes),
             state: LexerState::Normal,
+            diagnostics: Vec::new(),
             warnings: Vec::new(),
             unterminated_block_comment_pos: None,
         }
@@ -69,6 +75,7 @@ impl Lexer {
             reader: CharReader::new(input.into()),
             interner,
             state: LexerState::Normal,
+            diagnostics: Vec::new(),
             warnings: Vec::new(),
             unterminated_block_comment_pos: None,
         }
@@ -87,6 +94,16 @@ impl Lexer {
     /// Get warnings collected during lexing
     pub fn warnings(&self) -> &[LexerWarning] {
         &self.warnings
+    }
+
+    /// Get diagnostics collected during lexing.
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    /// Take ownership of diagnostics collected during lexing.
+    pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+        std::mem::take(&mut self.diagnostics)
     }
 
     pub fn source(&self) -> &str {
@@ -116,13 +133,15 @@ impl Lexer {
 
         // Check if we encountered an unterminated block comment
         if let Some(error_pos) = self.unterminated_block_comment_pos.take() {
-            return Token::new_static_with_end(
+            let token = Token::new_static_with_end(
                 TokenType::UnterminatedBlockComment,
                 "",
                 error_pos.line,
                 error_pos.column,
                 self.cursor_position(),
             );
+            self.emit_unterminated_block_comment_diagnostic(token.span());
+            return token;
         }
 
         let cursor = self.cursor_position();
@@ -223,7 +242,7 @@ impl Lexer {
 
         // Illegal character: emit span-backed literal, no per-token allocation.
         self.read_char();
-        Token::new_span_with_end(
+        let token = Token::new_span_with_end(
             TokenType::Illegal,
             self.source_arc(),
             start_idx,
@@ -231,7 +250,9 @@ impl Lexer {
             line,
             column,
             self.cursor_position(),
-        )
+        );
+        self.emit_illegal_token_diagnostic(token.span());
+        token
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
@@ -278,6 +299,33 @@ impl Lexer {
 
     fn source_arc(&self) -> Rc<str> {
         self.reader.source_arc()
+    }
+
+    fn emit_lexer_error(&mut self, err_spec: &'static crate::diagnostics::ErrorCode, span: Span) {
+        self.diagnostics.push(
+            Diagnostic::make_error(err_spec, &[], String::new(), span)
+                .with_phase(DiagnosticPhase::Parse),
+        );
+    }
+
+    fn emit_illegal_token_diagnostic(&mut self, span: Span) {
+        self.diagnostics.push(
+            Diagnostic::make_error(
+                &EXPECTED_EXPRESSION,
+                &["an invalid token"],
+                String::new(),
+                span,
+            )
+            .with_phase(DiagnosticPhase::Parse),
+        );
+    }
+
+    pub(super) fn emit_unterminated_string_diagnostic(&mut self, span: Span) {
+        self.emit_lexer_error(&UNTERMINATED_STRING, span);
+    }
+
+    pub(super) fn emit_unterminated_block_comment_diagnostic(&mut self, span: Span) {
+        self.emit_lexer_error(&UNTERMINATED_BLOCK_COMMENT, span);
     }
 
     fn skip_ignorable(&mut self) {

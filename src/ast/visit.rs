@@ -154,22 +154,47 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
 
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast Expression) {
     match expr {
-        Expression::Identifier { name, span: _ } => {
+        Expression::Identifier {
+            name,
+            span: _,
+            id: _,
+        } => {
             visitor.visit_identifier(name);
         }
-        Expression::Integer { value: _, span: _ } => {}
-        Expression::Float { value: _, span: _ } => {}
-        Expression::String { value: _, span: _ } => {}
-        Expression::InterpolatedString { parts, span: _ } => {
+        Expression::Integer {
+            value: _,
+            span: _,
+            id: _,
+        } => {}
+        Expression::Float {
+            value: _,
+            span: _,
+            id: _,
+        } => {}
+        Expression::String {
+            value: _,
+            span: _,
+            id: _,
+        } => {}
+        Expression::InterpolatedString {
+            parts,
+            span: _,
+            id: _,
+        } => {
             for part in parts {
                 visitor.visit_string_part(part);
             }
         }
-        Expression::Boolean { value: _, span: _ } => {}
+        Expression::Boolean {
+            value: _,
+            span: _,
+            id: _,
+        } => {}
         Expression::Prefix {
             operator: _,
             right,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(right);
         }
@@ -178,6 +203,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             operator: _,
             right,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
@@ -187,6 +213,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             consequence,
             alternative,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(condition);
             visitor.visit_block(consequence);
@@ -194,7 +221,11 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_block(alt);
             }
         }
-        Expression::DoBlock { block, span: _ } => {
+        Expression::DoBlock {
+            block,
+            span: _,
+            id: _,
+        } => {
             visitor.visit_block(block);
         }
         Expression::Function {
@@ -204,6 +235,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             effects: _,
             body,
             span: _,
+            id: _,
         } => {
             for param in parameters {
                 visitor.visit_identifier(param);
@@ -214,29 +246,47 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             function,
             arguments,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(function);
             for arg in arguments {
                 visitor.visit_expr(arg);
             }
         }
-        Expression::ListLiteral { elements, span: _ }
-        | Expression::ArrayLiteral { elements, span: _ }
-        | Expression::TupleLiteral { elements, span: _ } => {
+        Expression::ListLiteral {
+            elements,
+            span: _,
+            id: _,
+        }
+        | Expression::ArrayLiteral {
+            elements,
+            span: _,
+            id: _,
+        }
+        | Expression::TupleLiteral {
+            elements,
+            span: _,
+            id: _,
+        } => {
             for elem in elements {
                 visitor.visit_expr(elem);
             }
         }
-        Expression::EmptyList { span: _ } => {}
+        Expression::EmptyList { span: _, id: _ } => {}
         Expression::Index {
             left,
             index,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(left);
             visitor.visit_expr(index);
         }
-        Expression::Hash { pairs, span: _ } => {
+        Expression::Hash {
+            pairs,
+            span: _,
+            id: _,
+        } => {
             for (key, value) in pairs {
                 visitor.visit_expr(key);
                 visitor.visit_expr(value);
@@ -246,6 +296,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             object,
             member,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(object);
             visitor.visit_identifier(member);
@@ -254,6 +305,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             object,
             index: _,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(object);
         }
@@ -261,20 +313,33 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             scrutinee,
             arms,
             span: _,
+            id: _,
         } => {
             visitor.visit_expr(scrutinee);
             for arm in arms {
                 visitor.visit_match_arm(arm);
             }
         }
-        Expression::None { span: _ } => {}
-        Expression::Some { value, span: _ } => {
+        Expression::None { span: _, id: _ } => {}
+        Expression::Some {
+            value,
+            span: _,
+            id: _,
+        } => {
             visitor.visit_expr(value);
         }
-        Expression::Left { value, span: _ } => {
+        Expression::Left {
+            value,
+            span: _,
+            id: _,
+        } => {
             visitor.visit_expr(value);
         }
-        Expression::Right { value, span: _ } => {
+        Expression::Right {
+            value,
+            span: _,
+            id: _,
+        } => {
             visitor.visit_expr(value);
         }
         Expression::Cons { head, tail, .. } => {

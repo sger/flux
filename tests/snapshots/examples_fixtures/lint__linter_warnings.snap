@@ -5,11 +5,11 @@ Fixture: examples/lint/linter_warnings.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E018]: IMPORT NOT FOUND
+error[E018]: Import Not Found
 
 Cannot find module `Modules.Math` to import.
 
-  --> examples/lint/linter_warnings.flx:1:1
+  examples/lint/linter_warnings.flx:1:1
   |
 1 | import Modules.Math as Math
   | ^

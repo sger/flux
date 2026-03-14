@@ -1,0 +1,5 @@
+module UnknownIdentifierTypo {
+    fn bad() -> Unit with IO {
+        prnit("x")
+    }
+}

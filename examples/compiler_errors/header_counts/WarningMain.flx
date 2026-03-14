@@ -1,0 +1,5 @@
+import WarningOnly
+
+fn main() -> Unit {
+    let _x = WarningOnly.SomeInt(1)
+}

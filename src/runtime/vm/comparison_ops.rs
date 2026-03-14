@@ -5,13 +5,48 @@ use crate::{bytecode::op_code::OpCode, runtime::value::Value};
 use super::VM;
 
 impl VM {
-    pub(super) fn execute_comparison(&mut self, opcode: OpCode) -> Result<(), String> {
-        let (left, right) = self.pop_pair_untracked()?;
+    fn adt_values_equal(&self, left: &Value, right: &Value) -> bool {
+        match (left.as_adt(&self.gc_heap), right.as_adt(&self.gc_heap)) {
+            (Some(left_adt), Some(right_adt)) => {
+                if left_adt.constructor() != right_adt.constructor() {
+                    return false;
+                }
+                let left_fields = left_adt.fields();
+                let right_fields = right_adt.fields();
+                if left_fields.len() != right_fields.len() {
+                    return false;
+                }
+                for i in 0..left_fields.len() {
+                    if !self.adt_or_value_equal(&left_fields[i], &right_fields[i]) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        }
+    }
 
-        // Fast path: pointer equality for Rc-wrapped types
-        // If two values share the same Rc pointer, they're guaranteed equal
+    fn adt_or_value_equal(&self, left: &Value, right: &Value) -> bool {
+        if left.type_name() == "Adt" && right.type_name() == "Adt" {
+            match (left, right) {
+                (Value::AdtUnit(l), Value::AdtUnit(r)) => l == r,
+                (Value::AdtUnit(_), _) | (_, Value::AdtUnit(_)) => false,
+                _ => self.adt_values_equal(left, right),
+            }
+        } else {
+            left == right
+        }
+    }
+
+    pub(super) fn compare_values(
+        &self,
+        left: &Value,
+        right: &Value,
+        opcode: OpCode,
+    ) -> Result<bool, String> {
         if matches!(opcode, OpCode::OpEqual | OpCode::OpNotEqual) {
-            let ptr_eq = match (&left, &right) {
+            let ptr_eq = match (left, right) {
                 (Value::String(l), Value::String(r)) => Rc::ptr_eq(l, r),
                 (Value::Array(l), Value::Array(r)) => Rc::ptr_eq(l, r),
                 (Value::Tuple(l), Value::Tuple(r)) => Rc::ptr_eq(l, r),
@@ -21,145 +56,131 @@ impl VM {
                 (Value::Function(l), Value::Function(r)) => Rc::ptr_eq(l, r),
                 (Value::Closure(l), Value::Closure(r)) => Rc::ptr_eq(l, r),
                 (Value::Gc(l), Value::Gc(r)) => l == r,
+                (Value::GcAdt(l), Value::GcAdt(r)) => l == r,
                 _ => false,
             };
             if ptr_eq {
-                let result = opcode == OpCode::OpEqual;
-                return self.push(Value::Boolean(result));
+                return Ok(opcode == OpCode::OpEqual);
             }
         }
 
-        match (&left, &right) {
-            (Value::Integer(l), Value::Integer(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    OpCode::OpGreaterThan => l > r,
-                    OpCode::OpLessThanOrEqual => l <= r,
-                    OpCode::OpGreaterThanOrEqual => l >= r,
-                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            (Value::Float(l), Value::Float(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    OpCode::OpGreaterThan => l > r,
-                    OpCode::OpLessThanOrEqual => l <= r,
-                    OpCode::OpGreaterThanOrEqual => l >= r,
-                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
+        match (left, right) {
+            (Value::Integer(l), Value::Integer(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                OpCode::OpGreaterThan => Ok(l > r),
+                OpCode::OpLessThanOrEqual => Ok(l <= r),
+                OpCode::OpGreaterThanOrEqual => Ok(l >= r),
+                _ => Err(format!("unknown comparison: {:?}", opcode)),
+            },
+            (Value::Float(l), Value::Float(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                OpCode::OpGreaterThan => Ok(l > r),
+                OpCode::OpLessThanOrEqual => Ok(l <= r),
+                OpCode::OpGreaterThanOrEqual => Ok(l >= r),
+                _ => Err(format!("unknown comparison: {:?}", opcode)),
+            },
             (Value::Integer(l), Value::Float(r)) => {
                 let l = *l as f64;
-                let result = match opcode {
-                    OpCode::OpEqual => l == *r,
-                    OpCode::OpNotEqual => l != *r,
-                    OpCode::OpGreaterThan => l > *r,
-                    OpCode::OpLessThanOrEqual => l <= *r,
-                    OpCode::OpGreaterThanOrEqual => l >= *r,
-                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
+                match opcode {
+                    OpCode::OpEqual => Ok(l == *r),
+                    OpCode::OpNotEqual => Ok(l != *r),
+                    OpCode::OpGreaterThan => Ok(l > *r),
+                    OpCode::OpLessThanOrEqual => Ok(l <= *r),
+                    OpCode::OpGreaterThanOrEqual => Ok(l >= *r),
+                    _ => Err(format!("unknown comparison: {:?}", opcode)),
+                }
             }
             (Value::Float(l), Value::Integer(r)) => {
                 let r = *r as f64;
-                let result = match opcode {
-                    OpCode::OpEqual => *l == r,
-                    OpCode::OpNotEqual => *l != r,
-                    OpCode::OpGreaterThan => *l > r,
-                    OpCode::OpLessThanOrEqual => *l <= r,
-                    OpCode::OpGreaterThanOrEqual => *l >= r,
-                    _ => return Err(format!("unknown comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
+                match opcode {
+                    OpCode::OpEqual => Ok(*l == r),
+                    OpCode::OpNotEqual => Ok(*l != r),
+                    OpCode::OpGreaterThan => Ok(*l > r),
+                    OpCode::OpLessThanOrEqual => Ok(*l <= r),
+                    OpCode::OpGreaterThanOrEqual => Ok(*l >= r),
+                    _ => Err(format!("unknown comparison: {:?}", opcode)),
+                }
             }
-            (Value::Boolean(l), Value::Boolean(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    _ => return Err(format!("unknown boolean comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            (Value::String(l), Value::String(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    OpCode::OpGreaterThan => l > r,
-                    OpCode::OpLessThanOrEqual => l <= r,
-                    OpCode::OpGreaterThanOrEqual => l >= r,
-                    _ => return Err(format!("unknown string comparison: {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            (Value::Tuple(l), Value::Tuple(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    _ => return Err(format!("cannot compare Tuple with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            (Value::None, Value::None) => {
-                let result = match opcode {
-                    OpCode::OpEqual => true,
-                    OpCode::OpNotEqual => false,
-                    _ => return Err(format!("cannot compare None with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            (Value::None, _) | (_, Value::None) => {
-                let result = match opcode {
-                    OpCode::OpEqual => false,
-                    OpCode::OpNotEqual => true,
-                    _ => return Err(format!("cannot compare None with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            // Some comparison
-            (Value::Some(l), Value::Some(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    _ => return Err(format!("cannot compare Some with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            // Left comparison
-            (Value::Left(l), Value::Left(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    _ => return Err(format!("cannot compare Left with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            // Right comparison
-            (Value::Right(l), Value::Right(r)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => l == r,
-                    OpCode::OpNotEqual => l != r,
-                    _ => return Err(format!("cannot compare Right with {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
-            // Left vs Right (always not equal)
-            (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => {
-                let result = match opcode {
-                    OpCode::OpEqual => false,
-                    OpCode::OpNotEqual => true,
-                    _ => return Err(format!("cannot compare Left with Right using {:?}", opcode)),
-                };
-                self.push(Value::Boolean(result))
-            }
+            (Value::Boolean(l), Value::Boolean(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("unknown boolean comparison: {:?}", opcode)),
+            },
+            (Value::String(l), Value::String(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                OpCode::OpGreaterThan => Ok(l > r),
+                OpCode::OpLessThanOrEqual => Ok(l <= r),
+                OpCode::OpGreaterThanOrEqual => Ok(l >= r),
+                _ => Err(format!("unknown string comparison: {:?}", opcode)),
+            },
+            (Value::Tuple(l), Value::Tuple(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("cannot compare Tuple with {:?}", opcode)),
+            },
+            (Value::None, Value::None) => match opcode {
+                OpCode::OpEqual => Ok(true),
+                OpCode::OpNotEqual => Ok(false),
+                _ => Err(format!("cannot compare None with {:?}", opcode)),
+            },
+            (Value::None, _) | (_, Value::None) => match opcode {
+                OpCode::OpEqual => Ok(false),
+                OpCode::OpNotEqual => Ok(true),
+                _ => Err(format!("cannot compare None with {:?}", opcode)),
+            },
+            (Value::Some(l), Value::Some(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("cannot compare Some with {:?}", opcode)),
+            },
+            (Value::Left(l), Value::Left(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("cannot compare Left with {:?}", opcode)),
+            },
+            (Value::Right(l), Value::Right(r)) => match opcode {
+                OpCode::OpEqual => Ok(l == r),
+                OpCode::OpNotEqual => Ok(l != r),
+                _ => Err(format!("cannot compare Right with {:?}", opcode)),
+            },
+            (Value::AdtUnit(_), Value::AdtUnit(_))
+            | (Value::Adt(_), Value::Adt(_))
+            | (Value::GcAdt(_), Value::GcAdt(_))
+            | (Value::Adt(_), Value::GcAdt(_))
+            | (Value::GcAdt(_), Value::Adt(_)) => match opcode {
+                OpCode::OpEqual => Ok(self.adt_or_value_equal(left, right)),
+                OpCode::OpNotEqual => Ok(!self.adt_or_value_equal(left, right)),
+                _ => Err(format!("cannot compare Adt with {:?}", opcode)),
+            },
+            (Value::AdtUnit(_), _)
+            | (_, Value::AdtUnit(_))
+            | (Value::Adt(_), _)
+            | (_, Value::Adt(_))
+            | (Value::GcAdt(_), _)
+            | (_, Value::GcAdt(_)) => match opcode {
+                OpCode::OpEqual => Ok(false),
+                OpCode::OpNotEqual => Ok(true),
+                _ => Err(format!("cannot compare Adt with {:?}", opcode)),
+            },
+            (Value::Left(_), Value::Right(_)) | (Value::Right(_), Value::Left(_)) => match opcode {
+                OpCode::OpEqual => Ok(false),
+                OpCode::OpNotEqual => Ok(true),
+                _ => Err(format!("cannot compare Left with Right using {:?}", opcode)),
+            },
             _ => Err(format!(
                 "unsupported comparison: {} and {}",
                 left.type_name(),
                 right.type_name()
             )),
         }
+    }
+
+    pub(super) fn execute_comparison(&mut self, opcode: OpCode) -> Result<(), String> {
+        let (left, right) = self.pop_pair_untracked()?;
+        let result = self.compare_values(&left, &right, opcode)?;
+        self.push(Value::Boolean(result))
     }
 }

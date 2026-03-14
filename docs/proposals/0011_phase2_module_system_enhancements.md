@@ -1,7 +1,8 @@
 - Feature Name: Phase 2 - Module System Enhancements
 - Start Date: 2026-02-04
-- Proposal PR: 
-- Flux Issue: 
+- Status: Partially Implemented
+- Proposal PR:
+- Flux Issue:
 
 # Proposal 0011: Phase 2 - Module System Enhancements
 
@@ -276,7 +277,7 @@ The technical details below consolidate implementation, validation, and policy n
 - [Module Graph Documentation](../architecture/module_graph.md)
 - [Language Design](../language/language_design.md)
 - [Stdlib Proposal](0003_stdlib_proposal.md)
-- [Phase 1 Module Split](0006_phase1_module_split_plan.md)
+- [Phase 1 Module Split](implemented/0006_phase1_module_split_plan.md)
 
 ### References
 

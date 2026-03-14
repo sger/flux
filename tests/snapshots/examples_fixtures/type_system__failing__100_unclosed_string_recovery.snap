@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/100_unclosed_string_recovery.flx
 == compile ==
 failed (parse)
 == diagnostics ==
---> compiler error[E071]: UNTERMINATED STRING
+error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  --> examples/type_system/failing/100_unclosed_string_recovery.flx:1:13
+  examples/type_system/failing/100_unclosed_string_recovery.flx:1:13
   |
 1 | let label = "The answer
   |             ^^^^^^^^^^^

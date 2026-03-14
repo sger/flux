@@ -1,0 +1,8 @@
+import RuntimeErrors.BoundaryUnknown
+
+fn sum_list(xs: List<Int>) -> Int {
+    fold(xs, 0, \(acc: Int, x: Int) -> acc + x)
+}
+
+let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
+sum_list(dynamic)

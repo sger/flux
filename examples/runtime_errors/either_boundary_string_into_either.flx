@@ -1,0 +1,12 @@
+import RuntimeErrors.BoundaryUnknown
+
+fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+    match input {
+        Left(_msg) -> 0,
+        Right(value) -> value,
+        _ -> 0
+    }
+}
+
+let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
+unwrap_or_zero(dynamic)

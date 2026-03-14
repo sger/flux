@@ -5,11 +5,11 @@ Fixture: examples/type_system/failing/146_constructor_pattern_arity_some_too_man
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E085]: CONSTRUCTOR PATTERN ARITY MISMATCH
+error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `BoxI` expects 1 argument(s) but got 2.
 
-  --> examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:8:9
+  examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:8:9
   |
 8 |         BoxI(a, b) -> a,
   |         ^^^^^^^^^^

@@ -5,11 +5,11 @@ Fixture: examples/errors/Aurora.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E007]: DUPLICATE PARAMETER
+error[E007]: Duplicate Parameter
 
 Duplicate parameter name: `x`.
 
-  --> examples/errors/Aurora.flx:1:3
+  examples/errors/Aurora.flx:1:3
   |
 1 |   fn echo(x, x) {
   |   ^

@@ -1,0 +1,9 @@
+module MultiDelimiterErrors {
+    fn delimiters() -> Unit {
+        let pair = (1, 2]
+        let xs = [1, 2, 3
+        let h = { "a" 1 }
+        let r = add(1 2)
+        let g = (1 + 2]
+    }
+}

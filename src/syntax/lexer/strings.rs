@@ -50,13 +50,15 @@ impl Lexer {
             )
         } else if !ended {
             // Hit newline or EOF without closing quote
-            self.string_token_with_cursor_end(
+            let token = self.string_token_with_cursor_end(
                 TokenType::UnterminatedString,
                 content_start,
                 content_end,
                 line,
                 column,
-            )
+            );
+            self.emit_unterminated_string_diagnostic(token.span());
+            token
         } else {
             // Simple string with no interpolation
             self.string_token_with_cursor_end(
@@ -107,13 +109,15 @@ impl Lexer {
                 column,
             )
         } else if !ended {
-            self.string_token_with_cursor_end(
+            let token = self.string_token_with_cursor_end(
                 TokenType::UnterminatedString,
                 content_start,
                 content_end,
                 line,
                 column,
-            )
+            );
+            self.emit_unterminated_string_diagnostic(token.span());
+            token
         } else {
             self.string_token_with_cursor_end(
                 TokenType::String,
@@ -216,13 +220,15 @@ impl Lexer {
         } else if !ended {
             // Hit newline or EOF without closing quote
             self.exit_interpolated_string();
-            self.string_token_with_cursor_end(
+            let token = self.string_token_with_cursor_end(
                 TokenType::UnterminatedString,
                 content_start,
                 content_end,
                 line,
                 column,
-            )
+            );
+            self.emit_unterminated_string_diagnostic(token.span());
+            token
         } else {
             // End of interpolated string
             self.exit_interpolated_string();

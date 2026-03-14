@@ -1,9 +1,11 @@
 use crate::ast::fold::{self, Folder};
+use crate::diagnostics::position::Span;
 use crate::primop::{PrimEffect, PrimOp, resolve_primop_call};
+use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
 
-/// Evaluates compile-time-constant expressions.
+/// Evaluates compile-time-constant expressions in a single bottom-up pass.
 ///
 /// Folds children bottom-up, then simplifies the result:
 /// - Integer arithmetic: `+`, `-`, `*`, `/`, `%` (skips division by zero)
@@ -12,202 +14,222 @@ use crate::syntax::{expression::Expression, program::Program};
 /// - Boolean logic: `&&`, `||`
 /// - Integer comparison: `==`, `!=`, `<`, `>`, `<=`, `>=`
 /// - Prefix negation: `-42` → `-42`, `!true` → `false`
-struct ConstantFolder;
+/// - Pure primop calls (when interner is available): `abs(-5)` → `5`
+struct ConstantFolder<'a> {
+    interner: Option<&'a Interner>,
+}
 
-impl Folder for ConstantFolder {
+impl Folder for ConstantFolder<'_> {
     fn fold_expr(&mut self, expr: Expression) -> Expression {
-        // Fold children first (bottom-up)
+        // Fold children first (bottom-up), then simplify the root.
         let expr = fold::fold_expr(self, expr);
 
         match expr {
-            // Integer infix operations
             Expression::Infix {
-                left,
+                ref left,
                 ref operator,
-                right,
+                ref right,
                 span,
-            } => match (left.as_ref(), right.as_ref()) {
-                (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
-                    let a = *a;
-                    let b = *b;
-                    match operator.as_str() {
-                        "+" => return Expression::Integer { value: a + b, span },
-                        "-" => return Expression::Integer { value: a - b, span },
-                        "*" => return Expression::Integer { value: a * b, span },
-                        "/" if b != 0 => return Expression::Integer { value: a / b, span },
-                        "%" if b != 0 => return Expression::Integer { value: a % b, span },
-                        "==" => {
-                            return Expression::Boolean {
-                                value: a == b,
-                                span,
-                            };
-                        }
-                        "!=" => {
-                            return Expression::Boolean {
-                                value: a != b,
-                                span,
-                            };
-                        }
-                        "<" => return Expression::Boolean { value: a < b, span },
-                        ">" => return Expression::Boolean { value: a > b, span },
-                        "<=" => {
-                            return Expression::Boolean {
-                                value: a <= b,
-                                span,
-                            };
-                        }
-                        ">=" => {
-                            return Expression::Boolean {
-                                value: a >= b,
-                                span,
-                            };
-                        }
-                        _ => {}
-                    }
-                    // Return the original expression if no fold applied
-                    Expression::Infix {
-                        left,
-                        operator: operator.clone(),
-                        right,
-                        span,
-                    }
+                id,
+            } => {
+                if let Some(folded) = try_fold_infix(left, operator, right, span, id) {
+                    return folded;
                 }
-                // Float infix operations
-                (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
-                    let a = *a;
-                    let b = *b;
-                    match operator.as_str() {
-                        "+" => return Expression::Float { value: a + b, span },
-                        "-" => return Expression::Float { value: a - b, span },
-                        "*" => return Expression::Float { value: a * b, span },
-                        "/" => return Expression::Float { value: a / b, span },
-                        _ => {}
-                    }
-                    Expression::Infix {
-                        left,
-                        operator: operator.clone(),
-                        right,
-                        span,
-                    }
-                }
-                // String concatenation
-                (Expression::String { value: a, .. }, Expression::String { value: b, .. }) => {
-                    if operator == "+" {
-                        let mut result = a.clone();
-                        result.push_str(b);
-                        return Expression::String {
-                            value: result,
-                            span,
-                        };
-                    }
-                    Expression::Infix {
-                        left,
-                        operator: operator.clone(),
-                        right,
-                        span,
-                    }
-                }
-                // Boolean logic
-                (Expression::Boolean { value: a, .. }, Expression::Boolean { value: b, .. }) => {
-                    let a = *a;
-                    let b = *b;
-                    match operator.as_str() {
-                        "&&" => {
-                            return Expression::Boolean {
-                                value: a && b,
-                                span,
-                            };
-                        }
-                        "||" => {
-                            return Expression::Boolean {
-                                value: a || b,
-                                span,
-                            };
-                        }
-                        _ => {}
-                    }
-                    Expression::Infix {
-                        left,
-                        operator: operator.clone(),
-                        right,
-                        span,
-                    }
-                }
-                _ => Expression::Infix {
-                    left,
-                    operator: operator.clone(),
-                    right,
-                    span,
-                },
-            },
-            // Prefix operations
+                expr
+            }
             Expression::Prefix {
                 ref operator,
-                right,
+                ref right,
                 span,
-            } => match (operator.as_str(), right.as_ref()) {
-                ("-", Expression::Integer { value, .. }) => Expression::Integer {
-                    value: -value,
-                    span,
-                },
-                ("-", Expression::Float { value, .. }) => Expression::Float {
-                    value: -value,
-                    span,
-                },
-                ("!", Expression::Boolean { value, .. }) => Expression::Boolean {
-                    value: !value,
-                    span,
-                },
-                _ => Expression::Prefix {
-                    operator: operator.clone(),
-                    right,
-                    span,
-                },
-            },
-            other => other,
-        }
-    }
-}
-
-struct InternerAwareConstantFolder<'a> {
-    interner: &'a Interner,
-}
-
-impl Folder for InternerAwareConstantFolder<'_> {
-    fn fold_expr(&mut self, expr: Expression) -> Expression {
-        // Fold children first (bottom-up)
-        let expr = fold::fold_expr(self, expr);
-
-        // Keep the baseline constant folding behavior.
-        let expr = ConstantFolder.fold_expr(expr);
-
-        match expr {
-            Expression::Call {
-                function,
-                arguments,
-                span,
+                id,
             } => {
-                if let Some(folded) =
-                    fold_pure_primop_call(self.interner, function.as_ref(), &arguments, span)
+                if let Some(folded) = try_fold_prefix(operator, right, span, id) {
+                    return folded;
+                }
+                expr
+            }
+            Expression::Call {
+                ref function,
+                ref arguments,
+                span,
+                id,
+            } => {
+                if let Some(interner) = self.interner
+                    && let Some(folded) =
+                        try_fold_pure_primop_call(interner, function, arguments, span, id)
                 {
                     return folded;
                 }
-                Expression::Call {
-                    function,
-                    arguments,
-                    span,
-                }
+                expr
             }
             other => other,
         }
     }
 }
 
-fn fold_pure_primop_call(
+/// Try to fold a constant infix expression. Returns `None` when no rule applies.
+fn try_fold_infix(
+    left: &Expression,
+    operator: &str,
+    right: &Expression,
+    span: Span,
+    id: ExprId,
+) -> Option<Expression> {
+    match (left, right) {
+        (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
+            let (a, b) = (*a, *b);
+            match operator {
+                "+" => Some(Expression::Integer {
+                    value: a + b,
+                    span,
+                    id,
+                }),
+                "-" => Some(Expression::Integer {
+                    value: a - b,
+                    span,
+                    id,
+                }),
+                "*" => Some(Expression::Integer {
+                    value: a * b,
+                    span,
+                    id,
+                }),
+                "/" if b != 0 => Some(Expression::Integer {
+                    value: a / b,
+                    span,
+                    id,
+                }),
+                "%" if b != 0 => Some(Expression::Integer {
+                    value: a % b,
+                    span,
+                    id,
+                }),
+                "==" => Some(Expression::Boolean {
+                    value: a == b,
+                    span,
+                    id,
+                }),
+                "!=" => Some(Expression::Boolean {
+                    value: a != b,
+                    span,
+                    id,
+                }),
+                "<" => Some(Expression::Boolean {
+                    value: a < b,
+                    span,
+                    id,
+                }),
+                ">" => Some(Expression::Boolean {
+                    value: a > b,
+                    span,
+                    id,
+                }),
+                "<=" => Some(Expression::Boolean {
+                    value: a <= b,
+                    span,
+                    id,
+                }),
+                ">=" => Some(Expression::Boolean {
+                    value: a >= b,
+                    span,
+                    id,
+                }),
+                _ => None,
+            }
+        }
+        (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
+            let (a, b) = (*a, *b);
+            match operator {
+                "+" => Some(Expression::Float {
+                    value: a + b,
+                    span,
+                    id,
+                }),
+                "-" => Some(Expression::Float {
+                    value: a - b,
+                    span,
+                    id,
+                }),
+                "*" => Some(Expression::Float {
+                    value: a * b,
+                    span,
+                    id,
+                }),
+                "/" => Some(Expression::Float {
+                    value: a / b,
+                    span,
+                    id,
+                }),
+                _ => None,
+            }
+        }
+        (Expression::String { value: a, .. }, Expression::String { value: b, .. }) => {
+            if operator == "+" {
+                let mut result = a.clone();
+                result.push_str(b);
+                Some(Expression::String {
+                    value: result,
+                    span,
+                    id,
+                })
+            } else {
+                None
+            }
+        }
+        (Expression::Boolean { value: a, .. }, Expression::Boolean { value: b, .. }) => {
+            let (a, b) = (*a, *b);
+            match operator {
+                "&&" => Some(Expression::Boolean {
+                    value: a && b,
+                    span,
+                    id,
+                }),
+                "||" => Some(Expression::Boolean {
+                    value: a || b,
+                    span,
+                    id,
+                }),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Try to fold a constant prefix expression. Returns `None` when no rule applies.
+fn try_fold_prefix(
+    operator: &str,
+    right: &Expression,
+    span: Span,
+    id: ExprId,
+) -> Option<Expression> {
+    match (operator, right) {
+        ("-", Expression::Integer { value, .. }) => Some(Expression::Integer {
+            value: -value,
+            span,
+            id,
+        }),
+        ("-", Expression::Float { value, .. }) => Some(Expression::Float {
+            value: -value,
+            span,
+            id,
+        }),
+        ("!", Expression::Boolean { value, .. }) => Some(Expression::Boolean {
+            value: !value,
+            span,
+            id,
+        }),
+        _ => None,
+    }
+}
+
+/// Try to fold a pure primop call with all-constant arguments.
+fn try_fold_pure_primop_call(
     interner: &Interner,
     function: &Expression,
     arguments: &[Expression],
-    span: crate::diagnostics::position::Span,
+    span: Span,
+    id: ExprId,
 ) -> Option<Expression> {
     let Expression::Identifier { name, .. } = function else {
         return None;
@@ -223,19 +245,22 @@ fn fold_pure_primop_call(
             Expression::Integer { value, .. } => Some(Expression::Integer {
                 value: value.abs(),
                 span,
+                id,
             }),
             Expression::Float { value, .. } => Some(Expression::Float {
                 value: value.abs(),
                 span,
+                id,
             }),
             _ => None,
         },
-        PrimOp::Min => fold_min_max(arguments, span, true),
-        PrimOp::Max => fold_min_max(arguments, span, false),
+        PrimOp::Min => fold_min_max(arguments, span, true, id),
+        PrimOp::Max => fold_min_max(arguments, span, false, id),
         PrimOp::StringLen => match arguments.first()? {
             Expression::String { value, .. } => Some(Expression::Integer {
                 value: value.len() as i64,
                 span,
+                id,
             }),
             _ => None,
         },
@@ -244,6 +269,7 @@ fn fold_pure_primop_call(
                 Some(Expression::String {
                     value: format!("{left}{right}"),
                     span,
+                    id,
                 })
             }
             _ => None,
@@ -254,8 +280,9 @@ fn fold_pure_primop_call(
 
 fn fold_min_max(
     arguments: &[Expression],
-    span: crate::diagnostics::position::Span,
+    span: Span,
     is_min: bool,
+    id: ExprId,
 ) -> Option<Expression> {
     let a = arguments.first()?;
     let b = arguments.get(1)?;
@@ -264,12 +291,14 @@ fn fold_min_max(
             Some(Expression::Integer {
                 value: if is_min { (*a).min(*b) } else { (*a).max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
             Some(Expression::Float {
                 value: if is_min { (*a).min(*b) } else { (*a).max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Integer { value: a, .. }, Expression::Float { value: b, .. }) => {
@@ -277,6 +306,7 @@ fn fold_min_max(
             Some(Expression::Float {
                 value: if is_min { a.min(*b) } else { a.max(*b) },
                 span,
+                id,
             })
         }
         (Expression::Float { value: a, .. }, Expression::Integer { value: b, .. }) => {
@@ -284,20 +314,23 @@ fn fold_min_max(
             Some(Expression::Float {
                 value: if is_min { (*a).min(b) } else { (*a).max(b) },
                 span,
+                id,
             })
         }
         _ => None,
     }
 }
 
-/// Apply constant folding to a program.
+/// Apply constant folding to a program (without primop folding).
 pub fn constant_fold(program: Program) -> Program {
-    let mut folder = ConstantFolder;
+    let mut folder = ConstantFolder { interner: None };
     folder.fold_program(program)
 }
 
 /// Apply constant folding with identifier-aware pure-primop folding.
 pub fn constant_fold_with_interner(program: Program, interner: &Interner) -> Program {
-    let mut folder = InternerAwareConstantFolder { interner };
+    let mut folder = ConstantFolder {
+        interner: Some(interner),
+    };
     folder.fold_program(program)
 }

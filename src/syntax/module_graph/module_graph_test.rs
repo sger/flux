@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::syntax::expression::ExprId;
 use crate::syntax::{
     block::Block, expression::Expression, interner::Interner, program::Program,
     statement::Statement,
@@ -181,6 +182,7 @@ fn resolve_imports_no_imports_returns_empty() {
             expression: Expression::Integer {
                 value: 1,
                 span: span(1, 0),
+                id: ExprId::UNSET,
             },
             has_semicolon: false,
             span: span(1, 0),

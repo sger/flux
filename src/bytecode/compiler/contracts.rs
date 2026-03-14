@@ -59,7 +59,33 @@ pub fn convert_type_expr(ty: &TypeExpr, interner: &Interner) -> Option<RuntimeTy
                 .map(|e| convert_type_expr(e, interner))
                 .collect::<Option<Vec<_>>>()?,
         )),
-        TypeExpr::Function { .. } => None,
+        TypeExpr::Function {
+            params,
+            ret,
+            effects,
+            ..
+        } => {
+            // Row variables can't be represented in RuntimeType bail to HM path.
+            if effects.iter().any(|e| e.row_var().is_some()) {
+                return None;
+            }
+            let param_types = params
+                .iter()
+                .map(|param| convert_type_expr(param, interner))
+                .collect::<Option<Vec<_>>>()?;
+            let ret_type = convert_type_expr(ret, interner)?;
+            let mut effect_set = effects
+                .iter()
+                .flat_map(EffectExpr::normalized_names)
+                .collect::<Vec<_>>();
+            effect_set.sort_by_key(|sym| sym.as_u32());
+            effect_set.dedup();
+            Some(RuntimeType::Function {
+                params: param_types,
+                ret: Box::new(ret_type),
+                effects: effect_set,
+            })
+        }
     }
 }
 

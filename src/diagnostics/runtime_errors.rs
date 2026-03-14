@@ -1,6 +1,9 @@
+use std::rc::Rc;
+
 use crate::diagnostics::position::Span;
 
 use super::builders::DiagnosticBuilder;
+use super::quality::runtime_type_error_diagnostic;
 use super::types::{ErrorCode, ErrorType};
 
 pub const WRONG_NUMBER_OF_ARGUMENTS: ErrorCode = ErrorCode {
@@ -186,21 +189,34 @@ pub const INVALID_SUBSTRING: ErrorCode = ErrorCode {
 // proper error codes. Use these instead of Diagnostic::error() in production code.
 
 use super::diagnostic::Diagnostic;
-use super::registry::diag_enhanced;
+use super::registry::diagnostic_for;
+use super::types::DiagnosticPhase;
 
 /// Create an "invalid operation" runtime error
 pub fn invalid_operation(
     op_name: &str,
     left_type: &str,
     right_type: &str,
-    file: String,
+    file: impl Into<Rc<str>>,
     span: Span,
 ) -> Diagnostic {
-    diag_enhanced(&INVALID_OPERATION)
+    diagnostic_for(&INVALID_OPERATION)
+        .with_phase(DiagnosticPhase::Runtime)
         .with_message(format!(
             "Cannot {} {} and {} values.",
             op_name, left_type, right_type
         ))
         .with_file(file)
         .with_span(span)
+}
+
+/// Create a runtime type error diagnostic for a value that failed a dynamic type check.
+pub fn runtime_type_error(
+    expected: &str,
+    actual: &str,
+    value_preview: Option<&str>,
+    file: impl Into<Rc<str>>,
+    span: Span,
+) -> Diagnostic {
+    runtime_type_error_diagnostic(file, span, expected, actual, value_preview)
 }

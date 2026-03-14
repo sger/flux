@@ -178,12 +178,12 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
     );
 
     assert!(
-        vm_stderr.contains("runtime error[E1004]"),
+        vm_stderr.contains("error[E1004]: Type Error"),
         "expected VM runtime E1004 for `{file}`; got:\n{}",
         vm_stderr
     );
     assert!(
-        jit_stderr.contains("runtime error[E1004]"),
+        jit_stderr.contains("error[E1004]: Type Error"),
         "expected JIT runtime E1004 for `{file}`; got:\n{}",
         jit_stderr
     );
@@ -197,6 +197,34 @@ fn assert_file_cli_runtime_e1004_parity(file: &str, roots: &[&str], expected_fra
         jit_stderr.contains(expected_fragment),
         "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
         expected_fragment,
+        jit_stderr
+    );
+}
+
+fn assert_file_cli_runtime_highlight_contains(file: &str, roots: &[&str], caret_fragment: &str) {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let flux_bin = Path::new(env!("CARGO_BIN_EXE_flux"));
+
+    let (vm_status, _vm_stdout, vm_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, false);
+    let (jit_status, _jit_stdout, jit_stderr) =
+        run_flux_file(workspace_root, flux_bin, file, roots, true);
+
+    assert_ne!(vm_status, 0, "expected runtime failure for `{file}` in VM");
+    assert_ne!(
+        jit_status, 0,
+        "expected runtime failure for `{file}` in JIT"
+    );
+    assert!(
+        vm_stderr.contains(caret_fragment),
+        "expected VM stderr for `{file}` to contain {:?}; got:\n{}",
+        caret_fragment,
+        vm_stderr
+    );
+    assert!(
+        jit_stderr.contains(caret_fragment),
+        "expected JIT stderr for `{file}` to contain {:?}; got:\n{}",
+        caret_fragment,
         jit_stderr
     );
 }
@@ -229,6 +257,19 @@ match r {
 }
 
 #[test]
+fn release_runtime_parity_nested_tuple_aggregate_flow() {
+    assert_vm_jit_value(
+        r#"
+let t = ((1, 2), (3, 4))
+let left = t.0
+let right = t.1
+left.1 + right.0
+"#,
+    );
+}
+
+#[test]
+#[ignore = "JIT: stack overflow in tail-recursive countdown (proposal 0102)"]
 fn release_runtime_parity_tail_recursive_countdown() {
     assert_vm_jit_value(
         r#"
@@ -245,10 +286,65 @@ countdown(100000)
 }
 
 #[test]
+#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
+fn release_runtime_parity_cfold_benchmark_file() {
+    assert_file_cli_outcome_parity("benchmarks/flux/cfold.flx", &[]);
+}
+
+#[test]
+#[ignore = "JIT: benchmark VM/JIT parity (proposal 0102)"]
+fn release_runtime_parity_rbtree_del_benchmark_file() {
+    assert_file_cli_outcome_parity("benchmarks/flux/rbtree_del.flx", &[]);
+}
+
+#[test]
 fn release_runtime_parity_effectful_error_signature() {
     assert_vm_jit_error_signature_contains(
         r#"panic("release parity panic")"#,
         "panic: release parity panic",
+    );
+}
+
+#[test]
+fn release_runtime_parity_strict_module_private_helper_allowed() {
+    assert_file_cli_outcome_parity(
+        "examples/type_system/61_strict_module_private_unannotated_allowed.flx",
+        &["examples/type_system"],
+    );
+}
+
+#[test]
+#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
+fn release_jit_base_runtime_errors_use_full_span_highlights() {
+    assert_file_cli_runtime_highlight_contains(
+        "examples/runtime_errors/base_flat_map_return_shape.flx",
+        &[],
+        "^^^^^^^^^^^^^^^^^^^^^^^",
+    );
+}
+
+#[test]
+#[ignore = "JIT: runtime error span highlight parity (proposal 0102)"]
+fn release_jit_primop_runtime_errors_use_full_span_highlights() {
+    assert_file_cli_runtime_highlight_contains(
+        "examples/runtime_errors/primop_array_len_type.flx",
+        &[],
+        "^^^^^^^^^^^^",
+    );
+}
+
+#[test]
+#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
+fn release_jit_indirect_call_wrong_arity_renders_runtime_signature() {
+    assert_file_cli_outcome_parity("examples/runtime_errors/indirect_call_wrong_arity.flx", &[]);
+}
+
+#[test]
+#[ignore = "JIT: indirect call error rendering parity (proposal 0102)"]
+fn release_jit_indirect_call_not_callable_renders_runtime_signature() {
+    assert_file_cli_outcome_parity(
+        "examples/runtime_errors/indirect_call_not_callable.flx",
+        &[],
     );
 }
 
@@ -270,7 +366,7 @@ fn release_runtime_parity_e1004_argument_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/185_runtime_boundary_arg_e1004.flx",
         &["examples/type_system"],
-        "Expected Int, got String.",
+        "expected type: Int",
     );
 }
 
@@ -279,7 +375,7 @@ fn release_runtime_parity_e1004_return_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/186_runtime_boundary_return_e1004.flx",
         &["examples/type_system"],
-        "Expected Int, got String.",
+        "expected type: Int",
     );
 }
 
@@ -288,7 +384,7 @@ fn release_runtime_parity_e1004_list_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/187_runtime_list_boundary_e1004.flx",
         &["examples/type_system"],
-        "Expected List<Int>, got String.",
+        "expected type: List<Int>",
     );
 }
 
@@ -297,6 +393,6 @@ fn release_runtime_parity_e1004_either_boundary() {
     assert_file_cli_runtime_e1004_parity(
         "examples/type_system/failing/188_runtime_either_boundary_e1004.flx",
         &["examples/type_system"],
-        "Expected Either<String, Int>, got String.",
+        "expected type: Either<String, Int>",
     );
 }

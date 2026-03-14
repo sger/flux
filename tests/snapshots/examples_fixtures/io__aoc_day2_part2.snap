@@ -5,11 +5,11 @@ Fixture: examples/io/aoc_day2_part2.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+error[E011]: Private Member
 
 Cannot access private member `solve_file`.
 
-  --> examples/io/aoc_day2_part2.flx:7:11
+  examples/io/aoc_day2_part2.flx:7:11
   |
 7 |     print(Day2.solve_file("examples/io/aoc_day2.txt"))
   |           ^^^^^^^^^^^^^^^

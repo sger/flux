@@ -1,19 +1,39 @@
-use crate::runtime::{RuntimeContext, base::helpers::check_arity_range, value::Value};
+use crate::runtime::{RuntimeContext, value::Value};
 
-use super::helpers::{arg_array, arg_int, arg_string, check_arity, format_hint};
+use super::helpers::{
+    arg_array_ref, arg_int_ref, arg_string_ref, check_arity_range_ref, check_arity_ref, format_hint,
+};
 
 pub(super) fn base_to_string(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 1, "to_string", "to_string(value)")?;
-    Ok(Value::String(args[0].to_string_value().into()))
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_to_string_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_to_string_borrowed(
+    ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "to_string", "to_string(value)")?;
+    Ok(Value::String(
+        super::list_ops::format_value(ctx, args[0]).into(),
+    ))
 }
 
 pub(super) fn base_split(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 2, "split", "split(s, delim)")?;
-    let s = arg_string(&args, 0, "split", "first argument", "split(s, delim)")?;
-    let delim = arg_string(&args, 1, "split", "second argument", "split(s, delim)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_split_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_split_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "split", "split(s, delim)")?;
+    let s = arg_string_ref(args, 0, "split", "first argument", "split(s, delim)")?;
+    let delim = arg_string_ref(args, 1, "split", "second argument", "split(s, delim)")?;
     let parts: Vec<Value> = if delim.is_empty() {
         // Match test expectation: split into characters without empty ends.
         s.chars()
@@ -28,9 +48,17 @@ pub(super) fn base_split(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Res
 }
 
 pub(super) fn base_join(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 2, "join", "join(arr, delim)")?;
-    let arr = arg_array(&args, 0, "join", "first argument", "join(arr, delim)")?;
-    let delim = arg_string(&args, 1, "join", "second argument", "join(arr, delim)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_join_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_join_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "join", "join(arr, delim)")?;
+    let arr = arg_array_ref(args, 0, "join", "first argument", "join(arr, delim)")?;
+    let delim = arg_string_ref(args, 1, "join", "second argument", "join(arr, delim)")?;
     let strings: Result<Vec<String>, String> = arr
         .iter()
         .map(|item| match item {
@@ -46,14 +74,30 @@ pub(super) fn base_join(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Resu
 }
 
 pub(super) fn base_trim(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "trim", "trim(s)")?;
-    let s = arg_string(&args, 0, "trim", "argument", "trim(s)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_trim_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_trim_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "trim", "trim(s)")?;
+    let s = arg_string_ref(args, 0, "trim", "argument", "trim(s)")?;
     Ok(Value::String(s.trim().to_string().into()))
 }
 
 pub(super) fn base_upper(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "upper", "upper(s)")?;
-    let s = arg_string(&args, 0, "upper", "argument", "upper(s)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_upper_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_upper_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "upper", "upper(s)")?;
+    let s = arg_string_ref(args, 0, "upper", "argument", "upper(s)")?;
     Ok(Value::String(s.to_uppercase().into()))
 }
 
@@ -61,16 +105,24 @@ pub(super) fn base_starts_with(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "starts_with", "starts_with(s, prefix)")?;
-    let s = arg_string(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_starts_with_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_starts_with_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "starts_with", "starts_with(s, prefix)")?;
+    let s = arg_string_ref(
+        args,
         0,
         "starts_with",
         "first argument",
         "starts_with(s, prefix)",
     )?;
-    let prefix = arg_string(
-        &args,
+    let prefix = arg_string_ref(
+        args,
         1,
         "starts_with",
         "second argument",
@@ -83,16 +135,24 @@ pub(super) fn base_ends_with(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 2, "ends_with", "ends_with(s, suffix)")?;
-    let s = arg_string(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_ends_with_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_ends_with_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 2, "ends_with", "ends_with(s, suffix)")?;
+    let s = arg_string_ref(
+        args,
         0,
         "ends_with",
         "first argument",
         "ends_with(s, suffix)",
     )?;
-    let suffix = arg_string(
-        &args,
+    let suffix = arg_string_ref(
+        args,
         1,
         "ends_with",
         "second argument",
@@ -105,40 +165,52 @@ pub(super) fn base_replace(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity(&args, 3, "replace", "replace(s, from, to)")?;
-    let s = arg_string(
-        &args,
-        0,
-        "replace",
-        "first argument",
-        "replace(s, from, to)",
-    )?;
-    let from = arg_string(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_replace_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_replace_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 3, "replace", "replace(s, from, to)")?;
+    let s = arg_string_ref(args, 0, "replace", "first argument", "replace(s, from, to)")?;
+    let from = arg_string_ref(
+        args,
         1,
         "replace",
         "second argument",
         "replace(s, from, to)",
     )?;
-    let to = arg_string(
-        &args,
-        2,
-        "replace",
-        "third argument",
-        "replace(s, from, to)",
-    )?;
+    let to = arg_string_ref(args, 2, "replace", "third argument", "replace(s, from, to)")?;
     Ok(Value::String(s.replace(from, to).into()))
 }
 
 pub(super) fn base_lower(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "lower", "lower(s)")?;
-    let s = arg_string(&args, 0, "lower", "argument", "lower(s)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_lower_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_lower_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "lower", "lower(s)")?;
+    let s = arg_string_ref(args, 0, "lower", "argument", "lower(s)")?;
     Ok(Value::String(s.to_lowercase().into()))
 }
 
 pub(super) fn base_chars(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {
-    check_arity(&args, 1, "chars", "chars(s)")?;
-    let s = arg_string(&args, 0, "chars", "argument", "chars(s)")?;
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_chars_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_chars_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_ref(args, 1, "chars", "chars(s)")?;
+    let s = arg_string_ref(args, 0, "chars", "argument", "chars(s)")?;
     let chars: Vec<Value> = s
         .chars()
         .map(|c| Value::String(c.to_string().into()))
@@ -150,16 +222,24 @@ pub(super) fn base_substring(
     _ctx: &mut dyn RuntimeContext,
     args: Vec<Value>,
 ) -> Result<Value, String> {
-    check_arity_range(&args, 2, 3, "substring", "substring(s, start[,end])")?;
-    let s = arg_string(
-        &args,
+    let borrowed: Vec<&Value> = args.iter().collect();
+    base_substring_borrowed(_ctx, &borrowed)
+}
+
+pub(super) fn base_substring_borrowed(
+    _ctx: &mut dyn RuntimeContext,
+    args: &[&Value],
+) -> Result<Value, String> {
+    check_arity_range_ref(args, 2, 3, "substring", "substring(s, start[,end])")?;
+    let s = arg_string_ref(
+        args,
         0,
         "substring",
         "first argument",
         "substring(s, start[,end])",
     )?;
-    let start = arg_int(
-        &args,
+    let start = arg_int_ref(
+        args,
         1,
         "substring",
         "second argument",
@@ -169,8 +249,8 @@ pub(super) fn base_substring(
     let len = chars.len() as i64;
     let start = if start < 0 { 0 } else { start as usize };
     let end = if args.len() == 3 {
-        let e = arg_int(
-            &args,
+        let e = arg_int_ref(
+            args,
             2,
             "substring",
             "third argument",

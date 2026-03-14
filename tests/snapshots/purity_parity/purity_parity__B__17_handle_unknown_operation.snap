@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/17_handle_unknown_operation.flx -
 exit_code: 1
 
 == vm tuples ==
-- E401 | UNKNOWN HANDLER OPERATION | unknown operation arm
+- E401 | Unknown Effect Operation | unknown operation arm
 
 == jit tuples ==
-- E401 | UNKNOWN HANDLER OPERATION | unknown operation arm
+- E401 | Unknown Effect Operation | unknown operation arm
 
 == parity ==
 match

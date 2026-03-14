@@ -1,0 +1,8 @@
+import RuntimeErrors.BoundaryUnknown
+
+fn typed_add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+let dynamic = RuntimeErrors.BoundaryUnknown.dynamic_string()
+typed_add(dynamic, 1)

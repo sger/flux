@@ -1,0 +1,197 @@
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+type Del = Del(Tree, Bool)
+type Delmin = Delmin(Del, Int, Bool)
+
+let limit = 100000
+
+fn count_true(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, left, _, value, right) ->
+            count_true(left) + (if value { 1 } else { 0 }) + count_true(right),
+    }
+}
+
+fn is_red(tree: Tree) -> Bool {
+    match tree {
+        Node(Red, _, _, _, _) -> true,
+        _ -> false,
+    }
+}
+
+fn is_black_color(color: Color) -> Bool {
+    match color {
+        Black -> true,
+        _ -> false,
+    }
+}
+
+fn balance_left(l: Tree, k: Int, v: Bool, r: Tree) -> Tree {
+    match l {
+        Leaf -> Leaf,
+        Node(_, Node(Red, lx, kx, vx, rx), ky, vy, ry) ->
+            Node(Red, Node(Black, lx, kx, vx, rx), ky, vy, Node(Black, ry, k, v, r)),
+        Node(_, ly, ky, vy, Node(Red, lx, kx, vx, rx)) ->
+            Node(Red, Node(Black, ly, ky, vy, lx), kx, vx, Node(Black, rx, k, v, r)),
+        Node(_, lx, kx, vx, rx) ->
+            Node(Black, Node(Red, lx, kx, vx, rx), k, v, r),
+    }
+}
+
+fn balance_right(l: Tree, k: Int, v: Bool, r: Tree) -> Tree {
+    match r {
+        Leaf -> Leaf,
+        Node(_, Node(Red, lx, kx, vx, rx), ky, vy, ry) ->
+            Node(Red, Node(Black, l, k, v, lx), kx, vx, Node(Black, rx, ky, vy, ry)),
+        Node(_, lx, kx, vx, Node(Red, ly, ky, vy, ry)) ->
+            Node(Red, Node(Black, l, k, v, lx), kx, vx, Node(Black, ly, ky, vy, ry)),
+        Node(_, lx, kx, vx, rx) ->
+            Node(Black, l, k, v, Node(Red, lx, kx, vx, rx)),
+    }
+}
+
+fn ins(tree: Tree, kx: Int, vx: Bool) -> Tree {
+    match tree {
+        Leaf -> Node(Red, Leaf, kx, vx, Leaf),
+        Node(Red, a, ky, vy, b) ->
+            if kx < ky {
+                Node(Red, ins(a, kx, vx), ky, vy, b)
+            } else if ky < kx {
+                Node(Red, a, ky, vy, ins(b, kx, vx))
+            } else {
+                Node(Red, a, ky, vy, ins(b, kx, vx))
+            },
+        Node(Black, a, ky, vy, b) ->
+            if kx < ky {
+                if is_red(a) {
+                    balance_left(ins(a, kx, vx), ky, vy, b)
+                } else {
+                    Node(Black, ins(a, kx, vx), ky, vy, b)
+                }
+            } else if ky < kx {
+                if is_red(b) {
+                    balance_right(a, ky, vy, ins(b, kx, vx))
+                } else {
+                    Node(Black, a, ky, vy, ins(b, kx, vx))
+                }
+            } else {
+                Node(Black, a, kx, vx, b)
+            },
+    }
+}
+
+fn set_black(tree: Tree) -> Tree {
+    match tree {
+        Node(_, left, key, value, right) -> Node(Black, left, key, value, right),
+        other -> other,
+    }
+}
+
+fn insert(tree: Tree, key: Int, value: Bool) -> Tree {
+    if is_red(tree) {
+        set_black(ins(tree, key, value))
+    } else {
+        ins(tree, key, value)
+    }
+}
+
+fn set_red(tree: Tree) -> Tree {
+    match tree {
+        Node(_, left, key, value, right) -> Node(Red, left, key, value, right),
+        other -> other,
+    }
+}
+
+fn make_black(tree: Tree) -> Del {
+    match tree {
+        Node(Red, left, key, value, right) -> Del(Node(Black, left, key, value, right), false),
+        other -> Del(other, true),
+    }
+}
+
+fn rebalance_left(c: Color, l: Tree, k: Int, v: Bool, r: Tree) -> Del {
+    match l {
+        Node(Black, _, _, _, _) -> Del(balance_left(set_red(l), k, v, r), is_black_color(c)),
+        Node(Red, lx, kx, vx, rx) -> Del(Node(Black, lx, kx, vx, balance_left(set_red(rx), k, v, r)), false),
+        _ -> Del(Leaf, false),
+    }
+}
+
+fn rebalance_right(c: Color, l: Tree, k: Int, v: Bool, r: Tree) -> Del {
+    match r {
+        Node(Black, _, _, _, _) -> Del(balance_right(l, k, v, set_red(r)), is_black_color(c)),
+        Node(Red, lx, kx, vx, rx) -> Del(Node(Black, balance_right(l, k, v, set_red(lx)), kx, vx, rx), false),
+        _ -> Del(Leaf, false),
+    }
+}
+
+fn del_min(tree: Tree) -> Delmin {
+    match tree {
+        Node(Black, Leaf, key, value, right) ->
+            match right {
+                Leaf -> Delmin(Del(Leaf, true), key, value),
+                _ -> Delmin(Del(set_black(right), false), key, value),
+            },
+        Node(Red, Leaf, key, value, right) ->
+            Delmin(Del(right, false), key, value),
+        Node(color, left, key, value, right) ->
+            match del_min(left) {
+                Delmin(Del(lx, true), kx, vx) -> Delmin(rebalance_right(color, lx, key, value, right), kx, vx),
+                Delmin(Del(lx, false), kx, vx) -> Delmin(Del(Node(color, lx, key, value, right), false), kx, vx),
+            },
+        Leaf -> Delmin(Del(Leaf, false), 0, false),
+    }
+}
+
+fn del(tree: Tree, key: Int) -> Del {
+    match tree {
+        Leaf -> Del(Leaf, false),
+        Node(color, left, kx, vx, right) ->
+            if key < kx {
+                match del(left, key) {
+                    Del(ly, true) -> rebalance_right(color, ly, kx, vx, right),
+                    Del(ly, false) -> Del(Node(color, ly, kx, vx, right), false),
+                }
+            } else if key > kx {
+                match del(right, key) {
+                    Del(ry, true) -> rebalance_left(color, left, kx, vx, ry),
+                    Del(ry, false) -> Del(Node(color, left, kx, vx, ry), false),
+                }
+            } else {
+                match right {
+                    Leaf -> if is_black_color(color) { make_black(left) } else { Del(left, false) },
+                    _ ->
+                        match del_min(right) {
+                            Delmin(Del(ry, true), ky, vy) -> rebalance_left(color, left, ky, vy, ry),
+                            Delmin(Del(ry, false), ky, vy) -> Del(Node(color, left, ky, vy, ry), false),
+                        },
+                }
+            },
+    }
+}
+
+fn delete(tree: Tree, key: Int) -> Tree {
+    match del(tree, key) {
+        Del(next, _) -> set_black(next),
+    }
+}
+
+fn mk_map_aux(total: Int, n: Int, tree: Tree) -> Tree {
+    if n == 0 {
+        tree
+    } else {
+        let n1 = n - 1
+        let t1 = insert(tree, n1, n1 % 10 == 0)
+        if n1 % 4 == 0 {
+            let next = delete(t1, n1 + (total - n1) / 5)
+            mk_map_aux(total, n1, next)
+        } else {
+            mk_map_aux(total, n1, t1)
+        }
+    }
+}
+
+fn main() with IO {
+    print("#{count_true(mk_map_aux(limit, limit, Leaf))}")
+}

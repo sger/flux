@@ -1,5 +1,11 @@
+use std::rc::Rc;
+
 use super::builders::DiagnosticBuilder;
-use super::types::{ErrorCode, ErrorType};
+use super::quality::{
+    TypeMismatchNotes, missing_construct_opener_diagnostic, missing_syntax_token_diagnostic,
+    occurs_check_diagnostic, type_mismatch_diagnostic,
+};
+use super::types::{DiagnosticCategory, ErrorCode, ErrorType};
 
 pub const DUPLICATE_NAME: ErrorCode = ErrorCode {
     code: "E001",
@@ -803,7 +809,7 @@ pub const UNDEFINED_TYPE_VAR: ErrorCode = ErrorCode {
 // error codes. Use these instead of Diagnostic::error() in production code.
 
 use super::diagnostic::Diagnostic;
-use super::registry::diag_enhanced;
+use super::registry::diagnostic_for;
 use super::types::{Label, RelatedDiagnostic};
 use crate::diagnostics::position::Span;
 
@@ -811,7 +817,8 @@ use crate::diagnostics::position::Span;
 
 /// Create an "unknown keyword" error for unrecognized keywords
 pub fn unknown_keyword(span: Span, keyword: &str, suggestion: Option<(&str, &str)>) -> Diagnostic {
-    let mut diag = diag_enhanced(&UNKNOWN_KEYWORD)
+    let mut diag = diagnostic_for(&UNKNOWN_KEYWORD)
+        .with_category(DiagnosticCategory::ParserKeyword)
         .with_span(span)
         .with_message(format!("Unknown keyword: `{}`.", keyword));
 
@@ -838,27 +845,60 @@ pub fn unknown_keyword_alias(
 
 /// Create an "unexpected token" error
 pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
-    diag_enhanced(&UNEXPECTED_TOKEN)
+    diagnostic_for(&UNEXPECTED_TOKEN)
         .with_span(span)
         .with_message(message.into())
 }
 
+/// Create an "unexpected token" error with explicit parser-facing metadata.
+pub fn unexpected_token_with_details(
+    span: Span,
+    display_title: impl Into<String>,
+    category: DiagnosticCategory,
+    message: impl Into<String>,
+) -> Diagnostic {
+    unexpected_token(span, message)
+        .with_display_title(display_title.into())
+        .with_category(category)
+}
+
 /// Create a missing-if-body-brace diagnostic (E034).
 pub fn missing_if_body_brace(span: Span) -> Diagnostic {
-    unexpected_token(span, "Expected `{` to begin the `if` body.")
-        .with_hint_text("Flux requires braces: `if condition { ... } else { ... }`")
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing If Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This `if` branch needs to start with `{`.",
+        "This looks like the `if` body",
+        "Try adding `{` after the `if` condition.",
+    )
 }
 
 /// Create a missing-else-body-brace diagnostic (E034).
 pub fn missing_else_body_brace(span: Span) -> Diagnostic {
-    unexpected_token(span, "Expected `{` to begin the `else` body.")
-        .with_hint_text("Flux requires braces: `if condition { ... } else { ... }`")
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Else Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This `else` branch needs to start with `{`.",
+        "This looks like the `else` body",
+        "Try adding `{` after `else`.",
+    )
 }
 
 /// Create a missing-do-block-brace diagnostic (E034).
 pub fn missing_do_block_brace(span: Span) -> Diagnostic {
-    unexpected_token(span, "Expected `{` to begin the `do` block.")
-        .with_hint_text("Flux requires braces: `do { ... }`")
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Do Block",
+        DiagnosticCategory::ParserDeclaration,
+        "This `do` block needs to start with `{`.",
+        "This looks like the `do` block body",
+        "Try adding `{` after `do`.",
+    )
 }
 
 /// Create a missing-let-assignment diagnostic (E034).
@@ -867,51 +907,64 @@ pub fn missing_let_assign(span: Span, name: &str) -> Diagnostic {
         span,
         format!("Expected `=` after `let {name}`. Did you mean `let {name} = ...`?"),
     )
+    .with_category(DiagnosticCategory::ParserDeclaration)
     .with_hint_text("Let bindings require `=`: `let name = value`")
 }
 
 /// Create a missing-function-parameter-list diagnostic (E034).
 pub fn missing_fn_param_list(span: Span, fn_name: &str) -> Diagnostic {
-    unexpected_token(
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
         span,
-        format!(
-            "Missing parameter list for function `{fn_name}`. Write `fn {fn_name}()` or `fn {fn_name}(x: Type)`."
-        ),
+        "Missing Function Parameter List",
+        DiagnosticCategory::ParserDeclaration,
+        format!("This function declaration needs a parameter list after `{fn_name}`."),
+        format!("Try `fn {fn_name}()` or `fn {fn_name}(x: Type)`."),
     )
-    .with_hint_text("Function declarations require a parameter list: `fn name(...) -> Type { ... }`")
 }
 
 /// Create a match-arm `|` separator diagnostic (E034).
 pub fn match_pipe_separator(span: Span) -> Diagnostic {
     unexpected_token(span, "Match arms are separated by `,` in Flux, not `|`.")
+        .with_display_title("Invalid Match Arm Separator")
+        .with_category(DiagnosticCategory::ParserSeparator)
         .with_hint_text("Replace `|` with `,`.")
 }
 
 /// Create a match-arm `=>` arrow diagnostic (E034).
 pub fn match_fat_arrow(span: Span) -> Diagnostic {
-    unexpected_token(
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
         span,
-        "Expected `->` in match arm, found `=>`. Flux uses `->` not `=>`.",
+        "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
+        "This match arm needs `->`, not `=>`.",
+        "Replace `=>` with `->`.",
     )
-    .with_hint_text("Replace `=>` with `->`: `match x { pattern -> body, ... }`")
 }
 
 /// Create a missing-match-arrow diagnostic (E034).
 pub fn missing_match_arrow(span: Span, found: &str) -> Diagnostic {
-    unexpected_token(
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
         span,
-        format!("Expected `->` in match arm, found `{found}`. Match arms must use `->`."),
+        "Missing Match Arm Arrow",
+        DiagnosticCategory::ParserSeparator,
+        format!("I was expecting `->` in this match arm, but I found {found}."),
+        "Write match arms as `match x { pattern -> body, ... }`.",
     )
-    .with_hint_text("Write match arms as `match x { pattern -> body, ... }`.")
 }
 
 /// Create a missing-lambda-arrow diagnostic (E034).
 pub fn missing_lambda_arrow(span: Span, found: &str) -> Diagnostic {
-    unexpected_token(
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
         span,
-        format!("Expected `->` after lambda parameters, found `{found}`."),
+        "Missing Lambda Arrow",
+        DiagnosticCategory::ParserSeparator,
+        format!("I was expecting `->` after the lambda parameters, but I found {found}."),
+        "Use `\\x -> expr` or `\\(x, y) -> expr`.",
     )
-    .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
 }
 
 /// Create an orphan-constructor-pattern diagnostic (E034).
@@ -920,9 +973,33 @@ pub fn orphan_constructor_pattern(span: Span, name: &str) -> Diagnostic {
         span,
         format!("`{name}(...)` looks like a pattern but appears outside `match`."),
     )
+    .with_category(DiagnosticCategory::ParserPattern)
     .with_hint_text(format!(
         "Did you mean `match value {{ {name}(x) -> ... }}`?"
     ))
+}
+
+/// Create a missing-qualified-path-segment diagnostic (E034).
+pub fn missing_qualified_path_segment(span: Span) -> Diagnostic {
+    missing_syntax_token_diagnostic(
+        &UNEXPECTED_TOKEN,
+        span,
+        "Missing Qualified Path Segment",
+        DiagnosticCategory::ParserExpression,
+        "Qualified paths need an identifier after `.`.",
+        "Write qualified paths as `Module.Name`.",
+    )
+}
+
+/// Create an empty-string-interpolation diagnostic (E034).
+pub fn empty_string_interpolation(span: Span) -> Diagnostic {
+    unexpected_token_with_details(
+        span,
+        "Empty String Interpolation",
+        DiagnosticCategory::ParserExpression,
+        "Empty interpolation `#{}` needs an expression between the braces.",
+    )
+    .with_hint_text("Interpolation segments use `#{expr}` inside strings.")
 }
 
 /// Create an unexpected `end` keyword diagnostic (E034).
@@ -931,36 +1008,47 @@ pub fn unexpected_end_keyword(span: Span) -> Diagnostic {
         span,
         "`end` is not a keyword in Flux. Use `}` to close blocks.",
     )
+    .with_category(DiagnosticCategory::ParserKeyword)
     .with_hint_text("Replace `end` with `}`.")
 }
 
 /// Create a missing-hash-close-brace diagnostic (E034).
 pub fn missing_hash_close_brace(span: Span) -> Diagnostic {
     unexpected_token(span, "Expected `}` to close hash literal.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_hint_text("Hash literals use `{key: value, ...}` and must end with `}`.")
 }
 
 /// Create a missing-array-close-bracket diagnostic (E034).
 pub fn missing_array_close_bracket(span: Span) -> Diagnostic {
     unexpected_token(span, "Expected `]` to close array literal.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_hint_text("Array literals use `[| ... |]` and must end with `]`.")
 }
 
 /// Create a missing-lambda-close-paren diagnostic (E034).
 pub fn missing_lambda_close_paren(span: Span) -> Diagnostic {
     unexpected_token(span, "Expected `)` to close lambda parameter list.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_hint_text("Use `\\(x, y) -> expr` for parenthesized lambda parameters.")
 }
 
 /// Create a missing-string-interpolation-close diagnostic (E034).
 pub fn missing_string_interpolation_close(span: Span) -> Diagnostic {
     unexpected_token(span, "Expected `}` to close string interpolation.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_hint_text("Interpolation segments use `#{expr}` inside strings.")
 }
 
 /// Create a missing-comprehension-close-bracket diagnostic (E034).
 pub fn missing_comprehension_close_bracket(span: Span) -> Diagnostic {
     unexpected_token(span, "Expected `]` to close list comprehension.")
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_hint_text("List comprehensions use `[expr | x <- xs, ...]`.")
 }
 
@@ -1001,7 +1089,7 @@ pub fn cross_module_constructor_access_warning(span: Span, ctor: &str, module: &
 
 /// Create a guarded-wildcard non-exhaustive match diagnostic (E015).
 pub fn guarded_wildcard_non_exhaustive(span: Span) -> Diagnostic {
-    diag_enhanced(&NON_EXHAUSTIVE_MATCH)
+    diagnostic_for(&NON_EXHAUSTIVE_MATCH)
         .with_span(span)
         .with_message(
             "A guarded wildcard `_ if ...` does not guarantee exhaustiveness because the guard may fail.",
@@ -1011,21 +1099,24 @@ pub fn guarded_wildcard_non_exhaustive(span: Span) -> Diagnostic {
 
 /// Create an "invalid integer" error
 pub fn invalid_integer(span: Span, literal: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_INTEGER)
+    diagnostic_for(&INVALID_INTEGER)
+        .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(format!("Could not parse `{}` as an integer.", literal))
 }
 
 /// Create an "invalid float" error
 pub fn invalid_float(span: Span, literal: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_FLOAT)
+    diagnostic_for(&INVALID_FLOAT)
+        .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(format!("Could not parse `{}` as a float.", literal))
 }
 
 /// Create a "pipe target error"
 pub fn pipe_target_error(span: Span) -> Diagnostic {
-    diag_enhanced(&PIPE_TARGET_ERROR)
+    diagnostic_for(&PIPE_TARGET_ERROR)
+        .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message("Pipe operator expects a function or function call.")
         .with_hint_text("Use `value |> func` or `value |> func(arg)`")
@@ -1033,14 +1124,16 @@ pub fn pipe_target_error(span: Span) -> Diagnostic {
 
 /// Create an "invalid pattern" error
 pub fn invalid_pattern(span: Span, found: &str) -> Diagnostic {
-    diag_enhanced(&INVALID_PATTERN)
+    diagnostic_for(&INVALID_PATTERN)
+        .with_category(DiagnosticCategory::ParserPattern)
         .with_span(span)
         .with_message(format!("Expected a pattern, found `{}`.", found))
 }
 
 /// Create a "lambda syntax error"
 pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic {
-    diag_enhanced(&LAMBDA_SYNTAX_ERROR)
+    diagnostic_for(&LAMBDA_SYNTAX_ERROR)
+        .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message(message.into())
         .with_hint_text("Use `\\x -> expr` or `\\(x, y) -> expr`.")
@@ -1048,21 +1141,24 @@ pub fn lambda_syntax_error(span: Span, message: impl Into<String>) -> Diagnostic
 
 /// Create an "unterminated interpolation" error
 pub fn unterminated_interpolation(span: Span) -> Diagnostic {
-    diag_enhanced(&UNTERMINATED_INTERPOLATION)
+    diagnostic_for(&UNTERMINATED_INTERPOLATION)
+        .with_category(DiagnosticCategory::ParserExpression)
         .with_span(span)
         .with_message("Expected string continuation or end after interpolation.")
 }
 
 /// Create an "unterminated block comment" error
 pub fn unterminated_block_comment(span: Span) -> Diagnostic {
-    diag_enhanced(&UNTERMINATED_BLOCK_COMMENT)
+    diagnostic_for(&UNTERMINATED_BLOCK_COMMENT)
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_span(span)
         .with_message("Block comment is missing closing */.")
 }
 
 /// Create a "missing comma" error for adjacent list items/arguments
 pub fn missing_comma(span: Span, context: &str, example: &str) -> Diagnostic {
-    diag_enhanced(&MISSING_COMMA)
+    diagnostic_for(&MISSING_COMMA)
+        .with_category(DiagnosticCategory::ParserSeparator)
         .with_span(span)
         .with_message(format!("Missing comma between {}.", context))
         .with_hint_text(format!("Add a comma between items, e.g. {}.", example))
@@ -1079,7 +1175,9 @@ pub fn unclosed_delimiter(
     close: &str,
     found_span: Option<Span>,
 ) -> Diagnostic {
-    let mut diag = diag_enhanced(&UNCLOSED_DELIMITER)
+    let mut diag = diagnostic_for(&UNCLOSED_DELIMITER)
+        .with_display_title("Missing Closing Delimiter")
+        .with_category(DiagnosticCategory::ParserDelimiter)
         .with_span(open_span)
         .with_message(format!(
             "Expected a closing `{}` to match this opening `{}`.",
@@ -1102,22 +1200,21 @@ pub fn missing_function_body_brace(
     fn_span: Span,
     fn_name: &str,
     found_span: Span,
-    found_token: &str,
+    _found_token: &str,
 ) -> Diagnostic {
-    diag_enhanced(&UNEXPECTED_TOKEN)
-        .with_span(found_span)
-        .with_message(format!(
-            "Expected `{{` to begin function body, found {}.",
-            found_token
-        ))
-        .with_label(Label::secondary(
-            fn_span,
-            format!("function `{}` defined here", fn_name),
-        ))
-        .with_help(format!(
-            "Add `{{` after the function signature: `fn {}(...) {{`",
-            fn_name
-        ))
+    missing_construct_opener_diagnostic(
+        &UNEXPECTED_TOKEN,
+        found_span,
+        "Missing Function Body",
+        DiagnosticCategory::ParserDeclaration,
+        "This function body needs to start with `{`.",
+        "This looks like the function body",
+        "Try adding `{` after the function signature.",
+    )
+    .with_label(Label::secondary(
+        fn_span,
+        format!("`{}` starts here", fn_name),
+    ))
 }
 
 // Type Inference Errors (E300–E399)
@@ -1127,28 +1224,38 @@ pub fn missing_function_body_brace(
 /// Used by the HM inference pass when two concrete types cannot be unified,
 /// e.g. `Int` vs `String` at a function call site.
 pub fn type_unification_error(
-    file: String,
+    file: impl Into<Rc<str>>,
     span: Span,
     expected: &str,
     actual: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(span)
-        .with_message(format!("Cannot unify {expected} with {actual}."))
-        .with_primary_label(span, format!("expected {expected}, found {actual}"))
+    type_mismatch_diagnostic(
+        file,
+        span,
+        "I found a type mismatch.",
+        format!("this expression has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected type", "found type"),
+        "These two types are not compatible.",
+    )
+    .with_display_title("Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
 }
 
 /// Create a wrong-argument-count diagnostic (E056).
 pub fn wrong_argument_count(
-    file: String,
+    file: impl Into<Rc<str>>,
     call_span: Span,
     fn_name: &str,
     expected: usize,
     actual: usize,
     def_span: Option<Span>,
 ) -> Diagnostic {
-    let mut diag = diag_enhanced(&TYPE_ERROR)
+    let mut diag = diagnostic_for(&TYPE_ERROR)
+        .with_display_title("Wrong Number Of Arguments")
+        .with_category(DiagnosticCategory::TypeInference)
+        .with_phase(super::types::DiagnosticPhase::TypeInference)
         .with_file(file)
         .with_span(call_span)
         .with_message(format!(
@@ -1205,7 +1312,7 @@ fn ordinal(index: usize) -> String {
 
 /// Create a call-argument type mismatch diagnostic (E300).
 pub fn call_arg_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     arg_span: Span,
     fn_name: Option<&str>,
     arg_index: usize,
@@ -1214,23 +1321,24 @@ pub fn call_arg_type_mismatch(
     actual: &str,
 ) -> Diagnostic {
     let ord = ordinal(arg_index);
-    let mut diag = if let Some(name) = fn_name {
-        diag_enhanced(&TYPE_UNIFICATION_ERROR)
-            .with_file(file)
-            .with_span(arg_span)
-            .with_message(format!(
-                "The {ord} argument to `{name}` has the wrong type."
-            ))
-            .with_primary_label(arg_span, format!("this argument is `{actual}`"))
+    let message = if let Some(name) = fn_name {
+        format!("I found the wrong type in the {ord} argument to `{name}`.")
     } else {
-        diag_enhanced(&TYPE_UNIFICATION_ERROR)
-            .with_file(file)
-            .with_span(arg_span)
-            .with_message(format!(
-                "The {ord} argument to this function has the wrong type."
-            ))
-            .with_primary_label(arg_span, format!("this argument is `{actual}`"))
+        format!("I found the wrong type in the {ord} argument to this function.")
     };
+    let mut diag = type_mismatch_diagnostic(
+        file,
+        arg_span,
+        message,
+        format!("this argument has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected argument type", "found argument type"),
+        format!("Pass a `{expected}` value as the {ord} argument."),
+    )
+    .with_display_title("Argument Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_note("the actual argument type is inferred from this expression");
 
     if let Some(def_span) = fn_def_span {
         if let Some(name) = fn_name {
@@ -1242,165 +1350,201 @@ pub fn call_arg_type_mismatch(
             diag =
                 diag.with_secondary_label(def_span, format!("this function expects `{expected}`"));
         }
+        diag = diag.with_note("the expected argument type comes from the function signature");
     }
-
-    diag = diag.with_help(format!("Expected `{expected}` as the {ord} argument."));
 
     diag
 }
 
 /// Create a typed-let annotation mismatch diagnostic (E300).
 pub fn let_annotation_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     ann_span: Span,
     value_span: Span,
     name: &str,
     ann_ty: &str,
     value_ty: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(value_span)
-        .with_message(format!(
-            "The value of `{name}` does not match its type annotation."
-        ))
-        .with_primary_label(value_span, format!("this is `{value_ty}`"))
-        .with_secondary_label(
-            ann_span,
-            format!("but `{name}` was annotated as `{ann_ty}`"),
-        )
-        .with_help(format!(
-            "Change `{name}` to a `{ann_ty}` value or update the annotation to `{value_ty}`."
-        ))
+    type_mismatch_diagnostic(
+        file,
+        value_span,
+        format!("The value of `{name}` does not match its type annotation."),
+        format!("this value has type `{value_ty}`"),
+        ann_ty,
+        value_ty,
+        TypeMismatchNotes::new("annotated type", "value type"),
+        format!("Change `{name}` to a `{ann_ty}` value or update the annotation."),
+    )
+    .with_display_title("Annotation Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(
+        ann_span,
+        format!("but `{name}` was annotated as `{ann_ty}`"),
+    )
 }
 
 /// Create a function return-annotation mismatch diagnostic (E300).
 pub fn fun_return_annotation_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     ret_ann_span: Span,
     return_expr_span: Span,
     fn_name: &str,
     declared_ty: &str,
     actual_ty: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(return_expr_span)
-        .with_message(format!(
-            "The return value of `{fn_name}` does not match its declared return type."
-        ))
-        .with_primary_label(
-            return_expr_span,
-            format!("this expression has type `{actual_ty}`"),
-        )
-        .with_secondary_label(
-            ret_ann_span,
-            format!("`{fn_name}` was declared to return `{declared_ty}`"),
-        )
-        .with_help(format!(
-            "Return a `{declared_ty}` value from `{fn_name}` or change the declared return type."
-        ))
+    type_mismatch_diagnostic(
+        file,
+        return_expr_span,
+        format!("The body of `{fn_name}` does not match its declared return type."),
+        format!("this expression has type `{actual_ty}`"),
+        declared_ty,
+        actual_ty,
+        TypeMismatchNotes::new("declared return type", "body type"),
+        format!("Return a `{declared_ty}` value from `{fn_name}` or change its annotation."),
+    )
+    .with_display_title("Return Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(
+        ret_ann_span,
+        format!("`{fn_name}` was declared to return `{declared_ty}`"),
+    )
 }
 
 /// Create an if-branch mismatch diagnostic (E300).
 pub fn if_branch_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     then_span: Span,
     else_span: Span,
     then_ty: &str,
     else_ty: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(else_span)
-        .with_message("The branches of this `if` expression produce different types.")
-        .with_primary_label(else_span, format!("`else` branch returns `{else_ty}`"))
-        .with_secondary_label(then_span, format!("`then` branch returns `{then_ty}`"))
-        .with_help(format!(
-            "Both branches must return the same type. Change one branch to match `{then_ty}` or `{else_ty}`."
-        ))
+    type_mismatch_diagnostic(
+        file,
+        else_span,
+        "The branches of this `if` expression do not agree on a type.",
+        format!("the `else` branch has type `{else_ty}`"),
+        then_ty,
+        else_ty,
+        TypeMismatchNotes::new("then branch type", "else branch type"),
+        "Both branches of an `if` must produce the same type.",
+    )
+    .with_display_title("Branch Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(then_span, format!("`then` branch returns `{then_ty}`"))
 }
 
 /// Create a match-arm mismatch diagnostic (E300).
 pub fn match_arm_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     first_span: Span,
     arm_span: Span,
     first_ty: &str,
     arm_ty: &str,
     arm_index: usize,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(arm_span)
-        .with_message("The arms of this `match` expression produce different types.")
-        .with_primary_label(arm_span, format!("arm {arm_index} returns `{arm_ty}`"))
-        .with_secondary_label(first_span, format!("first arm returns `{first_ty}`"))
-        .with_help(format!(
-            "All match arms must return the same type. Change arm {arm_index} to return `{first_ty}`."
-        ))
+    type_mismatch_diagnostic(
+        file,
+        arm_span,
+        "The arms of this `match` expression do not agree on a type.",
+        format!("arm {arm_index} has type `{arm_ty}`"),
+        first_ty,
+        arm_ty,
+        TypeMismatchNotes::new("first arm type", "this arm type"),
+        format!("Change arm {arm_index} so every arm returns the same type."),
+    )
+    .with_display_title("Match Arm Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
+    .with_secondary_label(first_span, format!("first arm returns `{first_ty}`"))
 }
 
 /// Create a function return-type mismatch diagnostic (E300).
 pub fn fun_return_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     span: Span,
     expected_ret: &str,
     actual_ret: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(span)
-        .with_message(format!(
-            "Function return types do not match: expected `{expected_ret}`, found `{actual_ret}`."
-        ))
-        .with_primary_label(
-            span,
-            format!("expected return type `{expected_ret}`, found `{actual_ret}`"),
-        )
+    type_mismatch_diagnostic(
+        file,
+        span,
+        "The body of this function does not match its return type.",
+        format!("this expression has type `{actual_ret}`"),
+        expected_ret,
+        actual_ret,
+        TypeMismatchNotes::new("declared return type", "body type"),
+        format!("Change the return annotation to `-> {actual_ret}` or change the body."),
+    )
+    .with_display_title("Return Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
 }
 
 /// Create a function parameter-type mismatch diagnostic (E300).
 pub fn fun_param_type_mismatch(
-    file: String,
+    file: impl Into<Rc<str>>,
     span: Span,
     index: usize,
     expected: &str,
     actual: &str,
 ) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
-        .with_file(file)
-        .with_span(span)
-        .with_message(format!(
-            "Function parameter {index} type does not match: expected `{expected}`, found `{actual}`."
-        ))
-        .with_primary_label(
-            span,
-            format!("parameter {index}: expected `{expected}`, found `{actual}`"),
-        )
+    type_mismatch_diagnostic(
+        file,
+        span,
+        format!("Parameter {index} has the wrong type."),
+        format!("parameter {index} has type `{actual}`"),
+        expected,
+        actual,
+        TypeMismatchNotes::new("expected parameter type", "found parameter type"),
+        format!("Change parameter {index} to use `{expected}` consistently."),
+    )
+    .with_display_title("Parameter Type Mismatch")
+    .with_category(DiagnosticCategory::TypeInference)
 }
 
 /// Create a function arity mismatch diagnostic (E300).
-pub fn fun_arity_mismatch(file: String, span: Span, expected: usize, actual: usize) -> Diagnostic {
-    diag_enhanced(&TYPE_UNIFICATION_ERROR)
+pub fn fun_arity_mismatch(
+    file: impl Into<Rc<str>>,
+    span: Span,
+    expected: usize,
+    actual: usize,
+) -> Diagnostic {
+    let direction = if actual > expected {
+        "too many"
+    } else if actual < expected {
+        "too few"
+    } else {
+        "the wrong number of"
+    };
+    diagnostic_for(&TYPE_UNIFICATION_ERROR)
+        .with_display_title("Wrong Number Of Arguments")
+        .with_category(DiagnosticCategory::TypeInference)
+        .with_phase(super::types::DiagnosticPhase::TypeInference)
         .with_file(file)
         .with_span(span)
-        .with_message("Function arity does not match.")
-        .with_primary_label(
-            span,
-            format!("expected {expected} parameters, found {actual}"),
-        )
+        .with_message(format!(
+            "I am applying a function to {direction} arguments."
+        ))
+        .with_primary_label(span, format!("this call passes {actual} argument(s)"))
+        .with_note(format!("this function takes: {expected} argument(s)"))
+        .with_note(format!("but this call passes: {actual} argument(s)"))
+        .with_help(if actual > expected {
+            format!("Remove {} extra argument(s).", actual - expected)
+        } else if actual < expected {
+            format!("Add {} missing argument(s).", expected - actual)
+        } else {
+            "Check the call site and the function definition.".to_string()
+        })
 }
 
 /// Create an occurs-check failure (E301) with a source snippet at `span`.
 ///
 /// Fires when a type variable would be bound to a type that contains itself,
 /// creating an infinite recursive type.
-pub fn occurs_check_failure(file: String, span: Span, var: &str, ty: &str) -> Diagnostic {
-    diag_enhanced(&OCCURS_CHECK_FAILURE)
-        .with_file(file)
-        .with_span(span)
-        .with_message(format!(
-            "Infinite type: type variable {var} occurs in {ty}."
-        ))
+pub fn occurs_check_failure(
+    file: impl Into<Rc<str>>,
+    span: Span,
+    var: &str,
+    ty: &str,
+) -> Diagnostic {
+    let _ = var;
+    occurs_check_diagnostic(file, span, ty)
 }

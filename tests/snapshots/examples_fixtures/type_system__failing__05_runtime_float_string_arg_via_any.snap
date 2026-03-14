@@ -5,31 +5,30 @@ Fixture: examples/type_system/failing/05_runtime_float_string_arg_via_any.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E300]: TYPE UNIFICATION ERROR
+error[E300]: Argument Type Mismatch
 
-The 1st argument to `area` has the wrong type.
+I found the wrong type in the 1st argument to `area`.
 
-  --> examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:6
+  examples/type_system/failing/05_runtime_float_string_arg_via_any.flx:12:6
    |
  5 | fn area(radius: Float) -> Float {
-
  6 |     3.14159 * radius * radius
-
  7 | }
-
  8 | 
-
  9 | let dynamic = identity("not-a-float")
-
 10 | 
-
 11 | 
-
 12 | area(dynamic)
    |      ^^^^^^^
-   |      ------- this argument is `String`
+   |      ------- this argument has type `String`
+
+Note:
+  expected argument type: Float
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
 
 Help:
-  Expected `Float` as the 1st argument.
+  Pass a `Float` value as the 1st argument.
 == stdout ==
 <not executed>

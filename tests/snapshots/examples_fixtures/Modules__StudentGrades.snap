@@ -5,11 +5,11 @@ Fixture: examples/Modules/StudentGrades.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+error[E024]: Module Path Mismatch
 
 Module name `Modules.StudentGrades` doesn't match file path `examples/Modules/StudentGrades.flx`.
 
-  --> examples/Modules/StudentGrades.flx:6:1
+  examples/Modules/StudentGrades.flx:6:1
   |
 6 | module Modules.StudentGrades {
   | ^

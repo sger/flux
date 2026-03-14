@@ -4,7 +4,7 @@ effect Console {
     print: String -> ()
 }
 
-fn run_task(f: (() -> Int with e)) -> Int with e {
+fn run_task(f: (() -> Int with |e)) -> Int with |e {
     f()
 }
 

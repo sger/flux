@@ -5,31 +5,24 @@ Fixture: examples/aoc/2024/day03.flx
 == compile ==
 failed (compile)
 == diagnostics ==
---> compiler error[E011]: PRIVATE MEMBER
+error[E300]: Type Mismatch
 
-Cannot access private member `day03a_from_memory`.
+I found a type mismatch.
 
-  --> examples/aoc/2024/day03.flx:8:11
-  |
-8 |     print(Day03.day03a_from_memory(memory))
-  |           ^^^^^^^^^^^^^^^^^^^^^^^^
+  examples/aoc/2024/Day03Solver.flx:59:27
+   |
+59 |                     Some((Mul(parse_int(left_text), parse_int(right_text)), after_right + 1))
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                           ------------------------------------------------ this expression has type `Int`
 
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
+   |                           ------------------------------------------------ this type mismatch is reported here
 
+Note:
+  expected type: Option<Int>
+  found type: Int
+  the conflicting types meet at this expression
 
---> compiler error[E011]: PRIVATE MEMBER
-
-Cannot access private member `day03b_from_memory`.
-
-  --> examples/aoc/2024/day03.flx:9:11
-  |
-9 |     print(Day03.day03b_from_memory(memory))
-  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-
-Hint:
-  Private members can only be accessed within the same module. Use `public fn` to export a function.
-
-Found 2 errors.
+Help:
+  Wrap this value in `Some(...)` or return `None`.
 == stdout ==
 <not executed>

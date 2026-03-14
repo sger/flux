@@ -5,11 +5,11 @@ Fixture: examples/Debug/Modules/Data/List.flx
 == compile ==
 failed (module)
 == diagnostics ==
---> compiler error[E024]: MODULE PATH MISMATCH
+error[E024]: Module Path Mismatch
 
 Module name `Modules.Data.Other` doesn't match file path `examples/Debug/Modules/Data/List.flx`.
 
-  --> examples/Debug/Modules/Data/List.flx:1:1
+  examples/Debug/Modules/Data/List.flx:1:1
   |
 1 | module Modules.Data.Other {
   | ^

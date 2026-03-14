@@ -15,12 +15,12 @@ $ flux --no-cache --strict examples/type_system/failing/58_strict_public_undersc
 exit_code: 1
 
 == vm tuples ==
-- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
-- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
+- E416 | Strict Function Annotation Required | 
+- E425 | Unresolved Boundary Type | expression type is unresolved in strict mode
 
 == jit tuples ==
-- E416 | STRICT FUNCTION ANNOTATION REQUIRED | 
-- E425 | STRICT UNRESOLVED BOUNDARY TYPE | expression type is unresolved in strict mode
+- E416 | Strict Function Annotation Required | 
+- E425 | Unresolved Boundary Type | expression type is unresolved in strict mode
 
 == parity ==
 match

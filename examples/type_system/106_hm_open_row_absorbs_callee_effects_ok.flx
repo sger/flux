@@ -1,0 +1,14 @@
+// OK: a function with an open effect row can call a function requiring IO.
+// The open row tail `|e` absorbs the IO requirement so no mismatch is reported.
+
+fn needs_io() -> Unit with IO {
+    print("hello")
+}
+
+fn open_wrapper(f: (() -> Unit with |e)) -> Unit with |e {
+    f()
+}
+
+fn main() with IO {
+    open_wrapper(needs_io)
+}

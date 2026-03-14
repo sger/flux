@@ -15,10 +15,10 @@ $ flux --no-cache examples/type_system/failing/70_hm_prefix_non_numeric_compile_
 exit_code: 1
 
 == vm tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected numeric operand (Int or Float), found String
+- E300 | Type Mismatch | this expression has type `String`
 
 == jit tuples ==
-- E300 | TYPE UNIFICATION ERROR | expected numeric operand (Int or Float), found String
+- E300 | Type Mismatch | this expression has type `String`
 
 == parity ==
 match

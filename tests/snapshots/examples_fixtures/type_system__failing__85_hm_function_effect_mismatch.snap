@@ -1,21 +1,32 @@
 ---
 source: tests/examples_fixtures_snapshots.rs
-assertion_line: 21
 ---
 Fixture: examples/type_system/failing/85_hm_function_effect_mismatch.flx
 == compile ==
-failed (parse)
+failed (compile)
 == diagnostics ==
---> compiler error[E034]: UNEXPECTED TOKEN
+error[E300]: Argument Type Mismatch
 
-Expected `,` or `)` after function parameter.
+I found the wrong type in the 1st argument to `apply_with_time`.
 
-  --> examples/type_system/failing/85_hm_function_effect_mismatch.flx:3:48
+  examples/type_system/failing/85_hm_function_effect_mismatch.flx:8:21
   |
-3 | fn apply_with_time(f: (Int) -> Int with Time, x: Int) -> Int {
-  |                                                ^
+3 | fn apply_with_time(f: ((Int) -> Int with Time), x: Int) -> Int {
+4 |     f(x)
+5 | }
+6 | 
+7 | fn main() -> Unit {
+8 |     apply_with_time(io_add_one, 1)
+  |                     ^^^^^^^^^^
+  |                     ---------- this argument has type `(Int) -> Int with IO`
 
-Hint:
-  Separate parameters with `,` and close the parameter list with `)`.
+Note:
+  expected argument type: (Int) -> Int with Time
+  found argument type: (Int) -> Int with IO
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `(Int) -> Int with Time` value as the 1st argument.
 == stdout ==
 <not executed>

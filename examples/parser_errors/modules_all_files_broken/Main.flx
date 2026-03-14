@@ -1,0 +1,6 @@
+import BrokenFn
+import BrokenMatch
+import BrokenEffect
+
+fn main() -> Unit
+    print("parser torture entry")

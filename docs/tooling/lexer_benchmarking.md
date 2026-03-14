@@ -7,9 +7,6 @@ This guide documents how to run and compare Flux lexer performance benchmarks.
 From repository root:
 
 ```bash
-# one-time setup
-cargo install rust-script
-
 # baseline
 cargo bench --bench lexer_bench
 rm -rf baseline_criterion
@@ -17,9 +14,6 @@ cp -r target/criterion baseline_criterion
 
 # run again after code changes
 cargo bench --bench lexer_bench
-
-# generate comparison table + PERF_REPORT.md
-rust-script scripts/bench_report.rs
 ```
 
 ## Prerequisites
@@ -62,61 +56,39 @@ After your code changes:
 cargo bench --bench lexer_bench
 ```
 
-## 4) Generate Before/After Report
+## 4) Compare Before/After Results
 
-Compare baseline vs current:
+Compare the latest Criterion run against the saved baseline by inspecting:
 
 ```bash
-rust-script scripts/bench_report.rs
+open target/criterion/report/index.html
+open baseline_criterion/report/index.html
 ```
 
-The script prints:
-- benchmark name
-- baseline mean (ms)
-- current mean (ms)
-- percent change
-- baseline/current bytes per second
-
-It also writes an auto-filled report file:
+For a simple CLI summary, compare the `estimates.json` files under:
 
 ```text
-PERF_REPORT.md
+target/criterion/**/new/estimates.json
+baseline_criterion/**/new/estimates.json
 ```
 
 ## 5) Log Results
 
-Save raw bench output and parsed report:
+Save raw bench output and Criterion snapshots:
 
 ```bash
 mkdir -p perf_logs
 ts=$(date +%Y%m%d-%H%M%S)
 
 cargo bench --bench lexer_bench 2>&1 | tee perf_logs/bench-${ts}.log
-rust-script scripts/bench_report.rs 2>&1 | tee perf_logs/report-${ts}.txt
 cp -r target/criterion perf_logs/criterion-${ts}
 ```
 
 ## Troubleshooting
 
-### `rust-script` not found
-
-Install and run from repository root:
-
-```bash
-cargo install rust-script
-cd /path/to/flux
-rust-script scripts/bench_report.rs
-```
-
 ### Baseline path mismatch
 
-If your baseline is nested (for example `baseline_criterion/criterion`), set explicit paths:
-
-```bash
-PERF_BASELINE_DIR=baseline_criterion/criterion \
-PERF_CURRENT_DIR=target/criterion \
-rust-script scripts/bench_report.rs
-```
+If your baseline is nested differently, compare the correct `report/` and `new/estimates.json` paths directly.
 
 ### Missing baseline benchmarks
 
