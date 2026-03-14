@@ -3,13 +3,14 @@ use std::collections::{HashMap, HashSet};
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
 use super::{
-    BlockId, IrBinaryOp, IrConst, IrExpr, IrFunction, IrInstr, IrMetadata,
-    IrProgram, IrTerminator, IrVar, validate::validate_ir,
+    BlockId, IrBinaryOp, IrConst, IrExpr, IrFunction, IrInstr, IrMetadata, IrProgram, IrTerminator,
+    IrVar, validate::validate_ir,
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct IrPassContext;
 
+#[allow(clippy::result_large_err)]
 pub fn run_ir_pass_pipeline(
     program: &mut IrProgram,
     _context: &IrPassContext,
@@ -42,12 +43,11 @@ pub fn run_ir_pass_pipeline(
 fn canonicalize_cfg(program: &mut IrProgram) {
     for function in &mut program.functions {
         for block in &mut function.blocks {
-            if matches!(block.terminator, IrTerminator::Unreachable(_)) {
-                if let Some(last) = block.instrs.last()
-                    && let IrInstr::Assign { dest, metadata, .. } = last
-                {
-                    block.terminator = IrTerminator::Return(*dest, metadata.clone());
-                }
+            if matches!(block.terminator, IrTerminator::Unreachable(_))
+                && let Some(last) = block.instrs.last()
+                && let IrInstr::Assign { dest, metadata, .. } = last
+            {
+                block.terminator = IrTerminator::Return(*dest, metadata.clone());
             }
         }
     }
@@ -80,26 +80,35 @@ fn tail_call_introduction(program: &mut IrProgram) {
 
         for block in &mut function.blocks {
             // Pattern 1: Call; Return(v)
-            if let IrTerminator::Return(return_var, _) = &block.terminator {
-                let return_var = *return_var;
-                if let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last() {
-                    if *dest == return_var {
-                        let tc = IrTerminator::TailCall {
-                            callee: target.clone(),
-                            args: args.clone(),
-                            metadata: metadata.clone(),
-                        };
-                        block.instrs.pop();
-                        block.terminator = tc;
-                        continue;
-                    }
-                }
+            if let IrTerminator::Return(return_var, _) = &block.terminator
+                && let return_var = *return_var
+                && let Some(IrInstr::Call {
+                    dest,
+                    target,
+                    args,
+                    metadata,
+                }) = block.instrs.last()
+                && *dest == return_var
+            {
+                let tc = IrTerminator::TailCall {
+                    callee: target.clone(),
+                    args: args.clone(),
+                    metadata: metadata.clone(),
+                };
+                block.instrs.pop();
+                block.terminator = tc;
+                continue;
             }
             // Pattern 2: Call; Jump(return_block, [v])
             if let IrTerminator::Jump(target, jump_args, _) = &block.terminator
                 && jump_args.len() == 1
                 && return_blocks.contains(target)
-                && let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last()
+                && let Some(IrInstr::Call {
+                    dest,
+                    target,
+                    args,
+                    metadata,
+                }) = block.instrs.last()
                 && *dest == jump_args[0]
             {
                 let tc = IrTerminator::TailCall {
@@ -189,7 +198,9 @@ fn dead_block_elimination(program: &mut IrProgram) {
     for function in &mut program.functions {
         let mut reachable = HashSet::new();
         mark_reachable(function.entry, function, &mut reachable);
-        function.blocks.retain(|block| reachable.contains(&block.id));
+        function
+            .blocks
+            .retain(|block| reachable.contains(&block.id));
     }
 }
 
@@ -221,7 +232,12 @@ fn local_cse(program: &mut IrProgram) {
         for block in &mut function.blocks {
             let mut seen: HashMap<String, IrVar> = HashMap::new();
             for instr in &mut block.instrs {
-                if let IrInstr::Assign { dest, expr, metadata } = instr {
+                if let IrInstr::Assign {
+                    dest,
+                    expr,
+                    metadata,
+                } = instr
+                {
                     let key = cse_key(expr);
                     if let Some(existing) = key.as_ref().and_then(|key| seen.get(key)).copied() {
                         *expr = IrExpr::Var(existing);
@@ -241,7 +257,9 @@ fn cse_key(expr: &IrExpr) -> Option<String> {
     match expr {
         IrExpr::Const(value) => Some(format!("const:{:?}", value)),
         IrExpr::Binary(op, lhs, rhs) => Some(format!("bin:{:?}:{:?}:{:?}", op, lhs, rhs)),
-        IrExpr::TupleArityTest { value, arity } => Some(format!("tuple_arity:{:?}:{}", value, arity)),
+        IrExpr::TupleArityTest { value, arity } => {
+            Some(format!("tuple_arity:{:?}:{}", value, arity))
+        }
         IrExpr::TagTest { value, tag } => Some(format!("tag:{:?}:{:?}", value, tag)),
         IrExpr::TagPayload { value, tag } => Some(format!("payload:{:?}:{:?}", value, tag)),
         IrExpr::ListTest { value, tag } => Some(format!("list:{:?}:{:?}", value, tag)),
@@ -308,11 +326,11 @@ fn rewrite_binary_op(op: IrBinaryOp, inferred: &InferType) -> IrBinaryOp {
 
 #[cfg(test)]
 mod tests {
-    use crate::syntax::interner::Interner;
     use crate::cfg::{
         FunctionId, IrBlock, IrBlockParam, IrFunction, IrFunctionOrigin, IrMetadata, IrParam,
         IrProgram, IrTerminator, IrType,
     };
+    use crate::syntax::interner::Interner;
 
     use super::*;
 

@@ -15,7 +15,9 @@ const LIMIT: i64 = 100_000;
 fn count_true(tree: &Tree) -> i64 {
     match tree {
         Tree::Leaf => 0,
-        Tree::Node(_, left, _, value, right) => count_true(left) + i64::from(*value) + count_true(right),
+        Tree::Node(_, left, _, value, right) => {
+            count_true(left) + i64::from(*value) + count_true(right)
+        }
     }
 }
 
@@ -89,7 +91,13 @@ fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
 
 fn ins(tree: Tree, kx: i64, vx: bool) -> Tree {
     match tree {
-        Tree::Leaf => Tree::Node(Color::Red, Box::new(Tree::Leaf), kx, vx, Box::new(Tree::Leaf)),
+        Tree::Leaf => Tree::Node(
+            Color::Red,
+            Box::new(Tree::Leaf),
+            kx,
+            vx,
+            Box::new(Tree::Leaf),
+        ),
         Tree::Node(Color::Red, a, ky, vy, b) => {
             if kx < ky {
                 Tree::Node(Color::Red, Box::new(ins(*a, kx, vx)), ky, vy, b)
@@ -102,13 +110,19 @@ fn ins(tree: Tree, kx: i64, vx: bool) -> Tree {
         Tree::Node(Color::Black, a, ky, vy, b) => {
             if kx < ky {
                 if is_red(&a) {
-                    balance1(Tree::Node(Color::Black, Box::new(Tree::Leaf), ky, vy, b), ins(*a, kx, vx))
+                    balance1(
+                        Tree::Node(Color::Black, Box::new(Tree::Leaf), ky, vy, b),
+                        ins(*a, kx, vx),
+                    )
                 } else {
                     Tree::Node(Color::Black, Box::new(ins(*a, kx, vx)), ky, vy, b)
                 }
             } else if ky < kx {
                 if is_red(&b) {
-                    balance2(Tree::Node(Color::Black, a, ky, vy, Box::new(Tree::Leaf)), ins(*b, kx, vx))
+                    balance2(
+                        Tree::Node(Color::Black, a, ky, vy, Box::new(Tree::Leaf)),
+                        ins(*b, kx, vx),
+                    )
                 } else {
                     Tree::Node(Color::Black, a, ky, vy, Box::new(ins(*b, kx, vx)))
                 }

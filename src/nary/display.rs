@@ -56,7 +56,10 @@ pub fn display_expr(expr: &CoreExpr, interner: &Interner) -> String {
 /// Resolve a symbol to its string form, falling back to `#<n>` for synthetic
 /// symbols that were never registered in the interner (e.g. fresh temporaries).
 fn resolve(interner: &Interner, id: crate::syntax::Identifier) -> String {
-    interner.try_resolve(id).map(str::to_owned).unwrap_or_else(|| format!("#{}", id.as_u32()))
+    interner
+        .try_resolve(id)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("#{}", id.as_u32()))
 }
 
 fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: usize) {
@@ -113,7 +116,9 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             write_expr(out, body, interner, indent);
         }
 
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             out.push_str("case ");
             write_expr_inline(out, scrutinee, interner, indent);
             out.push_str(" of");
@@ -149,7 +154,12 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             out.push(')');
         }
 
-        CoreExpr::Perform { effect, operation, args, .. } => {
+        CoreExpr::Perform {
+            effect,
+            operation,
+            args,
+            ..
+        } => {
             write!(
                 out,
                 "perform {}.{}(",
@@ -166,7 +176,12 @@ fn write_expr(out: &mut String, expr: &CoreExpr, interner: &Interner, indent: us
             out.push(')');
         }
 
-        CoreExpr::Handle { body, effect, handlers, .. } => {
+        CoreExpr::Handle {
+            body,
+            effect,
+            handlers,
+            ..
+        } => {
             write!(out, "handle {} {{", &resolve(interner, *effect)).unwrap();
             for h in handlers {
                 out.push('\n');
@@ -221,7 +236,7 @@ fn write_handler(out: &mut String, h: &CoreHandler, interner: &Interner, indent:
         }
         out.push_str(&resolve(interner, *p));
     }
-    write!(out, "; {}) →\n", &resolve(interner, h.resume)).unwrap();
+    writeln!(out, "; {}) →", &resolve(interner, h.resume)).unwrap();
     push_indent(out, indent + 2);
     write_expr(out, &h.body, interner, indent + 2);
 }

@@ -17,7 +17,9 @@ pub(super) fn base_to_string_borrowed(
     args: &[&Value],
 ) -> Result<Value, String> {
     check_arity_ref(args, 1, "to_string", "to_string(value)")?;
-    Ok(Value::String(super::list_ops::format_value(ctx, args[0]).into()))
+    Ok(Value::String(
+        super::list_ops::format_value(ctx, args[0]).into(),
+    ))
 }
 
 pub(super) fn base_split(_ctx: &mut dyn RuntimeContext, args: Vec<Value>) -> Result<Value, String> {

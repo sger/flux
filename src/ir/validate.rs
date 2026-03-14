@@ -1,17 +1,23 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    diagnostics::{Diagnostic, DiagnosticBuilder, ErrorType},
     diagnostics::position::Span,
+    diagnostics::{Diagnostic, DiagnosticBuilder, ErrorType},
 };
 
 use super::{
-    BlockId, FunctionId, IrCallTarget, IrExpr, IrHandleArm, IrInstr,
-    IrProgram, IrStringPart, IrTerminator, IrVar,
+    BlockId, FunctionId, IrCallTarget, IrExpr, IrHandleArm, IrInstr, IrProgram, IrStringPart,
+    IrTerminator, IrVar,
 };
 
 pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
-    let function_ids: HashSet<FunctionId> = program.functions.iter().map(|function| function.id).collect();
+    let function_ids: HashSet<FunctionId> = program
+        .functions
+        .iter()
+        .map(|function| function.id)
+        .collect();
     for function in &program.functions {
         let block_ids: HashSet<_> = function.blocks.iter().map(|block| block.id).collect();
         if !block_ids.contains(&function.entry) {
@@ -87,7 +93,11 @@ fn compute_reachable_defs(
         for param in &function.params {
             entry.insert(param.var);
         }
-        if let Some(block) = function.blocks.iter().find(|block| block.id == function.entry) {
+        if let Some(block) = function
+            .blocks
+            .iter()
+            .find(|block| block.id == function.entry)
+        {
             for param in &block.params {
                 entry.insert(param.var);
             }
@@ -197,9 +207,7 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
         | IrExpr::ListHead { value }
         | IrExpr::ListTail { value }
         | IrExpr::AdtTagTest { value, .. }
-        | IrExpr::AdtField { value, .. } => {
-            ensure_defined(*value, defined)
-        }
+        | IrExpr::AdtField { value, .. } => ensure_defined(*value, defined),
         IrExpr::MemberAccess { object, .. } | IrExpr::TupleFieldAccess { object, .. } => {
             ensure_defined(*object, defined)
         }
@@ -221,10 +229,7 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
             }
             Ok(())
         }
-        IrExpr::Const(_)
-        | IrExpr::LoadName(_)
-        | IrExpr::EmptyList
-        | IrExpr::None => Ok(()),
+        IrExpr::Const(_) | IrExpr::LoadName(_) | IrExpr::EmptyList | IrExpr::None => Ok(()),
     }
 }
 
@@ -239,7 +244,6 @@ fn ensure_handle_arm_defined(
     // be added to IrHandleArm and checked here.
     Ok(())
 }
-
 
 fn validate_terminator(
     terminator: &IrTerminator,
@@ -317,7 +321,10 @@ fn ensure_block_exists(block_id: BlockId, block_ids: &HashSet<BlockId>) -> Resul
     if block_ids.contains(&block_id) {
         Ok(())
     } else {
-        Err(invalid_ir(None, "IR references a block that does not exist"))
+        Err(invalid_ir(
+            None,
+            "IR references a block that does not exist",
+        ))
     }
 }
 

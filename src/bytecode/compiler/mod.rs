@@ -267,7 +267,10 @@ impl Compiler {
     ///
     /// This is intended for non-bytecode backends that still need the same HM
     /// view of the final AST allocation used during code generation.
-    pub fn infer_expr_types_for_program(&mut self, program: &Program) -> HashMap<ExprId, InferType> {
+    pub fn infer_expr_types_for_program(
+        &mut self,
+        program: &Program,
+    ) -> HashMap<ExprId, InferType> {
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.import_aliases.clear();
@@ -1955,7 +1958,11 @@ impl Compiler {
         if let crate::ir::IrStructuredExpr::Identifier { name, span, id } = value {
             self.track_effect_alias_for_binding(
                 binding,
-                &Expression::Identifier { name: *name, span: *span, id: *id },
+                &Expression::Identifier {
+                    name: *name,
+                    span: *span,
+                    id: *id,
+                },
             );
         }
     }
@@ -2194,8 +2201,7 @@ impl Compiler {
         self.register_ir_function_symbols(&ir_program.top_level_items, self.current_module_prefix);
         // PASS 2: Compile all statements
         // Function bodies can now reference any function defined at module level
-        let mut pattern_diags =
-            validate_program_patterns(&program, &self.file_path, &self.interner);
+        let mut pattern_diags = validate_program_patterns(program, &self.file_path, &self.interner);
         tag_diagnostics(&mut pattern_diags, DiagnosticPhase::Validation);
         self.errors.extend(pattern_diags);
         for item in &ir_program.top_level_items {
@@ -2209,7 +2215,7 @@ impl Compiler {
             }
         }
 
-        if main_state.has_main && !self.has_explicit_top_level_main_call(&program, main_symbol) {
+        if main_state.has_main && !self.has_explicit_top_level_main_call(program, main_symbol) {
             self.emit_main_entry_call();
         }
 
@@ -2854,7 +2860,12 @@ fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
                     let Some(last_instr) = block.instrs.last() else {
                         continue;
                     };
-                    let IrInstr::Call { dest: call_dest, metadata, .. } = last_instr else {
+                    let IrInstr::Call {
+                        dest: call_dest,
+                        metadata,
+                        ..
+                    } = last_instr
+                    else {
                         continue;
                     };
                     if jump_args != &[*call_dest] {
@@ -2870,10 +2881,9 @@ fn collect_tail_calls_from_ir(program: &IrProgram) -> Vec<TailCall> {
                     if matches!(
                         &target_block.terminator,
                         IrTerminator::Return(ret_var, _) if *ret_var == merge_param
-                    ) {
-                        if let Some(span) = metadata.span {
-                            tail_calls.push(TailCall { span });
-                        }
+                    ) && let Some(span) = metadata.span
+                    {
+                        tail_calls.push(TailCall { span });
                     }
                 }
                 _ => {}

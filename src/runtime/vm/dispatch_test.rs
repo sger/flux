@@ -156,7 +156,10 @@ fn dispatch_op_make_adt_moves_fields_from_stack() {
     assert_eq!(vm.sp, 1);
     assert!(matches!(vm.stack[0], Value::GcAdt(_)));
     assert_eq!(vm.stack[0].adt_constructor(&vm.gc_heap), Some("Node"));
-    assert_eq!(vm.stack[0].adt_clone_two_fields(&vm.gc_heap), Some((Value::Integer(1), Value::Integer(2))));
+    assert_eq!(
+        vm.stack[0].adt_clone_two_fields(&vm.gc_heap),
+        Some((Value::Integer(1), Value::Integer(2)))
+    );
     assert!(matches!(vm.stack[1], Value::Uninit));
 }
 

@@ -1,17 +1,22 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    diagnostics::{Diagnostic, DiagnosticBuilder, ErrorType},
     diagnostics::position::Span,
+    diagnostics::{Diagnostic, DiagnosticBuilder, ErrorType},
 };
 
 use super::{
-    BlockId, FunctionId, IrCallTarget, IrExpr, IrHandleArm, IrInstr,
-    IrProgram, IrStringPart, IrTerminator, IrVar,
+    BlockId, FunctionId, IrCallTarget, IrExpr, IrHandleArm, IrInstr, IrProgram, IrStringPart,
+    IrTerminator, IrVar,
 };
 
+#[allow(clippy::result_large_err)]
 pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
-    let function_ids: HashSet<FunctionId> = program.functions.iter().map(|function| function.id).collect();
+    let function_ids: HashSet<FunctionId> = program
+        .functions
+        .iter()
+        .map(|function| function.id)
+        .collect();
     for function in &program.functions {
         let block_ids: HashSet<_> = function.blocks.iter().map(|block| block.id).collect();
         if !block_ids.contains(&function.entry) {
@@ -36,7 +41,9 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         }
                         defined.insert(*dest);
                     }
-                    IrInstr::HandleScope { dest, body_entry, .. } => {
+                    IrInstr::HandleScope {
+                        dest, body_entry, ..
+                    } => {
                         ensure_block_exists(*body_entry, &block_ids)?;
                         defined.insert(*dest);
                     }
@@ -79,6 +86,7 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn compute_reachable_defs(
     function: &super::IrFunction,
     block_ids: &HashSet<BlockId>,
@@ -91,7 +99,11 @@ fn compute_reachable_defs(
         for param in &function.params {
             entry.insert(param.var);
         }
-        if let Some(block) = function.blocks.iter().find(|block| block.id == function.entry) {
+        if let Some(block) = function
+            .blocks
+            .iter()
+            .find(|block| block.id == function.entry)
+        {
             for param in &block.params {
                 entry.insert(param.var);
             }
@@ -157,6 +169,7 @@ fn compute_reachable_defs(
     Ok(incoming)
 }
 
+#[allow(clippy::result_large_err)]
 fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(), Diagnostic> {
     match expr {
         IrExpr::Var(var) => ensure_defined(*var, defined),
@@ -203,9 +216,7 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
         | IrExpr::ListHead { value }
         | IrExpr::ListTail { value }
         | IrExpr::AdtTagTest { value, .. }
-        | IrExpr::AdtField { value, .. } => {
-            ensure_defined(*value, defined)
-        }
+        | IrExpr::AdtField { value, .. } => ensure_defined(*value, defined),
         IrExpr::MemberAccess { object, .. } | IrExpr::TupleFieldAccess { object, .. } => {
             ensure_defined(*object, defined)
         }
@@ -227,13 +238,11 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
             }
             Ok(())
         }
-        IrExpr::Const(_)
-        | IrExpr::LoadName(_)
-        | IrExpr::EmptyList
-        | IrExpr::None => Ok(()),
+        IrExpr::Const(_) | IrExpr::LoadName(_) | IrExpr::EmptyList | IrExpr::None => Ok(()),
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn ensure_handle_arm_defined(
     _arm: &IrHandleArm,
     _defined: &HashSet<IrVar>,
@@ -246,7 +255,7 @@ fn ensure_handle_arm_defined(
     Ok(())
 }
 
-
+#[allow(clippy::result_large_err)]
 fn validate_terminator(
     terminator: &IrTerminator,
     defined: &HashSet<IrVar>,
@@ -282,6 +291,7 @@ fn validate_terminator(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_call_target(
     target: &IrCallTarget,
     function_ids: &HashSet<FunctionId>,
@@ -294,6 +304,7 @@ fn validate_call_target(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn check_block_params(
     function: &super::IrFunction,
     block_id: BlockId,
@@ -311,6 +322,7 @@ fn check_block_params(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn ensure_defined(var: IrVar, defined: &HashSet<IrVar>) -> Result<(), Diagnostic> {
     if defined.contains(&var) {
         Ok(())
@@ -319,11 +331,15 @@ fn ensure_defined(var: IrVar, defined: &HashSet<IrVar>) -> Result<(), Diagnostic
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn ensure_block_exists(block_id: BlockId, block_ids: &HashSet<BlockId>) -> Result<(), Diagnostic> {
     if block_ids.contains(&block_id) {
         Ok(())
     } else {
-        Err(invalid_ir(None, "IR references a block that does not exist"))
+        Err(invalid_ir(
+            None,
+            "IR references a block that does not exist",
+        ))
     }
 }
 

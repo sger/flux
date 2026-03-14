@@ -10,13 +10,13 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    nary::{CoreAlt, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag},
-    diagnostics::position::Span,
     cfg::{
         BlockId, FunctionId, IrBinaryOp, IrBlock, IrBlockParam, IrCallTarget, IrConst, IrExpr,
         IrFunction, IrFunctionOrigin, IrInstr, IrListTest, IrMetadata, IrParam, IrProgram,
         IrStringPart, IrTagTest, IrTerminator, IrTopLevelItem, IrType, IrVar,
     },
+    diagnostics::position::Span,
+    nary::{CoreAlt, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram, CoreTag},
     syntax::Identifier,
 };
 
@@ -74,7 +74,12 @@ impl ToIrCtx {
         // Create the module-level entry function.
         let entry_id = self.alloc_function();
         let entry_block = self.alloc_block();
-        let mut entry_fn = FnCtx::new(self, entry_id, IrFunctionOrigin::ModuleTopLevel, entry_block);
+        let mut entry_fn = FnCtx::new(
+            self,
+            entry_id,
+            IrFunctionOrigin::ModuleTopLevel,
+            entry_block,
+        );
 
         for def in &core.defs {
             if let CoreExpr::Lam { params, body, .. } = &def.expr {
@@ -91,7 +96,11 @@ impl ToIrCtx {
                     for &p in params {
                         let v = fn_ctx.ctx.alloc_var();
                         fn_ctx.env.insert(p, v);
-                        fn_ctx.params.push(IrParam { name: p, var: v, ty: IrType::Any });
+                        fn_ctx.params.push(IrParam {
+                            name: p,
+                            var: v,
+                            ty: IrType::Any,
+                        });
                     }
                     let ret = fn_ctx.lower_expr(body);
                     fn_ctx.finish_return(ret, def.span);
@@ -106,7 +115,10 @@ impl ToIrCtx {
                     parameter_types: Vec::new(),
                     return_type: None,
                     effects: Vec::new(),
-                    body: crate::syntax::block::Block { statements: Vec::new(), span: def.span },
+                    body: crate::syntax::block::Block {
+                        statements: Vec::new(),
+                        span: def.span,
+                    },
                     span: def.span,
                 });
             } else {
@@ -203,8 +215,12 @@ impl<'a> FnCtx<'a> {
 
     fn finish_return(self, ret: IrVar, span: Span) {
         let mut s = self;
-        if matches!(s.blocks[s.current_block].terminator, IrTerminator::Unreachable(_)) {
-            s.blocks[s.current_block].terminator = IrTerminator::Return(ret, IrMetadata::from_span(span));
+        if matches!(
+            s.blocks[s.current_block].terminator,
+            IrTerminator::Unreachable(_)
+        ) {
+            s.blocks[s.current_block].terminator =
+                IrTerminator::Return(ret, IrMetadata::from_span(span));
         }
         let entry = s.blocks[0].id;
         s.ctx.functions.push(IrFunction {
@@ -294,8 +310,12 @@ impl<'a> FnCtx<'a> {
                 let old = self.env.insert(*var, rhs_var);
                 let result = self.lower_expr(body);
                 match old {
-                    Some(v) => { self.env.insert(*var, v); }
-                    None => { self.env.remove(var); }
+                    Some(v) => {
+                        self.env.insert(*var, v);
+                    }
+                    None => {
+                        self.env.remove(var);
+                    }
                 }
                 result
             }
@@ -305,15 +325,21 @@ impl<'a> FnCtx<'a> {
                 let old = self.env.insert(*var, rhs_var);
                 let result = self.lower_expr(body);
                 match old {
-                    Some(v) => { self.env.insert(*var, v); }
-                    None => { self.env.remove(var); }
+                    Some(v) => {
+                        self.env.insert(*var, v);
+                    }
+                    None => {
+                        self.env.remove(var);
+                    }
                 }
                 result
             }
 
-            CoreExpr::Case { scrutinee, alts, span } => {
-                self.lower_case(scrutinee, alts, *span)
-            }
+            CoreExpr::Case {
+                scrutinee,
+                alts,
+                span,
+            } => self.lower_case(scrutinee, alts, *span),
 
             CoreExpr::Con { tag, fields, span } => {
                 let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
@@ -322,7 +348,9 @@ impl<'a> FnCtx<'a> {
                     CoreTag::None => IrExpr::None,
                     CoreTag::Some => IrExpr::Some(*field_vars.first().expect("Some needs 1 field")),
                     CoreTag::Left => IrExpr::Left(*field_vars.first().expect("Left needs 1 field")),
-                    CoreTag::Right => IrExpr::Right(*field_vars.first().expect("Right needs 1 field")),
+                    CoreTag::Right => {
+                        IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
+                    }
                     CoreTag::Nil => IrExpr::EmptyList,
                     CoreTag::Cons => IrExpr::Cons {
                         head: field_vars[0],
@@ -330,24 +358,42 @@ impl<'a> FnCtx<'a> {
                     },
                     CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
                 };
-                self.emit(IrInstr::Assign { dest, expr: ir_expr, metadata: IrMetadata::from_span(*span) });
-                dest
-            }
-
-            CoreExpr::PrimOp { op, args, span } => self.lower_primop(op, args, *span),
-
-            CoreExpr::Perform { effect, operation, args, span } => {
-                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-                let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Perform { effect: *effect, operation: *operation, args: arg_vars },
+                    expr: ir_expr,
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
             }
 
-            CoreExpr::Handle { body, effect, handlers, span } => {
+            CoreExpr::PrimOp { op, args, span } => self.lower_primop(op, args, *span),
+
+            CoreExpr::Perform {
+                effect,
+                operation,
+                args,
+                span,
+            } => {
+                let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
+                let dest = self.ctx.alloc_var();
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::Perform {
+                        effect: *effect,
+                        operation: *operation,
+                        args: arg_vars,
+                    },
+                    metadata: IrMetadata::from_span(*span),
+                });
+                dest
+            }
+
+            CoreExpr::Handle {
+                body,
+                effect,
+                handlers,
+                span,
+            } => {
                 // Compile each handler arm as a separate closure function.
                 let mut scope_arms = Vec::new();
                 for h in handlers {
@@ -382,20 +428,12 @@ impl<'a> FnCtx<'a> {
                     dest,
                     metadata: meta.clone(),
                 });
-                self.set_terminator(IrTerminator::Jump(
-                    body_block_id,
-                    Vec::new(),
-                    meta.clone(),
-                ));
+                self.set_terminator(IrTerminator::Jump(body_block_id, Vec::new(), meta.clone()));
 
                 // Switch to body block, lower the body, jump to continuation.
                 self.current_block = body_block_idx;
                 let body_var = self.lower_expr(body);
-                self.set_terminator(IrTerminator::Jump(
-                    cont_block_id,
-                    vec![body_var],
-                    meta,
-                ));
+                self.set_terminator(IrTerminator::Jump(cont_block_id, vec![body_var], meta));
 
                 // Continue in the continuation block.
                 self.current_block = cont_block_idx;
@@ -451,16 +489,28 @@ impl<'a> FnCtx<'a> {
             for (handler_name, _) in &capture_env {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(*handler_name, v);
-                sub.params.push(IrParam { name: *handler_name, var: v, ty: IrType::Any });
+                sub.params.push(IrParam {
+                    name: *handler_name,
+                    var: v,
+                    ty: IrType::Any,
+                });
             }
             // Resume param first, then operation params.
             let resume_var = sub.ctx.alloc_var();
             sub.env.insert(handler.resume, resume_var);
-            sub.params.push(IrParam { name: handler.resume, var: resume_var, ty: IrType::Any });
+            sub.params.push(IrParam {
+                name: handler.resume,
+                var: resume_var,
+                ty: IrType::Any,
+            });
             for &p in &handler.params {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p, v);
-                sub.params.push(IrParam { name: p, var: v, ty: IrType::Any });
+                sub.params.push(IrParam {
+                    name: p,
+                    var: v,
+                    ty: IrType::Any,
+                });
             }
 
             let ret = sub.lower_expr(&handler.body);
@@ -519,12 +569,20 @@ impl<'a> FnCtx<'a> {
             for (name, _) in &capture_env {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(*name, v);
-                sub.params.push(IrParam { name: *name, var: v, ty: IrType::Any });
+                sub.params.push(IrParam {
+                    name: *name,
+                    var: v,
+                    ty: IrType::Any,
+                });
             }
             for &p in params {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p, v);
-                sub.params.push(IrParam { name: p, var: v, ty: IrType::Any });
+                sub.params.push(IrParam {
+                    name: p,
+                    var: v,
+                    ty: IrType::Any,
+                });
             }
 
             let ret = sub.lower_expr(body);
@@ -585,7 +643,10 @@ impl<'a> FnCtx<'a> {
                 let v = self.lower_expr(&args[0]);
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Prefix { operator: "-".to_string(), right: v },
+                    expr: IrExpr::Prefix {
+                        operator: "-".to_string(),
+                        right: v,
+                    },
                     metadata: meta,
                 });
             }
@@ -593,7 +654,10 @@ impl<'a> FnCtx<'a> {
                 let v = self.lower_expr(&args[0]);
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Prefix { operator: "!".to_string(), right: v },
+                    expr: IrExpr::Prefix {
+                        operator: "!".to_string(),
+                        right: v,
+                    },
                     metadata: meta,
                 });
             }
@@ -610,22 +674,38 @@ impl<'a> FnCtx<'a> {
             }
             CorePrimOp::MakeList => {
                 let vs: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-                self.emit(IrInstr::Assign { dest, expr: IrExpr::MakeList(vs), metadata: meta });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MakeList(vs),
+                    metadata: meta,
+                });
             }
             CorePrimOp::MakeArray => {
                 let vs: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-                self.emit(IrInstr::Assign { dest, expr: IrExpr::MakeArray(vs), metadata: meta });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MakeArray(vs),
+                    metadata: meta,
+                });
             }
             CorePrimOp::MakeTuple => {
                 let vs: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
-                self.emit(IrInstr::Assign { dest, expr: IrExpr::MakeTuple(vs), metadata: meta });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MakeTuple(vs),
+                    metadata: meta,
+                });
             }
             CorePrimOp::MakeHash => {
                 let pairs: Vec<(IrVar, IrVar)> = args
                     .chunks(2)
                     .map(|chunk| (self.lower_expr(&chunk[0]), self.lower_expr(&chunk[1])))
                     .collect();
-                self.emit(IrInstr::Assign { dest, expr: IrExpr::MakeHash(pairs), metadata: meta });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: IrExpr::MakeHash(pairs),
+                    metadata: meta,
+                });
             }
             CorePrimOp::Index => {
                 let left = self.lower_expr(&args[0]);
@@ -644,7 +724,11 @@ impl<'a> FnCtx<'a> {
                 let object = self.lower_expr(&args[0]);
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::MemberAccess { object, member: *member, module_name },
+                    expr: IrExpr::MemberAccess {
+                        object,
+                        member: *member,
+                        module_name,
+                    },
                     metadata: meta,
                 });
             }
@@ -652,7 +736,10 @@ impl<'a> FnCtx<'a> {
                 let object = self.lower_expr(&args[0]);
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleFieldAccess { object, index: *idx },
+                    expr: IrExpr::TupleFieldAccess {
+                        object,
+                        index: *idx,
+                    },
                     metadata: meta,
                 });
             }
@@ -667,7 +754,10 @@ impl<'a> FnCtx<'a> {
         // Allocate a "join" block where all arms converge via a block param.
         let join_idx = self.new_block();
         let result_var = self.ctx.alloc_var();
-        self.blocks[join_idx].params.push(IrBlockParam { var: result_var, ty: IrType::Any });
+        self.blocks[join_idx].params.push(IrBlockParam {
+            var: result_var,
+            ty: IrType::Any,
+        });
         let join_block_id = self.blocks[join_idx].id;
 
         for (i, alt) in alts.iter().enumerate() {
@@ -769,22 +859,50 @@ impl<'a> FnCtx<'a> {
             CorePat::Con { tag, .. } => {
                 let dest = self.ctx.alloc_var();
                 let test_expr = match tag {
-                    CoreTag::None => IrExpr::TagTest { value: var, tag: IrTagTest::None },
-                    CoreTag::Some => IrExpr::TagTest { value: var, tag: IrTagTest::Some },
-                    CoreTag::Left => IrExpr::TagTest { value: var, tag: IrTagTest::Left },
-                    CoreTag::Right => IrExpr::TagTest { value: var, tag: IrTagTest::Right },
-                    CoreTag::Nil => IrExpr::ListTest { value: var, tag: IrListTest::Empty },
-                    CoreTag::Cons => IrExpr::ListTest { value: var, tag: IrListTest::Cons },
-                    CoreTag::Named(name) => IrExpr::AdtTagTest { value: var, constructor: *name },
+                    CoreTag::None => IrExpr::TagTest {
+                        value: var,
+                        tag: IrTagTest::None,
+                    },
+                    CoreTag::Some => IrExpr::TagTest {
+                        value: var,
+                        tag: IrTagTest::Some,
+                    },
+                    CoreTag::Left => IrExpr::TagTest {
+                        value: var,
+                        tag: IrTagTest::Left,
+                    },
+                    CoreTag::Right => IrExpr::TagTest {
+                        value: var,
+                        tag: IrTagTest::Right,
+                    },
+                    CoreTag::Nil => IrExpr::ListTest {
+                        value: var,
+                        tag: IrListTest::Empty,
+                    },
+                    CoreTag::Cons => IrExpr::ListTest {
+                        value: var,
+                        tag: IrListTest::Cons,
+                    },
+                    CoreTag::Named(name) => IrExpr::AdtTagTest {
+                        value: var,
+                        constructor: *name,
+                    },
                 };
-                self.emit(IrInstr::Assign { dest, expr: test_expr, metadata: IrMetadata::empty() });
+                self.emit(IrInstr::Assign {
+                    dest,
+                    expr: test_expr,
+                    metadata: IrMetadata::empty(),
+                });
                 dest
             }
             CorePat::Tuple(fields) => {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleArityTest { value: var, arity: fields.len() },
+                    expr: IrExpr::TupleArityTest {
+                        value: var,
+                        arity: fields.len(),
+                    },
                     metadata: IrMetadata::empty(),
                 });
                 dest
@@ -793,7 +911,10 @@ impl<'a> FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::ListTest { value: var, tag: IrListTest::Empty },
+                    expr: IrExpr::ListTest {
+                        value: var,
+                        tag: IrListTest::Empty,
+                    },
                     metadata: IrMetadata::empty(),
                 });
                 dest
@@ -815,12 +936,24 @@ impl<'a> FnCtx<'a> {
                 for (i, field_pat) in fields.iter().enumerate() {
                     let field_var = self.ctx.alloc_var();
                     let field_expr = match tag {
-                        CoreTag::Some => IrExpr::TagPayload { value: var, tag: IrTagTest::Some },
-                        CoreTag::Left => IrExpr::TagPayload { value: var, tag: IrTagTest::Left },
-                        CoreTag::Right => IrExpr::TagPayload { value: var, tag: IrTagTest::Right },
+                        CoreTag::Some => IrExpr::TagPayload {
+                            value: var,
+                            tag: IrTagTest::Some,
+                        },
+                        CoreTag::Left => IrExpr::TagPayload {
+                            value: var,
+                            tag: IrTagTest::Left,
+                        },
+                        CoreTag::Right => IrExpr::TagPayload {
+                            value: var,
+                            tag: IrTagTest::Right,
+                        },
                         CoreTag::Cons if i == 0 => IrExpr::ListHead { value: var },
                         CoreTag::Cons => IrExpr::ListTail { value: var },
-                        CoreTag::Named(_) => IrExpr::AdtField { value: var, index: i },
+                        CoreTag::Named(_) => IrExpr::AdtField {
+                            value: var,
+                            index: i,
+                        },
                         CoreTag::None | CoreTag::Nil => return,
                     };
                     self.emit(IrInstr::Assign {
@@ -836,7 +969,10 @@ impl<'a> FnCtx<'a> {
                     let field_var = self.ctx.alloc_var();
                     self.emit(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess { object: var, index: i },
+                        expr: IrExpr::TupleFieldAccess {
+                            object: var,
+                            index: i,
+                        },
                         metadata: IrMetadata::empty(),
                     });
                     self.bind_pattern(field_var, field_pat);
@@ -905,11 +1041,7 @@ pub fn collect_free_vars_core(expr: &CoreExpr) -> HashSet<Identifier> {
     free
 }
 
-fn free_vars_rec(
-    expr: &CoreExpr,
-    bound: &mut HashSet<Identifier>,
-    free: &mut HashSet<Identifier>,
-) {
+fn free_vars_rec(expr: &CoreExpr, bound: &mut HashSet<Identifier>, free: &mut HashSet<Identifier>) {
     match expr {
         CoreExpr::Var(name, _) => {
             if !bound.contains(name) {
@@ -918,32 +1050,47 @@ fn free_vars_rec(
         }
         CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { params, body, .. } => {
-            let new_params: Vec<_> = params.iter().filter(|p| bound.insert(**p)).copied().collect();
+            let new_params: Vec<_> = params
+                .iter()
+                .filter(|p| bound.insert(**p))
+                .copied()
+                .collect();
             free_vars_rec(body, bound, free);
-            for p in new_params { bound.remove(&p); }
+            for p in new_params {
+                bound.remove(&p);
+            }
         }
         CoreExpr::App { func, args, .. } => {
             free_vars_rec(func, bound, free);
-            for a in args { free_vars_rec(a, bound, free); }
+            for a in args {
+                free_vars_rec(a, bound, free);
+            }
         }
         CoreExpr::Let { var, rhs, body, .. } => {
             free_vars_rec(rhs, bound, free);
             let is_new = bound.insert(*var);
             free_vars_rec(body, bound, free);
-            if is_new { bound.remove(var); }
+            if is_new {
+                bound.remove(var);
+            }
         }
         CoreExpr::LetRec { var, rhs, body, .. } => {
             let is_new = bound.insert(*var);
             free_vars_rec(rhs, bound, free);
             free_vars_rec(body, bound, free);
-            if is_new { bound.remove(var); }
+            if is_new {
+                bound.remove(var);
+            }
         }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             free_vars_rec(scrutinee, bound, free);
             for alt in alts {
                 let mut alt_bound = HashSet::new();
                 collect_pat_binders(&alt.pat, &mut alt_bound);
-                let new_binders: Vec<_> = alt_bound.iter()
+                let new_binders: Vec<_> = alt_bound
+                    .iter()
                     .filter(|b| bound.insert(**b))
                     .copied()
                     .collect();
@@ -957,24 +1104,36 @@ fn free_vars_rec(
             }
         }
         CoreExpr::Con { fields, .. } => {
-            for f in fields { free_vars_rec(f, bound, free); }
+            for f in fields {
+                free_vars_rec(f, bound, free);
+            }
         }
         CoreExpr::PrimOp { args, .. } => {
-            for a in args { free_vars_rec(a, bound, free); }
+            for a in args {
+                free_vars_rec(a, bound, free);
+            }
         }
         CoreExpr::Perform { args, .. } => {
-            for a in args { free_vars_rec(a, bound, free); }
+            for a in args {
+                free_vars_rec(a, bound, free);
+            }
         }
         CoreExpr::Handle { body, handlers, .. } => {
             free_vars_rec(body, bound, free);
             for h in handlers {
                 let mut new_binders = Vec::new();
-                if bound.insert(h.resume) { new_binders.push(h.resume); }
+                if bound.insert(h.resume) {
+                    new_binders.push(h.resume);
+                }
                 for &p in &h.params {
-                    if bound.insert(p) { new_binders.push(p); }
+                    if bound.insert(p) {
+                        new_binders.push(p);
+                    }
                 }
                 free_vars_rec(&h.body, bound, free);
-                for b in new_binders { bound.remove(&b); }
+                for b in new_binders {
+                    bound.remove(&b);
+                }
             }
         }
     }
@@ -982,12 +1141,18 @@ fn free_vars_rec(
 
 fn collect_pat_binders(pat: &CorePat, out: &mut HashSet<Identifier>) {
     match pat {
-        CorePat::Var(name) => { out.insert(*name); }
+        CorePat::Var(name) => {
+            out.insert(*name);
+        }
         CorePat::Con { fields, .. } => {
-            for f in fields { collect_pat_binders(f, out); }
+            for f in fields {
+                collect_pat_binders(f, out);
+            }
         }
         CorePat::Tuple(fields) => {
-            for f in fields { collect_pat_binders(f, out); }
+            for f in fields {
+                collect_pat_binders(f, out);
+            }
         }
         CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
     }
@@ -996,9 +1161,9 @@ fn collect_pat_binders(pat: &CorePat, out: &mut HashSet<Identifier>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::position::Span;
     use crate::nary::{CoreDef, CoreExpr, CoreLit, CorePrimOp, CoreProgram};
     use crate::syntax::interner::Interner;
-    use crate::diagnostics::position::Span;
 
     fn make_interner() -> Interner {
         Interner::new()

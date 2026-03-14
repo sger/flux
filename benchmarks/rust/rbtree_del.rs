@@ -21,7 +21,9 @@ const LIMIT: i64 = 100_000;
 fn count_true(tree: &Tree) -> i64 {
     match tree {
         Tree::Leaf => 0,
-        Tree::Node(_, left, _, value, right) => count_true(left) + i64::from(*value) + count_true(right),
+        Tree::Node(_, left, _, value, right) => {
+            count_true(left) + i64::from(*value) + count_true(right)
+        }
     }
 }
 
@@ -91,9 +93,16 @@ fn balance_right(l: Tree, k: i64, v: bool, r: Tree) -> Tree {
     }
 }
 
+#[allow(clippy::if_same_then_else)]
 fn ins(tree: Tree, kx: i64, vx: bool) -> Tree {
     match tree {
-        Tree::Leaf => Tree::Node(Color::Red, Box::new(Tree::Leaf), kx, vx, Box::new(Tree::Leaf)),
+        Tree::Leaf => Tree::Node(
+            Color::Red,
+            Box::new(Tree::Leaf),
+            kx,
+            vx,
+            Box::new(Tree::Leaf),
+        ),
         Tree::Node(Color::Red, a, ky, vy, b) => {
             if kx < ky {
                 Tree::Node(Color::Red, Box::new(ins(*a, kx, vx)), ky, vy, b)
@@ -147,23 +156,47 @@ fn set_red(tree: Tree) -> Tree {
 
 fn make_black(tree: Tree) -> Del {
     match tree {
-        Tree::Node(Color::Red, left, key, value, right) => Del(Tree::Node(Color::Black, left, key, value, right), false),
+        Tree::Node(Color::Red, left, key, value, right) => {
+            Del(Tree::Node(Color::Black, left, key, value, right), false)
+        }
         other => Del(other, true),
     }
 }
 
 fn rebalance_left(c: Color, l: Tree, k: i64, v: bool, r: Tree) -> Del {
     match l {
-        Tree::Node(Color::Black, _, _, _, _) => Del(balance_left(set_red(l), k, v, r), is_black_color(c)),
-        Tree::Node(Color::Red, lx, kx, vx, rx) => Del(Tree::Node(Color::Black, lx, kx, vx, Box::new(balance_left(set_red(*rx), k, v, r))), false),
+        Tree::Node(Color::Black, _, _, _, _) => {
+            Del(balance_left(set_red(l), k, v, r), is_black_color(c))
+        }
+        Tree::Node(Color::Red, lx, kx, vx, rx) => Del(
+            Tree::Node(
+                Color::Black,
+                lx,
+                kx,
+                vx,
+                Box::new(balance_left(set_red(*rx), k, v, r)),
+            ),
+            false,
+        ),
         _ => Del(Tree::Leaf, false),
     }
 }
 
 fn rebalance_right(c: Color, l: Tree, k: i64, v: bool, r: Tree) -> Del {
     match r {
-        Tree::Node(Color::Black, _, _, _, _) => Del(balance_right(l, k, v, set_red(r)), is_black_color(c)),
-        Tree::Node(Color::Red, lx, kx, vx, rx) => Del(Tree::Node(Color::Black, Box::new(balance_right(l, k, v, set_red(*lx))), kx, vx, rx), false),
+        Tree::Node(Color::Black, _, _, _, _) => {
+            Del(balance_right(l, k, v, set_red(r)), is_black_color(c))
+        }
+        Tree::Node(Color::Red, lx, kx, vx, rx) => Del(
+            Tree::Node(
+                Color::Black,
+                Box::new(balance_right(l, k, v, set_red(*lx))),
+                kx,
+                vx,
+                rx,
+            ),
+            false,
+        ),
         _ => Del(Tree::Leaf, false),
     }
 }
@@ -176,15 +209,35 @@ fn del_min(tree: Tree) -> Delmin {
                 right_tree => Delmin(Del(set_black(right_tree), false), key, value),
             },
             left_tree => match del_min(left_tree) {
-                Delmin(Del(lx, true), kx, vx) => Delmin(rebalance_right(Color::Black, lx, key, value, *right), kx, vx),
-                Delmin(Del(lx, false), kx, vx) => Delmin(Del(Tree::Node(Color::Black, Box::new(lx), key, value, right), false), kx, vx),
+                Delmin(Del(lx, true), kx, vx) => Delmin(
+                    rebalance_right(Color::Black, lx, key, value, *right),
+                    kx,
+                    vx,
+                ),
+                Delmin(Del(lx, false), kx, vx) => Delmin(
+                    Del(
+                        Tree::Node(Color::Black, Box::new(lx), key, value, right),
+                        false,
+                    ),
+                    kx,
+                    vx,
+                ),
             },
         },
         Tree::Node(Color::Red, left, key, value, right) => match *left {
             Tree::Leaf => Delmin(Del(*right, false), key, value),
             left_tree => match del_min(left_tree) {
-                Delmin(Del(lx, true), kx, vx) => Delmin(rebalance_right(Color::Red, lx, key, value, *right), kx, vx),
-                Delmin(Del(lx, false), kx, vx) => Delmin(Del(Tree::Node(Color::Red, Box::new(lx), key, value, right), false), kx, vx),
+                Delmin(Del(lx, true), kx, vx) => {
+                    Delmin(rebalance_right(Color::Red, lx, key, value, *right), kx, vx)
+                }
+                Delmin(Del(lx, false), kx, vx) => Delmin(
+                    Del(
+                        Tree::Node(Color::Red, Box::new(lx), key, value, right),
+                        false,
+                    ),
+                    kx,
+                    vx,
+                ),
             },
         },
         Tree::Leaf => Delmin(Del(Tree::Leaf, false), 0, false),
@@ -216,7 +269,9 @@ fn del(tree: Tree, key: i64) -> Del {
                     }
                     right_tree => match del_min(right_tree) {
                         Delmin(Del(ry, true), ky, vy) => rebalance_left(color, *left, ky, vy, ry),
-                        Delmin(Del(ry, false), ky, vy) => Del(Tree::Node(color, left, ky, vy, Box::new(ry)), false),
+                        Delmin(Del(ry, false), ky, vy) => {
+                            Del(Tree::Node(color, left, ky, vy, Box::new(ry)), false)
+                        }
                     },
                 }
             }
@@ -236,7 +291,11 @@ fn mk_map_aux(total: i64, n: i64, tree: Tree) -> Tree {
     } else {
         let n1 = n - 1;
         let t1 = insert(tree, n1, n1 % 10 == 0);
-        let t2 = if n1 % 4 == 0 { delete(t1, n1 + (total - n1) / 5) } else { t1 };
+        let t2 = if n1 % 4 == 0 {
+            delete(t1, n1 + (total - n1) / 5)
+        } else {
+            t1
+        };
         mk_map_aux(total, n1, t2)
     }
 }

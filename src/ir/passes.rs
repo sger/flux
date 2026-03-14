@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
@@ -40,12 +42,11 @@ pub fn run_ir_pass_pipeline(
 fn canonicalize_cfg(program: &mut IrProgram) {
     for function in &mut program.functions {
         for block in &mut function.blocks {
-            if matches!(block.terminator, IrTerminator::Unreachable(_)) {
-                if let Some(last) = block.instrs.last()
-                    && let IrInstr::Assign { dest, metadata, .. } = last
-                {
-                    block.terminator = IrTerminator::Return(*dest, metadata.clone());
-                }
+            if matches!(block.terminator, IrTerminator::Unreachable(_))
+                && let Some(last) = block.instrs.last()
+                && let IrInstr::Assign { dest, metadata, .. } = last
+            {
+                block.terminator = IrTerminator::Return(*dest, metadata.clone());
             }
         }
     }
@@ -125,7 +126,9 @@ fn dead_block_elimination(program: &mut IrProgram) {
     for function in &mut program.functions {
         let mut reachable = HashSet::new();
         mark_reachable(function.entry, function, &mut reachable);
-        function.blocks.retain(|block| reachable.contains(&block.id));
+        function
+            .blocks
+            .retain(|block| reachable.contains(&block.id));
     }
 }
 
@@ -157,7 +160,12 @@ fn local_cse(program: &mut IrProgram) {
         for block in &mut function.blocks {
             let mut seen: HashMap<String, IrVar> = HashMap::new();
             for instr in &mut block.instrs {
-                if let IrInstr::Assign { dest, expr, metadata } = instr {
+                if let IrInstr::Assign {
+                    dest,
+                    expr,
+                    metadata,
+                } = instr
+                {
                     let key = cse_key(expr);
                     if let Some(existing) = key.as_ref().and_then(|key| seen.get(key)).copied() {
                         *expr = IrExpr::Var(existing);
@@ -177,7 +185,9 @@ fn cse_key(expr: &IrExpr) -> Option<String> {
     match expr {
         IrExpr::Const(value) => Some(format!("const:{:?}", value)),
         IrExpr::Binary(op, lhs, rhs) => Some(format!("bin:{:?}:{:?}:{:?}", op, lhs, rhs)),
-        IrExpr::TupleArityTest { value, arity } => Some(format!("tuple_arity:{:?}:{}", value, arity)),
+        IrExpr::TupleArityTest { value, arity } => {
+            Some(format!("tuple_arity:{:?}:{}", value, arity))
+        }
         IrExpr::TagTest { value, tag } => Some(format!("tag:{:?}:{:?}", value, tag)),
         IrExpr::TagPayload { value, tag } => Some(format!("payload:{:?}:{:?}", value, tag)),
         IrExpr::ListTest { value, tag } => Some(format!("list:{:?}:{:?}", value, tag)),
@@ -243,11 +253,11 @@ fn rewrite_binary_op(op: IrBinaryOp, inferred: &InferType) -> IrBinaryOp {
 
 #[cfg(test)]
 mod tests {
-    use crate::syntax::interner::Interner;
     use crate::ir::{
         FunctionId, IrBlock, IrBlockParam, IrFunction, IrFunctionOrigin, IrMetadata, IrParam,
         IrProgram, IrTerminator, IrType,
     };
+    use crate::syntax::interner::Interner;
 
     use super::*;
 

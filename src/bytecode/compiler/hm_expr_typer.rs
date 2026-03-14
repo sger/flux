@@ -2,8 +2,7 @@ use crate::{
     bytecode::compiler::Compiler,
     diagnostics::{
         Diagnostic, DiagnosticBuilder, ErrorType, compiler_errors::type_unification_error,
-        position::Span,
-        types::LabelStyle,
+        position::Span, types::LabelStyle,
     },
     ir::IrStructuredExpr,
     syntax::expression::Expression,
@@ -500,9 +499,10 @@ impl Compiler {
                 // Check for private module member access before emitting a generic
                 // unresolved boundary error — the private access error is more precise.
                 self.check_private_module_member_access_for_ir_expr(expr)?;
-                Err(Box::new(
-                    self.unresolved_boundary_error_for_span(expr.span(), unresolved_context),
-                ))
+                Err(Box::new(self.unresolved_boundary_error_for_span(
+                    expr.span(),
+                    unresolved_context,
+                )))
             }
         }
     }
@@ -513,25 +513,22 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Extract (object_name, member, span) from a Call(MemberAccess(...)) or MemberAccess(...)
         let (object_name, member, span) = match expr {
-            IrStructuredExpr::MemberAccess { object, member, span, .. } => {
-                match object.as_ref() {
+            IrStructuredExpr::MemberAccess {
+                object,
+                member,
+                span,
+                ..
+            } => match object.as_ref() {
+                IrStructuredExpr::Identifier { name, .. } => (*name, *member, *span),
+                _ => return Ok(()),
+            },
+            IrStructuredExpr::Call { function, span, .. } => match function.as_ref() {
+                IrStructuredExpr::MemberAccess { object, member, .. } => match object.as_ref() {
                     IrStructuredExpr::Identifier { name, .. } => (*name, *member, *span),
                     _ => return Ok(()),
-                }
-            }
-            IrStructuredExpr::Call { function, span, .. } => {
-                match function.as_ref() {
-                    IrStructuredExpr::MemberAccess { object, member, .. } => {
-                        match object.as_ref() {
-                            IrStructuredExpr::Identifier { name, .. } => {
-                                (*name, *member, *span)
-                            }
-                            _ => return Ok(()),
-                        }
-                    }
-                    _ => return Ok(()),
-                }
-            }
+                },
+                _ => return Ok(()),
+            },
             _ => return Ok(()),
         };
 

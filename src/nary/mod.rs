@@ -21,10 +21,7 @@ pub mod lower_ast;
 pub mod passes;
 pub mod to_ir;
 
-use crate::{
-    diagnostics::position::Span,
-    syntax::Identifier,
-};
+use crate::{diagnostics::position::Span, syntax::Identifier};
 
 // ── Literals ─────────────────────────────────────────────────────────────────
 
@@ -69,17 +66,35 @@ pub enum CoreTag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorePrimOp {
     // Generic arithmetic (type unknown / polymorphic)
-    Add, Sub, Mul, Div, Mod,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
     // Typed integer arithmetic — emitted when result type is Int
-    IAdd, ISub, IMul, IDiv, IMod,
+    IAdd,
+    ISub,
+    IMul,
+    IDiv,
+    IMod,
     // Typed float arithmetic — emitted when result type is Float
-    FAdd, FSub, FMul, FDiv,
+    FAdd,
+    FSub,
+    FMul,
+    FDiv,
     // Unary
-    Neg, Not,
+    Neg,
+    Not,
     // Comparisons
-    Eq, NEq, Lt, Le, Gt, Ge,
+    Eq,
+    NEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
     // Logical (short-circuit at expression level in Core)
-    And, Or,
+    And,
+    Or,
     // String
     Concat,
     // Interpolated string: args are the parts in order
@@ -275,7 +290,11 @@ impl CoreExpr {
         if args.is_empty() {
             func
         } else {
-            CoreExpr::App { func: Box::new(func), args, span }
+            CoreExpr::App {
+                func: Box::new(func),
+                args,
+                span,
+            }
         }
     }
 
@@ -284,18 +303,25 @@ impl CoreExpr {
         if params.is_empty() {
             body
         } else {
-            CoreExpr::Lam { params, body: Box::new(body), span }
+            CoreExpr::Lam {
+                params,
+                body: Box::new(body),
+                span,
+            }
         }
     }
 
     /// Sequence a list of `(var, rhs)` bindings into nested `Let` nodes
     /// terminating in `body`.
     pub fn let_seq(bindings: Vec<(Identifier, CoreExpr)>, body: CoreExpr, span: Span) -> CoreExpr {
-        bindings.into_iter().rev().fold(body, |b, (var, rhs)| CoreExpr::Let {
-            var,
-            rhs: Box::new(rhs),
-            body: Box::new(b),
-            span,
-        })
+        bindings
+            .into_iter()
+            .rev()
+            .fold(body, |b, (var, rhs)| CoreExpr::Let {
+                var,
+                rhs: Box::new(rhs),
+                body: Box::new(b),
+                span,
+            })
     }
 }

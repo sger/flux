@@ -207,6 +207,7 @@ impl JitContext {
         render_runtime_diagnostic(&diag, &file, self.source_text.as_deref(), &[])
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_runtime_type_error_at(
         &self,
         expected: &str,
@@ -229,6 +230,7 @@ impl JitContext {
     /// Render a generic runtime error through the diagnostics system.
     /// `line` is 1-based; `column` is 1-based.
     /// Produces the same formatted output (colour, source snippet) as VM runtime errors.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn render_runtime_error(
         &self,
         code: &str,
@@ -412,6 +414,7 @@ impl JitContext {
         }
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn boxed_ptr_to_tagged(&mut self, value: *mut Value) -> JitTaggedValue {
         match unsafe { value.as_ref() } {
             Some(value) => self.boxed_to_tagged(value.clone()),
@@ -597,7 +600,8 @@ impl RuntimeContext for JitContext {
                                 i64,
                                 *const JitTaggedValue,
                                 i64,
-                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
                                 arg_values.as_ptr(),
@@ -612,7 +616,8 @@ impl RuntimeContext for JitContext {
                                 JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
-                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
                                 arg_values[0],
@@ -627,7 +632,8 @@ impl RuntimeContext for JitContext {
                                 JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
-                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
                                 arg_values[0],
@@ -644,7 +650,8 @@ impl RuntimeContext for JitContext {
                                 JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
-                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
                                 arg_values[0],
@@ -663,7 +670,8 @@ impl RuntimeContext for JitContext {
                                 JitTaggedValue,
                                 *const JitTaggedValue,
                                 i64,
-                            ) -> JitTaggedValue = std::mem::transmute(entry.ptr);
+                            )
+                                -> JitTaggedValue = std::mem::transmute(entry.ptr);
                             func(
                                 self as *mut JitContext,
                                 arg_values[0],
@@ -767,7 +775,10 @@ mod tests {
 
         ctx.collect_gc();
         assert_eq!(ctx.gc_heap.live_count(), 2);
-        assert_eq!(unsafe { &*root }.adt_constructor(&ctx.gc_heap), Some("Node"));
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
 
         ctx.pop_gc_roots();
         ctx.collect_gc();
@@ -794,6 +805,9 @@ mod tests {
 
         ctx.collect_gc();
         assert_eq!(ctx.gc_heap.live_count(), 2);
-        assert_eq!(unsafe { &*root }.adt_constructor(&ctx.gc_heap), Some("Node"));
+        assert_eq!(
+            unsafe { &*root }.adt_constructor(&ctx.gc_heap),
+            Some("Node")
+        );
     }
 }

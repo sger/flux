@@ -52,7 +52,11 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     for (p, a) in params.into_iter().zip(args.into_iter()) {
                         body = subst(body, p, &a);
                     }
-                    beta_reduce(CoreExpr::Lam { params: remaining, body: Box::new(body), span })
+                    beta_reduce(CoreExpr::Lam {
+                        params: remaining,
+                        body: Box::new(body),
+                        span,
+                    })
                 } else {
                     // Over-application: apply all params, then apply remaining args
                     let extra_args = args[params.len()..].to_vec();
@@ -61,28 +65,52 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                         body = subst(body, p, &a);
                     }
                     let body = beta_reduce(body);
-                    beta_reduce(CoreExpr::App { func: Box::new(body), args: extra_args, span })
+                    beta_reduce(CoreExpr::App {
+                        func: Box::new(body),
+                        args: extra_args,
+                        span,
+                    })
                 }
             } else {
-                CoreExpr::App { func: Box::new(func), args, span }
+                CoreExpr::App {
+                    func: Box::new(func),
+                    args,
+                    span,
+                }
             }
         }
-        CoreExpr::Lam { params, body, span } => {
-            CoreExpr::Lam { params, body: Box::new(beta_reduce(*body)), span }
-        }
-        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
+        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+            params,
+            body: Box::new(beta_reduce(*body)),
+            span,
+        },
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::Let {
             var,
             rhs: Box::new(beta_reduce(*rhs)),
             body: Box::new(beta_reduce(*body)),
             span,
         },
-        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::LetRec {
             var,
             rhs: Box::new(beta_reduce(*rhs)),
             body: Box::new(beta_reduce(*body)),
             span,
         },
-        CoreExpr::Case { scrutinee, alts, span } => {
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
             let scrutinee = beta_reduce(*scrutinee);
             let alts = alts
                 .into_iter()
@@ -92,7 +120,11 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                     alt
                 })
                 .collect();
-            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+            CoreExpr::Case {
+                scrutinee: Box::new(scrutinee),
+                alts,
+                span,
+            }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
@@ -104,13 +136,23 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(beta_reduce).collect(),
             span,
         },
-        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
+        CoreExpr::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => CoreExpr::Perform {
             effect,
             operation,
             args: args.into_iter().map(beta_reduce).collect(),
             span,
         },
-        CoreExpr::Handle { body, effect, handlers, span } => CoreExpr::Handle {
+        CoreExpr::Handle {
+            body,
+            effect,
+            handlers,
+            span,
+        } => CoreExpr::Handle {
             body: Box::new(beta_reduce(*body)),
             effect,
             handlers: handlers
@@ -133,30 +175,51 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
 /// and `rhs` is pure (a literal or variable — no observable effects).
 pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Let { var, rhs, body, span } => {
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
             if is_pure(&rhs) && !appears_free(var, &body) {
                 body
             } else {
-                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
+                CoreExpr::Let {
+                    var,
+                    rhs: Box::new(rhs),
+                    body: Box::new(body),
+                    span,
+                }
             }
         }
-        CoreExpr::Lam { params, body, span } => {
-            CoreExpr::Lam { params, body: Box::new(elim_dead_let(*body)), span }
-        }
+        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+            params,
+            body: Box::new(elim_dead_let(*body)),
+            span,
+        },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(elim_dead_let(*func)),
             args: args.into_iter().map(elim_dead_let).collect(),
             span,
         },
-        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::LetRec {
             var,
             rhs: Box::new(elim_dead_let(*rhs)),
             body: Box::new(elim_dead_let(*body)),
             span,
         },
-        CoreExpr::Case { scrutinee, alts, span } => {
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
             let scrutinee = elim_dead_let(*scrutinee);
             let alts = alts
                 .into_iter()
@@ -165,7 +228,11 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
                     alt
                 })
                 .collect();
-            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+            CoreExpr::Case {
+                scrutinee: Box::new(scrutinee),
+                alts,
+                span,
+            }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
@@ -200,13 +267,27 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
                 // Shadowed — don't substitute inside.
                 CoreExpr::Lam { params, body, span }
             } else {
-                CoreExpr::Lam { params, body: Box::new(subst(*body, var, replacement)), span }
+                CoreExpr::Lam {
+                    params,
+                    body: Box::new(subst(*body, var, replacement)),
+                    span,
+                }
             }
         }
-        CoreExpr::Let { var: binding, rhs, body, span } => {
+        CoreExpr::Let {
+            var: binding,
+            rhs,
+            body,
+            span,
+        } => {
             let rhs = subst(*rhs, var, replacement);
             if binding == var {
-                CoreExpr::Let { var: binding, rhs: Box::new(rhs), body, span }
+                CoreExpr::Let {
+                    var: binding,
+                    rhs: Box::new(rhs),
+                    body,
+                    span,
+                }
             } else {
                 CoreExpr::Let {
                     var: binding,
@@ -218,10 +299,17 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
         }
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(subst(*func, var, replacement)),
-            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
+            args: args
+                .into_iter()
+                .map(|a| subst(a, var, replacement))
+                .collect(),
             span,
         },
-        CoreExpr::Case { scrutinee, alts, span } => {
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
             let scrutinee = subst(*scrutinee, var, replacement);
             let alts = alts
                 .into_iter()
@@ -233,27 +321,55 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
                     alt
                 })
                 .collect();
-            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+            CoreExpr::Case {
+                scrutinee: Box::new(scrutinee),
+                alts,
+                span,
+            }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields.into_iter().map(|f| subst(f, var, replacement)).collect(),
+            fields: fields
+                .into_iter()
+                .map(|f| subst(f, var, replacement))
+                .collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
+            args: args
+                .into_iter()
+                .map(|a| subst(a, var, replacement))
+                .collect(),
             span,
         },
-        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
+        CoreExpr::Perform {
             effect,
             operation,
-            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
+            args,
+            span,
+        } => CoreExpr::Perform {
+            effect,
+            operation,
+            args: args
+                .into_iter()
+                .map(|a| subst(a, var, replacement))
+                .collect(),
             span,
         },
-        CoreExpr::LetRec { var: binding, rhs, body, span } => {
+        CoreExpr::LetRec {
+            var: binding,
+            rhs,
+            body,
+            span,
+        } => {
             if binding == var {
-                CoreExpr::LetRec { var: binding, rhs, body, span }
+                CoreExpr::LetRec {
+                    var: binding,
+                    rhs,
+                    body,
+                    span,
+                }
             } else {
                 CoreExpr::LetRec {
                     var: binding,
@@ -263,7 +379,12 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
                 }
             }
         }
-        CoreExpr::Handle { body, effect, handlers, span } => CoreExpr::Handle {
+        CoreExpr::Handle {
+            body,
+            effect,
+            handlers,
+            span,
+        } => CoreExpr::Handle {
             body: Box::new(subst(*body, var, replacement)),
             effect,
             handlers,
@@ -288,7 +409,11 @@ fn subst(expr: CoreExpr, var: crate::syntax::Identifier, replacement: &CoreExpr)
 /// ```
 pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Case { scrutinee, alts, span } => {
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
             let scrutinee = case_of_known_constructor(*scrutinee);
             let alts: Vec<_> = alts
                 .into_iter()
@@ -312,7 +437,11 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                             return case_of_known_constructor(body);
                         }
                     }
-                    CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+                    CoreExpr::Case {
+                        scrutinee: Box::new(scrutinee),
+                        alts,
+                        span,
+                    }
                 }
                 CoreExpr::Lit(lit, lit_span) => {
                     let lit = lit.clone();
@@ -329,26 +458,46 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                             return case_of_known_constructor(body);
                         }
                     }
-                    CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+                    CoreExpr::Case {
+                        scrutinee: Box::new(scrutinee),
+                        alts,
+                        span,
+                    }
                 }
-                _ => CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span },
+                _ => CoreExpr::Case {
+                    scrutinee: Box::new(scrutinee),
+                    alts,
+                    span,
+                },
             }
         }
-        CoreExpr::Lam { params, body, span } => {
-            CoreExpr::Lam { params, body: Box::new(case_of_known_constructor(*body)), span }
-        }
+        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+            params,
+            body: Box::new(case_of_known_constructor(*body)),
+            span,
+        },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(case_of_known_constructor(*func)),
             args: args.into_iter().map(case_of_known_constructor).collect(),
             span,
         },
-        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::Let {
             var,
             rhs: Box::new(case_of_known_constructor(*rhs)),
             body: Box::new(case_of_known_constructor(*body)),
             span,
         },
-        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::LetRec {
             var,
             rhs: Box::new(case_of_known_constructor(*rhs)),
             body: Box::new(case_of_known_constructor(*body)),
@@ -364,13 +513,23 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(case_of_known_constructor).collect(),
             span,
         },
-        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
+        CoreExpr::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => CoreExpr::Perform {
             effect,
             operation,
             args: args.into_iter().map(case_of_known_constructor).collect(),
             span,
         },
-        CoreExpr::Handle { body, effect, handlers, span } => CoreExpr::Handle {
+        CoreExpr::Handle {
+            body,
+            effect,
+            handlers,
+            span,
+        } => CoreExpr::Handle {
             body: Box::new(case_of_known_constructor(*body)),
             effect,
             handlers: handlers
@@ -399,10 +558,17 @@ fn match_con_pat(
     match pat {
         CorePat::Wildcard => Some(vec![]),
         CorePat::Var(name) => {
-            let val = CoreExpr::Con { tag: tag.clone(), fields: fields.to_vec(), span: Span::default() };
+            let val = CoreExpr::Con {
+                tag: tag.clone(),
+                fields: fields.to_vec(),
+                span: Span::default(),
+            };
             Some(vec![(*name, val)])
         }
-        CorePat::Con { tag: pat_tag, fields: pat_fields } => {
+        CorePat::Con {
+            tag: pat_tag,
+            fields: pat_fields,
+        } => {
             if pat_tag != tag || pat_fields.len() != fields.len() {
                 return None;
             }
@@ -418,7 +584,11 @@ fn match_con_pat(
             Some(bindings)
         }
         CorePat::EmptyList => {
-            if *tag == super::CoreTag::Nil && fields.is_empty() { Some(vec![]) } else { None }
+            if *tag == super::CoreTag::Nil && fields.is_empty() {
+                Some(vec![])
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -434,7 +604,11 @@ fn match_lit_pat(
         CorePat::Wildcard => Some(vec![]),
         CorePat::Var(name) => Some(vec![(*name, CoreExpr::Lit(lit.clone(), lit_span))]),
         CorePat::Lit(pat_lit) => {
-            if pat_lit == lit { Some(vec![]) } else { None }
+            if pat_lit == lit {
+                Some(vec![])
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -465,24 +639,40 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             } else {
                 // Keep the binding; rhs has side-effects or is non-trivial.
                 let span = rhs.span();
-                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
+                CoreExpr::Let {
+                    var,
+                    rhs: Box::new(rhs),
+                    body: Box::new(body),
+                    span,
+                }
             }
         }
-        CoreExpr::Lam { params, body, span } => {
-            CoreExpr::Lam { params, body: Box::new(inline_trivial_lets(*body)), span }
-        }
+        CoreExpr::Lam { params, body, span } => CoreExpr::Lam {
+            params,
+            body: Box::new(inline_trivial_lets(*body)),
+            span,
+        },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(inline_trivial_lets(*func)),
             args: args.into_iter().map(inline_trivial_lets).collect(),
             span,
         },
-        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
+        CoreExpr::LetRec {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::LetRec {
             var,
             rhs: Box::new(inline_trivial_lets(*rhs)),
             body: Box::new(inline_trivial_lets(*body)),
             span,
         },
-        CoreExpr::Case { scrutinee, alts, span } => {
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            span,
+        } => {
             let scrutinee = inline_trivial_lets(*scrutinee);
             let alts = alts
                 .into_iter()
@@ -492,7 +682,11 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
                     alt
                 })
                 .collect();
-            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, span }
+            CoreExpr::Case {
+                scrutinee: Box::new(scrutinee),
+                alts,
+                span,
+            }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
@@ -504,13 +698,23 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             args: args.into_iter().map(inline_trivial_lets).collect(),
             span,
         },
-        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
+        CoreExpr::Perform {
+            effect,
+            operation,
+            args,
+            span,
+        } => CoreExpr::Perform {
             effect,
             operation,
             args: args.into_iter().map(inline_trivial_lets).collect(),
             span,
         },
-        CoreExpr::Handle { body, effect, handlers, span } => CoreExpr::Handle {
+        CoreExpr::Handle {
+            body,
+            effect,
+            handlers,
+            span,
+        } => CoreExpr::Handle {
             body: Box::new(inline_trivial_lets(*body)),
             effect,
             handlers: handlers
@@ -539,14 +743,24 @@ fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
         CoreExpr::Var(name, _) => *name == var,
         CoreExpr::Lit(_, _) => false,
         CoreExpr::Lam { params, body, .. } => !params.contains(&var) && appears_free(var, body),
-        CoreExpr::App { func, args, .. } => appears_free(var, func) || args.iter().any(|a| appears_free(var, a)),
-        CoreExpr::Let { var: binding, rhs, body, .. } => {
-            appears_free(var, rhs) || (*binding != var && appears_free(var, body))
+        CoreExpr::App { func, args, .. } => {
+            appears_free(var, func) || args.iter().any(|a| appears_free(var, a))
         }
-        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
-            *binding != var && (appears_free(var, rhs) || appears_free(var, body))
-        }
-        CoreExpr::Case { scrutinee, alts, .. } => {
+        CoreExpr::Let {
+            var: binding,
+            rhs,
+            body,
+            ..
+        } => appears_free(var, rhs) || (*binding != var && appears_free(var, body)),
+        CoreExpr::LetRec {
+            var: binding,
+            rhs,
+            body,
+            ..
+        } => *binding != var && (appears_free(var, rhs) || appears_free(var, body)),
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
             appears_free(var, scrutinee)
                 || alts.iter().any(|alt| {
                     !pat_binds(&alt.pat, var)
@@ -560,9 +774,7 @@ fn appears_free(var: crate::syntax::Identifier, expr: &CoreExpr) -> bool {
         CoreExpr::Handle { body, handlers, .. } => {
             appears_free(var, body)
                 || handlers.iter().any(|h| {
-                    h.resume != var
-                        && !h.params.contains(&var)
-                        && appears_free(var, &h.body)
+                    h.resume != var && !h.params.contains(&var) && appears_free(var, &h.body)
                 })
         }
     }
@@ -582,12 +794,14 @@ fn pat_binds(pat: &CorePat, var: crate::syntax::Identifier) -> bool {
 mod tests {
     use super::*;
     use crate::{
-        nary::{CoreAlt, CoreLit, CoreTag},
         diagnostics::position::Span,
+        nary::{CoreAlt, CoreLit, CoreTag},
         syntax::interner::Interner,
     };
 
-    fn s() -> Span { Span::default() }
+    fn s() -> Span {
+        Span::default()
+    }
 
     // ── case_of_known_constructor ─────────────────────────────────────────────
 
@@ -606,7 +820,10 @@ mod tests {
             }),
             alts: vec![
                 CoreAlt {
-                    pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
+                    pat: CorePat::Con {
+                        tag: CoreTag::Some,
+                        fields: vec![CorePat::Var(x)],
+                    },
                     guard: None,
                     rhs: CoreExpr::Var(x, s()),
                     span: s(),
@@ -673,7 +890,10 @@ mod tests {
             }),
             alts: vec![
                 CoreAlt {
-                    pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
+                    pat: CorePat::Con {
+                        tag: CoreTag::Some,
+                        fields: vec![CorePat::Var(x)],
+                    },
                     guard: Some(guard),
                     rhs: CoreExpr::Lit(CoreLit::Int(99), s()),
                     span: s(),
@@ -714,7 +934,10 @@ mod tests {
         };
 
         let result = case_of_known_constructor(expr);
-        assert!(matches!(result, CoreExpr::Case { .. }), "should remain a Case");
+        assert!(
+            matches!(result, CoreExpr::Case { .. }),
+            "should remain a Case"
+        );
     }
 
     // ── inline_trivial_lets ───────────────────────────────────────────────────
@@ -807,7 +1030,10 @@ mod tests {
         };
 
         let result = inline_trivial_lets(expr);
-        assert!(matches!(result, CoreExpr::Let { .. }), "non-trivial rhs must keep the Let");
+        assert!(
+            matches!(result, CoreExpr::Let { .. }),
+            "non-trivial rhs must keep the Let"
+        );
     }
 
     // ── combined: COKC + inline_trivial ──────────────────────────────────────
@@ -830,7 +1056,10 @@ mod tests {
                 span: s(),
             }),
             alts: vec![CoreAlt {
-                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
+                pat: CorePat::Con {
+                    tag: CoreTag::Some,
+                    fields: vec![CorePat::Var(x)],
+                },
                 guard: None,
                 rhs: CoreExpr::Var(x, s()),
                 span: s(),
